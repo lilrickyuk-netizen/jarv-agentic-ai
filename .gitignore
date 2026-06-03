@@ -83,3 +83,12 @@ celerybeat.pid
 tmp/
 temp/
 *.tmp
+
+# Claude IDE
+.claude/
+
+# Windows artifacts
+nul
+
+# Test data and assets (development only)
+apps/backend/data/
