@@ -1,0 +1,164 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database with pgvector
+  postgres:
+    image: ankane/pgvector:latest
+    container_name: jarv-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-jarv}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-jarv_password}
+      POSTGRES_DB: ${POSTGRES_DB:-jarv}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-jarv}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - jarv-network
+
+  # Redis for caching and job queue
+  redis:
+    image: redis:7-alpine
+    container_name: jarv-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - jarv-network
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    container_name: jarv-backend
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-jarv}:${POSTGRES_PASSWORD:-jarv_password}@postgres:5432/${POSTGRES_DB:-jarv}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./apps/backend:/app
+    networks:
+      - jarv-network
+    restart: unless-stopped
+
+  # Next.js Dashboard Frontend
+  dashboard:
+    build:
+      context: ./apps/dashboard
+      dockerfile: Dockerfile
+    container_name: jarv-dashboard
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - jarv-network
+    restart: unless-stopped
+
+  # Celery Worker
+  worker:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    container_name: jarv-worker
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-jarv}:${POSTGRES_PASSWORD:-jarv_password}@postgres:5432/${POSTGRES_DB:-jarv}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./apps/backend:/app
+    networks:
+      - jarv-network
+    restart: unless-stopped
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
+
+  # Celery Beat Scheduler
+  scheduler:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    container_name: jarv-scheduler
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-jarv}:${POSTGRES_PASSWORD:-jarv_password}@postgres:5432/${POSTGRES_DB:-jarv}
+      REDIS_URL: redis://redis:6379/0
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./apps/backend:/app
+    networks:
+      - jarv-network
+    restart: unless-stopped
+    command: celery -A app.workers.celery_app beat --loglevel=info
+
+  # Local Runner Service (optional, for local development)
+  local-runner:
+    build:
+      context: ./services/local-runner
+      dockerfile: Dockerfile
+    container_name: jarv-local-runner
+    environment:
+      BACKEND_URL: http://backend:8000
+      RUNNER_TOKEN: ${RUNNER_TOKEN:-dev-runner-token}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "8001:8001"
+    depends_on:
+      - backend
+    volumes:
+      - ./services/local-runner:/app
+      # Mount approved folders for local file access (configure as needed)
+      # - /path/to/approved/folder:/workspaces
+    networks:
+      - jarv-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  jarv-network:
+    driver: bridge

@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  # Override backend for development with hot reload
+  backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./apps/backend:/app
+    environment:
+      ENVIRONMENT: development
+      DEBUG: "true"
+
+  # Override dashboard for development
+  dashboard:
+    build:
+      context: ./apps/dashboard
+      dockerfile: Dockerfile.dev
+    command: npm run dev
+    volumes:
+      - ./apps/dashboard:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      NODE_ENV: development
+
+  # Override worker for development
+  worker:
+    volumes:
+      - ./services/workers:/app
+    command: celery -A workers.celery_app worker --loglevel=debug --concurrency=2
+
+  # Override scheduler for development
+  scheduler:
+    volumes:
+      - ./services/workers:/app
+    command: celery -A workers.celery_app beat --loglevel=debug
+
+  # Override local runner for development
+  local-runner:
+    volumes:
+      - ./services/local-runner:/app
+    environment:
+      LOG_LEVEL: DEBUG
+
+  # Flower for monitoring Celery tasks (development only)
+  flower:
+    build:
+      context: ./services/workers
+      dockerfile: Dockerfile
+    container_name: jarv-flower
+    command: celery -A workers.celery_app flower --port=5555
+    ports:
+      - "5555:5555"
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    depends_on:
+      - redis
+      - worker
+    networks:
+      - jarv-network
+
+networks:
+  jarv-network:
+    driver: bridge
