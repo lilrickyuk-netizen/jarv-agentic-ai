@@ -425,14 +425,19 @@ class CommandService:
                 )
                 total_tokens += answer_tokens
 
-            # 6) Complete the task with a real result
-            task.status = "completed"
-            task.completed_at = datetime.now(timezone.utc)
-            task.updated_at = task.completed_at
+            # 6) Derive the TRUE task status from real results — never blindly
+            #    "completed". Failed commands / installs / builds / verification /
+            #    step-limit / missing report downgrade the status accordingly.
+            status, failure = self._derive_status(intent, result_extra, runtime.calls, answer)
+            task.status = status
+            now = datetime.now(timezone.utc)
+            task.updated_at = now
+            if status in ("completed", "partial", "failed"):
+                task.completed_at = now if status == "completed" else task.completed_at
+                if status == "failed":
+                    task.failed_at = now
             if task.started_at:
-                task.execution_duration_seconds = int(
-                    (task.completed_at - task.started_at).total_seconds()
-                )
+                task.execution_duration_seconds = int((now - task.started_at).total_seconds())
             task.tokens_used = total_tokens
             task.result = {
                 "response": answer,
@@ -441,23 +446,18 @@ class CommandService:
                 "provider": "claude",
                 "model": self.model,
                 "tool_calls": runtime.calls,
+                "task_status": status,
+                "failure": failure,
                 **result_extra,
             }
             task.execution_logs = [
                 {"step": "planning", "agent": "orchestrator", "agents_selected": selected_agents},
                 {"step": "tools", "agent": "orchestrator", "tool_calls": len(runtime.calls)},
-                {"step": "execution", "agent": "orchestrator", "result": "completed",
+                {"step": "execution", "agent": "orchestrator", "result": status,
                  "intent": intent},
             ]
-
-            # QA/Verifier gate (BLOCKER 5): a failed verification must NOT complete.
-            verification = result_extra.get("verification")
-            if isinstance(verification, dict) and verification.get("passed") is False:
-                task.status = "failed"
-                task.error_message = (
-                    "QA verification failed: "
-                    + verification.get("reasoning", "output could not be verified")
-                )
+            if failure:
+                task.error_message = failure.get("reason")
 
             # Persist the result to memory (BLOCKER 1): recallable next session.
             try:
@@ -475,27 +475,35 @@ class CommandService:
 
             task.updated_at = datetime.now(timezone.utc)
 
+            _ok = status == "completed"
+            _sev = {"completed": "success", "partial": "warning", "failed": "error",
+                    "blocked": "warning", "waiting_on_approval": "warning"}.get(status, "info")
             await self._feed(
                 db, ws_id, task.id,
                 item_type="task",
-                severity="success",
-                title="Command completed",
-                message=f"JARV completed: {command_text[:200]}",
+                severity=_sev,
+                title=f"Command {status}",
+                message=f"JARV {status}: {command_text[:200]}"
+                        + (f" — {failure.get('reason')}" if failure else ""),
             )
             await self._audit(
-                db, ws_id, action="command_executed", category="execution",
-                description=f"Command executed successfully by {self.operator}: {command_text[:300]}",
-                success=True, target_id=task_id,
+                db, ws_id,
+                action="command_executed" if _ok else f"command_{status}",
+                category="execution",
+                description=f"Command {status} ({self.operator}): {command_text[:300]}",
+                success=_ok, target_id=task_id,
+                error_message=(failure or {}).get("reason") if not _ok else None,
                 metadata={"operator": self.operator, "provider": "claude", "model": self.model,
-                          "selected_agents": selected_agents, "tokens_used": total_tokens},
+                          "selected_agents": selected_agents, "tokens_used": total_tokens,
+                          "status": status},
             )
             await db.commit()
 
             return CommandResult(
                 task_id=task_id,
                 command=command_text,
-                status="completed",
-                requires_approval=False,
+                status=status,
+                requires_approval=status == "waiting_on_approval",
                 response_text=answer,
                 plan_steps=plan_steps,
                 selected_agents=selected_agents,
@@ -503,6 +511,7 @@ class CommandService:
                 model=self.model,
                 execution_time=time.time() - start,
                 tokens_used=total_tokens,
+                error=(failure or {}).get("reason") if not _ok else None,
             )
 
         except Exception as exc:  # noqa: BLE001 - surface real failure on the task
@@ -691,6 +700,138 @@ class CommandService:
             return "scan_workspace"
         return None
 
+    # Canonical task statuses.
+    VALID_STATUSES = ("running", "completed", "partial", "failed", "blocked", "waiting_on_approval")
+
+    @staticmethod
+    def _failed_commands(tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return [c for c in (tool_calls or [])
+                if c.get("tool") in ("run_command", "run_safe_readonly_command")
+                and c.get("success") is False]
+
+    def _derive_status(
+        self, intent: Optional[str], extra: Dict[str, Any],
+        tool_calls: List[Dict[str, Any]], answer: str,
+    ) -> tuple[str, Optional[Dict[str, Any]]]:
+        """
+        Compute the real task status from results. Returns (status, failure|None).
+        A task is 'completed' ONLY when nothing failed and a report exists.
+        """
+        def fail(reason: str, **extra_fields) -> tuple[str, Dict[str, Any]]:
+            f = {"reason": reason}
+            f.update(extra_fields)
+            return "failed", f
+
+        # 1) Explicit boundary / approval signals -> not a failure, but not completed.
+        for key in ("package_install", "self_healing", "run_command", "write_file"):
+            v = extra.get(key)
+            if isinstance(v, dict) and v.get("blocked"):
+                return "blocked", {"reason": f"{key} action blocked by safety policy.",
+                                   "next": "Rephrase within an approved workspace / safe scope."}
+            if isinstance(v, dict) and v.get("requires_approval"):
+                return "waiting_on_approval", {"reason": f"{key} requires Richard's approval.",
+                                               "next": "Approve on /dashboard/approvals to proceed."}
+        sh = extra.get("self_healing")
+        if isinstance(sh, dict):
+            if sh.get("classification") == "blocked":
+                return "blocked", {"reason": "Self-healing action blocked."}
+            if sh.get("classification") == "approval_required":
+                return "waiting_on_approval", {"reason": "Self-healing needs approval."}
+        se = extra.get("self_evolution")
+        if isinstance(se, dict) and se.get("verdict") == "blocked":
+            return "blocked", {"reason": "Self-evolution change blocked by safety guard."}
+
+        # 2) QA verification failure.
+        v = extra.get("verification")
+        if isinstance(v, dict) and v.get("passed") is False:
+            return fail("QA verification failed: " + v.get("reasoning", "unverified output"),
+                        next="Inspect verification findings and re-run.")
+
+        # 3) Package install: non-zero exit -> failed; build/verify fail -> partial.
+        pi = extra.get("package_install")
+        if isinstance(pi, dict):
+            ec = pi.get("exit_code")
+            if ec not in (0, None):
+                return fail(f"Package install failed (exit {ec}).",
+                            command=pi.get("command"), working_dir=pi.get("working_dir"),
+                            exit_code=ec, stdout=(pi.get("stdout") or "")[:1500],
+                            stderr=(pi.get("stderr") or "")[:1500],
+                            next="Fix the dependency error and re-run the install.")
+            if pi.get("verified") is False:
+                return ("partial", {"reason": "Install succeeded but the verification build/test failed.",
+                                    "command": pi.get("verify_command"), "exit_code": ec,
+                                    "next": "Fix the build error, then re-verify."})
+
+        # 4) Single run_command intent: non-zero exit -> failed.
+        if intent == "run_command" and isinstance(extra, dict):
+            ec = extra.get("exit_code")
+            if ec not in (0, None):
+                return fail(f"Command failed (exit {ec}).", command=extra.get("command"),
+                            working_dir=extra.get("working_dir"), exit_code=ec,
+                            stdout=(extra.get("stdout") or "")[:1500],
+                            stderr=(extra.get("stderr") or "")[:1500],
+                            next="Diagnose stderr and retry.")
+
+        # 5) Agent loop / self-heal auto-fix: step limit or unverified -> partial.
+        if intent == "agent_task" and extra.get("agent_success") is False:
+            return ("partial", {"reason": "Agent reached the step limit or could not verify success.",
+                                 "iterations": extra.get("agent_iterations"),
+                                 "next": "Review the agent output; re-run with a narrower mission."})
+        if isinstance(sh, dict) and sh.get("classification") == "safe_auto_fix" \
+                and sh.get("auto_fixed") is False:
+            return ("partial", {"reason": "Self-healing auto-fix did not verify a pass.",
+                                 "next": "Inspect the incident and re-run the fix."})
+
+        # 6) Any failed command tool call -> failed.
+        fc = self._failed_commands(tool_calls)
+        if fc:
+            last = fc[-1]
+            return fail("A command failed during execution.",
+                        command=(last.get("inputs") or {}).get("command"),
+                        exit_code=(last.get("output") or {}).get("exit_code"),
+                        next="Inspect the failed command in tool calls and retry.")
+
+        # 7) Explicit error markers in result_extra.
+        for k, val in extra.items():
+            if k.endswith("_error") and val:
+                return fail(f"{k}: {val}")
+
+        # 8) Missing final report.
+        if not (answer and answer.strip()):
+            return fail("No final report was produced.", next="Re-run the command.")
+
+        return "completed", None
+
+    @staticmethod
+    def _sanitize_pm_command(raw: str) -> Optional[str]:
+        """
+        Validate/normalize a package-manager command to a SAFE canonical form.
+
+        Only the canonical project-manifest install/build/test commands are
+        allowed — dependencies come from the project's lock/manifest, NOT from
+        arbitrary package names appended to the command. This makes prose-appended
+        garbage like 'npm install yet' (and any 'npm install <pkg>') impossible to
+        execute through this path. Returns the clean command, or None if invalid.
+        """
+        low = " ".join((raw or "").strip().lower().split())
+        # Exact canonical commands (dependency install / build / test / lint / type).
+        canon = {
+            "npm install", "npm ci", "npm i", "npm test", "npm run build",
+            "npm run test", "npm run lint", "npm run typecheck", "npm run type-check",
+            "pnpm install", "pnpm i", "pnpm build", "pnpm test",
+            "yarn", "yarn install", "yarn build", "yarn test",
+            "pip install -r requirements.txt", "pip3 install -r requirements.txt",
+            "poetry install", "poetry lock", "uv sync", "go mod download", "go mod tidy",
+            "composer install", "bundle install", "cargo build", "cargo test",
+        }
+        if low in canon:
+            return low
+        # `npm/pnpm/yarn run <clean-script-name>` only (no extra args).
+        if re.fullmatch(r"(npm|pnpm|yarn) run [a-z0-9:_-]+", low):
+            return low
+        # Anything else (incl. `npm install <anything>`) is rejected for safety.
+        return None
+
     def _validate_agents(self, agents: List[str]) -> List[str]:
         try:
             reg = get_registry()
@@ -821,15 +962,40 @@ class CommandService:
         ]
         agents = self._validate_agents(["orchestrator", "devops", "coding"])
         root = await self._resolve_ws_root(db, command_text)
-        # Extract the install command (backticked/quoted, else infer from the text).
+        # Determine the intended command: an explicit backticked command, else a
+        # canonical command inferred from keywords. Either way it is SANITIZED to a
+        # known-safe form so prose words ("npm install yet") can never be executed.
         m = re.search(r"[`\"']([^`\"']+)[`\"']", command_text)
-        if m:
-            cmd = m.group(1).strip()
-        else:
-            mm = re.search(r"\b((npm|pnpm|yarn|pip3?|poetry|cargo|go|composer|gradle|mvn|bundle)\b[^.\n]*)",
-                           command_text, re.IGNORECASE)
-            cmd = (mm.group(1).strip() if mm else "npm install")
-        cmd = re.split(r"(?:\s+inside\b|\s+in the\b|\s+do not\b)", cmd, maxsplit=1)[0].strip().rstrip(".")
+        raw = m.group(1).strip() if m else None
+        if not raw:
+            t = command_text.lower()
+            if "npm ci" in t:
+                raw = "npm ci"
+            elif "typecheck" in t or "type-check" in t:
+                raw = "npm run typecheck"
+            elif "lint" in t:
+                raw = "npm run lint"
+            elif "build" in t:
+                raw = "npm run build"
+            elif "test" in t:
+                raw = "npm test"
+            elif re.search(r"\bpip|requirements|python\b", t):
+                raw = "pip install -r requirements.txt"
+            else:
+                raw = "npm install"
+        cmd = self._sanitize_pm_command(raw)
+        if cmd is None:
+            reason = (f"Rejected unsafe/invalid package command `{raw}` "
+                      f"(not a recognized safe install/build/test command).")
+            await self._feed(db, runtime.workspace_id, runtime.task_id, item_type="error",
+                             severity="error", title="Invalid package command rejected", message=reason)
+            await self._audit(db, runtime.workspace_id, action="package_command_rejected",
+                              category="install", description=reason, success=False,
+                              target_id=str(runtime.task_id))
+            return (f"**Install rejected.** {reason}", steps, agents,
+                    {"package_install": {"command": raw, "blocked": True, "reason": reason,
+                                         "next": "Use a valid command (npm install / npm ci / "
+                                                 "npm run build / npm test / npm run lint / npm run typecheck)."}})
         if not root:
             return ("No approved workspace to install into. Register one first.",
                     steps, agents, {"install_error": "no_workspace"})
@@ -843,22 +1009,34 @@ class CommandService:
             return (f"**Install requires approval:** `{cmd}` — {res.get('reason')}",
                     steps, agents, {"package_install": {"command": cmd, "requires_approval": True}})
 
-        # Verification: run a build/test if the project defines one (best-effort).
+        exit_code = res.get("exit_code")
+        install_ok = exit_code == 0
+        # Verification only if the install itself succeeded.
         verify = None
-        scan = await runtime.scan_workspace(root)
-        pkgs = (scan.get("data") or {}).get("package_files", []) if scan.get("success") else []
-        if any(p.endswith("package.json") for p in pkgs):
-            verify = await runtime.run_command("npm run build", cwd_host=root, allow_build=True)
-        detail = {"command": cmd, "exit_code": res.get("exit_code"),
-                  "verified": (verify or {}).get("success") if verify else None,
-                  "verify_command": "npm run build" if verify else None}
+        if install_ok:
+            scan = await runtime.scan_workspace(root)
+            pkgs = (scan.get("data") or {}).get("package_files", []) if scan.get("success") else []
+            if any(p.endswith("package.json") for p in pkgs):
+                verify = await runtime.run_command("npm run build", cwd_host=root, allow_build=True)
+        detail = {
+            "command": cmd, "working_dir": root, "exit_code": exit_code,
+            "stdout": (res.get("stdout") or "")[:2000], "stderr": (res.get("stderr") or "")[:2000],
+            "verified": (verify or {}).get("success") if verify else (True if install_ok else None),
+            "verify_command": "npm run build" if verify else None,
+        }
+        if not install_ok:
+            header = f"**Package install FAILED (exit {exit_code}).**"
+        elif verify is not None and not detail["verified"]:
+            header = "**Package install succeeded, but the verification build FAILED (partial).**"
+        else:
+            header = "**Package install complete (trusted, workspace-scoped — no approval).**"
         answer = (
-            f"**Package install complete (trusted, workspace-scoped — no approval).**\n\n"
-            f"- Command: `{cmd}`\n- Exit code: {res.get('exit_code')}\n"
-            f"- Workspace: `{root}`\n"
-            + (f"- Verification (`npm run build`): {'passed' if detail['verified'] else 'ran/failed'}\n"
-               if verify else "- No build script detected to verify.\n")
-            + f"\n```\n{(res.get('stdout') or '')[:800]}\n```"
+            f"{header}\n\n"
+            f"- Command: `{cmd}`\n- Working dir: `{root}`\n- Exit code: {exit_code}\n"
+            + (f"- Verification (`npm run build`): {'passed' if detail['verified'] else 'FAILED'}\n"
+               if verify is not None else "- No build script detected to verify.\n")
+            + (f"\n**stderr:**\n```\n{detail['stderr'][:800]}\n```" if detail["stderr"] else "")
+            + f"\n**stdout:**\n```\n{detail['stdout'][:800]}\n```"
         )
         return answer, steps, agents, {"package_install": detail}
 
@@ -1358,13 +1536,18 @@ class CommandService:
             return (f"Command `{cmd}` is not read-only and requires approval before execution.",
                     steps, agents, {"command": cmd, "requires_approval": True})
         out = (res.get("stdout") or "").strip()
+        exit_code = res.get("exit_code")
+        verb = "executed" if exit_code == 0 else f"FAILED (exit {exit_code})"
         answer = (
-            f"**Command executed (read-only, Level 3).**\n\n"
-            f"- Command: `{cmd}`\n- Exit code: {res.get('exit_code')}\n\n"
+            f"**Command {verb} (read-only, Level 3).**\n\n"
+            f"- Command: `{cmd}`\n- Working dir: `{cwd or 'container default'}`\n"
+            f"- Exit code: {exit_code}\n\n"
             f"**stdout:**\n```\n{out[:1500] or '(empty)'}\n```\n"
             + (f"**stderr:**\n```\n{res.get('stderr','')[:600]}\n```\n" if res.get("stderr") else "")
         )
-        return answer, steps, agents, {"command": cmd, "exit_code": res.get("exit_code")}
+        return answer, steps, agents, {
+            "command": cmd, "working_dir": cwd, "exit_code": exit_code,
+            "stdout": out[:2000], "stderr": (res.get("stderr") or "")[:2000]}
 
     async def _handle_notify(
         self, runtime: ToolRuntime, command_text: str

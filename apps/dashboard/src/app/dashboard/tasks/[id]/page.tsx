@@ -33,6 +33,7 @@ interface TaskDetail {
   model: string | null;
   tool_calls: Record<string, unknown>[];
   verification: Record<string, unknown> | null;
+  failure: Record<string, unknown> | null;
   result: Record<string, unknown> | null;
   error_message: string | null;
   execution_logs: Record<string, unknown>[] | null;
@@ -56,10 +57,14 @@ const statusColor = (status: string) => {
     in_progress: 'bg-blue-100 text-blue-800',
     completed: 'bg-green-100 text-green-800',
     approved: 'bg-green-100 text-green-800',
+    partial: 'bg-orange-100 text-orange-800',
     failed: 'bg-red-100 text-red-800',
     blocked: 'bg-yellow-100 text-yellow-800',
+    waiting_on_approval: 'bg-yellow-100 text-yellow-800',
     cancelled: 'bg-gray-200 text-gray-700',
+    rejected: 'bg-red-100 text-red-800',
   };
+  // Never render an unknown/failed-ish status as green.
   return c[status] || 'bg-gray-100 text-gray-800';
 };
 
@@ -180,6 +185,31 @@ export default function TaskDetailPage() {
               <section className="bg-card border rounded-lg p-6">
                 <h2 className="text-sm font-medium text-muted-foreground mb-2">Result</h2>
                 <pre className="whitespace-pre-wrap text-sm font-sans">{task.response_text}</pre>
+              </section>
+            )}
+
+            {/* Failure detail (failed/partial tasks) */}
+            {task.failure && (
+              <section className="bg-red-50 border border-red-300 rounded-lg p-6">
+                <h2 className="text-sm font-semibold text-red-800 mb-2">
+                  {task.status === 'partial' ? 'Partial — not fully completed' : 'Failure detail'}
+                </h2>
+                <p className="text-sm text-red-900 mb-2">{String(task.failure.reason || '')}</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs font-mono">
+                  {task.failure.command != null && <div>cmd: {String(task.failure.command)}</div>}
+                  {task.failure.working_dir != null && <div>cwd: {String(task.failure.working_dir)}</div>}
+                  {task.failure.exit_code != null && <div>exit: {String(task.failure.exit_code)}</div>}
+                </div>
+                {task.failure.stderr ? (
+                  <pre className="mt-2 whitespace-pre-wrap text-xs text-red-800 bg-red-100 p-2 rounded">
+                    {String(task.failure.stderr)}
+                  </pre>
+                ) : null}
+                {task.failure.next != null && (
+                  <p className="text-sm text-red-900 mt-2">
+                    <span className="font-semibold">Next:</span> {String(task.failure.next)}
+                  </p>
+                )}
               </section>
             )}
 

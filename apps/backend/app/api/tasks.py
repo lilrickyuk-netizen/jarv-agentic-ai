@@ -489,6 +489,7 @@ class TaskDetail(BaseModel):
     model: Optional[str]
     tool_calls: List[Dict[str, Any]]
     verification: Optional[Dict[str, Any]]
+    failure: Optional[Dict[str, Any]]
     result: Optional[Dict[str, Any]]
     error_message: Optional[str]
     execution_logs: Optional[List[Dict[str, Any]]]
@@ -606,6 +607,7 @@ async def get_task(
             model=res.get("model"),
             tool_calls=res.get("tool_calls", []) or [],
             verification=res.get("verification") if isinstance(res.get("verification"), dict) else None,
+            failure=res.get("failure") if isinstance(res.get("failure"), dict) else None,
             result=task.result if isinstance(task.result, dict) else None,
             error_message=task.error_message,
             execution_logs=task.execution_logs if isinstance(task.execution_logs, list) else None,
