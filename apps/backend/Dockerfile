@@ -32,10 +32,15 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install only runtime dependencies
+# Install runtime dependencies + the toolchain JARV's autonomous agent loop
+# needs to build/test real projects from the workspace: git (clone/status/diff),
+# and Node.js + npm (JS/TS builds and tests such as MYCO).
 RUN apt-get update && apt-get install -y \
     postgresql-client \
     curl \
+    git \
+    nodejs \
+    npm \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
