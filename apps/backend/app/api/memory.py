@@ -126,51 +126,6 @@ async def list_memories(
     ]
 
 
-@router.get("/{memory_id}", response_model=MemoryInfo)
-async def get_memory(
-    memory_id: UUID,
-    db: Session = Depends(get_db)
-):
-    """
-    Get detailed information about a specific memory.
-
-    Args:
-        memory_id: UUID of the memory
-
-    Returns:
-        Memory information
-    """
-    query = select(Memory).where(Memory.id == memory_id)
-    result = await db.execute(query)
-    memory = result.scalar_one_or_none()
-
-    if not memory:
-        raise HTTPException(status_code=404, detail="Memory not found")
-
-    # Update access count
-    memory.access_count += 1
-    memory.last_accessed_at = datetime.now()
-    await db.commit()
-
-    return MemoryInfo(
-        id=str(memory.id),
-        agent_id=str(memory.agent_id),
-        memory_type=memory.memory_type,
-        content=memory.content,
-        summary=memory.summary,
-        importance_score=memory.importance_score,
-        access_count=memory.access_count,
-        last_accessed_at=memory.last_accessed_at.isoformat() if memory.last_accessed_at else None,
-        session_id=str(memory.session_id) if memory.session_id else None,
-        task_id=str(memory.task_id) if memory.task_id else None,
-        context=memory.context,
-        expires_at=memory.expires_at.isoformat() if memory.expires_at else None,
-        is_permanent=memory.is_permanent,
-        created_at=memory.created_at.isoformat() if memory.created_at else datetime.now().isoformat(),
-        updated_at=memory.updated_at.isoformat() if memory.updated_at else datetime.now().isoformat(),
-    )
-
-
 @router.get("/stats", response_model=MemoryStats)
 async def get_memory_stats(
     agent_id: Optional[UUID] = None,
@@ -236,6 +191,51 @@ async def get_memory_stats(
         average_importance=round(average_importance, 2),
         total_accesses=total_accesses,
         most_accessed_memory_id=most_accessed_memory_id,
+    )
+
+
+@router.get("/{memory_id}", response_model=MemoryInfo)
+async def get_memory(
+    memory_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """
+    Get detailed information about a specific memory.
+
+    Args:
+        memory_id: UUID of the memory
+
+    Returns:
+        Memory information
+    """
+    query = select(Memory).where(Memory.id == memory_id)
+    result = await db.execute(query)
+    memory = result.scalar_one_or_none()
+
+    if not memory:
+        raise HTTPException(status_code=404, detail="Memory not found")
+
+    # Update access count
+    memory.access_count += 1
+    memory.last_accessed_at = datetime.now()
+    await db.commit()
+
+    return MemoryInfo(
+        id=str(memory.id),
+        agent_id=str(memory.agent_id),
+        memory_type=memory.memory_type,
+        content=memory.content,
+        summary=memory.summary,
+        importance_score=memory.importance_score,
+        access_count=memory.access_count,
+        last_accessed_at=memory.last_accessed_at.isoformat() if memory.last_accessed_at else None,
+        session_id=str(memory.session_id) if memory.session_id else None,
+        task_id=str(memory.task_id) if memory.task_id else None,
+        context=memory.context,
+        expires_at=memory.expires_at.isoformat() if memory.expires_at else None,
+        is_permanent=memory.is_permanent,
+        created_at=memory.created_at.isoformat() if memory.created_at else datetime.now().isoformat(),
+        updated_at=memory.updated_at.isoformat() if memory.updated_at else datetime.now().isoformat(),
     )
 
 
