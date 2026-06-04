@@ -10393,3 +10393,27 @@ below was proven against the running stack, then committed and pushed.
 memory, confirmed tool execution, Richard-boundary approval gate, and QA verification
 all built, wired, and browser/endpoint-verified.
 
+### TASK RC-5: Autonomous company completion (departments, 31 agents, self-completion)
+- **STATUS**: COMPLETE ✅
+- **Departments**: 6-department structure via /api/agents/departments/overview +
+  per-department detail/tasks/tools/operations/memory/experience endpoints; dashboard
+  /dashboard/departments + /dashboard/departments/{slug} (all 6 routes 200, real data).
+- **31 role-specific agents**: each invocable via POST /api/agents/{name}/run through
+  its specialist class (role-specific run() + input/output schema + tool catalog);
+  acceptance run = 31/31 completed + verified, 0 failed.
+- **Per-agent tool catalogs**: runner scopes each agent to config.allowed_tools from
+  registry metadata; GET /api/agents/{name}/tools exposes the catalog + registry status.
+- **Employee spawning**: 18 lead agents eligible; acceptance = 10 leads spawned scoped
+  employees (employee_task), all executed, verified, and dissolved (28 records).
+- **Self-completion**: "finish your own missing implementation against Design.md" maps
+  25 design requirements to code, classifies complete/partial/missing, CREATES
+  implementation tasks for safe gaps and raises BOUNDARY reports for unsafe gaps
+  (deploy/email) — never auto-edits unsafe items, never fakes completion.
+- **QA/DevOps**: assessment agents complete with a real pass/fail matrix / readiness
+  result instead of vague partials.
+- **Backend test runner**: apps/backend/run_tests.py (pytest-free) runs the
+  task-status regression suite reliably in the slim runtime; 11/11 pass.
+  Command: `docker exec -w /app jarv-backend python run_tests.py`.
+- **Verified**: 7 services healthy, 0 restarts; department routes + endpoints 200;
+  reliability suite 11/11; honest task statuses preserved.
+

@@ -35,6 +35,14 @@ export default function DepartmentsPage() {
   }, []);
 
   const totalAgents = depts.reduce((n, d) => n + d.agent_count, 0);
+  const slugify = (name: string) => ({
+    'Executive Office': 'executive-office',
+    'Product & Engineering': 'product-engineering',
+    'Launch & Infrastructure': 'launch-infrastructure',
+    'Growth & Market': 'growth-market',
+    'Customer & Commercial': 'customer-commercial',
+    'Intelligence & Evolution': 'intelligence-evolution',
+  } as Record<string, string>)[name] || name.toLowerCase().replace(/[^a-z]+/g, '-');
 
   return (
     <div className="min-h-screen bg-background p-8">
@@ -69,7 +77,12 @@ export default function DepartmentsPage() {
           {depts.map((d) => (
             <section key={d.department} className="bg-card border rounded-lg p-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-semibold">{d.department}</h2>
+                <button
+                  onClick={() => router.push(`/dashboard/departments/${slugify(d.department)}`)}
+                  className="text-xl font-semibold hover:text-primary text-left"
+                >
+                  {d.department} →
+                </button>
                 <span className="text-xs bg-primary/10 text-primary px-2 py-1 rounded">
                   {d.agent_count} agents
                 </span>

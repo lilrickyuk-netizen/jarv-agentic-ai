@@ -451,3 +451,134 @@ async def agent_tools(agent_name: str) -> Dict[str, Any]:
     return {"agent": m.name, "role": m.role, "department": dept,
             "authority_level": m.required_authority_level, "tools": tools,
             "tool_count": len(tools)}
+
+
+# Slug <-> department name (for /dashboard/departments/{slug}).
+DEPT_SLUGS = {
+    "executive-office": "Executive Office",
+    "product-engineering": "Product & Engineering",
+    "launch-infrastructure": "Launch & Infrastructure",
+    "growth-market": "Growth & Market",
+    "customer-commercial": "Customer & Commercial",
+    "intelligence-evolution": "Intelligence & Evolution",
+}
+DEPT_PURPOSE = {
+    "Executive Office": "Mission intake, planning, company operations, business, finance.",
+    "Product & Engineering": "Build, debug, test, verify, and document the product.",
+    "Launch & Infrastructure": "Deploy, run, monitor, self-heal, roll back, and secure.",
+    "Growth & Market": "Marketing, growth, content, creation, analytics.",
+    "Customer & Commercial": "Support, onboarding, community, sales, partnerships, legal.",
+    "Intelligence & Evolution": "Research, memory, self-evolution, swarm orchestration.",
+}
+
+
+def _dept_from_slug(slug: str) -> str:
+    name = DEPT_SLUGS.get(slug) or next((d for d in DEPARTMENTS if d.lower() == slug.lower()), None)
+    if not name:
+        raise HTTPException(status_code=404, detail=f"Department '{slug}' not found")
+    return name
+
+
+def _dept_members(name: str) -> List[str]:
+    return DEPARTMENTS.get(name, [])
+
+
+@router.get("/departments/{slug}")
+async def department_detail(slug: str) -> Dict[str, Any]:
+    name = _dept_from_slug(slug)
+    reg = get_registry()
+    members = _dept_members(name)
+    agents = []
+    for m in members:
+        md = reg.get_metadata(m)
+        if md:
+            agents.append({"name": md.name, "role": md.role,
+                           "authority_level": md.required_authority_level,
+                           "tools": md.default_tools or [], "implemented": md.is_implemented})
+    return {"department": name, "slug": slug, "purpose": DEPT_PURPOSE.get(name, ""),
+            "agent_count": len(agents), "agents": agents}
+
+
+def _is_member_task(t: Task, members: List[str]) -> bool:
+    ctx = t.context if isinstance(t.context, dict) else {}
+    res = t.result if isinstance(t.result, dict) else {}
+    agent = ctx.get("agent") or ctx.get("lead_agent")
+    if agent in members:
+        return True
+    sel = res.get("selected_agents") or []
+    return any(a in members for a in sel)
+
+
+@router.get("/departments/{slug}/tasks")
+async def department_tasks(slug: str, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    name = _dept_from_slug(slug)
+    members = _dept_members(name)
+    rows = (await db.execute(select(Task).order_by(Task.created_at.desc()).limit(300))).scalars().all()
+    mine = [t for t in rows if _is_member_task(t, members)]
+    counts = {"completed": 0, "partial": 0, "failed": 0, "blocked": 0,
+              "waiting_on_approval": 0, "running": 0, "pending": 0}
+    for t in mine:
+        counts[t.status] = counts.get(t.status, 0) + 1
+    recent = [{"id": str(t.id), "title": t.title[:80], "status": t.status,
+               "task_type": t.task_type,
+               "created_at": t.created_at.isoformat() if t.created_at else None}
+              for t in mine[:25]]
+    return {"department": name, "total": len(mine), "counts": counts, "recent": recent}
+
+
+@router.get("/departments/{slug}/tools")
+async def department_tools(slug: str) -> Dict[str, Any]:
+    name = _dept_from_slug(slug)
+    reg = get_registry()
+    tools: set = set()
+    for m in _dept_members(name):
+        md = reg.get_metadata(m)
+        if md:
+            tools.update(md.default_tools or [])
+    return {"department": name, "tools": sorted(tools), "tool_count": len(tools)}
+
+
+@router.get("/departments/{slug}/operations")
+async def department_operations(slug: str, db: AsyncSession = Depends(get_db)) -> List[Dict[str, Any]]:
+    name = _dept_from_slug(slug)
+    members = _dept_members(name)
+    task_rows = (await db.execute(select(Task).order_by(Task.created_at.desc()).limit(300))).scalars().all()
+    ids = {t.id for t in task_rows if _is_member_task(t, members)}
+    if not ids:
+        return []
+    feed = (await db.execute(
+        select(LiveOperationsFeedItem).order_by(LiveOperationsFeedItem.created_at.desc()).limit(200)
+    )).scalars().all()
+    out = [{"item_type": f.item_type, "severity": f.severity, "title": f.title,
+            "message": (f.message or "")[:200],
+            "created_at": f.created_at.isoformat() if f.created_at else None}
+           for f in feed if f.related_task_id in ids][:25]
+    return out
+
+
+@router.get("/departments/{slug}/memory")
+async def department_memory(slug: str, db: AsyncSession = Depends(get_db)) -> List[Dict[str, Any]]:
+    from app.models.memory import Memory
+    name = _dept_from_slug(slug)
+    members = set(_dept_members(name))
+    rows = (await db.execute(select(Memory).order_by(Memory.created_at.desc()).limit(200))).scalars().all()
+    out = []
+    for m in rows:
+        meta = m.meta_data if isinstance(m.meta_data, dict) else {}
+        if meta.get("agent") in members or meta.get("lead_agent") in members:
+            out.append({"type": m.memory_type, "content": m.content[:200],
+                        "created_at": m.created_at.isoformat() if m.created_at else None})
+        if len(out) >= 25:
+            break
+    return out
+
+
+@router.get("/departments/{slug}/experience")
+async def department_experience(slug: str, db: AsyncSession = Depends(get_db)) -> List[Dict[str, Any]]:
+    from app.models.memory import Memory
+    name = _dept_from_slug(slug)
+    rows = (await db.execute(
+        select(Memory).where(Memory.memory_type.in_(["experience", "incident"]))
+        .order_by(Memory.created_at.desc()).limit(25))).scalars().all()
+    return [{"type": m.memory_type, "content": m.content[:200],
+             "created_at": m.created_at.isoformat() if m.created_at else None} for m in rows]

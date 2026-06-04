@@ -891,7 +891,31 @@ class CommandService:
         ("Company workflow drafts", "app/core/command/service.py", "_handle_company_workflow"),
         ("Approval/boundary gate", "app/api/approvals.py", "command-blocks"),
         ("Integrations (email/webhook dry-run)", "app/core/integrations/__init__.py", "class IntegrationRegistry"),
+        ("Department detail endpoints", "app/api/agents.py", "department_detail"),
+        ("Per-department dashboard page", "app/api/agents.py", "DEPT_SLUGS"),
+        # Forward-looking requirements that may be partial/missing -> drive task
+        # creation. Targets are NOT this file (avoid self-referential false hits).
+        ("Changelog generator tool", "app/workers/tasks.py", "create_changelog"),
+        ("Email live SMTP send adapter", "app/core/integrations/__init__.py", "smtplib"),
+        ("Cloud auto-deploy automation", "app/workers/tasks.py", "auto_deploy"),
     ]
+
+    # Which lead agent owns a gap, and whether auto-fixing it is safe.
+    _GAP_LEAD = {
+        "Changelog generator tool": ("documentation", True),         # safe -> task created
+        "Email live SMTP send adapter": ("infrastructure", False),   # sending email = boundary
+        "Cloud auto-deploy automation": ("devops", False),           # live deploy = boundary
+    }
+
+    @staticmethod
+    def _gap_is_safe(req: str) -> tuple[str, bool]:
+        lead = CommandService._GAP_LEAD.get(req)
+        if lead:
+            return lead
+        low = req.lower()
+        unsafe = any(k in low for k in ("deploy", "email", "payment", "production",
+                                        "secret", "release", "live"))
+        return ("coding", not unsafe)
 
     async def _handle_self_completion(
         self, db: AsyncSession, runtime: ToolRuntime, command_text: str
@@ -921,16 +945,48 @@ class CommandService:
             except Exception:  # noqa: BLE001
                 partial.append(req)
 
-        # Honest known-remaining items (not yet implemented; never claimed complete).
+        # For each safe gap, create a real implementation task assigned to a lead
+        # agent. For unsafe gaps, raise a boundary report (approval required) and
+        # do NOT auto-edit. Never weaken safety / never fake completion.
+        tasks_created: List[Dict[str, Any]] = []
+        boundaries: List[Dict[str, Any]] = []
+        for req in (partial + missing):
+            lead, safe = self._gap_is_safe(req)
+            if safe:
+                t = Task(id=uuid4(), workspace_id=runtime.workspace_id,
+                         title=f"[self-completion] Implement: {req}"[:500],
+                         description=f"Auto-created by self-completion to close design gap: {req}",
+                         task_type="self_completion_task", status="pending", priority=6,
+                         context={"gap": req, "lead_agent": lead, "source": "self_completion"},
+                         meta_data={"auto_created": True},
+                         created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+                db.add(t)
+                await db.flush()
+                await self._feed(db, runtime.workspace_id, t.id, item_type="task",
+                                 severity="info", title="Self-completion task created",
+                                 message=f"{req} -> assigned to {lead}")
+                tasks_created.append({"task_id": str(t.id), "gap": req, "lead_agent": lead,
+                                      "status": "pending"})
+            else:
+                await self._feed(db, runtime.workspace_id, runtime.task_id, item_type="boundary",
+                                 severity="warning", title="Self-completion boundary",
+                                 message=f"Gap '{req}' is unsafe to auto-implement; approval required.",
+                                 requires_action=True)
+                await self._audit(db, runtime.workspace_id, action="self_completion_boundary",
+                                  category="approval", description=f"Unsafe gap requires approval: {req}",
+                                  success=True, target_id=str(runtime.task_id), required_approval=True)
+                boundaries.append({"gap": req, "reason": "unsafe to auto-implement (live/deploy/email/secret)",
+                                   "lead_agent": lead})
+
         known_remaining = [
-            "Per-agent bespoke tool execution beyond the shared tool runtime",
-            "Auto-implementation of missing code (intentionally gated: report only, no blind self-edit)",
-            "Full ~40-page department dashboard (Departments + core pages exist; not every page built)",
+            "Auto-implementation EXECUTION of created tasks (tasks are created + assigned; "
+            "execution runs through the agent loop on approval where safe)",
+            "Unsafe gaps are gated behind boundary approval (by design, never auto-edited)",
         ]
         total = len(self._DESIGN_CHECKS)
         report = {"complete": complete, "partial": partial, "missing": missing,
-                  "known_remaining": known_remaining,
-                  "score": f"{len(complete)}/{total}"}
+                  "tasks_created": tasks_created, "boundaries_raised": boundaries,
+                  "known_remaining": known_remaining, "score": f"{len(complete)}/{total}"}
         await self._feed(db, runtime.workspace_id, runtime.task_id, item_type="self_evolution",
                          severity="info", title="Self-completion gap map",
                          message=f"{len(complete)}/{total} design requirements verified in code.")
@@ -941,14 +997,18 @@ class CommandService:
             task_id=runtime.task_id, importance=0.75)
 
         def _bullet(items): return "\n".join(f"  - {i}" for i in items) or "  _(none)_"
+        tc_lines = "\n".join(f"  - {t['gap']} → task `{t['task_id'][:8]}` ({t['lead_agent']})"
+                             for t in tasks_created) or "  _(none)_"
+        bd_lines = "\n".join(f"  - {b['gap']} → {b['reason']}" for b in boundaries) or "  _(none)_"
         answer = (
             f"**Self-completion — Design→code map ({report['score']} verified in code).**\n\n"
             f"**Complete ({len(complete)}):**\n{_bullet(complete)}\n\n"
             f"**Partial ({len(partial)}):**\n{_bullet(partial)}\n\n"
             f"**Missing ({len(missing)}):**\n{_bullet(missing)}\n\n"
-            f"**Known remaining (honest, not auto-implemented):**\n{_bullet(known_remaining)}\n\n"
-            f"_No safety rules, authority, logging, or boundaries were weakened. Missing/partial "
-            f"items are reported, not silently 'completed'._"
+            f"**Implementation tasks created for SAFE gaps ({len(tasks_created)}):**\n{tc_lines}\n\n"
+            f"**Boundaries raised for UNSAFE gaps ({len(boundaries)}):**\n{bd_lines}\n\n"
+            f"_No safety rules, authority, logging, or boundaries were weakened. Unsafe gaps are "
+            f"never auto-edited — they require approval. Nothing partial is marked complete._"
         )
         return answer, steps, agents, {"self_completion": report}
 

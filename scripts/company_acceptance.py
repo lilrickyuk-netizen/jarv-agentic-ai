@@ -37,8 +37,8 @@ ROLE_TASK = {
     "self_evolution": "Propose one safe workflow improvement (no safety changes).",
     "swarm_manager": "Explain how you spawn and dissolve scoped employees.",
 }
-LEADS = ["coding_agent", "debugging_agent", "marketing", "customer_support",
-         "infrastructure", "qa", "research"]
+LEADS = ["coding_agent", "debugging_agent", "qa", "research", "marketing",
+         "content", "customer_support", "infrastructure", "security", "documentation"]
 
 
 def call(m, p, b=None, t=None, timeout=180):

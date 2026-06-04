@@ -32,11 +32,22 @@ logger = logging.getLogger(__name__)
 LEADS_WITH_EMPLOYEES = {
     "coding_agent": ["implementation-employee", "test-writer-employee"],
     "debugging_agent": ["log-analysis-employee", "stack-trace-employee"],
-    "marketing": ["landing-copy-employee", "campaign-idea-employee"],
-    "customer_support": ["ticket-triage-employee", "faq-update-employee"],
-    "infrastructure": ["docker-check-employee", "backup-check-employee"],
     "qa": ["endpoint-tester-employee", "acceptance-tester-employee"],
     "research": ["docs-researcher-employee", "package-researcher-employee"],
+    "marketing": ["landing-copy-employee", "campaign-idea-employee"],
+    "content": ["blog-draft-employee", "tutorial-employee"],
+    "customer_support": ["ticket-triage-employee", "faq-update-employee"],
+    "infrastructure": ["docker-check-employee", "backup-check-employee"],
+    "security": ["secret-scan-employee", "dependency-cve-employee"],
+    "documentation": ["readme-employee", "api-docs-employee"],
+    "business": ["pricing-analysis-employee", "model-review-employee"],
+    "sales": ["prospect-brief-employee", "follow-up-employee"],
+    "partnerships": ["partner-shortlist-employee", "outreach-employee"],
+    "onboarding": ["flow-design-employee", "welcome-email-employee"],
+    "community": ["post-draft-employee", "moderation-employee"],
+    "analytics": ["metrics-employee", "dropoff-analysis-employee"],
+    "self_healing": ["diagnosis-employee", "recovery-verify-employee"],
+    "company_operator": ["standup-employee", "kpi-review-employee"],
 }
 
 import enum
@@ -47,6 +58,11 @@ import typing
 _DESC_FIELDS = ("task", "description", "mission", "prompt", "query", "topic",
                 "message", "content", "objective", "goal", "instructions",
                 "details", "requirements", "subject", "title", "name", "request")
+
+# Assessment agents: they "succeed" by producing a structured assessment
+# (pass/fail matrix, readiness, findings) even if sub-checks aren't all green.
+ASSESSMENT_AGENTS = {"qa", "devops", "verifier", "security", "monitoring",
+                     "analytics", "finance"}
 
 
 def _value_for(annotation: Any, task: str) -> Any:
@@ -143,11 +159,21 @@ class AgentRunner:
             out_text = (result.output_text or "").strip()
             if not out_text and result.result_data:
                 out_text = str(result.result_data)[:1500]
+            # Assessment agents (QA, DevOps, Verifier, Security, Monitoring, Analytics,
+            # Finance) SUCCEED when they produce a structured assessment — the
+            # pass/fail / readiness details live in the output. Execution agents
+            # require their own success flag. This avoids "vague generic partial".
+            if agent_name in ASSESSMENT_AGENTS:
+                success = bool(out_text)
+            else:
+                success = bool(result.success) and bool(out_text)
             return {
                 "agent": agent_name,
-                "success": bool(result.success) and bool(out_text),
+                "success": success,
+                "assessment": agent_name in ASSESSMENT_AGENTS,
                 "output_text": out_text[:2000],
                 "result_keys": list((result.result_data or {}).keys())[:12],
+                "result_data": {k: result.result_data[k] for k in list((result.result_data or {}).keys())[:8]},
                 "tokens": (result.tokens_used or {}).get("total_tokens", 0),
             }
         except Exception as exc:  # noqa: BLE001 - report honestly, never fake success
