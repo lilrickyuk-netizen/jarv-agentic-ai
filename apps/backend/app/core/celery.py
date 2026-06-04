@@ -12,10 +12,12 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 # Create Celery app
+# Coerce the broker/result-backend URL to a plain string — Celery/Kombu cannot
+# consume the Pydantic RedisDsn object that settings.REDIS_URL exposes.
 celery_app = Celery(
     "jarv",
-    broker=settings.REDIS_URL,
-    backend=settings.REDIS_URL,
+    broker=str(settings.REDIS_URL),
+    backend=str(settings.REDIS_URL),
     include=[
         "app.workers.tasks",
     ],
