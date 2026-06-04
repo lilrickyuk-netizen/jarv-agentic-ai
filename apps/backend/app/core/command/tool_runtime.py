@@ -70,6 +70,7 @@ class ToolRuntime:
         self.task_id = task_id
         self.operator = operator
         self.authority_level = authority_level
+        self._block_counts: Dict[str, int] = {}
         self.calls: List[Dict[str, Any]] = []
 
     # ----- recording -----
@@ -239,13 +240,24 @@ class ToolRuntime:
             chk = fs_inspector.path_exists(cwd_host)
             cwd = chk.container_path if (chk.accessible and chk.exists) else None
 
+        # Repeated-block guard: after 2 blocks of the same command, tell the agent
+        # to stop retrying (re-plan) instead of looping on a blocked command.
+        norm = " ".join((command or "").lower().split())
+        repeated = self._block_counts.get(norm, 0) >= 2
+
         if cls == "dangerous":
+            self._block_counts[norm] = self._block_counts.get(norm, 0) + 1
+            reason = "Dangerous/global/privileged command blocked by safety policy."
+            if repeated:
+                reason += (" STOP: this command has been blocked repeatedly — do NOT retry it; "
+                           "use write_file or a single allowed command (no &&, ;, |, >).")
             await self._record("run_command", {"command": command}, False,
-                               "blocked: dangerous/global/privileged command")
+                               "blocked: dangerous/global/privileged command"
+                               + (" (repeated)" if repeated else ""))
             await self._persist_command_run(command, cwd_host, None, "", "blocked", False,
                                              dangerous=True)
             return {"success": False, "blocked": True, "classification": cls,
-                    "reason": "Dangerous/global/privileged command blocked by safety policy."}
+                    "repeated_block": repeated, "reason": reason}
         if cls == "install":
             if not allow_install:
                 return {"success": False, "requires_approval": True, "classification": cls,
@@ -259,10 +271,15 @@ class ToolRuntime:
                         "reason": "Package install blocked: not inside an approved workspace."}
             timeout = max(timeout, 420)  # installs can take minutes
         if cls == "risky" or (cls == "build" and not allow_build):
+            self._block_counts[norm] = self._block_counts.get(norm, 0) + 1
+            reason = f"Command classified '{cls}'; requires approval."
+            if repeated:
+                reason += (" STOP: already requested repeatedly — do NOT retry; use an allowed "
+                           "read-only/build command (e.g. `python3 -m py_compile <file>`) or write_file.")
             await self._record("run_command", {"command": command}, False,
-                               f"requires approval ({cls})")
+                               f"requires approval ({cls})" + (" (repeated)" if repeated else ""))
             return {"success": False, "requires_approval": True, "classification": cls,
-                    "reason": f"Command classified '{cls}'; requires approval."}
+                    "repeated_block": repeated, "reason": reason}
 
         # safe/build/install: execute with timeout, capture stdout/stderr/exit code.
         stdout = stderr = ""

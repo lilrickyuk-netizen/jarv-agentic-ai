@@ -440,6 +440,10 @@ BUILD_TEST_PREFIXES = (
     "mvn package", "gradle build", "gradle test", "jest", "vitest", "tsc",
     "eslint", "ruff", "ruff check", "mypy", "black --check", "flake8",
     "python -c", "python3 -c", "node -e",
+    # Read-only verification commands an engineering/self-healing agent uses.
+    "python -m py_compile", "python3 -m py_compile",
+    "python -m compileall", "python3 -m compileall",
+    "python", "python3", "node", "node --check", "grep", "rg",
 )
 
 # Trusted project package-manager install commands (project-local). Allowed to

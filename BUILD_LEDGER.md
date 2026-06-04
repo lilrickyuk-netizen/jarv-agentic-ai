@@ -10459,3 +10459,21 @@ all built, wired, and browser/endpoint-verified.
   (PROJECT_BRIEF.md, 6 role outputs, swarm_verification_report.md); status
   COMPLETED. Negative guard: 0-output -> FAILED. Regression 13/13.
 
+### TASK RC-8: Self-healing command planning + full repo acceptance
+- **STATUS**: COMPLETE ✅
+- **Self-healing planner fix**: read-only verification commands the agent needs
+  are now allowed (python3 -m py_compile / compileall, python3 <file>, node
+  --check, grep, rg). AgentExecutor system prompt forbids shell chaining
+  (&&/;/|/>/2>&1/$()/backticks) and tells the agent never to retry a blocked
+  command (use write_file or an allowed command). ToolRuntime adds a
+  repeated-block guard: after 2 identical blocks it returns STOP guidance.
+- **Self-healing acceptance** (/test_workspaces/jarv_self_healing_final): planted
+  broken_mod.py -> detected -> safe file-level fix -> verified via
+  `python3 -m py_compile` -> COMPLETED, auto_fixed; blocked attempts 7 -> 3
+  (agent recovered, no looping); file compiles.
+- **Swarm final acceptance** (/test_workspaces/jarv_swarm_final_acceptance):
+  6 requested -> 6 spawned -> 6 collected -> verified -> dissolved; 8 files
+  written; COMPLETED. 0-output negative -> FAILED (unit-verified).
+- **Full sweeps**: 18 dashboard routes 200; 12 core API endpoints 200;
+  regression 13/13; 7 services healthy, 0 restarts.
+

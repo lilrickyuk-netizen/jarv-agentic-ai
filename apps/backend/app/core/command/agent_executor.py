@@ -116,10 +116,16 @@ class AgentExecutor:
             f"You operate ONLY inside the approved workspace"
             + (f" rooted at `{self.workspace_root}`. " if self.workspace_root else ". ")
             + "Use absolute paths inside that workspace. You CANNOT delete, deploy, push, "
-            "install packages, or access the network — those tools are blocked by policy; "
-            "if the mission needs one, explain it and call finish. Make real changes with "
-            "write_file and verify with run_command (build/test). Do not claim success "
-            "without verifying. When the WHOLE mission is done, call the finish tool."
+            "or access the network — those are blocked by policy; if the mission needs one, "
+            "explain it and call finish. Make real changes with write_file and verify with "
+            "run_command. "
+            "COMMAND RULES: run ONE simple command per call. Do NOT use shell chaining or "
+            "redirection (&&, ;, |, >, 2>&1, $(...), backticks, `cd X && ...`) — they are "
+            "blocked. To verify Python, use `python3 -m py_compile <file>` or `python3 <file>`. "
+            "Allowed: ls, cat, grep, git status, python3, node, npm run build/test, pytest. "
+            "If a command is blocked or 'requires approval', do NOT retry the same command — "
+            "switch to write_file or a different allowed command. "
+            "Do not claim success without verifying. When the WHOLE mission is done, call finish."
         )
         tools = _tool_schemas()
         # Resume: keep the prior conversation if provided (no restart, no lost work).
