@@ -138,13 +138,20 @@ async def get_current_user(
         In production, this would fetch user from database.
         For now, returns a simple user object with ID.
     """
-    from uuid import UUID
+    from uuid import UUID, uuid5, NAMESPACE_DNS
 
-    # In production, fetch from database
-    # For now, return simple user object
+    # Operators authenticate via the Redis user store, where the token subject is
+    # a username-derived id (e.g. "admin_richard"), not a UUID. Coerce it to a
+    # stable UUID (uuid5) so endpoints that type user.id as UUID work for any
+    # authenticated operator instead of 500-ing.
+    try:
+        uid = UUID(user_id)
+    except (ValueError, AttributeError, TypeError):
+        uid = uuid5(NAMESPACE_DNS, f"jarv-user-{user_id}")
+
     return User(
-        id=UUID(user_id),
-        email=f"user-{user_id[:8]}@jarv.ai",
-        username=f"user-{user_id[:8]}",
+        id=uid,
+        email=f"user-{str(user_id)[:8]}@jarv.ai",
+        username=f"user-{str(user_id)[:8]}",
         workspace_id=None,
     )
