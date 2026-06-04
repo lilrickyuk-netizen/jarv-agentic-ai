@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # PostgreSQL Database with pgvector
   postgres:
@@ -82,6 +80,14 @@ services:
     networks:
       - jarv-network
     restart: unless-stopped
+    # Liveness only: probe the dashboard's own static root, not /api/health
+    # (which proxies the backend). Use 127.0.0.1 to avoid IPv6 localhost races.
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   # Celery Worker
   worker:
@@ -106,6 +112,14 @@ services:
       - jarv-network
     restart: unless-stopped
     command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
+    # Celery worker liveness: ping the worker over the broker (not HTTP — this
+    # container runs Celery, not the uvicorn server the base image probes).
+    healthcheck:
+      test: ["CMD", "celery", "-A", "app.workers.celery_app", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   # Celery Beat Scheduler
   scheduler:
@@ -130,6 +144,14 @@ services:
       - jarv-network
     restart: unless-stopped
     command: celery -A app.workers.celery_app beat --loglevel=info
+    # Celery beat liveness: beat does not answer `inspect ping`, so verify the
+    # beat process itself is running (not HTTP — the base image probes uvicorn).
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0 if b'beat' in open('/proc/1/cmdline','rb').read() else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   # Local Runner Service (optional, for local development)
   local-runner:

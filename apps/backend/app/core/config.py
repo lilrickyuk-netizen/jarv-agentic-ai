@@ -134,17 +134,29 @@ class Settings(BaseSettings):
 
     @validator("CELERY_BROKER_URL", pre=True)
     def set_celery_broker(cls, v: Optional[str], values: dict) -> str:
+        # Follow REDIS_URL so the broker stays consistent with the cache
+        # connection and is Docker-safe when REDIS_URL is overridden via env.
+        # Always coerce to a plain string — Celery/Kombu cannot consume a
+        # RedisDsn object. An explicit value is only used if REDIS_URL is unset.
+        redis_url = values.get("REDIS_URL")
+        if redis_url:
+            return str(redis_url)
         if v:
-            return v
-        redis_url = values.get("REDIS_URL", "redis://localhost:6379/0")
-        return str(redis_url) if redis_url else "redis://localhost:6379/0"
+            return str(v)
+        return "redis://localhost:6379/0"
 
     @validator("CELERY_RESULT_BACKEND", pre=True)
     def set_celery_backend(cls, v: Optional[str], values: dict) -> str:
+        # Follow REDIS_URL so the result backend stays consistent with the
+        # cache connection and is Docker-safe when REDIS_URL is overridden via
+        # env. Always coerce to a plain string — Celery/Kombu cannot consume a
+        # RedisDsn object. An explicit value is only used if REDIS_URL is unset.
+        redis_url = values.get("REDIS_URL")
+        if redis_url:
+            return str(redis_url)
         if v:
-            return v
-        redis_url = values.get("REDIS_URL", "redis://localhost:6379/0")
-        return str(redis_url) if redis_url else "redis://localhost:6379/0"
+            return str(v)
+        return "redis://localhost:6379/0"
 
     # Voice
     VOICE_ENABLED: bool = False
