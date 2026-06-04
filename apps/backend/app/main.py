@@ -194,6 +194,12 @@ app.include_router(command.router, prefix="/api")
 from app.api import audit
 app.include_router(audit.router, prefix="/api")
 
+# Autonomous scheduler + external integrations
+from app.api import scheduler as scheduler_api
+app.include_router(scheduler_api.router, prefix="/api")
+from app.api import integrations as integrations_api
+app.include_router(integrations_api.router, prefix="/api")
+
 
 # Root endpoint (included in health router but also accessible at root)
 @app.get("/")

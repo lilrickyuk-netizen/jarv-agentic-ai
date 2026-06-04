@@ -195,6 +195,23 @@ class CommandService:
         # 1) Safety / approval classification (deterministic gate)
         safety = classify_command_safety(command_text)
 
+        # Controlled-tool intents route through tools that self-enforce scope,
+        # authority, and danger checks (write blocks out-of-scope/secret files;
+        # run_command blocks dangerous commands; notify is dry-run). They run at
+        # their authority level without a hard-boundary pause. Destructive verbs
+        # (delete/deploy/push/spend) match NO controlled intent and stay blocked.
+        _controlled = {
+            "remember_memory", "recall_memory", "register_workspace",
+            "scan_workspace", "verify_last_scan", "write_file", "run_command",
+            "send_notification", "delegate",
+        }
+        if self._detect_intent(command_text) in _controlled:
+            safety = SafetyDecision(
+                requires_approval=False,
+                reason="Controlled tool intent: executes under authority with in-tool scope/safety checks.",
+                forced_safe=True,
+            )
+
         # 2) Resolve a workspace to attach the task to
         ws_id = await self._resolve_workspace(db, workspace_id)
 
@@ -304,7 +321,27 @@ class CommandService:
             # Tool runtime: agents act through real, logged tools (BLOCKER 3).
             runtime = ToolRuntime(db, ws_id, task.id, operator=self.operator)
 
-            if intent == "remember_memory":
+            if intent == "write_file":
+                answer, plan_steps, selected_agents, result_extra = (
+                    await self._handle_write_file(db, runtime, command_text)
+                )
+                total_tokens = 0
+            elif intent == "run_command":
+                answer, plan_steps, selected_agents, result_extra = (
+                    await self._handle_run_command(runtime, command_text)
+                )
+                total_tokens = 0
+            elif intent == "send_notification":
+                answer, plan_steps, selected_agents, result_extra = (
+                    await self._handle_notify(runtime, command_text)
+                )
+                total_tokens = 0
+            elif intent == "delegate":
+                answer, plan_steps, selected_agents, result_extra = (
+                    await self._handle_delegate(db, runtime, command_text)
+                )
+                total_tokens = 0
+            elif intent == "remember_memory":
                 answer, plan_steps, selected_agents, result_extra = (
                     await self._handle_remember(runtime, command_text)
                 )
@@ -519,13 +556,28 @@ class CommandService:
     @staticmethod
     def _extract_path(command_text: str) -> Optional[str]:
         m = _PATH_RE.search(command_text)
-        return m.group(1).rstrip(".,;") if m else None
+        # Strip trailing punctuation that commonly follows a path in prose
+        # (e.g. "...WORKSPACE_TEST:" or "...PROJECT." ) — never part of the path.
+        return m.group(1).rstrip(".,;:") if m else None
 
     @staticmethod
     def _detect_intent(command_text: str) -> Optional[str]:
         """Classify a command into a real specialized handler, or None (generic)."""
         text = command_text.lower()
         has_path = bool(_PATH_RE.search(command_text))
+        # Agent-to-agent delegation chain.
+        if (re.search(r"\b(delegat|multi[- ]agent|hand[- ]?off|chain)\b", text) or
+                ("researcher" in text and ("qa" in text or "verifier" in text))):
+            return "delegate"
+        # External notification / webhook (dry-run by default).
+        if re.search(r"\b(notify|notification|webhook|send an? alert|send a test)\b", text):
+            return "send_notification"
+        # Controlled command execution.
+        if re.search(r"\b(run|execute)\b.*\b(command|cmd|ls|dir|git|build|test|script)\b", text):
+            return "run_command"
+        # Controlled file write/create.
+        if re.search(r"\b(create|write|add|make)\b.*\b(file|\.md|\.txt|\.json|\.py|\.ts)\b", text):
+            return "write_file"
         if re.search(r"\b(recall|retrieve|what did you remember|do you remember)\b", text):
             return "recall_memory"
         if re.search(r"\bremember\b", text):
@@ -550,6 +602,205 @@ class CommandService:
             return validated or agents
         except Exception:  # noqa: BLE001
             return agents
+
+    async def _resolve_ws_root(self, db: AsyncSession, command_text: str) -> Optional[str]:
+        """Resolve a workspace root path from the command, else the latest registered."""
+        p = self._extract_path(command_text)
+        if p:
+            return p
+        res = await db.execute(select(Workspace).order_by(Workspace.created_at.desc()))
+        for ws in res.scalars().all():
+            cfg = ws.config if isinstance(ws.config, dict) else {}
+            if cfg.get("root_path"):
+                return cfg["root_path"]
+        return None
+
+    async def _handle_write_file(
+        self, db: AsyncSession, runtime: ToolRuntime, command_text: str
+    ) -> tuple[str, List[str], List[str], Dict[str, Any]]:
+        """Controlled, authority-gated file write inside an approved workspace."""
+        steps = [
+            "Coding Agent: resolve the approved target path (scope-checked).",
+            "Security: confirm target is not a secret and is in scope.",
+            "Coding Agent: call write_file (Level 2) and record the FileChange.",
+        ]
+        agents = self._validate_agents(["orchestrator", "coding", "security"])
+        # Resolve filename + workspace.
+        fn_match = re.search(r"([\w.\-]+\.[A-Za-z0-9]{1,8})", command_text)
+        filename = fn_match.group(1) if fn_match else "JARV_WRITE_TEST.md"
+        full = self._extract_path(command_text)
+        sep = "\\" if (full and "\\" in full) or "\\" in settings.WORKSPACE_HOST_ROOT else "/"
+        if full and re.search(r"\.[A-Za-z0-9]{1,8}$", full):
+            target = full  # already a file path
+        else:
+            root = full or await self._resolve_ws_root(db, command_text)
+            if not root:
+                return ("No approved workspace to write into. Register one first.",
+                        steps, agents, {"write_error": "no_workspace"})
+            target = root.rstrip("\\/") + sep + filename
+        content = (
+            "# JARV Write Test\n\n"
+            "This file was created by JARV through the controlled, authority-gated "
+            "write_file tool (Level 2), scoped to an approved workspace.\n"
+        )
+        res = await runtime.write_file(target, content, overwrite=False)
+        if not res["success"]:
+            return (f"Write blocked for `{target}`.\n\n{res.get('reason')}",
+                    steps, agents, {"target": target, "written": False, "reason": res.get("reason")})
+        answer = (
+            f"**File written (controlled, Level 2).**\n\n"
+            f"- Path: `{target}`\n"
+            f"- Created: {res['data'].get('created')}\n"
+            f"- Bytes: {res['data'].get('bytes_written')}\n"
+            f"- A FileChange record + audit entry were logged. Writes outside the "
+            f"approved workspace or to secret files are blocked."
+        )
+        return answer, steps, agents, {"target": target, "written": True,
+                                       "created": res["data"].get("created")}
+
+    async def _handle_run_command(
+        self, runtime: ToolRuntime, command_text: str
+    ) -> tuple[str, List[str], List[str], Dict[str, Any]]:
+        """Execute a read-only command inside an approved workspace (capture I/O)."""
+        steps = [
+            "DevOps Agent: extract and classify the command (safe/risky/dangerous).",
+            "DevOps Agent: run safe read-only command with timeout; capture stdout/stderr/exit.",
+        ]
+        agents = self._validate_agents(["orchestrator", "devops"])
+        # Extract command: backticked, quoted, or after run/execute (the) command.
+        m = (re.search(r"[`\"']([^`\"']+)[`\"']", command_text) or
+             re.search(r"\b(?:run|execute)\b(?:\s+the)?(?:\s+command)?[:\s]+(.+)", command_text, re.IGNORECASE))
+        cmd = (m.group(1) if m else "").strip().rstrip(".")
+        cmd = re.split(r"(?:\s+inside\b|\s+in the\b|\s+do not\b)", cmd, maxsplit=1)[0].strip()
+        if not cmd:
+            cmd = "ls -la"
+        cwd = self._extract_path(command_text)
+        res = await runtime.run_safe_readonly_command(cmd, cwd_host=cwd)
+        if res.get("blocked"):
+            return (f"Command blocked (dangerous): `{cmd}`.", steps, agents,
+                    {"command": cmd, "blocked": True})
+        if res.get("requires_approval"):
+            return (f"Command `{cmd}` is not read-only and requires approval before execution.",
+                    steps, agents, {"command": cmd, "requires_approval": True})
+        out = (res.get("stdout") or "").strip()
+        answer = (
+            f"**Command executed (read-only, Level 3).**\n\n"
+            f"- Command: `{cmd}`\n- Exit code: {res.get('exit_code')}\n\n"
+            f"**stdout:**\n```\n{out[:1500] or '(empty)'}\n```\n"
+            + (f"**stderr:**\n```\n{res.get('stderr','')[:600]}\n```\n" if res.get("stderr") else "")
+        )
+        return answer, steps, agents, {"command": cmd, "exit_code": res.get("exit_code")}
+
+    async def _handle_notify(
+        self, runtime: ToolRuntime, command_text: str
+    ) -> tuple[str, List[str], List[str], Dict[str, Any]]:
+        """Dry-run external notification (secret-safe; live send needs approval)."""
+        steps = [
+            "Integration: select target (local_mock dry-run by default).",
+            "Integration: send notification (dry-run) and log payload secret-safe.",
+        ]
+        agents = self._validate_agents(["orchestrator", "monitoring"])
+        msg_match = re.search(r"[`\"']([^`\"']+)[`\"']", command_text)
+        message = msg_match.group(1) if msg_match else "JARV test notification (dry-run)."
+        res = await runtime.send_notification("local_mock", message, dry_run=True)
+        answer = (
+            f"**Notification dry-run complete.**\n\n"
+            f"- Target: `{res['target']}`\n- Mode: `{res['mode']}` (nothing sent externally)\n"
+            f"- Payload preview (secret-safe): {res.get('payload_preview')}\n\n"
+            f"Live external sends require configured credentials and explicit approval."
+        )
+        return answer, steps, agents, {"notification": res}
+
+    async def _handle_delegate(
+        self, db: AsyncSession, runtime: ToolRuntime, command_text: str
+    ) -> tuple[str, List[str], List[str], Dict[str, Any]]:
+        """Run a real researcher -> qa-tester -> verifier chain with recorded handoffs."""
+        steps = [
+            "Orchestrator: assign subtasks to researcher, qa-tester, verifier.",
+            "Researcher: inspect docs and hand off the referenced file list.",
+            "QA-tester: verify each referenced file exists; hand off the results.",
+            "Verifier: produce the final pass/fail from QA's output.",
+        ]
+        agents = self._validate_agents(["orchestrator", "research", "qa", "verifier"])
+        host_path = await self._resolve_ws_root(db, command_text)
+        if not host_path:
+            return ("No approved workspace to run the delegation chain on. Register one first.",
+                    steps, agents, {"delegate_error": "no_workspace"})
+
+        chain: List[Dict[str, Any]] = []
+        parent_id = runtime.task_id
+
+        async def child(agent: str, description: str) -> UUID:
+            t = Task(id=uuid4(), workspace_id=runtime.workspace_id,
+                     title=f"[{agent}] {description}"[:500], description=description,
+                     task_type="subtask", status="running", priority=5,
+                     context={"parent_task_id": str(parent_id), "agent": agent},
+                     meta_data={"delegated": True},
+                     started_at=datetime.now(timezone.utc),
+                     created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+            db.add(t)
+            await db.flush()
+            return t.id
+
+        async def finish(child_id: UUID, agent: str, output: Dict[str, Any], summary: str) -> None:
+            res = await db.execute(select(Task).where(Task.id == child_id))
+            ct = res.scalar_one_or_none()
+            if ct:
+                ct.status = "completed"
+                ct.completed_at = datetime.now(timezone.utc)
+                ct.result = {"agent": agent, "output": output, "summary": summary}
+                ct.updated_at = datetime.now(timezone.utc)
+            await self._feed(db, runtime.workspace_id, parent_id, item_type="delegation",
+                             severity="info", title=f"Handoff: {agent}", message=summary)
+            await memory_service.add(db, content=f"[delegation:{agent}] {summary}",
+                                     memory_type="delegation", workspace_id=runtime.workspace_id,
+                                     task_id=parent_id, importance=0.55)
+            chain.append({"agent": agent, "child_task_id": str(child_id),
+                          "output": output, "summary": summary})
+
+        # 1) Researcher inspects docs (real scan via tool).
+        c1 = await child("researcher", f"Inspect docs in {host_path}")
+        scan = await runtime.scan_workspace(host_path)
+        docs = (scan.get("data") or {}).get("doc_files", []) if scan.get("success") else []
+        referenced = (scan.get("data") or {}).get("top_level_files", []) + docs
+        await finish(c1, "researcher", {"referenced_files": referenced},
+                     f"found {len(referenced)} referenced file(s)")
+
+        # 2) QA-tester verifies the researcher's files exist (consumes handoff).
+        c2 = await child("qa-tester", "Verify researcher's referenced files exist")
+        sep = "\\" if "\\" in host_path else "/"
+        base = host_path.rstrip("\\/")
+        checks = []
+        for rel in referenced:
+            full = base + sep + rel.replace("/", sep)
+            chk = fs_inspector.path_exists(full)
+            checks.append({"file": rel, "exists": bool(chk.accessible and chk.exists)})
+        verified = sum(1 for c in checks if c["exists"])
+        await finish(c2, "qa-tester", {"checks": checks, "verified": verified, "total": len(checks)},
+                     f"verified {verified}/{len(checks)} files exist")
+
+        # 3) Verifier produces the final pass/fail from QA's output.
+        c3 = await child("verifier", "Produce final pass/fail from QA results")
+        passed = len(checks) > 0 and verified == len(checks)
+        await finish(c3, "verifier", {"passed": passed, "verified": verified, "total": len(checks)},
+                     f"final verdict: {'PASS' if passed else 'FAIL'}")
+
+        lines = "\n".join(
+            f"  {i+1}. **{h['agent']}** → {h['summary']} (task `{h['child_task_id'][:8]}`)"
+            for i, h in enumerate(chain)
+        )
+        answer = (
+            f"**Multi-agent delegation chain complete** on `{host_path}`.\n\n"
+            f"{lines}\n\n"
+            f"**Final result:** {'PASS' if passed else 'FAIL'} "
+            f"({verified}/{len(checks)} files verified). Each handoff is a child task "
+            f"with its output stored and logged to the operations feed and memory."
+        )
+        return answer, steps, agents, {
+            "delegation": chain,
+            "parent_task_id": str(parent_id),
+            "final_passed": passed,
+        }
 
     async def _handle_remember(
         self, runtime: ToolRuntime, command_text: str

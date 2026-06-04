@@ -65,8 +65,11 @@ services:
         condition: service_healthy
     volumes:
       - ./apps/backend:/app
-      # Approved workspace root, mounted READ-ONLY for real file inspection.
-      - ${WORKSPACE_HOST_ROOT:-C:/Users/lilri/OneDrive/Desktop}:/host/workspaces:ro
+      # Approved workspace root. Mounted read-write so JARV can perform
+      # AUTHORITY-GATED, scope-checked file writes inside approved workspaces.
+      # Safety is enforced in-app (registered-workspace allowlist + banned/secret
+      # denylist + audit + FileChange records); writes outside scope are blocked.
+      - ${WORKSPACE_HOST_ROOT:-C:/Users/lilri/OneDrive/Desktop}:/host/workspaces
     networks:
       - jarv-network
     restart: unless-stopped

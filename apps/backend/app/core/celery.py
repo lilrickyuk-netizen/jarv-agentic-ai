@@ -50,9 +50,44 @@ celery_app.conf.update(
     task_reject_on_worker_lost=True,
     task_track_started=True,
 
-    # Beat schedule (for periodic tasks)
-    beat_schedule={},
+    # Beat schedule (for periodic tasks). JARV self-triggers these — no operator
+    # command required. Enable/disable is controlled by SCHEDULED_JOBS below.
+    beat_schedule={
+        "daily-status-loop": {
+            "task": "scheduled_status_loop",
+            "schedule": float(getattr(settings, "SCHEDULER_STATUS_INTERVAL_SECONDS", 120)),
+            "options": {"expires": 110},
+        },
+    },
 )
+
+# Declarative registry of scheduled jobs (surfaced via /api/scheduler/jobs).
+SCHEDULED_JOBS = [
+    {
+        "name": "daily_status_check",
+        "task": "scheduled_status_loop",
+        "interval_seconds": float(getattr(settings, "SCHEDULER_STATUS_INTERVAL_SECONDS", 120)),
+        "enabled": True,
+        "type": "health/daily-loop",
+        "description": "Autonomous read-only system status check (daily operating loop heartbeat).",
+    },
+    {
+        "name": "self_healing_check",
+        "task": "scheduled_status_loop",
+        "interval_seconds": float(getattr(settings, "SCHEDULER_STATUS_INTERVAL_SECONDS", 120)),
+        "enabled": bool(getattr(settings, "SELF_HEALING_ENABLED", True)),
+        "type": "self-healing",
+        "description": "Self-healing health probe (uses the status loop as its check).",
+    },
+    {
+        "name": "workspace_maintenance",
+        "task": "scheduled_status_loop",
+        "interval_seconds": 3600.0,
+        "enabled": False,
+        "type": "maintenance",
+        "description": "Workspace maintenance sweep (disabled by default; enable per workspace).",
+    },
+]
 
 
 @after_setup_logger.connect

@@ -361,6 +361,78 @@ def read_file(host_path: str, max_bytes: int = 20000) -> FsResult:
                         container_path=chk.container_path, reason=str(exc))
 
 
+def write_file(host_path: str, content: str, overwrite: bool = False) -> FsResult:
+    """
+    Controlled file write inside an approved workspace (scope + secret enforced).
+
+    Writes are blocked outside the approved root, for banned/secret-bearing
+    targets, and (unless overwrite=True) when the file already exists. Returns
+    the previous content (if any) so the caller can record a diff/rollback.
+    """
+    if _is_banned(host_path):
+        return FsResult(accessible=False, host_path=host_path,
+                        reason="Target matches a hard-boundary protected location; write blocked.")
+    container = host_to_container(host_path)
+    if container is None:
+        return FsResult(accessible=False, host_path=host_path,
+                        reason=(f"Path is outside the approved workspace root "
+                                f"({settings.WORKSPACE_HOST_ROOT}); write blocked."))
+    name = container.name.lower()
+    if name.startswith(".env") or name.endswith(".env") or "secret" in name or "id_rsa" in name:
+        return FsResult(accessible=False, host_path=host_path, container_path=str(container),
+                        reason="Target is a secret-bearing file; write blocked.")
+    try:
+        existed = container.exists()
+        if existed and not overwrite:
+            return FsResult(accessible=False, host_path=host_path, container_path=str(container),
+                            exists=True, reason="File already exists; refusing to overwrite.")
+        previous = None
+        if existed:
+            try:
+                previous = container.read_text(encoding="utf-8", errors="replace")
+            except Exception:  # noqa: BLE001
+                previous = None
+        container.parent.mkdir(parents=True, exist_ok=True)
+        container.write_text(content, encoding="utf-8")
+        return FsResult(accessible=True, host_path=host_path, container_path=str(container),
+                        exists=True, is_dir=False,
+                        data={"bytes_written": len(content.encode("utf-8")),
+                              "created": not existed, "previous_content": previous})
+    except Exception as exc:  # noqa: BLE001
+        return FsResult(accessible=False, host_path=host_path, container_path=str(container),
+                        reason=f"Write failed: {exc}")
+
+
+# Read-only commands that are safe to execute against an approved workspace.
+SAFE_COMMAND_PREFIXES = (
+    "ls", "dir", "pwd", "cat", "head", "tail", "wc", "find", "tree", "stat",
+    "git status", "git log", "git branch", "git diff", "git remote",
+    "python --version", "python3 --version", "node --version", "npm --version",
+    "npm ls", "npm list", "pip list", "pip --version", "echo", "whoami", "date",
+)
+# Always-blocked dangerous tokens.
+DANGEROUS_COMMAND_TOKENS = (
+    "rm ", "rm -", "rmdir", "del ", "del/", "format", "mkfs", "dd ", "shutdown",
+    "reboot", "sudo", "curl", "wget", "ssh", "scp", "chmod", "chown", ">", ">>",
+    "|", "&&", ";", "`", "$(", "kill", "pkill", "mv ", "cp ", "git push",
+    "git commit", "npm install", "pip install", "apt", "yum", "brew",
+)
+
+
+def classify_command(command: str) -> str:
+    """Return 'safe' (read-only allowed), 'dangerous' (blocked), or 'risky' (needs approval)."""
+    c = (command or "").strip().lower()
+    if not c:
+        return "dangerous"
+    for tok in DANGEROUS_COMMAND_TOKENS:
+        if tok in c:
+            return "dangerous"
+    for pre in SAFE_COMMAND_PREFIXES:
+        if c == pre or c.startswith(pre + " ") or c == pre.split()[0]:
+            return "safe"
+    return "risky"
+
+
 def _safe_size(p: Path) -> Optional[int]:
     try:
         return p.stat().st_size
