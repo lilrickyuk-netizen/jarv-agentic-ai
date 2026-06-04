@@ -166,24 +166,38 @@ async def get_workspace_stats(db: Session = Depends(get_db)) -> WorkspaceStats:
         Workspace statistics
     """
     try:
-        # Count workspaces
-        total_workspaces = db.query(func.count(Workspace.id)).scalar()
-        active_workspaces = db.query(func.count(Workspace.id)).filter(
-            Workspace.is_active == True,
-            Workspace.is_archived == False
+        # Count workspaces (async session: use select + execute)
+        total_workspaces = (
+            await db.execute(select(func.count(Workspace.id)))
         ).scalar()
-        archived_workspaces = db.query(func.count(Workspace.id)).filter(
-            Workspace.is_archived == True
+        active_workspaces = (
+            await db.execute(
+                select(func.count(Workspace.id)).where(
+                    Workspace.is_active == True,
+                    Workspace.is_archived == False,
+                )
+            )
         ).scalar()
-        company_mode_workspaces = db.query(func.count(Workspace.id)).filter(
-            Workspace.company_mode_enabled == True
+        archived_workspaces = (
+            await db.execute(
+                select(func.count(Workspace.id)).where(
+                    Workspace.is_archived == True
+                )
+            )
+        ).scalar()
+        company_mode_workspaces = (
+            await db.execute(
+                select(func.count(Workspace.id)).where(
+                    Workspace.company_mode_enabled == True
+                )
+            )
         ).scalar()
 
         # Count tasks across all workspaces
-        total_tasks = db.query(func.count(Task.id)).scalar()
+        total_tasks = (await db.execute(select(func.count(Task.id)))).scalar()
 
         # Count agents across all workspaces
-        total_agents = db.query(func.count(Agent.id)).scalar()
+        total_agents = (await db.execute(select(func.count(Agent.id)))).scalar()
 
         return WorkspaceStats(
             total_workspaces=total_workspaces or 0,

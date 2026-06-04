@@ -124,51 +124,6 @@ async def list_approvals(
     ]
 
 
-@router.get("/{approval_id}", response_model=ApprovalInfo)
-async def get_approval(
-    approval_id: UUID,
-    db: Session = Depends(get_db)
-):
-    """
-    Get detailed information about a specific approval.
-
-    Args:
-        approval_id: UUID of the approval
-
-    Returns:
-        Approval information
-    """
-    query = select(Approval).where(Approval.id == approval_id)
-    result = await db.execute(query)
-    approval = result.scalar_one_or_none()
-
-    if not approval:
-        raise HTTPException(status_code=404, detail="Approval not found")
-
-    return ApprovalInfo(
-        id=str(approval.id),
-        user_id=str(approval.user_id),
-        session_id=str(approval.session_id),
-        approval_type=approval.approval_type,
-        action_description=approval.action_description,
-        action_details=approval.action_details,
-        authority_level_required=approval.authority_level_required,
-        status=approval.status,
-        approved=approval.approved,
-        approved_at=approval.approved_at.isoformat() if approval.approved_at else None,
-        rejected_at=approval.rejected_at.isoformat() if approval.rejected_at else None,
-        response_message=approval.response_message,
-        executed=approval.executed,
-        executed_at=approval.executed_at.isoformat() if approval.executed_at else None,
-        execution_result=approval.execution_result,
-        execution_error=approval.execution_error,
-        expires_at=approval.expires_at.isoformat() if approval.expires_at else None,
-        is_expired=approval.is_expired,
-        created_at=approval.created_at.isoformat() if approval.created_at else datetime.now().isoformat(),
-        updated_at=approval.updated_at.isoformat() if approval.updated_at else datetime.now().isoformat(),
-    )
-
-
 @router.get("/stats", response_model=ApprovalStats)
 async def get_approval_stats(
     user_id: Optional[UUID] = None,
@@ -231,4 +186,49 @@ async def get_approval_stats(
         by_type=by_type,
         by_authority_level=by_authority_level,
         average_response_time_minutes=round(average_response_time, 2),
+    )
+
+
+@router.get("/{approval_id}", response_model=ApprovalInfo)
+async def get_approval(
+    approval_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """
+    Get detailed information about a specific approval.
+
+    Args:
+        approval_id: UUID of the approval
+
+    Returns:
+        Approval information
+    """
+    query = select(Approval).where(Approval.id == approval_id)
+    result = await db.execute(query)
+    approval = result.scalar_one_or_none()
+
+    if not approval:
+        raise HTTPException(status_code=404, detail="Approval not found")
+
+    return ApprovalInfo(
+        id=str(approval.id),
+        user_id=str(approval.user_id),
+        session_id=str(approval.session_id),
+        approval_type=approval.approval_type,
+        action_description=approval.action_description,
+        action_details=approval.action_details,
+        authority_level_required=approval.authority_level_required,
+        status=approval.status,
+        approved=approval.approved,
+        approved_at=approval.approved_at.isoformat() if approval.approved_at else None,
+        rejected_at=approval.rejected_at.isoformat() if approval.rejected_at else None,
+        response_message=approval.response_message,
+        executed=approval.executed,
+        executed_at=approval.executed_at.isoformat() if approval.executed_at else None,
+        execution_result=approval.execution_result,
+        execution_error=approval.execution_error,
+        expires_at=approval.expires_at.isoformat() if approval.expires_at else None,
+        is_expired=approval.is_expired,
+        created_at=approval.created_at.isoformat() if approval.created_at else datetime.now().isoformat(),
+        updated_at=approval.updated_at.isoformat() if approval.updated_at else datetime.now().isoformat(),
     )

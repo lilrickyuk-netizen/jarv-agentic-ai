@@ -72,7 +72,7 @@ export default function ExperiencePage() {
       }
 
       const experiencesResponse = await apiClient.get<Experience[]>(
-        `/experience/list?${params.toString()}`
+        `/api/experience/list?${params.toString()}`
       );
 
       if (experiencesResponse.error) {
@@ -82,7 +82,7 @@ export default function ExperiencePage() {
       }
 
       // Fetch stats
-      const statsResponse = await apiClient.get<ExperienceStats>('/experience/stats');
+      const statsResponse = await apiClient.get<ExperienceStats>('/api/experience/stats');
       if (!statsResponse.error && statsResponse.data) {
         setStats(statsResponse.data);
       }

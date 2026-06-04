@@ -44,14 +44,14 @@ export default function AssetsPage() {
     setError(null);
 
     try {
-      const assetsResponse = await apiClient.get<Asset[]>('/assets/list');
+      const assetsResponse = await apiClient.get<Asset[]>('/api/assets/list');
       if (assetsResponse.error) {
         setError(assetsResponse.error);
       } else if (assetsResponse.data) {
         setAssets(assetsResponse.data);
       }
 
-      const statsResponse = await apiClient.get<AssetStats>('/assets/stats');
+      const statsResponse = await apiClient.get<AssetStats>('/api/assets/stats');
       if (!statsResponse.error && statsResponse.data) {
         setStats(statsResponse.data);
       }

@@ -72,7 +72,7 @@ export default function AIStandupsPage() {
       }
 
       const standupsResponse = await apiClient.get<Standup[]>(
-        `/standups/list?${params.toString()}`
+        `/api/standups/list?${params.toString()}`
       );
 
       if (standupsResponse.error) {
@@ -82,13 +82,13 @@ export default function AIStandupsPage() {
       }
 
       // Fetch stats
-      const statsResponse = await apiClient.get<StandupStats>('/standups/stats');
+      const statsResponse = await apiClient.get<StandupStats>('/api/standups/stats');
       if (!statsResponse.error && statsResponse.data) {
         setStats(statsResponse.data);
       }
 
       // Fetch daily summaries
-      const summariesResponse = await apiClient.get<DailySummary[]>('/standups/daily-summary');
+      const summariesResponse = await apiClient.get<DailySummary[]>('/api/standups/daily-summary');
       if (!summariesResponse.error && summariesResponse.data) {
         setDailySummaries(summariesResponse.data);
       }

@@ -78,7 +78,7 @@ export default function CompanyOperationsPage() {
       }
 
       const rolesResponse = await apiClient.get<CompanyRole[]>(
-        `/company/roles/list?${params.toString()}`
+        `/api/company/roles/list?${params.toString()}`
       );
 
       if (rolesResponse.error) {
@@ -88,13 +88,13 @@ export default function CompanyOperationsPage() {
       }
 
       // Fetch stats
-      const statsResponse = await apiClient.get<CompanyStats>('/company/stats');
+      const statsResponse = await apiClient.get<CompanyStats>('/api/company/stats');
       if (!statsResponse.error && statsResponse.data) {
         setStats(statsResponse.data);
       }
 
       // Fetch departments
-      const deptsResponse = await apiClient.get<DepartmentInfo[]>('/company/departments');
+      const deptsResponse = await apiClient.get<DepartmentInfo[]>('/api/company/departments');
       if (!deptsResponse.error && deptsResponse.data) {
         setDepartments(deptsResponse.data);
       }

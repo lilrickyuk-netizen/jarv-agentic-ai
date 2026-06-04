@@ -23,6 +23,14 @@ interface AgentStats {
   by_category: Record<string, Record<string, number>>;
 }
 
+interface CommandResult {
+  command_text: string;
+  response_text: string;
+  execution_time: number;
+  success: boolean;
+  error?: string | null;
+}
+
 export default function CommandCenterPage() {
   const router = useRouter();
   const [health, setHealth] = useState<HealthResponse | null>(null);
@@ -31,6 +39,74 @@ export default function CommandCenterPage() {
   const [agentStats, setAgentStats] = useState<AgentStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Command console state (text + voice command control)
+  const [command, setCommand] = useState('');
+  const [commandResult, setCommandResult] = useState<CommandResult | null>(null);
+  const [commandLoading, setCommandLoading] = useState(false);
+  const [commandError, setCommandError] = useState<string | null>(null);
+  const [listening, setListening] = useState(false);
+  const [voiceSupported, setVoiceSupported] = useState(false);
+
+  useEffect(() => {
+    // Browser-native speech recognition is the local-first voice path.
+    // If unavailable, the console falls back to text-only input.
+    if (typeof window !== 'undefined') {
+      const SR =
+        (window as any).SpeechRecognition ||
+        (window as any).webkitSpeechRecognition;
+      setVoiceSupported(Boolean(SR));
+    }
+  }, []);
+
+  const sendCommand = async (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setCommandLoading(true);
+    setCommandError(null);
+    setCommandResult(null);
+    try {
+      const response = await apiClient.post<CommandResult>(
+        '/api/voice/command/text',
+        { command: trimmed, language: 'en-US' }
+      );
+      if (response.error) {
+        setCommandError(response.error);
+      } else if (response.data) {
+        setCommandResult(response.data);
+      }
+    } catch (err) {
+      setCommandError(
+        err instanceof Error ? err.message : 'Failed to send command'
+      );
+    } finally {
+      setCommandLoading(false);
+    }
+  };
+
+  const startVoice = () => {
+    if (typeof window === 'undefined') return;
+    const SR =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition;
+    if (!SR) return;
+    const recognition = new SR();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript as string;
+      setCommand(transcript);
+      sendCommand(transcript);
+    };
+    recognition.onerror = (event: any) => {
+      setCommandError(`Voice input error: ${event.error}. Use text input instead.`);
+      setListening(false);
+    };
+    recognition.onend = () => setListening(false);
+    setListening(true);
+    recognition.start();
+  };
 
   const handleLogout = async () => {
     try {
@@ -103,6 +179,87 @@ export default function CommandCenterPage() {
           >
             Logout
           </button>
+        </div>
+
+        {/* Command Console — type or speak a command to JARV */}
+        <div className="bg-card border rounded-lg p-6 mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-bold">Command JARV</h2>
+            <span className="text-xs text-muted-foreground">
+              {voiceSupported
+                ? 'Voice + text enabled'
+                : 'Text input (voice not supported in this browser)'}
+            </span>
+          </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              sendCommand(command);
+            }}
+            className="flex gap-2"
+          >
+            <input
+              type="text"
+              value={command}
+              onChange={(e) => setCommand(e.target.value)}
+              placeholder="Type a command, e.g. 'Create a launch plan and check system readiness'"
+              disabled={commandLoading}
+              className="flex-1 px-4 py-3 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+            {voiceSupported && (
+              <button
+                type="button"
+                onClick={startVoice}
+                disabled={commandLoading || listening}
+                title="Speak a command"
+                className={`px-4 py-3 rounded-md border transition-colors ${
+                  listening
+                    ? 'bg-red-600 text-white border-red-600 animate-pulse'
+                    : 'hover:border-primary hover:bg-primary/5'
+                }`}
+              >
+                {listening ? '● Listening' : '🎤 Speak'}
+              </button>
+            )}
+            <button
+              type="submit"
+              disabled={commandLoading || !command.trim()}
+              className="px-6 py-3 bg-primary text-primary-foreground rounded-md hover:opacity-90 transition-opacity disabled:opacity-50"
+            >
+              {commandLoading ? 'Sending…' : 'Send'}
+            </button>
+          </form>
+
+          {commandError && (
+            <div className="mt-4 bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded-lg">
+              <p className="text-sm">{commandError}</p>
+            </div>
+          )}
+
+          {commandResult && (
+            <div className="mt-4 border rounded-lg p-4 bg-background">
+              <div className="flex items-center justify-between mb-2">
+                <span
+                  className={`px-2 py-1 text-xs rounded font-semibold ${
+                    commandResult.success
+                      ? 'bg-green-100 text-green-800'
+                      : 'bg-orange-100 text-orange-800'
+                  }`}
+                >
+                  {commandResult.success ? 'JARV responded' : 'Completed with issues'}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {commandResult.execution_time.toFixed(2)}s
+                </span>
+              </div>
+              <p className="text-sm text-muted-foreground mb-1">
+                Command: {commandResult.command_text}
+              </p>
+              <pre className="text-sm whitespace-pre-wrap font-sans mt-2">
+                {commandResult.response_text}
+              </pre>
+            </div>
+          )}
         </div>
 
         {/* Loading State */}

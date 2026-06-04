@@ -34,7 +34,7 @@ export default function SwarmPage() {
     setError(null);
 
     try {
-      const response = await apiClient.get<SwarmRun[]>('/swarm/runs');
+      const response = await apiClient.get<SwarmRun[]>('/api/swarm/runs');
 
       if (response.error) {
         setError(response.error);

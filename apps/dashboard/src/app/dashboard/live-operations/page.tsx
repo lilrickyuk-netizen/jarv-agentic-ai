@@ -68,7 +68,7 @@ export default function LiveOperationsFeedPage() {
       }
 
       const feedResponse = await apiClient.get<FeedItem[]>(
-        `/operations-feed/list?${params.toString()}`
+        `/api/operations-feed/list?${params.toString()}`
       );
 
       if (feedResponse.error) {
@@ -78,7 +78,7 @@ export default function LiveOperationsFeedPage() {
       }
 
       // Fetch stats
-      const statsResponse = await apiClient.get<FeedStats>('/operations-feed/stats');
+      const statsResponse = await apiClient.get<FeedStats>('/api/operations-feed/stats');
       if (!statsResponse.error && statsResponse.data) {
         setStats(statsResponse.data);
       }

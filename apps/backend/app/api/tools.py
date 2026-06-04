@@ -139,29 +139,6 @@ async def list_all_tools(
     )
 
 
-@router.get("/tools/{tool_name}", response_model=ToolInfoResponse)
-async def get_tool_info(tool_name: str) -> ToolInfoResponse:
-    """
-    Get information about a specific tool.
-
-    Args:
-        tool_name: Tool name
-
-    Returns:
-        Tool information
-    """
-    registry = get_registry()
-    metadata = registry.get_metadata(tool_name)
-
-    if not metadata:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Tool not found: {tool_name}"
-        )
-
-    return _metadata_to_response(metadata)
-
-
 @router.get("/tools/categories", response_model=CategoryListResponse)
 async def list_categories() -> CategoryListResponse:
     """
@@ -287,3 +264,26 @@ async def check_tool_available(
         "category": metadata.category,
         "requires_approval": metadata.requires_approval,
     }
+
+
+@router.get("/tools/{tool_name}", response_model=ToolInfoResponse)
+async def get_tool_info(tool_name: str) -> ToolInfoResponse:
+    """
+    Get information about a specific tool.
+
+    Args:
+        tool_name: Tool name
+
+    Returns:
+        Tool information
+    """
+    registry = get_registry()
+    metadata = registry.get_metadata(tool_name)
+
+    if not metadata:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Tool not found: {tool_name}"
+        )
+
+    return _metadata_to_response(metadata)

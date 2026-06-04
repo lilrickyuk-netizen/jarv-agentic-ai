@@ -58,7 +58,7 @@ export default function ToolsPage() {
       }
 
       const toolsResponse = await apiClient.get<ToolsListResponse>(
-        `/tools?${params.toString()}`
+        `/api/tools?${params.toString()}`
       );
 
       if (toolsResponse.error) {
@@ -68,14 +68,14 @@ export default function ToolsPage() {
       }
 
       // Fetch stats
-      const statsResponse = await apiClient.get<ToolStats>('/tools/stats');
+      const statsResponse = await apiClient.get<ToolStats>('/api/tools/stats');
       if (!statsResponse.error && statsResponse.data) {
         setStats(statsResponse.data);
       }
 
       // Fetch categories
       const categoriesResponse = await apiClient.get<{ categories: string[] }>(
-        '/tools/categories'
+        '/api/tools/categories'
       );
       if (!categoriesResponse.error && categoriesResponse.data) {
         setCategories(categoriesResponse.data.categories);

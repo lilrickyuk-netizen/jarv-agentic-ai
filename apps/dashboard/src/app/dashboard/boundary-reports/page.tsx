@@ -44,14 +44,14 @@ export default function BoundaryReportsPage() {
     setError(null);
 
     try {
-      const reportsResponse = await apiClient.get<BoundaryReport[]>('/boundary-reports/list');
+      const reportsResponse = await apiClient.get<BoundaryReport[]>('/api/boundary-reports/list');
       if (reportsResponse.error) {
         setError(reportsResponse.error);
       } else if (reportsResponse.data) {
         setReports(reportsResponse.data);
       }
 
-      const statsResponse = await apiClient.get<BoundaryReportStats>('/boundary-reports/stats');
+      const statsResponse = await apiClient.get<BoundaryReportStats>('/api/boundary-reports/stats');
       if (!statsResponse.error && statsResponse.data) {
         setStats(statsResponse.data);
       }

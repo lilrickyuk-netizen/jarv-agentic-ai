@@ -117,9 +117,9 @@ async def list_company_roles(
             is_automated=role.is_automated,
             parent_role_id=str(role.parent_role_id) if role.parent_role_id else None,
             total_agents=role.total_agents,
-            active_agents=role.active_agents,
+            active_agents=getattr(role, "active_agents", 0),
             tasks_completed=role.tasks_completed,
-            tasks_failed=role.tasks_failed,
+            tasks_failed=getattr(role, "tasks_failed", 0),
             created_at=role.created_at.isoformat() if role.created_at else datetime.now().isoformat(),
             updated_at=role.updated_at.isoformat() if role.updated_at else datetime.now().isoformat(),
         )

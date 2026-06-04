@@ -47,13 +47,13 @@ export default function SelfEvolutionPage() {
 
     try {
       // Fetch experiences
-      const experiencesResponse = await apiClient.get<Experience[]>('/evolution/experiences');
+      const experiencesResponse = await apiClient.get<Experience[]>('/api/evolution/experiences');
       if (!experiencesResponse.error && experiencesResponse.data) {
         setExperiences(experiencesResponse.data);
       }
 
       // Fetch improvements
-      const improvementsResponse = await apiClient.get<Improvement[]>('/evolution/improvements');
+      const improvementsResponse = await apiClient.get<Improvement[]>('/api/evolution/improvements');
       if (!improvementsResponse.error && improvementsResponse.data) {
         setImprovements(improvementsResponse.data);
       }

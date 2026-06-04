@@ -46,12 +46,17 @@ class VoiceCommandRouter:
         self.stt = STTAdapter(provider=stt_provider, api_key=stt_api_key)
         self.tts = TTSAdapter(provider=tts_provider, api_key=tts_api_key)
 
-        # Initialize Orchestrator
+        # Initialize Orchestrator at its required authority level.
+        # The Orchestrator is the top-level controller and is designed to run at
+        # LEVEL_9_SWARM_CREATION (see OrchestratorAgent.required_authority_level).
+        # Provisioning it below that level would make every command fail the
+        # authority check. This is correct provisioning, not authority escalation:
+        # it is the Lead Orchestrator, and hard boundaries are enforced separately.
         config = AgentConfig(
             agent_id=uuid4(),
             workspace_id=workspace_id,
             user_id=user_id,
-            authority_level=AuthorityLevel.LEVEL_5_NETWORK_ACCESS,
+            authority_level=AuthorityLevel.LEVEL_9_SWARM_CREATION,
         )
         self.orchestrator = OrchestratorAgent(config=config)
 
@@ -202,16 +207,26 @@ class VoiceCommandRouter:
         start_time = datetime.utcnow()
 
         try:
-            # Route to Orchestrator
+            # Route to Orchestrator (this produces the real JARV response)
             response = await self.route_to_orchestrator(command_text)
             response_text = response.get("response", "Command processed.")
+            orchestrator_ok = response.get("success", True)
 
-            # Convert response to speech
-            response_audio = await self.tts.synthesize_speech(
-                response_text,
-                voice=voice,
-                language=language,
-            )
+            # Convert response to speech. Speech synthesis is OPTIONAL for text
+            # commands: if no TTS provider is integrated (no API key), we still
+            # return the real text response (text fallback) instead of discarding
+            # it. This keeps text command control fully functional locally.
+            response_audio = b""
+            try:
+                response_audio = await self.tts.synthesize_speech(
+                    response_text,
+                    voice=voice,
+                    language=language,
+                )
+            except Exception as tts_error:
+                logger.info(
+                    f"TTS unavailable, returning text-only response: {tts_error}"
+                )
 
             execution_time = (datetime.utcnow() - start_time).total_seconds()
 
@@ -220,7 +235,8 @@ class VoiceCommandRouter:
                 "response_text": response_text,
                 "response_audio": response_audio,
                 "execution_time": execution_time,
-                "success": True,
+                "success": orchestrator_ok,
+                "error": response.get("error"),
             }
 
         except Exception as e:

@@ -127,51 +127,6 @@ async def list_experiences(
     ]
 
 
-@router.get("/{experience_id}", response_model=ExperienceInfo)
-async def get_experience(
-    experience_id: UUID,
-    db: Session = Depends(get_db)
-):
-    """
-    Get detailed information about a specific experience.
-
-    Args:
-        experience_id: UUID of the experience
-
-    Returns:
-        Experience information
-    """
-    query = select(ExperienceRecord).where(ExperienceRecord.id == experience_id)
-    result = await db.execute(query)
-    exp = result.scalar_one_or_none()
-
-    if not exp:
-        raise HTTPException(status_code=404, detail="Experience not found")
-
-    return ExperienceInfo(
-        id=str(exp.id),
-        agent_id=str(exp.agent_id),
-        session_id=str(exp.session_id) if exp.session_id else None,
-        task_id=str(exp.task_id) if exp.task_id else None,
-        experience_type=exp.experience_type,
-        title=exp.title,
-        description=exp.description,
-        situation=exp.situation,
-        action_taken=exp.action_taken,
-        result=exp.result,
-        outcome=exp.outcome,
-        lesson_learned=exp.lesson_learned,
-        applicable_contexts=exp.applicable_contexts or [],
-        confidence_score=exp.confidence_score,
-        times_applied=exp.times_applied,
-        success_rate=exp.success_rate,
-        is_validated=exp.is_validated,
-        is_active=exp.is_active,
-        created_at=exp.created_at.isoformat() if exp.created_at else datetime.now().isoformat(),
-        updated_at=exp.updated_at.isoformat() if exp.updated_at else datetime.now().isoformat(),
-    )
-
-
 @router.get("/stats", response_model=ExperienceStats)
 async def get_experience_stats(
     agent_id: Optional[UUID] = None,
@@ -284,3 +239,48 @@ async def get_agent_top_experiences(
         )
         for exp in experiences
     ]
+
+
+@router.get("/{experience_id}", response_model=ExperienceInfo)
+async def get_experience(
+    experience_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """
+    Get detailed information about a specific experience.
+
+    Args:
+        experience_id: UUID of the experience
+
+    Returns:
+        Experience information
+    """
+    query = select(ExperienceRecord).where(ExperienceRecord.id == experience_id)
+    result = await db.execute(query)
+    exp = result.scalar_one_or_none()
+
+    if not exp:
+        raise HTTPException(status_code=404, detail="Experience not found")
+
+    return ExperienceInfo(
+        id=str(exp.id),
+        agent_id=str(exp.agent_id),
+        session_id=str(exp.session_id) if exp.session_id else None,
+        task_id=str(exp.task_id) if exp.task_id else None,
+        experience_type=exp.experience_type,
+        title=exp.title,
+        description=exp.description,
+        situation=exp.situation,
+        action_taken=exp.action_taken,
+        result=exp.result,
+        outcome=exp.outcome,
+        lesson_learned=exp.lesson_learned,
+        applicable_contexts=exp.applicable_contexts or [],
+        confidence_score=exp.confidence_score,
+        times_applied=exp.times_applied,
+        success_rate=exp.success_rate,
+        is_validated=exp.is_validated,
+        is_active=exp.is_active,
+        created_at=exp.created_at.isoformat() if exp.created_at else datetime.now().isoformat(),
+        updated_at=exp.updated_at.isoformat() if exp.updated_at else datetime.now().isoformat(),
+    )

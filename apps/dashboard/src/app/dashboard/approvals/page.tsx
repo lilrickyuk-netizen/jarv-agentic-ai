@@ -56,14 +56,14 @@ export default function ApprovalsPage() {
         params.append('status', statusFilter);
       }
 
-      const approvalsResponse = await apiClient.get<Approval[]>(`/approvals/list?${params.toString()}`);
+      const approvalsResponse = await apiClient.get<Approval[]>(`/api/approvals/list?${params.toString()}`);
       if (approvalsResponse.error) {
         setError(approvalsResponse.error);
       } else if (approvalsResponse.data) {
         setApprovals(approvalsResponse.data);
       }
 
-      const statsResponse = await apiClient.get<ApprovalStats>('/approvals/stats');
+      const statsResponse = await apiClient.get<ApprovalStats>('/api/approvals/stats');
       if (!statsResponse.error && statsResponse.data) {
         setStats(statsResponse.data);
       }

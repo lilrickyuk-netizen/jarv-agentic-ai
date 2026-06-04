@@ -122,47 +122,6 @@ async def list_feed_items(
     ]
 
 
-@router.get("/{item_id}", response_model=FeedItemInfo)
-async def get_feed_item(
-    item_id: UUID,
-    db: Session = Depends(get_db)
-):
-    """
-    Get detailed information about a specific feed item.
-
-    Args:
-        item_id: UUID of the feed item
-
-    Returns:
-        Feed item information
-    """
-    query = select(LiveOperationsFeedItem).where(LiveOperationsFeedItem.id == item_id)
-    result = await db.execute(query)
-    item = result.scalar_one_or_none()
-
-    if not item:
-        raise HTTPException(status_code=404, detail="Feed item not found")
-
-    return FeedItemInfo(
-        id=str(item.id),
-        workspace_id=str(item.workspace_id),
-        item_type=item.item_type,
-        severity=item.severity,
-        title=item.title,
-        message=item.message,
-        related_agent_id=str(item.related_agent_id) if item.related_agent_id else None,
-        related_task_id=str(item.related_task_id) if item.related_task_id else None,
-        is_read=item.is_read,
-        is_archived=item.is_archived,
-        requires_action=item.requires_action,
-        action_taken=item.action_taken,
-        action_taken_at=item.action_taken_at.isoformat() if item.action_taken_at else None,
-        action_taken_by=str(item.action_taken_by) if item.action_taken_by else None,
-        created_at=item.created_at.isoformat() if item.created_at else datetime.now().isoformat(),
-        updated_at=item.updated_at.isoformat() if item.updated_at else datetime.now().isoformat(),
-    )
-
-
 @router.get("/stats", response_model=FeedStats)
 async def get_feed_stats(
     workspace_id: Optional[UUID] = None,
@@ -277,3 +236,44 @@ async def archive_feed_item(
     await db.commit()
 
     return {"success": True, "message": f"Feed item {'archived' if is_archived else 'unarchived'}"}
+
+
+@router.get("/{item_id}", response_model=FeedItemInfo)
+async def get_feed_item(
+    item_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """
+    Get detailed information about a specific feed item.
+
+    Args:
+        item_id: UUID of the feed item
+
+    Returns:
+        Feed item information
+    """
+    query = select(LiveOperationsFeedItem).where(LiveOperationsFeedItem.id == item_id)
+    result = await db.execute(query)
+    item = result.scalar_one_or_none()
+
+    if not item:
+        raise HTTPException(status_code=404, detail="Feed item not found")
+
+    return FeedItemInfo(
+        id=str(item.id),
+        workspace_id=str(item.workspace_id),
+        item_type=item.item_type,
+        severity=item.severity,
+        title=item.title,
+        message=item.message,
+        related_agent_id=str(item.related_agent_id) if item.related_agent_id else None,
+        related_task_id=str(item.related_task_id) if item.related_task_id else None,
+        is_read=item.is_read,
+        is_archived=item.is_archived,
+        requires_action=item.requires_action,
+        action_taken=item.action_taken,
+        action_taken_at=item.action_taken_at.isoformat() if item.action_taken_at else None,
+        action_taken_by=str(item.action_taken_by) if item.action_taken_by else None,
+        created_at=item.created_at.isoformat() if item.created_at else datetime.now().isoformat(),
+        updated_at=item.updated_at.isoformat() if item.updated_at else datetime.now().isoformat(),
+    )

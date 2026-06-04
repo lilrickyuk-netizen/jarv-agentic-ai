@@ -127,46 +127,6 @@ async def list_standups(
     ]
 
 
-@router.get("/{standup_id}", response_model=StandupInfo)
-async def get_standup(
-    standup_id: UUID,
-    db: Session = Depends(get_db)
-):
-    """
-    Get detailed information about a specific standup.
-
-    Args:
-        standup_id: UUID of the standup
-
-    Returns:
-        Standup information
-    """
-    query = select(AIStandup).where(AIStandup.id == standup_id)
-    result = await db.execute(query)
-    standup = result.scalar_one_or_none()
-
-    if not standup:
-        raise HTTPException(status_code=404, detail="Standup not found")
-
-    return StandupInfo(
-        id=str(standup.id),
-        workspace_id=str(standup.workspace_id),
-        agent_id=str(standup.agent_id) if standup.agent_id else None,
-        standup_date=standup.standup_date.isoformat(),
-        yesterday_accomplishments=standup.yesterday_accomplishments or [],
-        today_plans=standup.today_plans or [],
-        blockers=standup.blockers or [],
-        needs_help_with=standup.needs_help_with,
-        tasks_completed=standup.tasks_completed,
-        tasks_in_progress=standup.tasks_in_progress,
-        tasks_planned=standup.tasks_planned,
-        mood=standup.mood,
-        confidence_level=standup.confidence_level,
-        created_at=standup.created_at.isoformat() if standup.created_at else datetime.now().isoformat(),
-        updated_at=standup.updated_at.isoformat() if standup.updated_at else datetime.now().isoformat(),
-    )
-
-
 @router.get("/stats", response_model=StandupStats)
 async def get_standup_stats(
     workspace_id: Optional[UUID] = None,
@@ -293,3 +253,43 @@ async def get_daily_summary(
         ))
 
     return summaries
+
+
+@router.get("/{standup_id}", response_model=StandupInfo)
+async def get_standup(
+    standup_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """
+    Get detailed information about a specific standup.
+
+    Args:
+        standup_id: UUID of the standup
+
+    Returns:
+        Standup information
+    """
+    query = select(AIStandup).where(AIStandup.id == standup_id)
+    result = await db.execute(query)
+    standup = result.scalar_one_or_none()
+
+    if not standup:
+        raise HTTPException(status_code=404, detail="Standup not found")
+
+    return StandupInfo(
+        id=str(standup.id),
+        workspace_id=str(standup.workspace_id),
+        agent_id=str(standup.agent_id) if standup.agent_id else None,
+        standup_date=standup.standup_date.isoformat(),
+        yesterday_accomplishments=standup.yesterday_accomplishments or [],
+        today_plans=standup.today_plans or [],
+        blockers=standup.blockers or [],
+        needs_help_with=standup.needs_help_with,
+        tasks_completed=standup.tasks_completed,
+        tasks_in_progress=standup.tasks_in_progress,
+        tasks_planned=standup.tasks_planned,
+        mood=standup.mood,
+        confidence_level=standup.confidence_level,
+        created_at=standup.created_at.isoformat() if standup.created_at else datetime.now().isoformat(),
+        updated_at=standup.updated_at.isoformat() if standup.updated_at else datetime.now().isoformat(),
+    )

@@ -41,14 +41,14 @@ export default function CheckpointsPage() {
     setError(null);
 
     try {
-      const checkpointsResponse = await apiClient.get<Checkpoint[]>('/checkpoints/list');
+      const checkpointsResponse = await apiClient.get<Checkpoint[]>('/api/checkpoints/list');
       if (checkpointsResponse.error) {
         setError(checkpointsResponse.error);
       } else if (checkpointsResponse.data) {
         setCheckpoints(checkpointsResponse.data);
       }
 
-      const statsResponse = await apiClient.get<CheckpointStats>('/checkpoints/stats');
+      const statsResponse = await apiClient.get<CheckpointStats>('/api/checkpoints/stats');
       if (!statsResponse.error && statsResponse.data) {
         setStats(statsResponse.data);
       }

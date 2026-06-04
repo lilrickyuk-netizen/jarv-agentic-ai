@@ -70,7 +70,7 @@ export default function MemoryPage() {
       }
 
       const memoriesResponse = await apiClient.get<Memory[]>(
-        `/memory/list?${params.toString()}`
+        `/api/memory/list?${params.toString()}`
       );
 
       if (memoriesResponse.error) {
@@ -80,7 +80,7 @@ export default function MemoryPage() {
       }
 
       // Fetch stats
-      const statsResponse = await apiClient.get<MemoryStats>('/memory/stats');
+      const statsResponse = await apiClient.get<MemoryStats>('/api/memory/stats');
       if (!statsResponse.error && statsResponse.data) {
         setStats(statsResponse.data);
       }
