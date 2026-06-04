@@ -79,10 +79,21 @@ class Settings(BaseSettings):
     RATE_LIMIT_PER_MINUTE: int = 60
 
     # LLM Providers
+    # ANTHROPIC_API_KEY is the canonical Anthropic env var name; declared before
+    # CLAUDE_API_KEY so the fallback validator below can read it from `values`.
+    ANTHROPIC_API_KEY: Optional[str] = None
     CLAUDE_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
     OLLAMA_BASE_URL: str = "http://localhost:11434"
+
+    @validator("CLAUDE_API_KEY", pre=True)
+    def claude_key_from_anthropic(cls, v: Optional[str], values: dict) -> Optional[str]:
+        # Honor the standard ANTHROPIC_API_KEY when CLAUDE_API_KEY is unset/empty,
+        # so either environment variable name configures the Claude provider.
+        if v:
+            return v
+        return values.get("ANTHROPIC_API_KEY") or None
 
     # Local Runner
     RUNNER_TOKEN: str = Field(default="dev-runner-token")

@@ -46,9 +46,9 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-jarv}:${POSTGRES_PASSWORD:-jarv_password}@postgres:5432/${POSTGRES_DB:-jarv}
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
-      CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      # LLM provider keys are read from the mounted apps/backend/.env. Do not
+      # set them here with empty defaults — an empty env var would take
+      # precedence over the .env file and blank out the configured key.
       ENVIRONMENT: ${ENVIRONMENT:-development}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:

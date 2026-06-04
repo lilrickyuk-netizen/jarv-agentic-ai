@@ -32,6 +32,23 @@ class ClaudeProvider(BaseLLMProvider):
 
     # Available Claude models with their pricing (per million tokens)
     MODELS = {
+        # Current models
+        "claude-opus-4-8": {
+            "input_cost": 5.00,
+            "output_cost": 25.00,
+            "context_window": 1000000,
+        },
+        "claude-sonnet-4-6": {
+            "input_cost": 3.00,
+            "output_cost": 15.00,
+            "context_window": 1000000,
+        },
+        "claude-haiku-4-5": {
+            "input_cost": 1.00,
+            "output_cost": 5.00,
+            "context_window": 200000,
+        },
+        # Legacy models (retained for compatibility)
         "claude-3-5-sonnet-20241022": {
             "input_cost": 3.00,
             "output_cost": 15.00,
@@ -213,9 +230,20 @@ class ClaudeProvider(BaseLLMProvider):
             "model": request.model,
             "messages": messages,
             "max_tokens": request.max_tokens,
-            "temperature": request.temperature,
-            "top_p": request.top_p,
         }
+
+        # Sampling parameters: Opus 4.7+ reject temperature/top_p entirely, and
+        # all Claude 4+ models reject temperature and top_p together. Send at
+        # most one, and none for models that don't accept them.
+        no_sampling = any(
+            request.model.startswith(prefix)
+            for prefix in ("claude-opus-4-8", "claude-opus-4-7")
+        )
+        if not no_sampling:
+            if request.temperature is not None:
+                claude_request["temperature"] = request.temperature
+            elif request.top_p is not None:
+                claude_request["top_p"] = request.top_p
 
         if system:
             claude_request["system"] = system
