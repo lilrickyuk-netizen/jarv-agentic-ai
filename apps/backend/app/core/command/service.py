@@ -204,6 +204,7 @@ class CommandService:
             "remember_memory", "recall_memory", "register_workspace",
             "scan_workspace", "verify_last_scan", "write_file", "run_command",
             "send_notification", "delegate", "agent_task",
+            "launch_readiness", "infra_readiness",
         }
         if self._detect_intent(command_text) in _controlled:
             safety = SafetyDecision(
@@ -326,6 +327,16 @@ class CommandService:
                     await self._handle_agent_task(db, runtime, command_text)
                 )
                 total_tokens = result_extra.pop("agent_tokens", 0)
+            elif intent == "launch_readiness":
+                answer, plan_steps, selected_agents, result_extra = (
+                    await self._handle_launch_readiness(db, runtime, command_text)
+                )
+                total_tokens = 0
+            elif intent == "infra_readiness":
+                answer, plan_steps, selected_agents, result_extra = (
+                    await self._handle_infra_readiness(db, runtime, command_text)
+                )
+                total_tokens = 0
             elif intent == "write_file":
                 answer, plan_steps, selected_agents, result_extra = (
                     await self._handle_write_file(db, runtime, command_text)
@@ -578,6 +589,14 @@ class CommandService:
                 or re.search(r"\b(add|create|build|write)\b.*\b(feature|endpoint|function|component|module|route|api|test|class|method)\b", text)
                 or re.search(r"\b(make|get)\b.*\b(work|working|pass|passing|green|to build)\b", text)):
             return "agent_task"
+        # Launch / release readiness (read-only report).
+        if re.search(r"\b(launch readiness|release readiness|launch checklist|release checklist|"
+                     r"prepare (the )?(launch|release)|ready (to|for) launch|release readiness report)\b", text):
+            return "launch_readiness"
+        # Infrastructure / cloud / scale readiness (read-only report).
+        if re.search(r"\b(infrastructure readiness|cloud readiness|scal(e|ing) readiness|"
+                     r"deployment readiness|infra readiness)\b", text):
+            return "infra_readiness"
         # Agent-to-agent delegation chain.
         if (re.search(r"\b(delegat|multi[- ]agent|hand[- ]?off|chain)\b", text) or
                 ("researcher" in text and ("qa" in text or "verifier" in text))):
@@ -615,6 +634,162 @@ class CommandService:
             return validated or agents
         except Exception:  # noqa: BLE001
             return agents
+
+    @staticmethod
+    def _detect_stack(scan: Dict[str, Any]) -> Dict[str, Any]:
+        """Derive stack + build/test commands from real package/build files found."""
+        pkgs = set(scan.get("package_files", []) or [])
+        builds = set(scan.get("build_files", []) or [])
+        has = lambda n: any(p.split("/")[-1] == n for p in pkgs)
+        stack, build_cmd, test_cmd = [], None, None
+        if has("package.json"):
+            stack.append("node/js")
+            build_cmd, test_cmd = "npm run build", "npm test"
+        if has("requirements.txt") or has("pyproject.toml") or has("Pipfile"):
+            stack.append("python")
+            test_cmd = test_cmd or "python -m pytest"
+            build_cmd = build_cmd or "python -m compileall ."
+        if has("go.mod"):
+            stack.append("go"); build_cmd = build_cmd or "go build ./..."; test_cmd = test_cmd or "go test ./..."
+        if has("Cargo.toml"):
+            stack.append("rust"); build_cmd = build_cmd or "cargo build"; test_cmd = test_cmd or "cargo test"
+        if has("pom.xml") or has("build.gradle"):
+            stack.append("java")
+        dockerized = any("docker" in b.lower() for b in builds)
+        return {"stack": stack or ["unknown"], "build_command": build_cmd,
+                "test_command": test_cmd, "dockerized": dockerized}
+
+    async def _handle_launch_readiness(
+        self, db: AsyncSession, runtime: ToolRuntime, command_text: str
+    ) -> tuple[str, List[str], List[str], Dict[str, Any]]:
+        """Produce a real release-readiness report from the actual project files."""
+        steps = [
+            "DevOps: scan the workspace and detect the stack + build/test commands.",
+            "Security: list required env vars from env example files (names only).",
+            "DevOps: assemble release checklist, rollback + backup plan.",
+            "Boundary: confirm the live release itself requires Richard's approval.",
+        ]
+        agents = self._validate_agents(["orchestrator", "devops", "security", "documentation"])
+        root = await self._resolve_ws_root(db, command_text)
+        if not root:
+            return ("No approved workspace to assess. Register one first.",
+                    steps, agents, {"launch_error": "no_workspace"})
+        scan = await runtime.scan_workspace(root)
+        if not scan.get("success"):
+            return (f"Cannot assess `{root}`: {scan.get('reason')}", steps, agents,
+                    {"launch_error": scan.get("reason")})
+        d = scan["data"]
+        stack = self._detect_stack(d)
+        env_files = d.get("env_files", [])
+        has_dockerfile = any("dockerfile" in b.lower() for b in d.get("build_files", []))
+        has_compose = any("docker-compose" in b.lower() for b in d.get("build_files", []))
+
+        checklist = [
+            ("Stack detected", bool(stack["stack"] and stack["stack"] != ["unknown"])),
+            ("Build command identified", bool(stack["build_command"])),
+            ("Test command identified", bool(stack["test_command"])),
+            ("Env example present", bool(env_files)),
+            ("Dockerfile present", has_dockerfile),
+            ("docker-compose present", has_compose),
+        ]
+        ready = sum(1 for _, ok in checklist if ok)
+        report = {
+            "workspace": root, "stack": stack["stack"],
+            "build_command": stack["build_command"], "test_command": stack["test_command"],
+            "env_requirements_files": env_files, "dockerfile": has_dockerfile,
+            "docker_compose": has_compose,
+            "rollback_plan": [
+                "Tag the current release before deploying.",
+                "Keep the previous build artifact/image to redeploy on failure.",
+                "On error: redeploy previous tag; verify health; open an incident.",
+            ],
+            "backup_plan": [
+                "Snapshot the database before release (pg_dump).",
+                "Back up persistent volumes and the .env (secret-safe, not committed).",
+                "Verify restore on staging before production cutover.",
+            ],
+            "checklist": [{"item": k, "ok": v} for k, v in checklist],
+            "readiness_score": f"{ready}/{len(checklist)}",
+            "live_release": "REQUIRES RICHARD APPROVAL (hard boundary — Level 7 live release).",
+        }
+        await self._feed(db, runtime.workspace_id, runtime.task_id, item_type="launch",
+                         severity="info", title="Release readiness assessed",
+                         message=f"{root}: {ready}/{len(checklist)} ready, stack {stack['stack']}")
+        await memory_service.add(db, content=f"Launch readiness for {root}: {ready}/{len(checklist)}; "
+                                 f"stack {stack['stack']}; build {stack['build_command']}",
+                                 memory_type="launch", workspace_id=runtime.workspace_id,
+                                 task_id=runtime.task_id, importance=0.7)
+
+        def _ck(items):
+            return "\n".join(f"  - [{'x' if v else ' '}] {k}" for k, v in items)
+        answer = (
+            f"**Release Readiness Report — `{root}`**\n\n"
+            f"- **Stack:** {', '.join(stack['stack'])}\n"
+            f"- **Build command:** `{stack['build_command'] or 'not detected'}`\n"
+            f"- **Test command:** `{stack['test_command'] or 'not detected'}`\n"
+            f"- **Env requirements:** {', '.join(env_files) or 'none found'} (values never read)\n"
+            f"- **Dockerfile:** {has_dockerfile} | **docker-compose:** {has_compose}\n\n"
+            f"**Checklist ({ready}/{len(checklist)}):**\n{_ck(checklist)}\n\n"
+            f"**Rollback plan:**\n" + "\n".join(f"  - {x}" for x in report['rollback_plan']) + "\n\n"
+            f"**Backup plan:**\n" + "\n".join(f"  - {x}" for x in report['backup_plan']) + "\n\n"
+            f"**Live release:** {report['live_release']}\n\n"
+            f"_Read-only assessment. JARV will not perform the live release without your explicit approval._"
+        )
+        return answer, steps, agents, {"launch_readiness": report, "workspace_path": root}
+
+    async def _handle_infra_readiness(
+        self, db: AsyncSession, runtime: ToolRuntime, command_text: str
+    ) -> tuple[str, List[str], List[str], Dict[str, Any]]:
+        """Real infrastructure/cloud/scale readiness from actual files."""
+        steps = [
+            "Infrastructure: scan for Docker/compose/nginx/backup files.",
+            "Infrastructure: assess cloud readiness + scaling considerations.",
+        ]
+        agents = self._validate_agents(["orchestrator", "infrastructure", "devops"])
+        root = await self._resolve_ws_root(db, command_text)
+        if not root:
+            return ("No approved workspace to assess. Register one first.",
+                    steps, agents, {"infra_error": "no_workspace"})
+        scan = await runtime.scan_workspace(root)
+        if not scan.get("success"):
+            return (f"Cannot assess `{root}`: {scan.get('reason')}", steps, agents,
+                    {"infra_error": scan.get("reason")})
+        d = scan["data"]
+        files = [f.lower() for f in (d.get("build_files", []) + d.get("top_level_files", []))]
+        checks = {
+            "dockerfile": any("dockerfile" in f for f in files),
+            "docker_compose": any("docker-compose" in f for f in files),
+            "ci_config": any(f.endswith((".yml", ".yaml")) and ("ci" in f or "workflow" in f) for f in files),
+            "makefile": any(f == "makefile" for f in files),
+        }
+        report = {
+            "workspace": root, "checks": checks,
+            "cloud_ready": checks["dockerfile"] or checks["docker_compose"],
+            "scaling_notes": [
+                "Containerize with the present Dockerfile; run multiple replicas behind Nginx.",
+                "Externalize state (Postgres/Redis) so app instances stay stateless.",
+                "Add health checks + autoscaling rules; cap spend within approved budget.",
+            ],
+            "backup_restore": [
+                "Scheduled pg_dump to object storage; verify restore on staging.",
+                "Volume snapshots for persistent data.",
+            ],
+            "cost_note": "Estimate per-replica + DB + storage monthly cost before scaling; "
+                         "spending beyond the approved budget is a hard boundary.",
+        }
+        await self._feed(db, runtime.workspace_id, runtime.task_id, item_type="infrastructure",
+                         severity="info", title="Infrastructure readiness assessed",
+                         message=f"{root}: cloud_ready={report['cloud_ready']}")
+        answer = (
+            f"**Infrastructure / Scale Readiness — `{root}`**\n\n"
+            f"- Dockerfile: {checks['dockerfile']} | docker-compose: {checks['docker_compose']}\n"
+            f"- CI config: {checks['ci_config']} | Makefile: {checks['makefile']}\n"
+            f"- **Cloud ready:** {report['cloud_ready']}\n\n"
+            f"**Scaling:**\n" + "\n".join(f"  - {x}" for x in report['scaling_notes']) + "\n\n"
+            f"**Backup/restore:**\n" + "\n".join(f"  - {x}" for x in report['backup_restore']) + "\n\n"
+            f"**Cost:** {report['cost_note']}"
+        )
+        return answer, steps, agents, {"infra_readiness": report, "workspace_path": root}
 
     async def _handle_agent_task(
         self, db: AsyncSession, runtime: ToolRuntime, command_text: str
