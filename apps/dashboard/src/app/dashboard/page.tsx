@@ -66,13 +66,13 @@ export default function CommandCenterPage() {
       }
 
       // Fetch agents
-      const agentsResponse = await apiClient.get<Agent[]>('/agents/list');
+      const agentsResponse = await apiClient.get<Agent[]>('/api/agents/list');
       if (!agentsResponse.error && agentsResponse.data) {
         setAgents(agentsResponse.data);
       }
 
       // Fetch agent stats
-      const statsResponse = await apiClient.get<AgentStats>('/agents/stats');
+      const statsResponse = await apiClient.get<AgentStats>('/api/agents/stats');
       if (!statsResponse.error && statsResponse.data) {
         setAgentStats(statsResponse.data);
       }

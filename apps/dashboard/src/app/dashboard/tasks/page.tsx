@@ -56,7 +56,7 @@ export default function TasksPage() {
       }
 
       const tasksResponse = await apiClient.get<Task[]>(
-        `/tasks/list?${params.toString()}`
+        `/api/tasks/list?${params.toString()}`
       );
 
       if (tasksResponse.error) {
@@ -66,7 +66,7 @@ export default function TasksPage() {
       }
 
       // Fetch stats
-      const statsResponse = await apiClient.get<TaskStats>('/tasks/stats');
+      const statsResponse = await apiClient.get<TaskStats>('/api/tasks/stats');
       if (!statsResponse.error && statsResponse.data) {
         setStats(statsResponse.data);
       }

@@ -61,7 +61,7 @@ export default function WorkspacesPage() {
       }
 
       const workspacesResponse = await apiClient.get<Workspace[]>(
-        `/workspaces/list?${params.toString()}`
+        `/api/workspaces/list?${params.toString()}`
       );
 
       if (workspacesResponse.error) {
@@ -71,7 +71,7 @@ export default function WorkspacesPage() {
       }
 
       // Fetch stats
-      const statsResponse = await apiClient.get<WorkspaceStats>('/workspaces/stats');
+      const statsResponse = await apiClient.get<WorkspaceStats>('/api/workspaces/stats');
       if (!statsResponse.error && statsResponse.data) {
         setStats(statsResponse.data);
       }

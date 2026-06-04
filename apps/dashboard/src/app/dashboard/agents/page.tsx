@@ -52,7 +52,7 @@ export default function AgentsPage() {
       }
 
       const agentsResponse = await apiClient.get<Agent[]>(
-        `/agents/list?${params.toString()}`
+        `/api/agents/list?${params.toString()}`
       );
 
       if (agentsResponse.error) {
@@ -62,13 +62,13 @@ export default function AgentsPage() {
       }
 
       // Fetch stats
-      const statsResponse = await apiClient.get<AgentStats>('/agents/stats');
+      const statsResponse = await apiClient.get<AgentStats>('/api/agents/stats');
       if (!statsResponse.error && statsResponse.data) {
         setStats(statsResponse.data);
       }
 
       // Fetch categories
-      const categoriesResponse = await apiClient.get<string[]>('/agents/categories');
+      const categoriesResponse = await apiClient.get<string[]>('/api/agents/categories');
       if (!categoriesResponse.error && categoriesResponse.data) {
         setCategories(categoriesResponse.data);
       }
