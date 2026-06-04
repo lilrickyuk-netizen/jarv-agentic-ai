@@ -24,10 +24,18 @@ interface AgentStats {
 }
 
 interface CommandResult {
-  command_text: string;
+  task_id: string;
+  command: string;
+  status: string;
+  requires_approval: boolean;
   response_text: string;
+  plan_steps: string[];
+  selected_agents: string[];
+  provider: string | null;
+  model: string | null;
   execution_time: number;
-  success: boolean;
+  tokens_used: number;
+  approval_reason?: string | null;
   error?: string | null;
 }
 
@@ -67,8 +75,8 @@ export default function CommandCenterPage() {
     setCommandResult(null);
     try {
       const response = await apiClient.post<CommandResult>(
-        '/api/voice/command/text',
-        { command: trimmed, language: 'en-US' }
+        '/api/command/execute',
+        { command: trimmed }
       );
       if (response.error) {
         setCommandError(response.error);
@@ -185,11 +193,19 @@ export default function CommandCenterPage() {
         <div className="bg-card border rounded-lg p-6 mb-8">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-2xl font-bold">Command JARV</h2>
-            <span className="text-xs text-muted-foreground">
-              {voiceSupported
-                ? 'Voice + text enabled'
-                : 'Text input (voice not supported in this browser)'}
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-muted-foreground">
+                {voiceSupported
+                  ? 'Voice + text enabled'
+                  : 'Text input (voice not supported in this browser)'}
+              </span>
+              <button
+                onClick={() => router.push('/dashboard/command')}
+                className="text-xs text-primary hover:underline"
+              >
+                Full command console →
+              </button>
+            </div>
           </div>
           <form
             onSubmit={(e) => {
@@ -241,23 +257,43 @@ export default function CommandCenterPage() {
               <div className="flex items-center justify-between mb-2">
                 <span
                   className={`px-2 py-1 text-xs rounded font-semibold ${
-                    commandResult.success
+                    commandResult.status === 'completed'
                       ? 'bg-green-100 text-green-800'
-                      : 'bg-orange-100 text-orange-800'
+                      : commandResult.status === 'blocked'
+                      ? 'bg-yellow-100 text-yellow-800'
+                      : commandResult.status === 'failed'
+                      ? 'bg-red-100 text-red-800'
+                      : 'bg-blue-100 text-blue-800'
                   }`}
                 >
-                  {commandResult.success ? 'JARV responded' : 'Completed with issues'}
+                  {commandResult.status.toUpperCase()}
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  {commandResult.execution_time.toFixed(2)}s
+                  {commandResult.provider}/{commandResult.model} ·{' '}
+                  {commandResult.execution_time.toFixed(2)}s · {commandResult.tokens_used} tokens
                 </span>
               </div>
-              <p className="text-sm text-muted-foreground mb-1">
-                Command: {commandResult.command_text}
-              </p>
+
+              {commandResult.requires_approval && (
+                <div className="mb-3 bg-yellow-50 border border-yellow-300 text-yellow-900 px-3 py-2 rounded">
+                  <p className="text-sm font-semibold">Approval required before execution</p>
+                  <p className="text-xs">{commandResult.approval_reason}</p>
+                </div>
+              )}
+
               <pre className="text-sm whitespace-pre-wrap font-sans mt-2">
                 {commandResult.response_text}
               </pre>
+
+              {commandResult.selected_agents?.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {commandResult.selected_agents.map((a) => (
+                    <span key={a} className="px-2 py-1 text-xs rounded bg-blue-100 text-blue-800">
+                      {a}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

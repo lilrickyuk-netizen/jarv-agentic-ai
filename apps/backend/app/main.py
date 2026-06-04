@@ -186,6 +186,10 @@ app.include_router(content_community.router, prefix="/api")
 from app.api.v1 import voice
 app.include_router(voice.router, prefix="/api")
 
+# Import and include command execution router (live dashboard command pipeline)
+from app.api import command
+app.include_router(command.router, prefix="/api")
+
 
 # Root endpoint (included in health router but also accessible at root)
 @app.get("/")

@@ -9,7 +9,7 @@ from sqlalchemy import select, func
 from typing import List, Optional
 from pydantic import BaseModel
 from uuid import UUID
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.core.database import get_db
 from app.models.company_operations import LiveOperationsFeedItem
@@ -161,11 +161,16 @@ async def get_feed_stats(
     for item in all_items:
         by_type[item.item_type] = by_type.get(item.item_type, 0) + 1
 
-    # Recent activity (last N hours)
-    cutoff_time = datetime.now() - timedelta(hours=hours)
+    # Recent activity (last N hours). Use a tz-aware cutoff and normalize each
+    # timestamp so naive (legacy) and aware (new) rows compare safely.
+    cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    def _aware(dt: datetime) -> datetime:
+        return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
     recent_activity_count = sum(
         1 for item in all_items
-        if item.created_at and item.created_at >= cutoff_time
+        if item.created_at and _aware(item.created_at) >= cutoff_time
     )
 
     return FeedStats(

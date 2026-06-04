@@ -405,20 +405,78 @@ class OrchestratorAgent(AgentBase):
         constraints: List[str],
     ) -> List[TaskPlan]:
         """
-        Parse LLM output into structured task plan.
+        Parse the LLM's JSON task plan into structured TaskPlan objects.
 
-        Args:
-            llm_output: Raw LLM output
-            mission: Original mission
-            constraints: Constraints
-
-        Returns:
-            Parsed task plan
+        The planning prompt instructs the model to return a JSON object with a
+        "tasks" array. We extract the JSON robustly (handling ```json fences and
+        surrounding prose) and validate each task. If parsing genuinely fails,
+        we fall back to a simple plan so the orchestrator never hard-fails.
         """
-        # TODO: Implement robust parsing of LLM output
-        # For now, fall back to simple plan
-        # In production, use JSON mode or structured output from LLM
-        return self._generate_simple_task_plan(mission, constraints)
+        data = self._extract_json(llm_output)
+        if not data:
+            self.logger.warning("Could not extract JSON from LLM plan; using fallback plan")
+            return self._generate_simple_task_plan(mission, constraints)
+
+        raw_tasks = data.get("tasks") or data.get("task_plan") or []
+        if not isinstance(raw_tasks, list) or not raw_tasks:
+            self.logger.warning("LLM plan had no tasks; using fallback plan")
+            return self._generate_simple_task_plan(mission, constraints)
+
+        task_plan: List[TaskPlan] = []
+        for idx, raw in enumerate(raw_tasks, start=1):
+            if not isinstance(raw, dict):
+                continue
+            try:
+                deps = raw.get("dependencies") or []
+                if not isinstance(deps, list):
+                    deps = []
+                task_plan.append(
+                    TaskPlan(
+                        task_id=int(raw.get("task_id", idx)),
+                        description=str(raw.get("description", "")).strip() or f"Step {idx}",
+                        assigned_agent=raw.get("assigned_agent") or None,
+                        dependencies=[int(d) for d in deps if str(d).isdigit()],
+                        estimated_complexity=str(raw.get("estimated_complexity", "medium")).lower(),
+                        requires_approval=bool(raw.get("requires_approval", False)),
+                        requires_swarm=bool(raw.get("requires_swarm", False)),
+                    )
+                )
+            except Exception as e:  # noqa: BLE001
+                self.logger.debug(f"Skipping malformed task in LLM plan: {e}")
+                continue
+
+        if not task_plan:
+            return self._generate_simple_task_plan(mission, constraints)
+
+        self.logger.info(f"Parsed {len(task_plan)} tasks from Claude planning output")
+        return task_plan
+
+    @staticmethod
+    def _extract_json(text: str) -> Optional[Dict[str, Any]]:
+        """Extract a JSON object from an LLM response (handles code fences/prose)."""
+        if not text:
+            return None
+        import json as _json
+        import re as _re
+
+        # Prefer a fenced ```json ... ``` block if present.
+        fence = _re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, _re.DOTALL)
+        candidates = []
+        if fence:
+            candidates.append(fence.group(1))
+        # Fall back to the first balanced-looking {...} span.
+        first = text.find("{")
+        last = text.rfind("}")
+        if first != -1 and last != -1 and last > first:
+            candidates.append(text[first : last + 1])
+        for cand in candidates:
+            try:
+                parsed = _json.loads(cand)
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:  # noqa: BLE001
+                continue
+        return None
 
     def _build_planning_prompt(
         self,
@@ -453,18 +511,42 @@ class OrchestratorAgent(AgentBase):
         if memories:
             prompt_parts.extend(["", f"RELEVANT MEMORIES: {len(memories)} memories found"])
 
+        # Provide the REAL set of available agents so assignments are valid.
+        available_agents = self._available_agent_names()
+        if available_agents:
+            prompt_parts.extend([
+                "",
+                "AVAILABLE AGENTS (assign tasks only to these names):",
+                ", ".join(available_agents),
+            ])
+
         prompt_parts.extend([
             "",
-            "Create a detailed task plan with:",
-            "1. Clear task descriptions",
-            "2. Appropriate agent assignments (code-writer, test-runner, etc.)",
-            "3. Task dependencies",
-            "4. Complexity estimates",
-            "5. Approval requirements for high-risk tasks",
-            "6. Swarm usage for parallel work",
+            "Create a detailed, ordered task plan. Assign each task to the most "
+            "appropriate agent from the AVAILABLE AGENTS list. Mark requires_approval "
+            "true for any task that modifies files, deploys, deletes data, or spends money.",
+            "",
+            "Respond with ONLY a JSON object in exactly this shape (no prose, no markdown):",
+            "{",
+            '  "summary": "one-sentence summary of the approach",',
+            '  "tasks": [',
+            '    {"task_id": 1, "description": "...", "assigned_agent": "researcher",',
+            '     "dependencies": [], "estimated_complexity": "low|medium|high",',
+            '     "requires_approval": false, "requires_swarm": false}',
+            "  ]",
+            "}",
         ])
 
         return "\n".join(prompt_parts)
+
+    def _available_agent_names(self) -> List[str]:
+        """Return the names of implemented agents from the registry (best effort)."""
+        try:
+            from app.core.agents.registry import get_registry
+
+            return [m.name for m in get_registry().list_implemented()]
+        except Exception:  # noqa: BLE001
+            return []
 
     def _generate_simple_task_plan(
         self,
