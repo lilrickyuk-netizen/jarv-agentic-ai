@@ -61,21 +61,25 @@ class AuditLogger:
         try:
             audit_entry = AuditLog(
                 user_id=user_id,
+                actor_type="agent",
                 action=f"agent.{agent_name}.{action}",
-                resource_type="agent",
-                resource_id=agent_id,
-                details={
+                action_category="agent",
+                description=f"Agent '{agent_name}' {action} ({result})",
+                target_type="agent",
+                target_id=str(agent_id) if agent_id else None,
+                success=str(result).lower() in ("success", "completed", "started", "ok"),
+                ip_address=None,  # Will be set by API layer if available
+                user_agent=None,  # Will be set by API layer if available
+                meta_data={
                     "agent_name": agent_name,
                     "action": action,
                     "result": result,
+                    "severity": severity,
                     "workspace_id": str(workspace_id) if workspace_id else None,
                     "task_id": str(task_id) if task_id else None,
                     "session_id": str(session_id) if session_id else None,
                     **(details or {}),
                 },
-                ip_address=None,  # Will be set by API layer if available
-                user_agent=None,  # Will be set by API layer if available
-                severity=severity,
             )
 
             session.add(audit_entry)
