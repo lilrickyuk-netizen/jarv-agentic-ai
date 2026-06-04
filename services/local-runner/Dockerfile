@@ -39,8 +39,9 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# Create non-root user for security
-RUN groupadd -r jarv && useradd -r -g jarv jarv
+# Create non-root user for security (with a home dir — the runner writes its
+# auth token under ~/.jarv, which fails if /home/jarv does not exist)
+RUN groupadd -r jarv && useradd -r -g jarv -m -d /home/jarv jarv
 
 # Copy installed dependencies and application from builder
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
