@@ -37,63 +37,66 @@ class AgentRegistry:
     - Categorizes agents by function
     """
 
-    # All 31 agents that must be implemented (from spec)
+    # The 31 design agents (Design_md.txt section 11), keyed by the names the
+    # implemented agent classes actually register under. These are all
+    # implemented; there are no stale generic placeholders.
     REQUIRED_AGENTS = {
-        # Core agents (1)
+        # Core (2): orchestrator + swarm manager
         "orchestrator": "Core orchestration and task delegation",
+        "swarm_manager": "Manages swarming, sub-agent lifecycle, and parallel execution",
 
-        # Development agents (6)
-        "code-writer": "Writes code based on specifications",
-        "code-reviewer": "Reviews code for quality and issues",
-        "test-writer": "Creates unit and integration tests",
-        "test-runner": "Executes tests and reports results",
-        "debugger": "Debugs code and fixes issues",
-        "refactorer": "Refactors code for better quality",
+        # Development (4)
+        "coding_agent": "Writes, modifies, and reviews code",
+        "debugging_agent": "Debugs code, identifies issues, proposes fixes",
+        "verifier": "Verifies code correctness, tests, and quality",
+        "qa": "Quality assurance testing and validation",
 
-        # Infrastructure agents (4)
-        "devops": "Handles DevOps and deployment tasks",
-        "cloud-ops": "Manages cloud infrastructure",
-        "database": "Manages database operations",
-        "security": "Handles security scanning and fixes",
+        # Infrastructure / Operations (6)
+        "devops": "Builds, tests, staging deploys, release preparation",
+        "infrastructure": "Cloud infrastructure, scaling, optimization",
+        "monitoring": "Monitors systems, detects anomalies, alerts",
+        "self_healing": "Detects and fixes approved live issues",
+        "rollback": "Rolls back deployments and failed changes",
+        "security": "Security scanning, secrets, vulnerabilities",
 
-        # Business operations agents (6)
-        "product-manager": "Product planning and roadmap",
-        "project-manager": "Project coordination and tracking",
-        "business-analyst": "Business analysis and requirements",
-        "data-analyst": "Data analysis and insights",
-        "researcher": "Research and information gathering",
+        # Business (5)
+        "company_operator": "Operates the autonomous company layer",
+        "workspace_manager": "Manages workspaces, rules, lifecycle",
+        "business": "Business model, strategy, and analysis",
+        "finance": "Finance, budgets, KPIs, cost tracking",
         "documentation": "Technical documentation creation",
 
-        # Customer-facing agents (5)
-        "support": "Customer support and issue resolution",
-        "marketing": "Marketing content and campaigns",
-        "sales": "Sales outreach and tracking",
-        "content-creator": "Content creation and management",
-        "community-manager": "Community engagement",
+        # Intelligence (3)
+        "research": "Researches technologies, solutions, best practices",
+        "memory": "Stores, retrieves, links memory and experience",
+        "self_evolution": "Improves JARV from experience with safety guards",
 
-        # Financial agents (3)
-        "financial-analyst": "Financial analysis and reporting",
-        "revenue-ops": "Revenue operations and tracking",
-        "budget-planner": "Budget planning and management",
+        # Customer / Growth (8)
+        "marketing": "Marketing content, campaigns, positioning",
+        "growth": "Acquisition, activation, retention",
+        "customer_support": "Customer support and issue resolution",
+        "sales": "Sales scripts, outreach, CRM",
+        "onboarding": "Onboarding flows and activation",
+        "community": "Community engagement and moderation",
+        "partnerships": "Partnership and BD pipeline",
+        "content": "Educational, technical, and changelog content",
 
-        # Specialized agents (6)
-        "qa-tester": "Quality assurance testing",
-        "legal-compliance": "Legal review and compliance",
-        "onboarding": "User onboarding workflows",
-        "partnership": "Partnership management",
-        "risk-manager": "Risk assessment and mitigation",
-        "audit": "System auditing and compliance",
+        # Specialized (3)
+        "creation": "Sources and prepares creative assets",
+        "legal": "Drafts legal and compliance documents",
+        "analytics": "Analytics, insights, and reporting",
     }
 
-    # Agent categories
+    # Agent categories (must match the category each agent is registered under
+    # in _register_implemented_agents so by_category stats are accurate).
     CATEGORIES = {
-        "core": ["orchestrator"],
-        "development": ["code-writer", "code-reviewer", "test-writer", "test-runner", "debugger", "refactorer"],
-        "infrastructure": ["devops", "cloud-ops", "database", "security"],
-        "business": ["product-manager", "project-manager", "business-analyst", "data-analyst", "researcher", "documentation"],
-        "customer": ["support", "marketing", "sales", "content-creator", "community-manager"],
-        "financial": ["financial-analyst", "revenue-ops", "budget-planner"],
-        "specialized": ["qa-tester", "legal-compliance", "onboarding", "partnership", "risk-manager", "audit"],
+        "core": ["orchestrator", "swarm_manager"],
+        "development": ["coding_agent", "debugging_agent", "verifier", "qa"],
+        "infrastructure": ["devops", "monitoring", "self_healing", "rollback", "security", "infrastructure"],
+        "business": ["documentation", "company_operator", "workspace_manager", "business", "research"],
+        "financial": ["finance", "analytics"],
+        "customer": ["marketing", "growth", "customer_support", "onboarding", "community", "partnerships", "content", "sales"],
+        "specialized": ["memory", "self_evolution", "creation", "legal"],
     }
 
     def __init__(self):
@@ -454,13 +457,6 @@ def _register_implemented_agents(registry: AgentRegistry) -> None:
     Args:
         registry: Registry to register agents in
     """
-    # Import and register example agent (for demonstration)
-    try:
-        from app.core.agents.example_agent import ExampleAgent
-        registry.register(ExampleAgent, category="specialized", description="Example agent for testing")
-    except ImportError:
-        logger.debug("Example agent not available for registration")
-
     # Core agents
     try:
         from app.agents.orchestrator import OrchestratorAgent
@@ -471,6 +467,17 @@ def _register_implemented_agents(registry: AgentRegistry) -> None:
         )
     except ImportError:
         logger.debug("Orchestrator agent not available for registration")
+
+    # Swarm Manager (design agent #31), backed by the real swarm subsystem
+    try:
+        from app.core.agents.specialists.swarm_manager import SwarmManagerAgent
+        registry.register(
+            SwarmManagerAgent,
+            category="core",
+            description="Manages swarming, sub-agent lifecycle, and bounded parallel execution"
+        )
+    except ImportError:
+        logger.debug("Swarm manager agent not available for registration")
 
     # Phase 13: Register all 31 specialist agents
     try:
