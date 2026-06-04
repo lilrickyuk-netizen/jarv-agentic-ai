@@ -44,8 +44,13 @@ _TOOL_AUTHORITY = {
     "create_live_operations_feed_item": 1,
     "create_boundary_report": 1,
     "run_safe_readonly_command": 3,
+    "run_command": 3,
     "write_file": 2,
     "send_notification": 4,
+    "fetch_url": 1,
+    "check_package_registry": 1,
+    "check_cve": 1,
+    "asset_licence_check": 1,
 }
 
 
@@ -218,10 +223,13 @@ class ToolRuntime:
         return await self.run_command(command, cwd_host, allow_build=False)
 
     async def run_command(self, command: str, cwd_host: Optional[str] = None,
-                          allow_build: bool = True, timeout: int = 120) -> Dict[str, Any]:
+                          allow_build: bool = True, allow_install: bool = True,
+                          timeout: int = 120) -> Dict[str, Any]:
         """
         Execute a command with classification-based gating:
           safe -> always; build -> allowed when allow_build (Level 3, in workspace);
+          install -> trusted local package install, allowed when allow_install AND
+                     run inside an approved workspace (PackageInstallPolicy);
           dangerous -> blocked; risky -> requires approval.
         Captures stdout/stderr/exit, times out, persists a CommandRun.
         """
@@ -233,18 +241,30 @@ class ToolRuntime:
 
         if cls == "dangerous":
             await self._record("run_command", {"command": command}, False,
-                               "blocked: dangerous command")
+                               "blocked: dangerous/global/privileged command")
             await self._persist_command_run(command, cwd_host, None, "", "blocked", False,
                                              dangerous=True)
             return {"success": False, "blocked": True, "classification": cls,
-                    "reason": "Dangerous command blocked by safety policy."}
+                    "reason": "Dangerous/global/privileged command blocked by safety policy."}
+        if cls == "install":
+            if not allow_install:
+                return {"success": False, "requires_approval": True, "classification": cls,
+                        "reason": "Package install requires approval in this context."}
+            if not cwd:
+                await self._record("run_command", {"command": command}, False,
+                                   "blocked: install must run inside an approved workspace")
+                await self._persist_command_run(command, cwd_host, None, "", "blocked", False,
+                                                dangerous=True)
+                return {"success": False, "blocked": True, "classification": cls,
+                        "reason": "Package install blocked: not inside an approved workspace."}
+            timeout = max(timeout, 420)  # installs can take minutes
         if cls == "risky" or (cls == "build" and not allow_build):
             await self._record("run_command", {"command": command}, False,
                                f"requires approval ({cls})")
             return {"success": False, "requires_approval": True, "classification": cls,
                     "reason": f"Command classified '{cls}'; requires approval."}
 
-        # safe/build: execute with timeout, capture stdout/stderr/exit code.
+        # safe/build/install: execute with timeout, capture stdout/stderr/exit code.
         stdout = stderr = ""
         exit_code = -1
         try:
@@ -309,3 +329,61 @@ class ToolRuntime:
             result["summary"], output={"mode": result["mode"]},
         )
         return result
+
+    # ----- safe internet tools (read-only, SSRF-guarded, logged + source-recorded) -----
+
+    async def _source_record(self, url: str, title: str, source_type: str, summary: str) -> None:
+        """Persist a web source record (memory_type=source) so claims are traceable."""
+        try:
+            await memory_service.add(
+                self.db, content=f"[source:{source_type}] {title or url} | {url} | {summary}"[:600],
+                memory_type="source", workspace_id=self.workspace_id, task_id=self.task_id,
+                importance=0.55, meta={"url": url, "source_type": source_type, "title": title})
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"source record failed: {exc}")
+
+    async def fetch_url(self, url: str) -> Dict[str, Any]:
+        from app.core.internet import fetch_url as _fetch
+        res = await _fetch(url)
+        ok = res.get("ok", False)
+        await self._record("fetch_url", {"url": url}, ok,
+                           f"{res.get('status', '')} {res.get('title') or res.get('reason') or ''}"[:120],
+                           output={"status": res.get("status"), "bytes": res.get("bytes")})
+        if ok:
+            await self._source_record(res.get("url", url), res.get("title", ""), "web_page",
+                                      (res.get("text") or "")[:200])
+        return res
+
+    async def check_package_registry(self, name: str, ecosystem: str = "npm") -> Dict[str, Any]:
+        from app.core.internet import check_package_registry as _chk
+        res = await _chk(name, ecosystem)
+        await self._record("check_package_registry", {"name": name, "ecosystem": ecosystem},
+                           res.get("ok", False),
+                           f"{name}@{res.get('latest')} licence={res.get('license')}"[:120])
+        if res.get("ok"):
+            await self._source_record(res.get("homepage") or f"registry:{ecosystem}/{name}",
+                                      f"{name} {res.get('latest')}", "package_registry",
+                                      f"licence={res.get('license')}")
+        return res
+
+    async def check_cve(self, name: str, ecosystem: str = "npm",
+                        version: Optional[str] = None) -> Dict[str, Any]:
+        from app.core.internet import check_cve as _cve
+        res = await _cve(name, ecosystem, version)
+        await self._record("check_cve", {"name": name, "ecosystem": ecosystem},
+                           res.get("ok", False),
+                           f"{name}: {res.get('risk')} ({res.get('vulnerabilities')} vulns)"[:120])
+        if res.get("ok"):
+            await self._source_record("https://osv.dev", f"OSV: {name}", "cve_database",
+                                      f"risk={res.get('risk')} vulns={res.get('vulnerabilities')}")
+        return res
+
+    async def asset_licence_check(self, query: str, source: str) -> Dict[str, Any]:
+        from app.core.internet import asset_licence_dry_run
+        res = asset_licence_dry_run(query, source)
+        await self._record("asset_licence_check", {"query": query, "source": source},
+                           res.get("ok", False), res.get("note", "")[:120])
+        if res.get("approved_source"):
+            await self._source_record(f"asset:{source}", query, "asset",
+                                      "approved source (dry-run, not downloaded)")
+        return res

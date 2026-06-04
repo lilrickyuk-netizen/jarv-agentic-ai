@@ -199,6 +199,10 @@ from app.api import scheduler as scheduler_api
 app.include_router(scheduler_api.router, prefix="/api")
 from app.api import integrations as integrations_api
 app.include_router(integrations_api.router, prefix="/api")
+from app.api import internet as internet_api
+app.include_router(internet_api.router, prefix="/api")
+app.include_router(internet_api.research_router, prefix="/api")
+app.include_router(internet_api.assets_lic_router, prefix="/api")
 
 
 # Root endpoint (included in health router but also accessible at root)

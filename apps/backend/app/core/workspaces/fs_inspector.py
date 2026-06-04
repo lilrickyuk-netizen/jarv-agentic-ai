@@ -423,14 +423,38 @@ BUILD_TEST_PREFIXES = (
     "python -c", "python3 -c", "node -e",
 )
 
-# Always-blocked dangerous tokens (destructive / network / privilege / install).
+# Trusted project package-manager install commands (project-local). Allowed to
+# run automatically INSIDE an approved workspace (PackageInstallPolicy:
+# trusted_workspace_install). Global/sudo/piped variants are blocked separately.
+INSTALL_PREFIXES = (
+    "npm install", "npm ci", "npm i", "npm add", "npm update",
+    "pnpm install", "pnpm i", "pnpm add", "yarn", "yarn install", "yarn add",
+    "pip install", "pip3 install", "python -m pip install", "python3 -m pip install",
+    "poetry install", "poetry add", "poetry lock", "uv pip install", "uv sync",
+    "uv add", "pipenv install", "go get", "go mod download", "go mod tidy",
+    "composer install", "composer require", "gradle", "./gradlew", "mvn install",
+    "mvn package", "bundle install",
+)
+
+# Always-blocked dangerous tokens (destructive / privilege / chaining / network-exec).
 DANGEROUS_COMMAND_TOKENS = (
     "rm ", "rm -", "rmdir", "del ", "del/", "format", "mkfs", "dd ", "shutdown",
-    "reboot", "sudo", "curl", "wget", "ssh ", "scp ", "chmod", "chown", ">", ">>",
-    "|", "&&", ";", "`", "$(", "kill", "pkill", "mv ", "cp ", "git push",
-    "git commit", "git reset --hard", "npm install", "npm i ", "pip install",
-    "yarn add", "pnpm add", "apt", "apt-get", "yum", "brew", "rmdir",
+    "reboot", "ssh ", "scp ", "chmod", "chown", ">", ">>", "|", "&&", ";", "`",
+    "$(", "kill", "pkill", "mv ", "cp ", "git push", "git reset --hard",
+    "apt", "apt-get", "yum", "brew",
 )
+
+# Tokens that make ANY command (including installs) unsafe: privilege escalation,
+# global installs, pipe-to-shell, network-exec.
+_HARD_BLOCK_TOKENS = (
+    "sudo ", " -g", "--global", "| bash", "|bash", "| sh", "|sh",
+    "curl ", "wget ", "$(", "`",
+)
+
+
+def _is_hard_blocked(c: str) -> bool:
+    cc = f" {c} "
+    return any(tok in cc or tok in c for tok in _HARD_BLOCK_TOKENS)
 
 
 def classify_command(command: str) -> str:
@@ -438,12 +462,20 @@ def classify_command(command: str) -> str:
     Classify a command:
       'safe'      — read-only, runnable anywhere (Level 1).
       'build'     — build/test of an approved workspace (Level 3).
-      'dangerous' — destructive/network/install/privilege; always blocked.
+      'install'   — trusted project-local package install (PackageInstallPolicy).
+      'dangerous' — destructive/privilege/global/pipe-to-shell; always blocked.
       'risky'     — anything else; requires approval.
     """
     c = (command or "").strip().lower()
     if not c:
         return "dangerous"
+    # Privilege / global / pipe-to-shell always block (even for package managers).
+    if _is_hard_blocked(c):
+        return "dangerous"
+    # Trusted local installs (checked before generic dangerous tokens).
+    for pre in INSTALL_PREFIXES:
+        if c == pre or c.startswith(pre + " "):
+            return "install"
     for tok in DANGEROUS_COMMAND_TOKENS:
         if tok in c:
             return "dangerous"
