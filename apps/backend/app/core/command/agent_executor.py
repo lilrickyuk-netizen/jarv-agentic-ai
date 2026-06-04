@@ -97,7 +97,17 @@ class AgentExecutor:
         self.iterations = 0
         self.tokens = 0
 
-    async def run(self, mission: str, max_steps: int = 10) -> Dict[str, Any]:
+    async def run(self, mission: str, steps_per_round: int = 8,
+                  max_continuations: int = 4,
+                  prior_messages: Optional[List[Message]] = None,
+                  start_continuation: int = 0) -> Dict[str, Any]:
+        """
+        Run the tool loop with AUTO-CONTINUATION. The same conversation (and thus
+        every prior tool result) is preserved across continuation rounds — the
+        mission is never restarted. Stops only on a real terminal state:
+        finished (completed), stalled/no-tools, or the continuation cap reached
+        (-> needs_continuation, with a checkpoint to resume from).
+        """
         router = get_router()
         system = (
             "You are JARV, an autonomous software engineer operating a real machine. "
@@ -109,19 +119,33 @@ class AgentExecutor:
             "install packages, or access the network — those tools are blocked by policy; "
             "if the mission needs one, explain it and call finish. Make real changes with "
             "write_file and verify with run_command (build/test). Do not claim success "
-            "without verifying. When finished, call the finish tool with a summary."
+            "without verifying. When the WHOLE mission is done, call the finish tool."
         )
         tools = _tool_schemas()
-        messages: List[Message] = [Message(role="user", content=(
-            f"MISSION:\n{mission}\n\n"
-            + (f"Approved workspace root: {self.workspace_root}\n" if self.workspace_root else "")
-            + "Begin by inspecting what you need, then act. Call finish when done."
-        ))]
+        # Resume: keep the prior conversation if provided (no restart, no lost work).
+        messages: List[Message] = prior_messages if prior_messages else [
+            Message(role="user", content=(
+                f"MISSION:\n{mission}\n\n"
+                + (f"Approved workspace root: {self.workspace_root}\n" if self.workspace_root else "")
+                + "Begin by inspecting what you need, then act. Call finish when the whole "
+                "mission is complete and verified."))]
 
         final_summary = ""
         success = True
-        for _ in range(max_steps):
+        finished = False
+        last_tool = None
+        continuation = start_continuation
+        total_budget = steps_per_round * (max_continuations + 1)
+
+        while self.iterations < total_budget and not finished:
             self.iterations += 1
+            # Continuation boundary: nudge the model to keep going from where it is.
+            if self.iterations > steps_per_round and (self.iterations - 1) % steps_per_round == 0:
+                continuation += 1
+                messages.append(Message(role="user", content=(
+                    f"[CONTINUATION {continuation}] You have not called finish yet. Continue the "
+                    f"SAME mission from your current progress (files already written persist). "
+                    f"Do the remaining work and call finish when the whole mission is verified.")))
             resp = await router.complete(CompletionRequest(
                 model=self.model, messages=messages, system=system,
                 tools=tools, max_tokens=4096, temperature=0.0,
@@ -129,10 +153,11 @@ class AgentExecutor:
             self.tokens += (resp.usage or {}).get("total_tokens", 0)
 
             if not resp.tool_calls:
+                # Model produced a final answer without finish -> treat as done.
                 final_summary = resp.content.strip() or "(no further action)"
+                finished = True
                 break
 
-            # Record the assistant turn (text + tool_use blocks) for the next request.
             assistant_blocks: List[Dict[str, Any]] = []
             if resp.content:
                 assistant_blocks.append({"type": "text", "text": resp.content})
@@ -147,10 +172,9 @@ class AgentExecutor:
                 parsed.append({"id": tc["id"], "name": name, "args": args})
             messages.append(Message(role="assistant", content=assistant_blocks))
 
-            # Execute each requested tool and return tool_result blocks.
             result_blocks: List[Dict[str, Any]] = []
-            finished = False
             for call in parsed:
+                last_tool = call["id"]
                 if call["name"] == "finish":
                     final_summary = call["args"].get("summary", "Mission complete.")
                     success = bool(call["args"].get("success", True))
@@ -158,22 +182,29 @@ class AgentExecutor:
                     out = {"acknowledged": True}
                 else:
                     out = await self._dispatch(call["name"], call["args"])
-                result_blocks.append({
-                    "type": "tool_result", "tool_use_id": call["id"],
-                    "content": json.dumps(out)[:6000],
-                })
+                result_blocks.append({"type": "tool_result", "tool_use_id": call["id"],
+                                      "content": json.dumps(out)[:6000]})
             messages.append(Message(role="user", content=result_blocks))
-            if finished:
-                break
-        else:
-            final_summary = final_summary or "Reached the step limit before finishing."
+
+        needs_continuation = not finished
+        if needs_continuation:
+            final_summary = (final_summary or
+                             "Reached the continuation cap before the mission self-reported finish.")
             success = False
 
         return {
             "answer": final_summary,
             "iterations": self.iterations,
-            "success": success,
+            "success": success and finished,
+            "finished": finished,
+            "needs_continuation": needs_continuation,
+            "step_limit_reached": needs_continuation,
+            "continuation_count": continuation,
+            "resume_from_step": self.iterations,
+            "remaining_steps": max(0, total_budget - self.iterations),
+            "last_tool_call_id": last_tool,
             "tokens": self.tokens,
+            "messages": messages,  # checkpoint payload for resume
         }
 
     async def _dispatch(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:

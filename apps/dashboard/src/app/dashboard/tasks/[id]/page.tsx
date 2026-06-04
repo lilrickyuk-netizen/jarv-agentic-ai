@@ -58,6 +58,8 @@ const statusColor = (status: string) => {
     completed: 'bg-green-100 text-green-800',
     approved: 'bg-green-100 text-green-800',
     partial: 'bg-orange-100 text-orange-800',
+    needs_continuation: 'bg-purple-100 text-purple-800',
+    resuming: 'bg-blue-100 text-blue-800',
     failed: 'bg-red-100 text-red-800',
     blocked: 'bg-yellow-100 text-yellow-800',
     waiting_on_approval: 'bg-yellow-100 text-yellow-800',
@@ -102,6 +104,17 @@ export default function TaskDetailPage() {
     );
     if (res.error) setActionMsg(`Error: ${res.error}`);
     else setActionMsg(action === 'approve' ? 'Action confirmed.' : 'Action cancelled.');
+    setActing(false);
+    fetchTask();
+  };
+
+  const resume = async () => {
+    setActing(true);
+    setActionMsg('Resuming…');
+    const res = await apiClient.post<{ status: string; continuation_count: number }>(
+      `/api/tasks/${id}/resume`, {});
+    if (res.error) setActionMsg(`Error: ${res.error}`);
+    else setActionMsg(`Resume complete → ${res.data?.status}`);
     setActing(false);
     fetchTask();
   };
@@ -185,6 +198,32 @@ export default function TaskDetailPage() {
               <section className="bg-card border rounded-lg p-6">
                 <h2 className="text-sm font-medium text-muted-foreground mb-2">Result</h2>
                 <pre className="whitespace-pre-wrap text-sm font-sans">{task.response_text}</pre>
+              </section>
+            )}
+
+            {/* Continuation / resume (needs_continuation or partial) */}
+            {(task.status === 'needs_continuation' || task.status === 'partial' || task.status === 'resuming') && (
+              <section className="bg-purple-50 border border-purple-300 rounded-lg p-6">
+                <h2 className="font-semibold text-purple-900 mb-1">
+                  {task.status === 'needs_continuation' ? 'Needs continuation' : task.status === 'resuming' ? 'Resuming…' : 'Partial — can resume'}
+                </h2>
+                <p className="text-sm text-purple-800 mb-2">
+                  {String((task.result as Record<string, unknown>)?.final_status_reason ||
+                    'This task hit the auto-continuation cap. Resume continues the same task in the same workspace (no restart, prior work preserved).')}
+                </p>
+                <div className="text-xs font-mono text-purple-800 mb-3">
+                  continuations: {String((task.result as Record<string, unknown>)?.continuation_count ?? 0)}
+                  {' · '}checkpoint: {String((task.result as Record<string, unknown>)?.checkpoint_id ?? '—')}
+                  {' · '}step: {String((task.result as Record<string, unknown>)?.resume_from_step ?? '—')}
+                </div>
+                <button
+                  disabled={acting || task.status === 'resuming'}
+                  onClick={resume}
+                  className="px-4 py-2 rounded-md bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50"
+                >
+                  Resume Task
+                </button>
+                {actionMsg && <p className="text-sm mt-2 font-medium">{actionMsg}</p>}
               </section>
             )}
 

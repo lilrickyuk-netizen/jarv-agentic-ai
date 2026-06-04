@@ -108,6 +108,8 @@ export default function CommandPage() {
     if (status === 'completed' || status === 'approved') return 'bg-green-100 text-green-800';
     if (status === 'running' || status === 'pending') return 'bg-blue-100 text-blue-800';
     if (status === 'partial') return 'bg-orange-100 text-orange-800';
+    if (status === 'needs_continuation') return 'bg-purple-100 text-purple-800';
+    if (status === 'resuming') return 'bg-blue-100 text-blue-800';
     if (status === 'blocked' || status === 'waiting_on_approval') return 'bg-yellow-100 text-yellow-800';
     if (status === 'failed' || status === 'rejected' || status === 'cancelled') return 'bg-red-100 text-red-800';
     return 'bg-gray-100 text-gray-800';

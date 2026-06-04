@@ -10417,3 +10417,27 @@ all built, wired, and browser/endpoint-verified.
 - **Verified**: 7 services healthy, 0 restarts; department routes + endpoints 200;
   reliability suite 11/11; honest task statuses preserved.
 
+### TASK RC-6: Step-limit auto-continuation + checkpoint/resume
+- **STATUS**: COMPLETE ✅
+- **Root cause**: AgentExecutor hard-stopped at max_steps=10 -> partial, no resume;
+  POSIX sandbox paths weren't extracted (wrong workspace); an incidental failed
+  read-only tool probe flipped whole agent tasks to failed.
+- **Auto-continuation**: AgentExecutor.run() now runs continuation rounds
+  (steps_per_round x (max_continuations+1)) preserving the SAME conversation +
+  tool results — never restarts the mission. Returns needs_continuation +
+  checkpoint when the cap is reached.
+- **Statuses**: added needs_continuation, resuming, cancelled. Step-limit tasks
+  are needs_continuation (NOT partial/completed). _derive_status returns
+  needs_continuation with checkpoint_id/continuation_count/resume_from_step.
+- **Resume**: POST /api/tasks/{id}/resume continues the SAME task in the SAME
+  workspace (prior work persists on disk); increments continuation_count; logs
+  resume + checkpoint to the operations feed; refuses blocked/approval tasks.
+  Dashboard task detail shows a "Resume Task" button + continuation/checkpoint.
+- **Sandbox**: /test_workspaces/* maps to a scoped writable container sandbox
+  (/tmp/jarv_sandbox); POSIX absolute paths now extracted.
+- **Agent recovery**: incidental failed/risky tool probes no longer fail an
+  agent_task — the agent's own success/needs_continuation decides.
+- **Verified (acceptance)**: sandbox multi-step mission hit the cap ->
+  needs_continuation (5 real files written) -> resume -> COMPLETED; demo.py
+  compiles; feed shows checkpoint + resume events. Regression 13/13.
+

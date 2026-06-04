@@ -617,10 +617,16 @@ class CommandService:
 
     @staticmethod
     def _extract_path(command_text: str) -> Optional[str]:
+        # Windows absolute path (C:\... or C:/...).
         m = _PATH_RE.search(command_text)
-        # Strip trailing punctuation that commonly follows a path in prose
-        # (e.g. "...WORKSPACE_TEST:" or "...PROJECT." ) — never part of the path.
-        return m.group(1).rstrip(".,;:") if m else None
+        if m:
+            return m.group(1).rstrip(".,;:")
+        # POSIX absolute path (e.g. the sandbox /test_workspaces/...). Require at
+        # least two segments so a bare "/" or single word in prose is not matched.
+        pm = re.search(r"(/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_.-]+)+)", command_text)
+        if pm:
+            return pm.group(1).rstrip(".,;:")
+        return None
 
     @staticmethod
     def _detect_intent(command_text: str) -> Optional[str]:
@@ -710,7 +716,8 @@ class CommandService:
         return None
 
     # Canonical task statuses.
-    VALID_STATUSES = ("running", "completed", "partial", "failed", "blocked", "waiting_on_approval")
+    VALID_STATUSES = ("running", "completed", "partial", "failed", "blocked",
+                      "waiting_on_approval", "needs_continuation", "resuming", "cancelled")
 
     @staticmethod
     def _failed_commands(tool_calls: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -781,24 +788,39 @@ class CommandService:
                             stderr=(extra.get("stderr") or "")[:1500],
                             next="Diagnose stderr and retry.")
 
-        # 5) Agent loop / self-heal auto-fix: step limit or unverified -> partial.
+        # 5) Agent loop: step/continuation limit reached -> NEEDS_CONTINUATION (a
+        #    checkpoint exists; resume continues the same task). Not 'partial',
+        #    not 'completed'.
+        if extra.get("agent_needs_continuation"):
+            return ("needs_continuation", {
+                "reason": extra.get("final_status_reason",
+                                    "Reached the continuation cap; checkpoint saved."),
+                "checkpoint_id": extra.get("checkpoint_id"),
+                "continuation_count": extra.get("continuation_count"),
+                "resume_from_step": extra.get("resume_from_step"),
+                "next": "Resume the task (POST /api/tasks/{id}/resume) to continue from the checkpoint."})
         if intent == "agent_task" and extra.get("agent_success") is False:
-            return ("partial", {"reason": "Agent reached the step limit or could not verify success.",
+            return ("partial", {"reason": "Agent could not verify success.",
                                  "iterations": extra.get("agent_iterations"),
-                                 "next": "Review the agent output; re-run with a narrower mission."})
+                                 "next": "Resume or re-run with a narrower mission."})
         if isinstance(sh, dict) and sh.get("classification") == "safe_auto_fix" \
                 and sh.get("auto_fixed") is False:
             return ("partial", {"reason": "Self-healing auto-fix did not verify a pass.",
                                  "next": "Inspect the incident and re-run the fix."})
 
-        # 6) Any failed command tool call -> failed.
-        fc = self._failed_commands(tool_calls)
-        if fc:
-            last = fc[-1]
-            return fail("A command failed during execution.",
-                        command=(last.get("inputs") or {}).get("command"),
-                        exit_code=(last.get("output") or {}).get("exit_code"),
-                        next="Inspect the failed command in tool calls and retry.")
+        # 6) Any failed command tool call -> failed. EXCEPT for agent-driven loops
+        #    (agent_task / self_healing auto-fix), where the agent observes tool
+        #    failures and recovers; their outcome is decided by the agent's own
+        #    success / needs_continuation (handled in branch 5), not by a single
+        #    incidental failed/risky tool probe.
+        if intent not in ("agent_task", "self_healing"):
+            fc = self._failed_commands(tool_calls)
+            if fc:
+                last = fc[-1]
+                return fail("A command failed during execution.",
+                            command=(last.get("inputs") or {}).get("command"),
+                            exit_code=(last.get("output") or {}).get("exit_code"),
+                            next="Inspect the failed command in tool calls and retry.")
 
         # 7) Explicit error markers in result_extra.
         for k, val in extra.items():
@@ -1074,7 +1096,7 @@ class CommandService:
                 "workspace, then VERIFY by running `python3 -m py_compile <each .py you changed>` "
                 "(and re-run any check script) until it compiles/passes. Make it pass.")
             executor = AgentExecutor(runtime, self.model, root)
-            res = await executor.run(mission, max_steps=10)
+            res = await executor.run(mission, steps_per_round=8, max_continuations=3)
             fix_detail.update({"auto_fixed": res["success"], "iterations": res["iterations"],
                                "summary": res["answer"][:400]})
         else:
@@ -1593,21 +1615,58 @@ class CommandService:
             "Agent: iterate until the mission is verified or a boundary is reached.",
         ]
         root = await self._resolve_ws_root(db, command_text)
+        max_cont = 4
         executor = AgentExecutor(runtime, self.model, root)
-        result = await executor.run(command_text, max_steps=10)
-        header = (
-            f"**Autonomous engineering run "
-            f"({'succeeded' if result['success'] else 'incomplete'}, "
-            f"{result['iterations']} step(s), {len(runtime.calls)} tool call(s)).**\n\n"
-            + (f"_Workspace:_ `{root}`\n\n" if root else
-               "_No approved workspace resolved — register one, or include its path._\n\n")
-        )
-        return (
-            header + result["answer"],
-            steps, agents,
-            {"agent_iterations": result["iterations"], "agent_success": result["success"],
-             "agent_tokens": result["tokens"], "workspace_path": root},
-        )
+        result = await executor.run(command_text, steps_per_round=8, max_continuations=max_cont)
+        extra: Dict[str, Any] = {
+            "agent_iterations": result["iterations"],
+            "agent_success": result["success"],
+            "agent_needs_continuation": result["needs_continuation"],
+            "step_limit_reached": result["step_limit_reached"],
+            "continuation_required": result["needs_continuation"],
+            "continuation_count": result["continuation_count"],
+            "max_continuations": max_cont,
+            "resume_from_step": result["resume_from_step"],
+            "remaining_steps": result["remaining_steps"],
+            "last_tool_call_id": result["last_tool_call_id"],
+            "agent_tokens": result["tokens"],
+            "workspace_path": root,
+            "mission": command_text,
+        }
+        if result["needs_continuation"]:
+            # Save a checkpoint + resume action; the work so far persists on disk in
+            # the same workspace. Auto-continuation already ran up to the cap.
+            checkpoint_id = str(uuid4())
+            extra["checkpoint_id"] = checkpoint_id
+            extra["final_status_reason"] = (
+                "Reached the auto-continuation cap; checkpoint saved. Resume continues "
+                "the SAME task in the SAME workspace (prior work preserved on disk).")
+            await self._feed(db, runtime.workspace_id, runtime.task_id, item_type="checkpoint",
+                             severity="warning", title="Checkpoint saved — continuation required",
+                             message=f"checkpoint {checkpoint_id[:8]} at step {result['resume_from_step']}; "
+                                     f"{result['continuation_count']} continuations used.",
+                             requires_action=False)
+            await self._audit(db, runtime.workspace_id, action="task_needs_continuation",
+                              category="resume", description=f"Checkpoint {checkpoint_id} saved for resume",
+                              success=True, target_id=str(runtime.task_id),
+                              metadata={"checkpoint_id": checkpoint_id, "resume_from_step": result["resume_from_step"]})
+
+        if result["needs_continuation"]:
+            head = (f"**Autonomous engineering run — NEEDS CONTINUATION** "
+                    f"(not complete; {result['iterations']} steps, "
+                    f"{result['continuation_count']} continuations, {len(runtime.calls)} tool calls).\n\n"
+                    f"- Checkpoint saved: `{extra['checkpoint_id'][:8]}` at step {result['resume_from_step']}\n"
+                    f"- Auto-continuation ran to the cap; **resume** continues the same task "
+                    f"in the same workspace (no restart, prior work preserved).\n"
+                    f"- Workspace: `{root}`\n\n**Progress so far:**\n")
+        else:
+            head = (f"**Autonomous engineering run "
+                    f"({'succeeded' if result['success'] else 'incomplete'}, "
+                    f"{result['iterations']} steps, {result['continuation_count']} continuations, "
+                    f"{len(runtime.calls)} tool calls).**\n\n"
+                    + (f"_Workspace:_ `{root}`\n\n" if root else
+                       "_No approved workspace resolved — register one, or include its path._\n\n"))
+        return head + result["answer"], steps, agents, extra
 
     async def _resolve_ws_root(self, db: AsyncSession, command_text: str) -> Optional[str]:
         """Resolve a workspace root path from the command, else the latest registered."""

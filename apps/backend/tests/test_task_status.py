@@ -61,11 +61,30 @@ def test_step_limit_marks_partial():
 
 
 def test_failed_tool_call_marks_failed():
+    # For NON-agent intents a failed command tool call -> failed.
     status, _ = svc._derive_status(
-        "agent_task", {"agent_success": True},
+        None, {},
         [{"tool": "run_command", "success": False, "inputs": {"command": "npm run build"},
           "output": {"exit_code": 1}}], "report")
     assert status == "failed", status
+
+
+def test_agent_task_recovers_from_incidental_tool_failure():
+    # For agent_task the agent observes tool failures and recovers; an incidental
+    # failed tool call must NOT override the agent's own success.
+    status, _ = svc._derive_status(
+        "agent_task", {"agent_success": True},
+        [{"tool": "run_command", "success": False, "inputs": {"command": "where py"},
+          "output": {"exit_code": None}}], "report")
+    assert status == "completed", status
+
+
+def test_needs_continuation_status():
+    status, failure = svc._derive_status(
+        "agent_task", {"agent_needs_continuation": True, "checkpoint_id": "abc",
+                       "continuation_count": 4, "resume_from_step": 40}, [], "progress")
+    assert status == "needs_continuation", status
+    assert failure and failure.get("checkpoint_id") == "abc"
 
 
 def test_completed_only_when_all_pass():

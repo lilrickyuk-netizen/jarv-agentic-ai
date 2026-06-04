@@ -85,6 +85,8 @@ export default function TasksPage() {
       completed: 'bg-green-100 text-green-800',
       approved: 'bg-green-100 text-green-800',
       partial: 'bg-orange-100 text-orange-800',
+      needs_continuation: 'bg-purple-100 text-purple-800',
+      resuming: 'bg-blue-100 text-blue-800',
       failed: 'bg-red-100 text-red-800',
       blocked: 'bg-yellow-100 text-yellow-800',
       waiting_on_approval: 'bg-yellow-100 text-yellow-800',

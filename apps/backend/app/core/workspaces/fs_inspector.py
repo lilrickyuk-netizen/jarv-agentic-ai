@@ -95,14 +95,33 @@ def _is_banned(path_str: str) -> bool:
     return any(frag in low for frag in _BANNED_NAME_FRAGMENTS)
 
 
+# Approved, writable, ephemeral sandbox root (container-local). A logical path
+# under SANDBOX_HOST_PREFIX maps into SANDBOX_CONTAINER_ROOT — isolated from the
+# host Desktop, scoped, and safe for sandbox/test workspaces.
+SANDBOX_HOST_PREFIX = "/test_workspaces"
+SANDBOX_CONTAINER_ROOT = "/tmp/jarv_sandbox"
+
+
 def host_to_container(host_path: str) -> Optional[Path]:
     """
     Translate an operator-supplied host path into the container path under the
-    mounted workspace root. Returns None if the path is not inside the host root
-    (scope enforcement) — we never inspect outside the mounted, approved root.
+    mounted workspace root (or the sandbox root). Returns None if the path is not
+    inside an approved root (scope enforcement).
     """
     root_host = settings.WORKSPACE_HOST_ROOT
     container_root = Path(settings.WORKSPACE_CONTAINER_ROOT)
+
+    raw = (host_path or "").strip().strip('"').strip("'")
+    # Sandbox root: a logical /test_workspaces/... path -> writable container dir.
+    norm = raw.replace("\\", "/")
+    if norm == SANDBOX_HOST_PREFIX or norm.startswith(SANDBOX_HOST_PREFIX + "/"):
+        rel = norm[len(SANDBOX_HOST_PREFIX):].lstrip("/")
+        base = Path(SANDBOX_CONTAINER_ROOT)
+        try:
+            base.mkdir(parents=True, exist_ok=True)
+        except Exception:  # noqa: BLE001
+            pass
+        return base / rel if rel else base
 
     raw = _normalize_host_path(host_path)
     if not raw:
