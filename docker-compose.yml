@@ -51,6 +51,11 @@ services:
       # precedence over the .env file and blank out the configured key.
       ENVIRONMENT: ${ENVIRONMENT:-development}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Real read-only workspace inspection. WORKSPACE_HOST_ROOT is the host path
+      # operators type in commands; it is bind-mounted read-only at the container
+      # path below. JARV only inspects approved workspaces inside this root.
+      WORKSPACE_HOST_ROOT: ${WORKSPACE_HOST_ROOT:-C:\\Users\\lilri\\OneDrive\\Desktop}
+      WORKSPACE_CONTAINER_ROOT: /host/workspaces
     ports:
       - "8000:8000"
     depends_on:
@@ -60,6 +65,8 @@ services:
         condition: service_healthy
     volumes:
       - ./apps/backend:/app
+      # Approved workspace root, mounted READ-ONLY for real file inspection.
+      - ${WORKSPACE_HOST_ROOT:-C:/Users/lilri/OneDrive/Desktop}:/host/workspaces:ro
     networks:
       - jarv-network
     restart: unless-stopped

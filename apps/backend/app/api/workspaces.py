@@ -16,6 +16,7 @@ from app.core.database import get_db
 from app.models.workspace import Workspace
 from app.models.task import Task
 from app.models.agent import Agent
+from app.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -240,7 +241,8 @@ async def get_workspace(
         404: If workspace not found
     """
     try:
-        workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+        result = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
+        workspace = result.scalar_one_or_none()
 
         if not workspace:
             raise HTTPException(
@@ -307,21 +309,29 @@ async def create_workspace(
     """
     try:
         # Check if slug exists
-        existing = db.query(Workspace).filter(Workspace.slug == workspace.slug).first()
+        existing = (
+            await db.execute(select(Workspace).where(Workspace.slug == workspace.slug))
+        ).scalar_one_or_none()
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Workspace with slug '{workspace.slug}' already exists"
             )
 
-        # Create workspace
-        # Note: owner_id is generated here; in production this comes from authenticated user
-        from uuid import uuid4
+        # Owner: use a real seeded user (operators authenticate via the Redis
+        # user store; workspaces are owned by the first persisted user).
+        owner_id = (await db.execute(select(User.id).limit(1))).scalar_one_or_none()
+        if owner_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No user exists to own the workspace. Seed a user first.",
+            )
+
         new_workspace = Workspace(
             name=workspace.name,
             description=workspace.description,
             slug=workspace.slug,
-            owner_id=uuid4(),  # Generated owner_id; production uses authenticated user
+            owner_id=owner_id,
             workspace_type=workspace.workspace_type,
             authority_level=workspace.authority_level,
             swarm_enabled=workspace.swarm_enabled,
@@ -393,7 +403,8 @@ async def update_workspace(
         404: If workspace not found
     """
     try:
-        workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+        result = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
+        workspace = result.scalar_one_or_none()
 
         if not workspace:
             raise HTTPException(
@@ -475,7 +486,8 @@ async def delete_workspace(
         404: If workspace not found
     """
     try:
-        workspace = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+        result = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
+        workspace = result.scalar_one_or_none()
 
         if not workspace:
             raise HTTPException(

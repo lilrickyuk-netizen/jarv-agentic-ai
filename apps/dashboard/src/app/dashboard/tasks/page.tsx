@@ -52,7 +52,7 @@ export default function TasksPage() {
       // Fetch tasks
       const params = new URLSearchParams();
       if (statusFilter !== 'all') {
-        params.append('status', statusFilter);
+        params.append('task_status', statusFilter);
       }
 
       const tasksResponse = await apiClient.get<Task[]>(

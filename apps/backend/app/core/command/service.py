@@ -28,6 +28,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
 
@@ -39,11 +40,16 @@ from app.core.agents.base import AgentConfig, AgentContext, AuthorityLevel
 from app.core.agents.registry import get_registry
 from app.core.providers import CompletionRequest, Message, get_router
 from app.core.config import settings
+from app.core.workspaces import fs_inspector
 from app.models.agent import Agent
 from app.models.company_operations import LiveOperationsFeedItem
 from app.models.operations import AuditLog
 from app.models.task import Task
+from app.models.user import User
 from app.models.workspace import Workspace
+
+# Matches a Windows absolute path (the form operators type in commands).
+_PATH_RE = re.compile(r'([A-Za-z]:[\\/][^\s"\'<>|]+)')
 
 logger = logging.getLogger(__name__)
 
@@ -279,18 +285,34 @@ class CommandService:
         try:
             system_context = await self._gather_system_context(db)
 
-            # 5a) Real orchestrator + Claude planning
-            plan = await self._run_orchestrator(command_text, ws_id, user_id, system_context)
-            plan_steps = plan["steps"]
-            selected_agents = plan["agents"]
-            total_tokens = plan.get("tokens", 0)
+            intent = self._detect_intent(command_text)
+            result_extra: Dict[str, Any] = {}
 
-            # 5b) Live execution: Claude produces the real answer using the real
-            #     system context and the orchestrator's plan.
-            answer, answer_tokens = await self._run_answer(
-                command_text, system_context, plan_steps, selected_agents
-            )
-            total_tokens += answer_tokens
+            if intent == "register_workspace":
+                # Real action: confirm the path on disk and register a workspace.
+                answer, plan_steps, selected_agents, result_extra = (
+                    await self._handle_register_workspace(db, command_text)
+                )
+                total_tokens = 0
+            elif intent == "scan_workspace":
+                # Real action: read-only scan of actual files in an approved workspace.
+                answer, plan_steps, selected_agents, result_extra = (
+                    await self._handle_scan_workspace(db, command_text)
+                )
+                total_tokens = 0
+            else:
+                # 5a) Real orchestrator + Claude planning
+                plan = await self._run_orchestrator(command_text, ws_id, user_id, system_context)
+                plan_steps = plan["steps"]
+                selected_agents = plan["agents"]
+                total_tokens = plan.get("tokens", 0)
+
+                # 5b) Live execution: Claude produces the real answer using the real
+                #     system context and the orchestrator's plan.
+                answer, answer_tokens = await self._run_answer(
+                    command_text, system_context, plan_steps, selected_agents
+                )
+                total_tokens += answer_tokens
 
             # 6) Complete the task with a real result
             task.status = "completed"
@@ -307,10 +329,12 @@ class CommandService:
                 "selected_agents": selected_agents,
                 "provider": "claude",
                 "model": self.model,
+                **result_extra,
             }
             task.execution_logs = [
                 {"step": "planning", "agent": "orchestrator", "agents_selected": selected_agents},
-                {"step": "execution", "agent": "orchestrator", "result": "completed"},
+                {"step": "execution", "agent": "orchestrator", "result": "completed",
+                 "intent": intent},
             ]
             task.updated_at = datetime.now(timezone.utc)
 
@@ -391,20 +415,265 @@ class CommandService:
         if existing:
             return existing
         # No workspace yet: create a Command Center workspace so commands have a home.
+        owner_id = await self._first_user_id(db)
         ws = Workspace(
             id=uuid4(),
             name="Command Center",
             slug="command-center",
             description="Default workspace for dashboard commands.",
+            owner_id=owner_id,
             workspace_type="general",
             is_active=True,
             authority_level=5,
+            config={},
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
         db.add(ws)
         await db.flush()
         return ws.id
+
+    async def _first_user_id(self, db: AsyncSession) -> UUID:
+        """Return a real user id to own workspaces (operators auth via Redis)."""
+        result = await db.execute(select(User.id).limit(1))
+        uid = result.scalar_one_or_none()
+        if uid:
+            return uid
+        # No users seeded: create a system owner so workspaces can be created.
+        user = User(
+            id=uuid4(),
+            username="system",
+            email="system@jarv.local",
+            password_hash="!",  # unusable hash; this is an owner record, not a login
+            is_active=True,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        db.add(user)
+        await db.flush()
+        return user.id
+
+    async def _find_workspace_by_root(
+        self, db: AsyncSession, host_path: str
+    ) -> Optional[Workspace]:
+        """Find a workspace whose config.root_path matches (dialect-agnostic)."""
+        res = await db.execute(select(Workspace))
+        for ws in res.scalars().all():
+            cfg = ws.config if isinstance(ws.config, dict) else {}
+            if cfg.get("root_path") == host_path:
+                return ws
+        return None
+
+    @staticmethod
+    def _extract_path(command_text: str) -> Optional[str]:
+        m = _PATH_RE.search(command_text)
+        return m.group(1).rstrip(".,;") if m else None
+
+    @staticmethod
+    def _detect_intent(command_text: str) -> Optional[str]:
+        """Classify a command into a real specialized handler, or None (generic)."""
+        text = command_text.lower()
+        has_path = bool(_PATH_RE.search(command_text))
+        if re.search(r"\bregister\b", text) and ("workspace" in text or has_path):
+            return "register_workspace"
+        if re.search(r"\b(scan|inspect|analy[sz]e)\b", text) and (
+            "workspace" in text or has_path
+        ):
+            return "scan_workspace"
+        return None
+
+    def _validate_agents(self, agents: List[str]) -> List[str]:
+        try:
+            reg = get_registry()
+            implemented = {m.name for m in reg.list_implemented()}
+            validated = [a for a in agents if a in implemented]
+            return validated or agents
+        except Exception:  # noqa: BLE001
+            return agents
+
+    async def _handle_register_workspace(
+        self, db: AsyncSession, command_text: str
+    ) -> tuple[str, List[str], List[str], Dict[str, Any]]:
+        """Confirm a path exists on disk and register it as a scoped workspace."""
+        steps = [
+            "Workspace Manager: parse the target path from the command.",
+            "Workspace Manager: confirm the path exists on disk (read-only stat).",
+            "Workspace Manager: register a scoped workspace record (no file changes).",
+        ]
+        agents = self._validate_agents(["orchestrator", "workspace_manager"])
+        host_path = self._extract_path(command_text)
+        if not host_path:
+            return (
+                "I could not find a folder path in that command. Please include an "
+                "absolute path, e.g. `register a workspace at C:\\\\Users\\\\you\\\\Project`.",
+                steps, agents, {"register_error": "no_path"},
+            )
+
+        chk = fs_inspector.path_exists(host_path)
+        if not chk.accessible:
+            return (
+                f"Workspace registration blocked for `{host_path}`.\n\n{chk.reason}",
+                steps, agents,
+                {"workspace_path": host_path, "path_exists": False, "blocked": True,
+                 "reason": chk.reason},
+            )
+        if not chk.exists:
+            return (
+                f"The path `{host_path}` is inside the approved root but does not "
+                f"exist on disk yet, so I did not register it. Create the folder and "
+                f"run the command again.",
+                steps, agents,
+                {"workspace_path": host_path, "path_exists": False},
+            )
+
+        # Path confirmed — create (or reuse) a scoped workspace record.
+        name = Path(host_path.replace("\\", "/")).name or "Workspace"
+        slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:90] or "workspace"
+        # Reuse if a workspace with this root_path already exists.
+        ws = await self._find_workspace_by_root(db, host_path)
+        if ws is None:
+            # Ensure unique slug.
+            slug_check = await db.execute(select(Workspace.id).where(Workspace.slug == slug))
+            if slug_check.scalar_one_or_none():
+                slug = f"{slug}-{uuid4().hex[:6]}"
+            owner_id = await self._first_user_id(db)
+            ws = Workspace(
+                id=uuid4(),
+                name=name,
+                slug=slug,
+                description=f"Registered workspace at {host_path}",
+                owner_id=owner_id,
+                workspace_type="project",
+                is_active=True,
+                authority_level=2,  # default: read + scoped workspace edits (gated)
+                config={"root_path": host_path, "container_path": chk.container_path,
+                        "registered_via": "command_center"},
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+            db.add(ws)
+            await db.flush()
+            created = True
+        else:
+            created = False
+
+        await self._feed(
+            db, ws.id, None, item_type="workspace", severity="success",
+            title="Workspace registered" if created else "Workspace confirmed",
+            message=f"{name} -> {host_path} (path confirmed, read-only)",
+        )
+        await self._audit(
+            db, ws.id, action="workspace_registered", category="workspace",
+            description=f"Workspace {'registered' if created else 'confirmed'}: {host_path}",
+            success=True, target_id=str(ws.id),
+            metadata={"path": host_path, "operator": self.operator},
+        )
+
+        answer = (
+            f"**Workspace {'registered' if created else 'already registered (confirmed)'}.**\n\n"
+            f"- **Name:** {name}\n"
+            f"- **Path:** `{host_path}`\n"
+            f"- **Exists on disk:** Yes (confirmed by read-only check)\n"
+            f"- **Scope:** Access is limited to this approved folder. No files were "
+            f"modified, and none will be without your approval.\n\n"
+            f"You can now ask JARV to run a read-only scan of this workspace."
+        )
+        return answer, steps, agents, {
+            "workspace_id": str(ws.id),
+            "workspace_path": host_path,
+            "path_exists": True,
+            "created": created,
+        }
+
+    async def _handle_scan_workspace(
+        self, db: AsyncSession, command_text: str
+    ) -> tuple[str, List[str], List[str], Dict[str, Any]]:
+        """Run a REAL read-only scan of an approved workspace's actual files."""
+        steps = [
+            "Workspace Manager: resolve the approved workspace to scan.",
+            "Workspace Manager: walk the directory read-only and inventory files.",
+            "Research/Documentation: identify docs and design files.",
+            "Coding/DevOps: identify package and build/deploy files.",
+            "Security: flag env/secret files by name (values never read).",
+            "QA/Verifier: summarize findings, risks, and approval points.",
+        ]
+        agents = self._validate_agents(
+            ["orchestrator", "workspace_manager", "research", "documentation",
+             "security", "qa"]
+        )
+
+        host_path = self._extract_path(command_text)
+        if not host_path:
+            # Fall back to the most recently registered workspace with a root_path.
+            res = await db.execute(
+                select(Workspace).order_by(Workspace.created_at.desc())
+            )
+            for ws in res.scalars().all():
+                rp = (ws.config or {}).get("root_path") if isinstance(ws.config, dict) else None
+                if rp:
+                    host_path = rp
+                    break
+        if not host_path:
+            return (
+                "There is no registered workspace path to scan. Register a workspace "
+                "first, e.g. `register a workspace at C:\\\\Users\\\\you\\\\Project`.",
+                steps, agents, {"scan_error": "no_workspace"},
+            )
+
+        scan = fs_inspector.scan_workspace(host_path)
+        if not scan.accessible:
+            return (
+                f"Read-only scan blocked for `{host_path}`.\n\n{scan.reason}",
+                steps, agents,
+                {"workspace_path": host_path, "blocked": True, "reason": scan.reason},
+            )
+        if not scan.exists:
+            return (
+                f"Cannot scan `{host_path}`: {scan.reason}",
+                steps, agents, {"workspace_path": host_path, "path_exists": False},
+            )
+
+        d = scan.data
+        await self._feed(
+            db, await self._resolve_workspace(db, None), None,
+            item_type="workspace", severity="info",
+            title="Workspace scanned (read-only)",
+            message=f"{host_path}: {d.get('total_files', 0)} files inspected",
+        )
+        await self._audit(
+            db, await self._resolve_workspace(db, None),
+            action="workspace_scanned", category="workspace",
+            description=f"Read-only scan of {host_path}",
+            success=True,
+            metadata={"path": host_path, "total_files": d.get("total_files"),
+                      "operator": self.operator},
+        )
+
+        def _fmt(items: List[str], limit: int = 20) -> str:
+            if not items:
+                return "_none found_"
+            shown = items[:limit]
+            extra = f"\n  - …and {len(items) - limit} more" if len(items) > limit else ""
+            return "\n".join(f"  - `{i}`" for i in shown) + extra
+
+        answer = (
+            f"**Read-only workspace scan — `{host_path}`**\n\n"
+            f"{d.get('summary', '')}\n\n"
+            f"**Top-level folders:**\n{_fmt(d.get('top_level_dirs', []))}\n\n"
+            f"**Top-level files:**\n{_fmt(d.get('top_level_files', []))}\n\n"
+            f"**Package / dependency files:**\n{_fmt(d.get('package_files', []))}\n\n"
+            f"**Build / deploy files:**\n{_fmt(d.get('build_files', []))}\n\n"
+            f"**Docs / design files:**\n{_fmt(d.get('doc_files', []))}\n\n"
+            f"**Entry points:**\n{_fmt(d.get('entry_points', []))}\n\n"
+            f"**Env / secret files (names only — values NOT read):**\n{_fmt(d.get('env_files', []))}\n\n"
+            f"**Risks:**\n{_fmt(d.get('risks', []))}\n\n"
+            f"**Approval points before any change:**\n{_fmt(d.get('approval_points', []))}\n\n"
+            f"_No files were modified. This was a read-only inspection scoped to the approved workspace._"
+        )
+        return answer, steps, agents, {
+            "workspace_path": host_path,
+            "scan": d,
+        }
 
     async def _gather_system_context(self, db: AsyncSession) -> Dict[str, Any]:
         """Collect REAL system facts the backend can verify (no fabrication)."""

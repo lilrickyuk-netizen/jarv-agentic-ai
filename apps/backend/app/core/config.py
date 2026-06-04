@@ -100,6 +100,17 @@ class Settings(BaseSettings):
     APPROVED_FOLDERS: List[str] = Field(default_factory=list)
     BANNED_FOLDERS: List[str] = Field(default_factory=list)
 
+    # Workspace filesystem (real read-only inspection, scope-enforced).
+    # WORKSPACE_HOST_ROOT is the host path prefix that operators type in commands;
+    # WORKSPACE_CONTAINER_ROOT is where that prefix is mounted (read-only) inside
+    # the backend container. The fs inspector translates host->container paths,
+    # never writes, and only inspects paths inside this root.
+    WORKSPACE_HOST_ROOT: str = Field(default="C:\\Users\\lilri\\OneDrive\\Desktop")
+    WORKSPACE_CONTAINER_ROOT: str = Field(default="/host/workspaces")
+
+    # Default LLM model used by the command pipeline (Claude is the primary provider).
+    DEFAULT_MODEL: str = Field(default="claude-sonnet-4-6")
+
     @validator("APPROVED_FOLDERS", pre=True)
     def parse_folders(cls, v):
         if isinstance(v, str):

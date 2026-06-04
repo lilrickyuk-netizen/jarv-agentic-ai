@@ -8,13 +8,183 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 from typing import List, Optional
 from pydantic import BaseModel
-from uuid import UUID
-from datetime import datetime
+from uuid import UUID, uuid4
+from datetime import datetime, timezone
+import logging
 
 from app.core.database import get_db
+from app.core.auth import CurrentUserId
 from app.models.approval import Approval
+from app.models.task import Task
+from app.models.operations import AuditLog
+from app.models.company_operations import LiveOperationsFeedItem
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/approvals", tags=["approvals"])
+
+
+# ===== Command-boundary approvals =====
+# When the command pipeline hits a Richard hard boundary it pauses the action by
+# setting the Task status to "blocked" and recording a boundary feed item. These
+# blocked command tasks ARE the approval queue the operator actions here:
+# confirm (approve) continues only the approved action, cancel (reject) drops it.
+# Destructive actions are never auto-executed; Richard confirms, cancels, or
+# intervenes.
+
+_BLOCKED_STATES = ("blocked",)
+
+
+class CommandApprovalItem(BaseModel):
+    task_id: str
+    command: str
+    status: str
+    reason: Optional[str]
+    boundary_type: Optional[str]
+    workspace_id: str
+    created_at: Optional[str]
+    updated_at: Optional[str]
+
+
+class ApprovalDecision(BaseModel):
+    note: Optional[str] = None
+
+
+async def _write_audit(db, workspace_id, action, description, success, target_id, operator, required_approval=False):
+    try:
+        db.add(AuditLog(
+            id=uuid4(), workspace_id=workspace_id, actor_type="operator",
+            action=action, action_category="approval", description=description,
+            target_type="command", target_id=target_id,
+            after_state={"operator": operator}, success=success,
+            required_approval=required_approval,
+            created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
+        ))
+        await db.flush()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"approval audit write failed: {exc}")
+
+
+async def _write_feed(db, workspace_id, task_id, severity, title, message):
+    try:
+        db.add(LiveOperationsFeedItem(
+            id=uuid4(), workspace_id=workspace_id, item_type="approval",
+            severity=severity, title=title, message=message,
+            related_task_id=task_id, requires_action=False,
+            created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
+        ))
+        await db.flush()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"approval feed write failed: {exc}")
+
+
+@router.get("/command-blocks", response_model=List[CommandApprovalItem])
+async def list_command_blocks(db: Session = Depends(get_db)):
+    """List blocked command actions awaiting Richard's confirmation."""
+    rows = (
+        await db.execute(
+            select(Task)
+            .where(Task.status.in_(_BLOCKED_STATES))
+            .order_by(Task.created_at.desc())
+            .limit(100)
+        )
+    ).scalars().all()
+    items: List[CommandApprovalItem] = []
+    for t in rows:
+        meta = t.meta_data if isinstance(t.meta_data, dict) else {}
+        ctx = t.context if isinstance(t.context, dict) else {}
+        items.append(CommandApprovalItem(
+            task_id=str(t.id),
+            command=t.description or t.title,
+            status=t.status,
+            reason=meta.get("blocked_reason") or ctx.get("safety_reason"),
+            boundary_type=meta.get("boundary_type"),
+            workspace_id=str(t.workspace_id),
+            created_at=t.created_at.isoformat() if t.created_at else None,
+            updated_at=t.updated_at.isoformat() if t.updated_at else None,
+        ))
+    return items
+
+
+@router.post("/command-blocks/{task_id}/approve", response_model=CommandApprovalItem)
+async def approve_command_block(
+    task_id: UUID,
+    operator: CurrentUserId,
+    decision: ApprovalDecision = ApprovalDecision(),
+    db: Session = Depends(get_db),
+):
+    """Confirm a blocked command. Records the approval; destructive actions are
+    not auto-run — Richard remains in control and can intervene."""
+    task = (await db.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="Blocked command not found")
+    if task.status not in _BLOCKED_STATES:
+        raise HTTPException(status_code=400, detail=f"Task is not awaiting approval (status={task.status})")
+
+    task.status = "approved"
+    meta = dict(task.meta_data or {})
+    meta.update({"approved_by": operator, "approval_note": decision.note,
+                 "approved_at": datetime.now(timezone.utc).isoformat()})
+    task.meta_data = meta
+    task.updated_at = datetime.now(timezone.utc)
+
+    await _write_audit(
+        db, task.workspace_id, "approval_granted",
+        f"Operator {operator} approved blocked command: {(task.description or task.title)[:300]}",
+        True, str(task.id), operator, required_approval=True,
+    )
+    await _write_feed(
+        db, task.workspace_id, task.id, "success", "Approval granted",
+        f"Operator approved the blocked action. {decision.note or ''}".strip(),
+    )
+    await db.commit()
+    return CommandApprovalItem(
+        task_id=str(task.id), command=task.description or task.title, status=task.status,
+        reason=meta.get("blocked_reason"), boundary_type=meta.get("boundary_type"),
+        workspace_id=str(task.workspace_id),
+        created_at=task.created_at.isoformat() if task.created_at else None,
+        updated_at=task.updated_at.isoformat() if task.updated_at else None,
+    )
+
+
+@router.post("/command-blocks/{task_id}/reject", response_model=CommandApprovalItem)
+async def reject_command_block(
+    task_id: UUID,
+    operator: CurrentUserId,
+    decision: ApprovalDecision = ApprovalDecision(),
+    db: Session = Depends(get_db),
+):
+    """Cancel a blocked command. The action is dropped and logged."""
+    task = (await db.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="Blocked command not found")
+    if task.status not in _BLOCKED_STATES:
+        raise HTTPException(status_code=400, detail=f"Task is not awaiting approval (status={task.status})")
+
+    task.status = "cancelled"
+    meta = dict(task.meta_data or {})
+    meta.update({"rejected_by": operator, "rejection_note": decision.note,
+                 "rejected_at": datetime.now(timezone.utc).isoformat()})
+    task.meta_data = meta
+    task.updated_at = datetime.now(timezone.utc)
+
+    await _write_audit(
+        db, task.workspace_id, "approval_rejected",
+        f"Operator {operator} rejected blocked command: {(task.description or task.title)[:300]}",
+        True, str(task.id), operator, required_approval=True,
+    )
+    await _write_feed(
+        db, task.workspace_id, task.id, "warning", "Approval rejected",
+        f"Operator cancelled the blocked action. {decision.note or ''}".strip(),
+    )
+    await db.commit()
+    return CommandApprovalItem(
+        task_id=str(task.id), command=task.description or task.title, status=task.status,
+        reason=meta.get("blocked_reason"), boundary_type=meta.get("boundary_type"),
+        workspace_id=str(task.workspace_id),
+        created_at=task.created_at.isoformat() if task.created_at else None,
+        updated_at=task.updated_at.isoformat() if task.updated_at else None,
+    )
 
 
 class ApprovalInfo(BaseModel):

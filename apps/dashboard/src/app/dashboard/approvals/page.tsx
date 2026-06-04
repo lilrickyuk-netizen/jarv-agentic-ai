@@ -1,7 +1,18 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api';
+
+interface CommandBlock {
+  task_id: string;
+  command: string;
+  status: string;
+  reason: string | null;
+  boundary_type: string | null;
+  workspace_id: string;
+  created_at: string | null;
+}
 
 interface Approval {
   id: string;
@@ -36,11 +47,14 @@ interface ApprovalStats {
 }
 
 export default function ApprovalsPage() {
+  const router = useRouter();
   const [approvals, setApprovals] = useState<Approval[]>([]);
+  const [blocks, setBlocks] = useState<CommandBlock[]>([]);
   const [stats, setStats] = useState<ApprovalStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [acting, setActing] = useState<string | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -51,6 +65,12 @@ export default function ApprovalsPage() {
     setError(null);
 
     try {
+      // Richard-boundary queue: blocked command actions awaiting confirmation.
+      const blocksResponse = await apiClient.get<CommandBlock[]>('/api/approvals/command-blocks');
+      if (!blocksResponse.error && blocksResponse.data) {
+        setBlocks(blocksResponse.data);
+      }
+
       const params = new URLSearchParams();
       if (statusFilter !== 'all') {
         params.append('status', statusFilter);
@@ -72,6 +92,15 @@ export default function ApprovalsPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const decide = async (taskId: string, action: 'approve' | 'reject') => {
+    setActing(taskId + action);
+    await apiClient.post(`/api/approvals/command-blocks/${taskId}/${action}`, {
+      note: `${action} from approvals page`,
+    });
+    setActing(null);
+    fetchData();
   };
 
   const getStatusColor = (status: string) => {
@@ -103,6 +132,63 @@ export default function ApprovalsPage() {
           <div className="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded-lg mb-6">
             <p className="font-semibold">Error Loading Approvals</p>
             <p className="text-sm">{error}</p>
+          </div>
+        )}
+
+        {/* Richard Boundary queue: blocked command actions awaiting decision */}
+        {!loading && (
+          <div className="mb-8">
+            <h2 className="text-xl font-semibold mb-3">
+              Boundary actions awaiting your decision
+              {blocks.length > 0 && (
+                <span className="ml-2 text-sm bg-yellow-200 text-yellow-900 px-2 py-0.5 rounded-full">
+                  {blocks.length}
+                </span>
+              )}
+            </h2>
+            {blocks.length === 0 ? (
+              <div className="bg-card border rounded-lg p-6 text-sm text-muted-foreground">
+                No actions are currently blocked. JARV is operating within approved boundaries.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {blocks.map((b) => (
+                  <div key={b.task_id} className="bg-yellow-50 border border-yellow-300 rounded-lg p-6">
+                    <div className="flex items-start justify-between gap-4 mb-2">
+                      <div className="flex-1">
+                        <p className="font-medium">{b.command}</p>
+                        {b.reason && <p className="text-sm text-yellow-800 mt-1">{b.reason}</p>}
+                      </div>
+                      <span className="px-2 py-1 text-xs rounded bg-yellow-200 text-yellow-900 whitespace-nowrap">
+                        {b.boundary_type || 'hard boundary'}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-3 mt-3">
+                      <button
+                        disabled={acting === b.task_id + 'approve'}
+                        onClick={() => decide(b.task_id, 'approve')}
+                        className="px-4 py-2 rounded-md bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        disabled={acting === b.task_id + 'reject'}
+                        onClick={() => decide(b.task_id, 'reject')}
+                        className="px-4 py-2 rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => router.push(`/dashboard/tasks/${b.task_id}`)}
+                        className="px-4 py-2 rounded-md bg-card border hover:border-primary"
+                      >
+                        Intervene / view detail
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

@@ -23,6 +23,8 @@ from app.core.state_machine import (
 )
 from app.core.database import get_db
 from app.models.task import Task
+from app.models.operations import AuditLog
+from app.models.company_operations import LiveOperationsFeedItem
 
 logger = logging.getLogger(__name__)
 
@@ -456,31 +458,71 @@ async def get_task_stats(
         )
 
 
+class TaskEvent(BaseModel):
+    """A linked audit or operations-feed event for a task."""
+    kind: str  # "audit" | "operation"
+    title: str
+    detail: Optional[str] = None
+    severity: Optional[str] = None
+    success: Optional[bool] = None
+    required_approval: Optional[bool] = None
+    created_at: Optional[datetime] = None
+
+
+class TaskDetail(BaseModel):
+    """Full task detail for the dashboard task page (the whole operating loop)."""
+    id: str
+    title: str
+    command: str
+    description: Optional[str]
+    task_type: str
+    workspace_id: str
+    assigned_agent_id: Optional[str]
+    status: str
+    priority: int
+    requires_approval: bool
+    approval_status: str  # "not_required" | "pending" | "approved" | "rejected"
+    response_text: Optional[str]
+    selected_agents: List[str]
+    plan_steps: List[str]
+    provider: Optional[str]
+    model: Optional[str]
+    result: Optional[Dict[str, Any]]
+    error_message: Optional[str]
+    execution_logs: Optional[List[Dict[str, Any]]]
+    context: Optional[Dict[str, Any]]
+    started_at: Optional[datetime]
+    completed_at: Optional[datetime]
+    failed_at: Optional[datetime]
+    execution_duration_seconds: Optional[int]
+    tokens_used: int
+    retry_count: int
+    created_at: datetime
+    updated_at: datetime
+    audit_events: List[TaskEvent]
+    operation_events: List[TaskEvent]
+
+
 @router.get(
     "/{task_id}",
-    response_model=TaskInfo,
+    response_model=TaskDetail,
     summary="Get task details",
-    description="Get detailed information about a specific task"
+    description="Get full detail of a task: result, agents, provider/model, approval status, audit + operation events"
 )
 async def get_task(
     task_id: UUID,
     db: Session = Depends(get_db),
-) -> TaskInfo:
+) -> TaskDetail:
     """
-    Get task details.
-
-    Args:
-        task_id: Task UUID
-        db: Database session
-
-    Returns:
-        Task information
+    Get full task detail, including the linked audit trail and operations-feed
+    events, so the dashboard task page can show the complete operating loop.
 
     Raises:
         404: If task not found
     """
     try:
-        task = db.query(Task).filter(Task.id == task_id).first()
+        result = await db.execute(select(Task).where(Task.id == task_id))
+        task = result.scalar_one_or_none()
 
         if not task:
             raise HTTPException(
@@ -488,15 +530,82 @@ async def get_task(
                 detail=f"Task '{task_id}' not found"
             )
 
-        return TaskInfo(
+        res = task.result if isinstance(task.result, dict) else {}
+        ctx = task.context if isinstance(task.context, dict) else {}
+        requires_approval = bool(ctx.get("requires_approval")) or task.status == "blocked"
+
+        # Approval status derived from task state.
+        if not requires_approval:
+            approval_status = "not_required"
+        elif task.status == "blocked":
+            approval_status = "pending"
+        elif task.status in ("approved", "completed"):
+            approval_status = "approved"
+        elif task.status in ("cancelled", "rejected"):
+            approval_status = "rejected"
+        else:
+            approval_status = "pending"
+
+        # Linked audit events (command service writes target_id = str(task.id)).
+        audit_rows = (
+            await db.execute(
+                select(AuditLog)
+                .where(AuditLog.target_id == str(task_id))
+                .order_by(AuditLog.created_at.asc())
+            )
+        ).scalars().all()
+        audit_events = [
+            TaskEvent(
+                kind="audit",
+                title=a.action,
+                detail=a.description,
+                success=a.success,
+                required_approval=a.required_approval,
+                created_at=a.created_at,
+            )
+            for a in audit_rows
+        ]
+
+        # Linked operations-feed events (related_task_id = task.id).
+        feed_rows = (
+            await db.execute(
+                select(LiveOperationsFeedItem)
+                .where(LiveOperationsFeedItem.related_task_id == task_id)
+                .order_by(LiveOperationsFeedItem.created_at.asc())
+            )
+        ).scalars().all()
+        operation_events = [
+            TaskEvent(
+                kind="operation",
+                title=f.title,
+                detail=f.message,
+                severity=f.severity,
+                created_at=f.created_at,
+            )
+            for f in feed_rows
+        ]
+
+        return TaskDetail(
             id=str(task.id),
             title=task.title,
+            command=task.description or task.title,
             description=task.description,
             task_type=task.task_type,
             workspace_id=str(task.workspace_id),
             assigned_agent_id=str(task.assigned_agent_id) if task.assigned_agent_id else None,
             status=task.status,
             priority=task.priority,
+            requires_approval=requires_approval,
+            approval_status=approval_status,
+            response_text=res.get("response"),
+            selected_agents=res.get("selected_agents", []) or [],
+            plan_steps=res.get("plan_steps", []) or [],
+            provider=res.get("provider"),
+            model=res.get("model"),
+            result=task.result if isinstance(task.result, dict) else None,
+            error_message=task.error_message,
+            execution_logs=task.execution_logs if isinstance(task.execution_logs, list) else None,
+            context=ctx or None,
             started_at=task.started_at,
             completed_at=task.completed_at,
             failed_at=task.failed_at,
@@ -505,6 +614,8 @@ async def get_task(
             retry_count=task.retry_count,
             created_at=task.created_at,
             updated_at=task.updated_at,
+            audit_events=audit_events,
+            operation_events=operation_events,
         )
 
     except HTTPException:
