@@ -94,7 +94,7 @@ async def list_approvals(
 
     query = query.order_by(Approval.created_at.desc()).limit(limit)
 
-    result = db.execute(query)
+    result = await db.execute(query)
     approvals = result.scalars().all()
 
     return [
@@ -139,7 +139,7 @@ async def get_approval(
         Approval information
     """
     query = select(Approval).where(Approval.id == approval_id)
-    result = db.execute(query)
+    result = await db.execute(query)
     approval = result.scalar_one_or_none()
 
     if not approval:
@@ -187,7 +187,7 @@ async def get_approval_stats(
     if user_id:
         query = query.where(Approval.user_id == user_id)
 
-    result = db.execute(query)
+    result = await db.execute(query)
     all_approvals = result.scalars().all()
 
     # Calculate statistics

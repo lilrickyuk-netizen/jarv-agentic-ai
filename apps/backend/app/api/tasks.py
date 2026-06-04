@@ -430,7 +430,7 @@ async def get_task_stats(
         if workspace_id:
             query = query.where(Task.workspace_id == workspace_id)
 
-        result = db.execute(query)
+        result = await db.execute(query)
         all_tasks = result.scalars().all()
 
         pending = sum(1 for t in all_tasks if t.status == "pending")

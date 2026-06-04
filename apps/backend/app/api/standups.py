@@ -102,7 +102,7 @@ async def list_standups(
 
     query = query.order_by(AIStandup.standup_date.desc(), AIStandup.created_at.desc()).limit(limit)
 
-    result = db.execute(query)
+    result = await db.execute(query)
     standups = result.scalars().all()
 
     return [
@@ -142,7 +142,7 @@ async def get_standup(
         Standup information
     """
     query = select(AIStandup).where(AIStandup.id == standup_id)
-    result = db.execute(query)
+    result = await db.execute(query)
     standup = result.scalar_one_or_none()
 
     if not standup:
@@ -193,7 +193,7 @@ async def get_standup_stats(
     if end_date:
         query = query.where(AIStandup.standup_date <= end_date)
 
-    result = db.execute(query)
+    result = await db.execute(query)
     all_standups = result.scalars().all()
 
     # Calculate statistics
@@ -265,7 +265,7 @@ async def get_daily_summary(
     query = query.where(AIStandup.standup_date >= start_date)
     query = query.where(AIStandup.standup_date <= end_date)
 
-    result = db.execute(query)
+    result = await db.execute(query)
     all_standups = result.scalars().all()
 
     # Group by date

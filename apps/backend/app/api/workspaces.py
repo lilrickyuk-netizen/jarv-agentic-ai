@@ -112,7 +112,7 @@ async def list_workspaces(
 
         query = query.order_by(Workspace.created_at.desc())
 
-        result = db.execute(query)
+        result = await db.execute(query)
         workspaces = result.scalars().all()
 
         return [
@@ -316,8 +316,8 @@ async def create_workspace(
         )
 
         db.add(new_workspace)
-        db.commit()
-        db.refresh(new_workspace)
+        await db.commit()
+        await db.refresh(new_workspace)
 
         return WorkspaceInfo(
             id=str(new_workspace.id),
@@ -403,8 +403,8 @@ async def update_workspace(
         if workspace_update.company_mode_enabled is not None:
             workspace.company_mode_enabled = workspace_update.company_mode_enabled
 
-        db.commit()
-        db.refresh(workspace)
+        await db.commit()
+        await db.refresh(workspace)
 
         return WorkspaceInfo(
             id=str(workspace.id),
@@ -469,8 +469,8 @@ async def delete_workspace(
                 detail=f"Workspace '{workspace_id}' not found"
             )
 
-        db.delete(workspace)
-        db.commit()
+        await db.delete(workspace)
+        await db.commit()
 
     except HTTPException:
         raise

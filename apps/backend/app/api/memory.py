@@ -101,7 +101,7 @@ async def list_memories(
 
     query = query.order_by(Memory.importance_score.desc(), Memory.created_at.desc()).limit(limit)
 
-    result = db.execute(query)
+    result = await db.execute(query)
     memories = result.scalars().all()
 
     return [
@@ -141,7 +141,7 @@ async def get_memory(
         Memory information
     """
     query = select(Memory).where(Memory.id == memory_id)
-    result = db.execute(query)
+    result = await db.execute(query)
     memory = result.scalar_one_or_none()
 
     if not memory:
@@ -150,7 +150,7 @@ async def get_memory(
     # Update access count
     memory.access_count += 1
     memory.last_accessed_at = datetime.now()
-    db.commit()
+    await db.commit()
 
     return MemoryInfo(
         id=str(memory.id),
@@ -189,7 +189,7 @@ async def get_memory_stats(
     if agent_id:
         query = query.where(Memory.agent_id == agent_id)
 
-    result = db.execute(query)
+    result = await db.execute(query)
     all_memories = result.scalars().all()
 
     # Calculate statistics
@@ -263,7 +263,7 @@ async def get_agent_recent_memories(
         .limit(limit)
     )
 
-    result = db.execute(query)
+    result = await db.execute(query)
     memories = result.scalars().all()
 
     return [
@@ -317,7 +317,7 @@ async def get_important_memories(
 
     query = query.order_by(Memory.importance_score.desc()).limit(limit)
 
-    result = db.execute(query)
+    result = await db.execute(query)
     memories = result.scalars().all()
 
     return [

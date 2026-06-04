@@ -61,7 +61,7 @@ async def list_assets(
         query = query.where(Asset.is_active == is_active)
     query = query.order_by(Asset.created_at.desc()).limit(limit)
 
-    result = db.execute(query)
+    result = await db.execute(query)
     assets = result.scalars().all()
 
     return [
@@ -89,7 +89,7 @@ async def list_assets(
 @router.get("/stats", response_model=AssetStats)
 async def get_asset_stats(db: Session = Depends(get_db)):
     """Get aggregated statistics for assets."""
-    result = db.execute(select(Asset))
+    result = await db.execute(select(Asset))
     all_assets = result.scalars().all()
 
     total_assets = len(all_assets)

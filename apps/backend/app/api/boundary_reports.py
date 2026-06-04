@@ -75,7 +75,7 @@ async def list_boundary_reports(
 
     query = query.order_by(BoundaryReport.created_at.desc()).limit(limit)
 
-    result = db.execute(query)
+    result = await db.execute(query)
     reports = result.scalars().all()
 
     return [
@@ -109,7 +109,7 @@ async def get_boundary_report_stats(db: Session = Depends(get_db)):
     """
     Get aggregated statistics for boundary reports.
     """
-    result = db.execute(select(BoundaryReport))
+    result = await db.execute(select(BoundaryReport))
     all_reports = result.scalars().all()
 
     total_reports = len(all_reports)

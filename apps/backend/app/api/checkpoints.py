@@ -68,7 +68,7 @@ async def list_checkpoints(
 
     query = query.order_by(SafeCheckpoint.created_at.desc()).limit(limit)
 
-    result = db.execute(query)
+    result = await db.execute(query)
     checkpoints = result.scalars().all()
 
     return [
@@ -97,7 +97,7 @@ async def get_checkpoint_stats(db: Session = Depends(get_db)):
     """
     Get aggregated statistics for checkpoints.
     """
-    result = db.execute(select(SafeCheckpoint))
+    result = await db.execute(select(SafeCheckpoint))
     all_checkpoints = result.scalars().all()
 
     total_checkpoints = len(all_checkpoints)

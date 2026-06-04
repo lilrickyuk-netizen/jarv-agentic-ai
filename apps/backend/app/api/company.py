@@ -98,7 +98,7 @@ async def list_company_roles(
 
     query = query.order_by(CompanyRole.department, CompanyRole.role_name)
 
-    result = db.execute(query)
+    result = await db.execute(query)
     roles = result.scalars().all()
 
     return [
@@ -141,7 +141,7 @@ async def get_company_role(
         Role information with full details
     """
     query = select(CompanyRole).where(CompanyRole.id == role_id)
-    result = db.execute(query)
+    result = await db.execute(query)
     role = result.scalar_one_or_none()
 
     if not role:
@@ -187,7 +187,7 @@ async def get_company_stats(
     if workspace_id:
         query = query.where(CompanyRole.workspace_id == workspace_id)
 
-    result = db.execute(query)
+    result = await db.execute(query)
     all_roles = result.scalars().all()
 
     # Calculate statistics
@@ -256,7 +256,7 @@ async def list_departments(
     if workspace_id:
         query = query.where(CompanyRole.workspace_id == workspace_id)
 
-    result = db.execute(query)
+    result = await db.execute(query)
     all_roles = result.scalars().all()
 
     # Group by department
@@ -299,7 +299,7 @@ async def get_role_hierarchy(
     if workspace_id:
         query = query.where(CompanyRole.workspace_id == workspace_id)
 
-    result = db.execute(query)
+    result = await db.execute(query)
     all_roles = result.scalars().all()
 
     # Build role lookup

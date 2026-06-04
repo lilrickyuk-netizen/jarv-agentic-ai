@@ -97,7 +97,7 @@ async def list_experiences(
 
     query = query.order_by(ExperienceRecord.confidence_score.desc(), ExperienceRecord.created_at.desc()).limit(limit)
 
-    result = db.execute(query)
+    result = await db.execute(query)
     experiences = result.scalars().all()
 
     return [
@@ -142,7 +142,7 @@ async def get_experience(
         Experience information
     """
     query = select(ExperienceRecord).where(ExperienceRecord.id == experience_id)
-    result = db.execute(query)
+    result = await db.execute(query)
     exp = result.scalar_one_or_none()
 
     if not exp:
@@ -190,7 +190,7 @@ async def get_experience_stats(
     if agent_id:
         query = query.where(ExperienceRecord.agent_id == agent_id)
 
-    result = db.execute(query)
+    result = await db.execute(query)
     all_experiences = result.scalars().all()
 
     # Calculate statistics
@@ -256,7 +256,7 @@ async def get_agent_top_experiences(
         .limit(limit)
     )
 
-    result = db.execute(query)
+    result = await db.execute(query)
     experiences = result.scalars().all()
 
     return [

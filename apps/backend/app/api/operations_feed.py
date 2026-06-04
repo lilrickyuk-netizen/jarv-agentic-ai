@@ -96,7 +96,7 @@ async def list_feed_items(
 
     query = query.order_by(LiveOperationsFeedItem.created_at.desc()).limit(limit)
 
-    result = db.execute(query)
+    result = await db.execute(query)
     items = result.scalars().all()
 
     return [
@@ -137,7 +137,7 @@ async def get_feed_item(
         Feed item information
     """
     query = select(LiveOperationsFeedItem).where(LiveOperationsFeedItem.id == item_id)
-    result = db.execute(query)
+    result = await db.execute(query)
     item = result.scalar_one_or_none()
 
     if not item:
@@ -184,7 +184,7 @@ async def get_feed_stats(
         query = query.where(LiveOperationsFeedItem.workspace_id == workspace_id)
     query = query.where(LiveOperationsFeedItem.is_archived == False)
 
-    result = db.execute(query)
+    result = await db.execute(query)
     all_items = result.scalars().all()
 
     # Calculate statistics
@@ -236,7 +236,7 @@ async def mark_feed_item_read(
         Success message
     """
     query = select(LiveOperationsFeedItem).where(LiveOperationsFeedItem.id == item_id)
-    result = db.execute(query)
+    result = await db.execute(query)
     item = result.scalar_one_or_none()
 
     if not item:
@@ -244,7 +244,7 @@ async def mark_feed_item_read(
 
     item.is_read = is_read
     item.updated_at = datetime.now()
-    db.commit()
+    await db.commit()
 
     return {"success": True, "message": f"Feed item marked as {'read' if is_read else 'unread'}"}
 
@@ -266,7 +266,7 @@ async def archive_feed_item(
         Success message
     """
     query = select(LiveOperationsFeedItem).where(LiveOperationsFeedItem.id == item_id)
-    result = db.execute(query)
+    result = await db.execute(query)
     item = result.scalar_one_or_none()
 
     if not item:
@@ -274,6 +274,6 @@ async def archive_feed_item(
 
     item.is_archived = is_archived
     item.updated_at = datetime.now()
-    db.commit()
+    await db.commit()
 
     return {"success": True, "message": f"Feed item {'archived' if is_archived else 'unarchived'}"}
