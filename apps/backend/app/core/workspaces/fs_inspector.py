@@ -309,6 +309,58 @@ def scan_workspace(host_path: str, max_entries: int = 4000) -> FsResult:
     )
 
 
+def list_dir(host_path: str) -> FsResult:
+    """Real read-only directory listing (scope + banned enforced)."""
+    chk = path_exists(host_path)
+    if not chk.accessible or not chk.exists:
+        return chk
+    root = Path(chk.container_path)
+    entries: List[Dict[str, Any]] = []
+    try:
+        if root.is_dir():
+            for e in sorted(root.iterdir(), key=lambda p: p.name.lower()):
+                entries.append({"name": e.name, "is_dir": e.is_dir(),
+                                "size_bytes": _safe_size(e) if e.is_file() else None})
+        else:
+            entries.append({"name": root.name, "is_dir": False, "size_bytes": _safe_size(root)})
+    except Exception as exc:  # noqa: BLE001
+        return FsResult(accessible=False, host_path=host_path,
+                        container_path=chk.container_path, reason=str(exc))
+    return FsResult(accessible=True, host_path=host_path, container_path=chk.container_path,
+                    exists=True, is_dir=root.is_dir(), data={"entries": entries})
+
+
+def read_file(host_path: str, max_bytes: int = 20000) -> FsResult:
+    """
+    Real read-only file read (scope + banned enforced). Secret-bearing files
+    (.env / key files) are reported as present but their contents are redacted.
+    """
+    chk = path_exists(host_path)
+    if not chk.accessible or not chk.exists:
+        return chk
+    p = Path(chk.container_path)
+    if p.is_dir():
+        return FsResult(accessible=False, host_path=host_path,
+                        container_path=chk.container_path, reason="Path is a directory, not a file.")
+    name = p.name.lower()
+    is_secret = name.startswith(".env") or name.endswith(".env") or "secret" in name or "key" in name
+    try:
+        if is_secret:
+            return FsResult(accessible=True, host_path=host_path, container_path=chk.container_path,
+                            exists=True, is_dir=False,
+                            data={"redacted": True, "size_bytes": _safe_size(p),
+                                  "content": "[REDACTED — secret-bearing file; values never read]"})
+        with open(p, "r", encoding="utf-8", errors="replace") as fh:
+            content = fh.read(max_bytes)
+        return FsResult(accessible=True, host_path=host_path, container_path=chk.container_path,
+                        exists=True, is_dir=False,
+                        data={"redacted": False, "size_bytes": _safe_size(p), "content": content,
+                              "truncated": (_safe_size(p) or 0) > max_bytes})
+    except Exception as exc:  # noqa: BLE001
+        return FsResult(accessible=False, host_path=host_path,
+                        container_path=chk.container_path, reason=str(exc))
+
+
 def _safe_size(p: Path) -> Optional[int]:
     try:
         return p.stat().st_size

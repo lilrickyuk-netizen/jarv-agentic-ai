@@ -41,7 +41,11 @@ from app.core.agents.registry import get_registry
 from app.core.providers import CompletionRequest, Message, get_router
 from app.core.config import settings
 from app.core.workspaces import fs_inspector
+from app.core.jarv_memory import memory_service
+from app.core.command.tool_runtime import ToolRuntime
+from app.core.qa.verifier import qa_verifier
 from app.models.agent import Agent
+from app.models.memory import Memory
 from app.models.company_operations import LiveOperationsFeedItem
 from app.models.operations import AuditLog
 from app.models.task import Task
@@ -288,16 +292,38 @@ class CommandService:
             intent = self._detect_intent(command_text)
             result_extra: Dict[str, Any] = {}
 
-            if intent == "register_workspace":
+            # Retrieve relevant persistent memory BEFORE planning (BLOCKER 1).
+            try:
+                recalled = await memory_service.search(db, command_text, limit=5, workspace_id=ws_id)
+                system_context["relevant_memory"] = [
+                    {"type": m.memory_type, "content": m.content} for m in recalled
+                ]
+            except Exception:  # noqa: BLE001
+                system_context["relevant_memory"] = []
+
+            # Tool runtime: agents act through real, logged tools (BLOCKER 3).
+            runtime = ToolRuntime(db, ws_id, task.id, operator=self.operator)
+
+            if intent == "remember_memory":
+                answer, plan_steps, selected_agents, result_extra = (
+                    await self._handle_remember(runtime, command_text)
+                )
+                total_tokens = 0
+            elif intent == "recall_memory":
+                answer, plan_steps, selected_agents, result_extra = (
+                    await self._handle_recall(runtime, command_text)
+                )
+                total_tokens = 0
+            elif intent == "register_workspace":
                 # Real action: confirm the path on disk and register a workspace.
                 answer, plan_steps, selected_agents, result_extra = (
                     await self._handle_register_workspace(db, command_text)
                 )
                 total_tokens = 0
-            elif intent == "scan_workspace":
-                # Real action: read-only scan of actual files in an approved workspace.
+            elif intent in ("scan_workspace", "verify_last_scan"):
+                # Real action: read-only scan of actual files via tools + QA verify.
                 answer, plan_steps, selected_agents, result_extra = (
-                    await self._handle_scan_workspace(db, command_text)
+                    await self._handle_scan_workspace(db, command_text, runtime)
                 )
                 total_tokens = 0
             else:
@@ -329,13 +355,39 @@ class CommandService:
                 "selected_agents": selected_agents,
                 "provider": "claude",
                 "model": self.model,
+                "tool_calls": runtime.calls,
                 **result_extra,
             }
             task.execution_logs = [
                 {"step": "planning", "agent": "orchestrator", "agents_selected": selected_agents},
+                {"step": "tools", "agent": "orchestrator", "tool_calls": len(runtime.calls)},
                 {"step": "execution", "agent": "orchestrator", "result": "completed",
                  "intent": intent},
             ]
+
+            # QA/Verifier gate (BLOCKER 5): a failed verification must NOT complete.
+            verification = result_extra.get("verification")
+            if isinstance(verification, dict) and verification.get("passed") is False:
+                task.status = "failed"
+                task.error_message = (
+                    "QA verification failed: "
+                    + verification.get("reasoning", "output could not be verified")
+                )
+
+            # Persist the result to memory (BLOCKER 1): recallable next session.
+            try:
+                await memory_service.add(
+                    db,
+                    content=f"Command: {command_text[:300]} | Result: {answer[:500]}",
+                    memory_type="task_result",
+                    workspace_id=ws_id,
+                    task_id=task.id,
+                    importance=0.6,
+                    meta={"intent": intent, "agents": selected_agents},
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"memory persist failed: {exc}")
+
             task.updated_at = datetime.now(timezone.utc)
 
             await self._feed(
@@ -474,6 +526,14 @@ class CommandService:
         """Classify a command into a real specialized handler, or None (generic)."""
         text = command_text.lower()
         has_path = bool(_PATH_RE.search(command_text))
+        if re.search(r"\b(recall|retrieve|what did you remember|do you remember)\b", text):
+            return "recall_memory"
+        if re.search(r"\bremember\b", text):
+            return "remember_memory"
+        if re.search(r"\b(verify|qa|validate)\b", text) and (
+            "scan" in text or "last" in text or "workspace" in text
+        ):
+            return "verify_last_scan"
         if re.search(r"\bregister\b", text) and ("workspace" in text or has_path):
             return "register_workspace"
         if re.search(r"\b(scan|inspect|analy[sz]e)\b", text) and (
@@ -490,6 +550,46 @@ class CommandService:
             return validated or agents
         except Exception:  # noqa: BLE001
             return agents
+
+    async def _handle_remember(
+        self, runtime: ToolRuntime, command_text: str
+    ) -> tuple[str, List[str], List[str], Dict[str, Any]]:
+        """Store a fact in persistent memory via the memory_add tool."""
+        steps = ["Memory Agent: extract the fact.", "Memory Agent: call memory_add (persist)."]
+        agents = self._validate_agents(["orchestrator", "memory"])
+        # Extract the fact: text after 'remember', stripping quotes/trailing instructions.
+        m = re.search(r"remember(?:\s+this[^:]*)?[:\s]+(.+)", command_text, re.IGNORECASE)
+        fact = (m.group(1) if m else command_text).strip()
+        fact = re.split(r"(?:\bthen\b|\.\s|do not modify|don't modify)", fact, maxsplit=1)[0].strip().strip('"').strip("'")
+        if not fact:
+            return ("I could not find a fact to remember.", steps, agents,
+                    {"memory_error": "no_fact"})
+        res = await runtime.memory_add(fact, memory_type="fact", importance=0.8)
+        answer = (
+            f"**Stored to persistent memory.**\n\n"
+            f"- Fact: \"{fact}\"\n- Memory ID: `{res['memory_id']}`\n"
+            f"- Backend: PostgreSQL + pgvector (persists across sessions)\n\n"
+            f"You can ask me to recall it at any time."
+        )
+        return answer, steps, agents, {"memory_id": res["memory_id"], "stored_fact": fact}
+
+    async def _handle_recall(
+        self, runtime: ToolRuntime, command_text: str
+    ) -> tuple[str, List[str], List[str], Dict[str, Any]]:
+        """Recall facts from persistent memory via the memory_search tool."""
+        steps = ["Memory Agent: build the query.", "Memory Agent: call memory_search (retrieve)."]
+        agents = self._validate_agents(["orchestrator", "memory"])
+        # Use the command minus the recall verb as the query.
+        query = re.sub(r"\b(recall|retrieve|what did you remember|do you remember|please|jarv)\b",
+                       " ", command_text, flags=re.IGNORECASE)
+        res = await runtime.memory_search(query, limit=5)
+        results = res["results"]
+        if not results:
+            return ("I have no matching memories for that query.", steps, agents,
+                    {"recall_count": 0})
+        lines = "\n".join(f"- [{r['type']}] {r['content']}" for r in results)
+        answer = f"**Recalled {len(results)} memory record(s):**\n\n{lines}"
+        return answer, steps, agents, {"recall_count": len(results), "recalled": results}
 
     async def _handle_register_workspace(
         self, db: AsyncSession, command_text: str
@@ -586,7 +686,7 @@ class CommandService:
         }
 
     async def _handle_scan_workspace(
-        self, db: AsyncSession, command_text: str
+        self, db: AsyncSession, command_text: str, runtime: "ToolRuntime"
     ) -> tuple[str, List[str], List[str], Dict[str, Any]]:
         """Run a REAL read-only scan of an approved workspace's actual files."""
         steps = [
@@ -620,33 +720,33 @@ class CommandService:
                 steps, agents, {"scan_error": "no_workspace"},
             )
 
-        scan = fs_inspector.scan_workspace(host_path)
-        if not scan.accessible:
+        # Act through real tools (recorded as tool calls on the task).
+        await runtime.list_files(host_path)
+        scan_call = await runtime.scan_workspace(host_path)
+        if not scan_call.get("accessible"):
             return (
-                f"Read-only scan blocked for `{host_path}`.\n\n{scan.reason}",
+                f"Read-only scan blocked for `{host_path}`.\n\n{scan_call.get('reason')}",
                 steps, agents,
-                {"workspace_path": host_path, "blocked": True, "reason": scan.reason},
+                {"workspace_path": host_path, "blocked": True, "reason": scan_call.get("reason")},
             )
-        if not scan.exists:
+        if not scan_call.get("exists"):
             return (
-                f"Cannot scan `{host_path}`: {scan.reason}",
+                f"Cannot scan `{host_path}`: {scan_call.get('reason')}",
                 steps, agents, {"workspace_path": host_path, "path_exists": False},
             )
 
-        d = scan.data
-        await self._feed(
-            db, await self._resolve_workspace(db, None), None,
-            item_type="workspace", severity="info",
-            title="Workspace scanned (read-only)",
-            message=f"{host_path}: {d.get('total_files', 0)} files inspected",
-        )
-        await self._audit(
-            db, await self._resolve_workspace(db, None),
-            action="workspace_scanned", category="workspace",
-            description=f"Read-only scan of {host_path}",
-            success=True,
-            metadata={"path": host_path, "total_files": d.get("total_files"),
-                      "operator": self.operator},
+        d = scan_call["data"]
+        # Read one referenced doc via the read_file tool to prove file-level access.
+        sep = "\\" if "\\" in host_path else "/"
+        base = host_path.rstrip("\\/")
+        for doc in (d.get("doc_files") or []):
+            doc_native = doc.replace("/", sep)
+            await runtime.read_file(base + sep + doc_native)
+            break
+
+        # Independent QA verification: confirm referenced files actually exist.
+        verification = await qa_verifier.verify_scan(
+            db, runtime.task_id, runtime.workspace_id, host_path, d
         )
 
         def _fmt(items: List[str], limit: int = 20) -> str:
@@ -668,11 +768,16 @@ class CommandService:
             f"**Env / secret files (names only — values NOT read):**\n{_fmt(d.get('env_files', []))}\n\n"
             f"**Risks:**\n{_fmt(d.get('risks', []))}\n\n"
             f"**Approval points before any change:**\n{_fmt(d.get('approval_points', []))}\n\n"
+            f"**QA verification:** {'PASSED' if verification['passed'] else 'FAILED'} "
+            f"({verification['tests_passed']}/{verification['tests_passed'] + verification['tests_failed']} "
+            f"referenced files independently confirmed on disk, confidence "
+            f"{verification['confidence_score']}).\n\n"
             f"_No files were modified. This was a read-only inspection scoped to the approved workspace._"
         )
         return answer, steps, agents, {
             "workspace_path": host_path,
             "scan": d,
+            "verification": verification,
         }
 
     async def _gather_system_context(self, db: AsyncSession) -> Dict[str, Any]:
@@ -700,6 +805,19 @@ class CommandService:
             context["redis"] = await check_redis_health()
         except Exception as exc:  # noqa: BLE001
             context["redis"] = {"status": "unknown", "error": str(exc)}
+
+        # Persistent memory / vector store status (real)
+        try:
+            mem_count = await memory_service.count(db)
+            pgvector = await memory_service.pgvector_available(db)
+            context["memory"] = {
+                "provider": "postgresql+pgvector",
+                "connected": True,
+                "pgvector_extension": pgvector,
+                "records": mem_count,
+            }
+        except Exception as exc:  # noqa: BLE001
+            context["memory"] = {"connected": False, "error": str(exc)}
 
         # LLM providers actually configured
         try:

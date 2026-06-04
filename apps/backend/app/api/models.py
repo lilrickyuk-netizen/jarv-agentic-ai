@@ -48,6 +48,8 @@ class ProviderInfo(BaseModel):
     supports_streaming: bool
     supports_tools: bool
     models: List[str]
+    status: str = "ready"  # ready | configured_no_model | unavailable
+    message: Optional[str] = None
 
 
 class ModelInfo(BaseModel):
@@ -75,12 +77,52 @@ async def list_providers() -> Dict[str, ProviderInfo]:
 
         result = {}
         for provider_name, info in provider_info.items():
-            result[provider_name] = ProviderInfo(
+            key = provider_name.value if hasattr(provider_name, "value") else str(provider_name)
+            models = list(info.get("available_models") or [])
+            status_str = "ready"
+            message: Optional[str] = None
+            available = True
+
+            if "ollama" in key.lower():
+                # Real readiness check: query the local Ollama model inventory.
+                provider = router_instance.providers.get(provider_name)
+                live_models: List[str] = []
+                reachable = False
+                try:
+                    if provider is not None and hasattr(provider, "refresh_models"):
+                        live_models = await provider.refresh_models()
+                        reachable = True
+                except Exception:  # noqa: BLE001
+                    reachable = False
+                models = live_models
+                if reachable and live_models:
+                    status_str, available = "ready", True
+                    message = f"{len(live_models)} local model(s) available."
+                elif reachable and not live_models:
+                    status_str, available = "configured_no_model", False
+                    message = ("Ollama is reachable but no model is pulled. Run "
+                               "`ollama pull llama3` to enable local inference. "
+                               "Claude remains the primary provider.")
+                else:
+                    status_str, available = "unavailable", False
+                    message = ("Ollama service is not reachable. It is configured but "
+                               "disabled until a local model is available. Claude "
+                               "remains the primary provider.")
+            else:
+                # Claude/OpenAI/Gemini: ready when registered with a known model list.
+                available = len(models) > 0
+                status_str = "ready" if available else "configured_no_model"
+                if not available:
+                    message = "Configured but no models listed."
+
+            result[key] = ProviderInfo(
                 name=info["name"],
-                available=True,
+                available=available,
                 supports_streaming=info["supports_streaming"],
                 supports_tools=info["supports_tools"],
-                models=info["available_models"],
+                models=models,
+                status=status_str,
+                message=message,
             )
 
         return result

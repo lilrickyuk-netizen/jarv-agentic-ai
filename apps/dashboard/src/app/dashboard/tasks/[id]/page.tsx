@@ -31,6 +31,8 @@ interface TaskDetail {
   plan_steps: string[];
   provider: string | null;
   model: string | null;
+  tool_calls: Record<string, unknown>[];
+  verification: Record<string, unknown> | null;
   result: Record<string, unknown> | null;
   error_message: string | null;
   execution_logs: Record<string, unknown>[] | null;
@@ -221,6 +223,43 @@ export default function TaskDetailPage() {
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">No agents recorded.</p>
+              )}
+            </section>
+
+            {/* Verification (QA) */}
+            {task.verification && (
+              <section className={`border rounded-lg p-6 ${task.verification.passed ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
+                <h2 className="text-sm font-medium mb-2">
+                  QA Verification — {task.verification.passed ? 'PASSED' : 'FAILED'}
+                </h2>
+                <p className="text-sm">
+                  Verifier: <span className="font-mono">{String(task.verification.verifier)}</span>
+                  {' · '}confidence {String(task.verification.confidence_score)}
+                  {' · '}{String(task.verification.tests_passed)} passed / {String(task.verification.tests_failed)} failed
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">{String(task.verification.reasoning)}</p>
+              </section>
+            )}
+
+            {/* Tool calls */}
+            <section className="bg-card border rounded-lg p-6">
+              <h2 className="text-sm font-medium text-muted-foreground mb-3">
+                Tool calls ({task.tool_calls.length})
+              </h2>
+              {task.tool_calls.length ? (
+                <ul className="space-y-2">
+                  {task.tool_calls.map((t, i) => (
+                    <li key={i} className="text-sm border-l-2 border-primary/40 pl-3">
+                      <span className="font-mono font-medium">{String(t.tool)}</span>
+                      {t.success === false && <span className="ml-2 text-xs text-red-600">failed</span>}
+                      {t.authorized === false && <span className="ml-2 text-xs text-yellow-700">not authorized</span>}
+                      <span className="ml-2 text-xs text-muted-foreground">L{String(t.authority_level)}</span>
+                      {t.summary != null && <p className="text-muted-foreground text-xs">{String(t.summary)}</p>}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground">No tool calls recorded for this task.</p>
               )}
             </section>
 
