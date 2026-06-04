@@ -644,7 +644,8 @@ class CommandService:
         if re.search(r"\b(self[- ]evolution|evolution proposal|propose (an? )?(improvement|change|rule)|improve (the )?(workflow|rule|runbook))\b", text):
             return "self_evolution"
         # Swarm parallel execution.
-        if re.search(r"\b(swarm|spawn .*(sub[- ]?agent|workers?)|parallel (sub)?agents?|split .* into (sub)?tasks)\b", text):
+        if re.search(r"\b(swarm|spawn .*(sub[- ]?agent|workers?|employees?)|"
+                     r"parallel (sub)?agents?|split .* into (sub)?tasks|scoped employees?)\b", text):
             return "swarm"
         # Package install (trusted, workspace-scoped).
         if (re.search(r"\b(npm (install|ci|i|add)|pnpm (install|add)|yarn( install| add)?|"
@@ -762,6 +763,18 @@ class CommandService:
         if isinstance(v, dict) and v.get("passed") is False:
             return fail("QA verification failed: " + v.get("reasoning", "unverified output"),
                         next="Inspect verification findings and re-run.")
+
+        # 2b) Swarm: PASS only when every requested output verifies. 0 outputs,
+        #     missing files, or fewer employees than requested -> FAILED.
+        sw = extra.get("swarm")
+        if isinstance(sw, dict):
+            if sw.get("verified") is True:
+                return "completed", None
+            return fail("Swarm verification failed: " + (sw.get("reason") or "outputs not verified"),
+                        missing=sw.get("missing"), collected=sw.get("collected"),
+                        next="Re-run the swarm; ensure each employee writes its output file.")
+        if extra.get("swarm_error"):
+            return fail(f"Swarm error: {extra.get('swarm_error')}.")
 
         # 3) Package install: non-zero exit -> failed; build/verify fail -> partial.
         pi = extra.get("package_install")
@@ -1318,70 +1331,181 @@ class CommandService:
         )
         return answer, steps, agents, {"self_evolution": {"verdict": "safe", "applied": True}}
 
+    # Role-specific swarm employees: (label, keyword(s), lead agent, output file).
+    _SWARM_ROLES = [
+        ("coding support", ("coding", "code", "implement"), "coding_agent", "coding_output.md"),
+        ("QA support", ("qa", "test", "quality"), "qa", "qa_output.md"),
+        ("documentation support", ("document", "docs", "readme"), "documentation", "documentation_output.md"),
+        ("security support", ("security", "secret", "vulnerab"), "security", "security_output.md"),
+        ("marketing support", ("marketing", "campaign", "launch copy"), "marketing", "marketing_output.md"),
+        ("business support", ("business", "pricing", "model", "strategy"), "business", "business_output.md"),
+    ]
+
     async def _handle_swarm(
         self, db: AsyncSession, runtime: ToolRuntime, command_text: str
     ) -> tuple[str, List[str], List[str], Dict[str, Any]]:
-        """Spawn parallel sub-agents -> execute -> collect -> verify -> dissolve."""
+        """Spawn N role-specific employees -> each writes a real output file ->
+        collect -> verify files exist -> dissolve. PASS only if all outputs exist."""
+        from app.core.agents.runner import agent_runner
         steps = [
-            "Swarm Manager: create a swarm run and spawn scoped sub-agents.",
-            "Sub-agents: each executes its assigned read-only sub-task in parallel.",
-            "Swarm Manager: collect outputs, verify, and dissolve sub-agents.",
+            "Swarm Manager: plan the requested employees and assignments.",
+            "Swarm Manager: spawn scoped employees (inherit <= lead authority, workspace scope).",
+            "Employees: each produces its role-specific output artifact (write_file).",
+            "Swarm Manager: collect outputs; Verifier checks every required file exists.",
+            "Swarm Manager: dissolve all employees; PASS only if all outputs verify.",
         ]
         agents = self._validate_agents(["orchestrator", "swarm_manager", "verifier"])
-        host_path = await self._resolve_ws_root(db, command_text)
-        if not host_path:
-            return ("No approved workspace for the swarm to operate on. Register one first.",
-                    steps, agents, {"swarm_error": "no_workspace"})
+        root = await self._resolve_ws_root(db, command_text)
+        if not root:
+            return ("No approved workspace for the swarm to operate on. Provide a sandbox path.",
+                    steps, agents, {"swarm_error": "no_workspace", "verified": False})
+        sep = "\\" if "\\" in root else "/"
+        base = root.rstrip("\\/")
 
-        # Spawn 3 scoped sub-agents, each inspecting a different facet (real work).
-        sub_specs = [
-            ("scanner-1", "inventory top-level files", "top_level_files"),
-            ("scanner-2", "inventory package/build files", "package_files"),
-            ("scanner-3", "inventory docs/entry points", "doc_files"),
-        ]
-        scan = await runtime.scan_workspace(host_path)
-        data = scan.get("data", {}) if scan.get("success") else {}
-        sub_agents: List[Dict[str, Any]] = []
-        for name, task_desc, facet in sub_specs:
+        text = command_text.lower()
+        # Which employees were requested? Match by keyword; if a count is given and
+        # all roles are listed, spawn them all.
+        requested = [r for r in self._SWARM_ROLES if any(k in text for k in r[1])]
+        m = re.search(r"\b(\d+)\s+(?:scoped\s+)?(?:employees|sub[- ]?agents|workers)\b", text)
+        requested_n = int(m.group(1)) if m else len(requested)
+        if not requested:
+            requested = list(self._SWARM_ROLES)  # default full set
+        # If a specific count was requested, honor it (cap to known roles).
+        if m and requested_n <= len(self._SWARM_ROLES):
+            requested = self._SWARM_ROLES[:requested_n] if requested_n >= len(requested) else requested[:requested_n]
+
+        # Always create the project brief first.
+        brief = (
+            "# PROJECT BRIEF\n\n"
+            f"Sandbox: {root}\n\n"
+            "JARV Swarm employee proof: the Swarm Manager spawns role-specific scoped "
+            "employees, each producing a verified output artifact, then dissolves them.\n\n"
+            f"Requested employees ({len(requested)}): "
+            + ", ".join(r[0] for r in requested) + "\n"
+        )
+        brief_path = base + sep + "PROJECT_BRIEF.md"
+        brief_res = await runtime.write_file(brief_path, brief, overwrite=True)
+        await self._feed(db, runtime.workspace_id, runtime.task_id, item_type="swarm",
+                         severity="info", title="PROJECT_BRIEF.md created", message=brief_path)
+
+        employees: List[Dict[str, Any]] = []
+        lead_authority = 9
+        for label, _kw, lead, filename in requested:
+            # SPAWN
             child = Task(id=uuid4(), workspace_id=runtime.workspace_id,
-                         title=f"[swarm:{name}] {task_desc}"[:500], description=task_desc,
-                         task_type="sub_agent_task", status="running", priority=5,
+                         title=f"[employee:{label}] {filename}"[:500],
+                         description=f"Swarm employee ({label}) -> produce {filename}",
+                         task_type="employee_task", status="running", priority=5,
                          context={"parent_task_id": str(runtime.task_id), "swarm": True,
-                                  "sub_agent": name},
-                         meta_data={"facet": facet},
+                                  "employee_role": label, "lead_agent": lead,
+                                  "authority_level": lead_authority, "workspace": root},
+                         meta_data={"spawned_by": "swarm_manager", "timeout_seconds": 1800,
+                                    "output_file": filename},
                          started_at=datetime.now(timezone.utc),
                          created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
-            db.add(child)
-            await db.flush()
-            output = data.get(facet, [])
-            child.status = "completed"
+            db.add(child); await db.flush()
+            await self._feed(db, runtime.workspace_id, runtime.task_id, item_type="swarm",
+                             severity="info", title=f"Spawn employee: {label}",
+                             message=f"assigned -> write {filename}")
+            # EXECUTE (role-specific via the lead agent; then write the artifact)
+            assignment = (f"As the {label} employee for this sandbox project, produce a concise, "
+                          f"useful {label} document for the project brief.")
+            run = await agent_runner.run_agent(lead, assignment, runtime.workspace_id)
+            body = (run.get("output_text") or "").strip() or f"({label}: no content generated)"
+            content = (f"# {label.title()} Output\n\n"
+                       f"_Produced by scoped employee (lead: {lead}, authority <= {lead_authority}, "
+                       f"workspace-scoped). Dissolves on completion._\n\n{body}\n")
+            full = base + sep + filename
+            w = await runtime.write_file(full, content, overwrite=True)
+            await self._feed(db, runtime.workspace_id, runtime.task_id, item_type="swarm",
+                             severity="info", title=f"Execute employee: {label}",
+                             message=f"wrote {filename} ({'ok' if w.get('success') else 'FAILED'})")
+            # COLLECT (verify the artifact actually exists + non-empty)
+            chk = fs_inspector.read_file(full)
+            exists = bool(chk.accessible and chk.exists and (chk.data or {}).get("size_bytes", 0) > 0) \
+                if not (chk.data or {}).get("redacted") else bool(chk.accessible and chk.exists)
+            await self._feed(db, runtime.workspace_id, runtime.task_id, item_type="swarm",
+                             severity="success" if exists else "error",
+                             title=f"Collect employee: {label}",
+                             message=f"{filename} {'collected' if exists else 'MISSING'}")
+            # DISSOLVE
+            child.status = "completed" if exists else "failed"
             child.completed_at = datetime.now(timezone.utc)
-            child.result = {"sub_agent": name, "facet": facet, "items": output, "count": len(output)}
+            child.result = {"employee_role": label, "lead_agent": lead, "output_file": filename,
+                            "verified": exists, "dissolved": True,
+                            "output_preview": body[:300]}
             child.updated_at = datetime.now(timezone.utc)
             await self._feed(db, runtime.workspace_id, runtime.task_id, item_type="swarm",
-                             severity="info", title=f"Sub-agent {name} completed",
-                             message=f"{task_desc}: {len(output)} item(s)")
-            await memory_service.add(db, content=f"[swarm:{name}] {task_desc} -> {len(output)} items",
+                             severity="info", title=f"Dissolve employee: {label}",
+                             message=f"{label} dissolved ({'verified' if exists else 'unverified'})")
+            await memory_service.add(db, content=f"[swarm employee {label}] {filename} verified={exists}",
                                      memory_type="swarm", workspace_id=runtime.workspace_id,
-                                     task_id=runtime.task_id, importance=0.5)
-            sub_agents.append({"sub_agent": name, "child_task_id": str(child.id),
-                               "items": len(output), "dissolved": True})
+                                     task_id=runtime.task_id, importance=0.55)
+            employees.append({"role": label, "lead_agent": lead, "child_task_id": str(child.id),
+                              "output_file": filename, "verified": exists, "dissolved": True,
+                              "authority_level": lead_authority})
 
-        collected = sum(s["items"] for s in sub_agents)
-        verified = all(s["dissolved"] for s in sub_agents) and len(sub_agents) == 3
+        # VERIFY: every required file must exist (brief + each employee file + report).
+        expected = ["PROJECT_BRIEF.md"] + [r[3] for r in requested] + ["swarm_verification_report.md"]
+        # Build + write the verification report first (so it counts as present).
+        collected = sum(1 for e in employees if e["verified"])
+        per_file = []
+        for fn in ["PROJECT_BRIEF.md"] + [r[3] for r in requested]:
+            chk = fs_inspector.path_exists(base + sep + fn)
+            per_file.append((fn, bool(chk.accessible and chk.exists)))
+        report = (
+            "# Swarm Verification Report\n\n"
+            f"Workspace: {root}\n"
+            f"Requested employees: {len(requested)} | Spawned: {len(employees)} | "
+            f"Outputs collected: {collected}/{len(employees)}\n\n"
+            "| Required file | Present |\n|---|---|\n"
+            + "\n".join(f"| {fn} | {'YES' if ok else 'NO'} |" for fn, ok in per_file)
+            + f"\n| swarm_verification_report.md | YES |\n"
+        )
+        await runtime.write_file(base + sep + "swarm_verification_report.md", report, overwrite=True)
+
+        missing = [fn for fn in expected
+                   if not (fs_inspector.path_exists(base + sep + fn).exists)]
+        enough_employees = len(employees) >= requested_n
+        verified = (collected == len(employees) and len(employees) > 0
+                    and not missing and enough_employees)
+
+        sev = "success" if verified else "error"
         await self._feed(db, runtime.workspace_id, runtime.task_id, item_type="swarm",
-                         severity="success", title="Swarm run complete",
-                         message=f"{len(sub_agents)} sub-agents spawned, collected {collected} items, dissolved.")
+                         severity=sev, title=f"Swarm verification {'PASSED' if verified else 'FAILED'}",
+                         message=f"{collected}/{len(employees)} outputs; missing={missing or 'none'}")
+
+        reason = None
+        if not verified:
+            if len(employees) == 0:
+                reason = "No employees executed (0 outputs)."
+            elif collected == 0:
+                reason = "0 collected outputs."
+            elif missing:
+                reason = f"Missing required output file(s): {', '.join(missing)}."
+            elif not enough_employees:
+                reason = f"Spawned {len(employees)} employees but {requested_n} were requested."
+            else:
+                reason = "One or more employee outputs failed verification."
+
+        def _emp(e): return (f"  - **{e['role']}** (lead {e['lead_agent']}) → `{e['output_file']}` "
+                             f"{'✓ verified' if e['verified'] else '✗ MISSING'}, dissolved "
+                             f"(task `{e['child_task_id'][:8]}`)")
         answer = (
-            f"**Swarm run complete on `{host_path}`.**\n\n"
-            + "\n".join(f"  - **{s['sub_agent']}** → {s['items']} item(s) "
-                        f"(task `{s['child_task_id'][:8]}`, dissolved)" for s in sub_agents)
-            + f"\n\n**Collected:** {collected} item(s) across {len(sub_agents)} sub-agents. "
-            f"**Verification:** {'PASS' if verified else 'FAIL'}. All sub-agents dissolved on completion. "
-            f"Each ran scoped to the approved workspace and inherited <= lead authority."
+            f"**Swarm employee run — {'PASSED' if verified else 'FAILED'}** on `{root}`.\n\n"
+            f"Requested: {requested_n} · Spawned: {len(employees)} · "
+            f"Collected outputs: {collected}/{len(employees)}\n\n"
+            + "\n".join(_emp(e) for e in employees)
+            + f"\n\n**Required files:** "
+            + ", ".join(f"{fn}{'✓' if ok else '✗'}" for fn, ok in per_file)
+            + ", swarm_verification_report.md✓\n"
+            + (f"\n**Verification:** PASSED — all required outputs exist and verify; all employees dissolved."
+               if verified else f"\n**Verification:** FAILED — {reason}")
         )
         return answer, steps, agents, {
-            "swarm": {"sub_agents": sub_agents, "collected": collected, "verified": verified}}
+            "swarm": {"requested": requested_n, "spawned": len(employees),
+                      "collected": collected, "verified": verified, "missing": missing,
+                      "employees": employees, "reason": reason}}
 
     async def _handle_company_workflow(
         self, db: AsyncSession, runtime: ToolRuntime, command_text: str

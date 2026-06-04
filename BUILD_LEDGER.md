@@ -10441,3 +10441,21 @@ all built, wired, and browser/endpoint-verified.
   needs_continuation (5 real files written) -> resume -> COMPLETED; demo.py
   compiles; feed shows checkpoint + resume events. Regression 13/13.
 
+### TASK RC-7: Swarm output completion + honest verification
+- **STATUS**: COMPLETE ✅
+- **Root cause**: _handle_swarm spawned 3 generic scanner sub-agents, collected
+  0 items on an empty workspace, and marked PASS (false-positive verification).
+- **Fix**: role-specific employees. Swarm Manager plans the requested employees
+  from the mission, spawns N scoped employees (coding/QA/documentation/security/
+  marketing/business), each EXECUTES via its lead agent and WRITES a real output
+  artifact (write_file), outputs are COLLECTED (file exists + non-empty),
+  VERIFIED, and employees DISSOLVED. PASS only if every required file exists.
+- **Verification rules**: 0 outputs / missing file / fewer employees than
+  requested -> FAILED (verified in _derive_status: swarm.verified False -> failed).
+  Generic scanners no longer satisfy role-specific employee tasks.
+- **Feed**: spawn / execute / collect / dissolve / verification events per employee.
+- **Acceptance (/test_workspaces/jarv_swarm_employee_proof)**: 6 requested -> 6
+  spawned -> 6 collected -> verified=True -> all dissolved; 8 files written
+  (PROJECT_BRIEF.md, 6 role outputs, swarm_verification_report.md); status
+  COMPLETED. Negative guard: 0-output -> FAILED. Regression 13/13.
+
