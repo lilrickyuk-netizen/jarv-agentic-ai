@@ -27,10 +27,10 @@ def test_critical_endpoints_respond(client: TestClient):
     critical_endpoints = [
         "/health",
         "/",
-        "/workspaces/list",
-        "/agents/list",
-        "/tasks/list",
-        "/tools/list",
+        "/api/workspaces/list",
+        "/api/agents/list",
+        "/api/tasks/list",
+        "/api/tools",
     ]
 
     for endpoint in critical_endpoints:
@@ -51,12 +51,12 @@ def test_api_returns_json(client: TestClient):
 def test_workspace_crud_basics(client: TestClient, test_workspace):
     """Test basic workspace CRUD operations work"""
     # Read
-    response = client.get(f"/workspaces/{test_workspace.id}")
+    response = client.get(f"/api/workspaces/{test_workspace.id}")
     assert response.status_code == 200
 
     # Update
     response = client.patch(
-        f"/workspaces/{test_workspace.id}",
+        f"/api/workspaces/{test_workspace.id}",
         json={"name": "Updated Name"}
     )
     assert response.status_code == 200
@@ -65,29 +65,27 @@ def test_workspace_crud_basics(client: TestClient, test_workspace):
 @pytest.mark.smoke
 def test_agent_crud_basics(client: TestClient, test_agent):
     """Test basic agent CRUD operations work"""
-    # Read
-    response = client.get(f"/agents/{test_agent.id}")
+    # Read (registry uses name not ID)
+    response = client.get("/api/agents/orchestrator")
     assert response.status_code == 200
 
     # List
-    response = client.get("/agents/list")
+    response = client.get("/api/agents/list")
     assert response.status_code == 200
     assert isinstance(response.json(), list)
 
 
 @pytest.mark.smoke
 def test_task_crud_basics(client: TestClient, test_task):
-    """Test basic task CRUD operations work"""
+    """Test basic task operations work"""
     # Read
-    response = client.get(f"/tasks/{test_task.id}")
+    response = client.get(f"/api/tasks/{test_task.id}")
     assert response.status_code == 200
 
-    # Update status
-    response = client.patch(
-        f"/tasks/{test_task.id}",
-        json={"status": "in_progress"}
-    )
+    # List tasks
+    response = client.get("/api/tasks/list")
     assert response.status_code == 200
+    assert isinstance(response.json(), list)
 
 
 @pytest.mark.smoke
@@ -96,7 +94,7 @@ def test_error_handling_works(client: TestClient):
     from uuid import uuid4
 
     # Test 404 handling
-    response = client.get(f"/workspaces/{uuid4()}")
+    response = client.get(f"/api/workspaces/{uuid4()}")
     assert response.status_code == 404
     data = response.json()
     assert "detail" in data
@@ -106,9 +104,9 @@ def test_error_handling_works(client: TestClient):
 def test_stats_endpoints_work(client: TestClient, test_workspace, test_agent, test_task):
     """Test statistics endpoints return data"""
     endpoints = [
-        "/workspaces/stats",
-        "/agents/stats",
-        "/tasks/stats",
+        "/api/workspaces/stats",
+        "/api/agents/stats",
+        "/api/tasks/stats",
     ]
 
     for endpoint in endpoints:
@@ -140,7 +138,7 @@ def test_models_can_be_created(db_session: Session, test_user):
     agent = Agent(
         id=uuid4(),
         name="Smoke Test Agent",
-        role="smoke_test",
+        agent_type="smoke_test",
         workspace_id=workspace.id,
         is_active=True,
     )

@@ -8,6 +8,8 @@ from uuid import uuid4
 from app.models.workspace import Workspace
 from app.models.agent import Agent
 from app.models.task import Task
+from app.models.session import AgentSession
+from app.models.user import User
 
 
 @pytest.mark.workflow
@@ -53,7 +55,7 @@ def test_agent_swarm_workflow(db_session: Session, test_workspace: Workspace):
     primary_agent = Agent(
         id=uuid4(),
         name="Primary Agent",
-        role="orchestrator",
+        agent_type="orchestrator",
         workspace_id=test_workspace.id,
         is_active=True,
         authority_level=7,
@@ -66,7 +68,7 @@ def test_agent_swarm_workflow(db_session: Session, test_workspace: Workspace):
         sub_agent = Agent(
             id=uuid4(),
             name=f"Sub-Agent {i}",
-            role=f"worker_{i}",
+            agent_type=f"worker_{i}",
             workspace_id=test_workspace.id,
             is_active=True,
             authority_level=3,
@@ -100,7 +102,7 @@ def test_agent_swarm_workflow(db_session: Session, test_workspace: Workspace):
 
 @pytest.mark.workflow
 @pytest.mark.integration
-def test_approval_workflow(db_session: Session, test_workspace: Workspace, test_agent: Agent):
+def test_approval_workflow(db_session: Session, test_workspace: Workspace, test_agent: Agent, test_user: User):
     """Test approval workflow for high-authority tasks"""
     from app.models.approval import Approval
 
@@ -111,26 +113,39 @@ def test_approval_workflow(db_session: Session, test_workspace: Workspace, test_
         workspace_id=test_workspace.id,
         assigned_agent_id=test_agent.id,
         status="pending",
-        authority_required=8,  # Requires approval
+        priority=8,  # High priority task
     )
     db_session.add(task)
+    db_session.commit()
+
+    # Create agent session
+    session = AgentSession(
+        id=uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        agent_id=test_agent.id,
+        status="active",
+    )
+    db_session.add(session)
     db_session.commit()
 
     # Create approval request
     approval = Approval(
         id=uuid4(),
-        task_id=task.id,
-        agent_id=test_agent.id,
-        requested_authority=8,
+        session_id=session.id,
+        user_id=test_user.id,
+        approval_type="execute_task",
+        action_description="Execute high authority task",
+        action_details={"task_id": str(task.id)},
+        authority_level_required=8,
         status="pending",
-        action_type="execute_task",
     )
     db_session.add(approval)
     db_session.commit()
 
     # Approve
     approval.status = "approved"
-    approval.approved_by = "test_admin"
+    approval.approved = True
     db_session.commit()
 
     # Execute task
@@ -140,6 +155,7 @@ def test_approval_workflow(db_session: Session, test_workspace: Workspace, test_
     # Verify workflow
     final_approval = db_session.query(Approval).filter(Approval.id == approval.id).first()
     assert final_approval.status == "approved"
+    assert final_approval.approved is True
 
 
 @pytest.mark.workflow
@@ -175,7 +191,7 @@ def test_error_handling_workflow(db_session: Session, test_workspace: Workspace,
 
 @pytest.mark.workflow
 @pytest.mark.integration
-def test_checkpoint_workflow(db_session: Session, test_workspace: Workspace, test_agent: Agent):
+def test_checkpoint_workflow(db_session: Session, test_workspace: Workspace, test_agent: Agent, test_user: User):
     """Test checkpoint and resume workflow"""
     from app.models.boundary import SafeCheckpoint
 
@@ -190,13 +206,32 @@ def test_checkpoint_workflow(db_session: Session, test_workspace: Workspace, tes
     db_session.add(task)
     db_session.commit()
 
+    # Create agent session for checkpoint
+    session = AgentSession(
+        id=uuid4(),
+        user_id=test_user.id,
+        workspace_id=test_workspace.id,
+        agent_id=test_agent.id,
+        status="active",
+    )
+    db_session.add(session)
+    db_session.commit()
+
     # Create checkpoint
     checkpoint = SafeCheckpoint(
         id=uuid4(),
-        task_id=task.id,
-        agent_id=test_agent.id,
-        checkpoint_data={"progress": 50, "step": "analysis"},
-        is_resumable=True,
+        session_id=session.id,
+        checkpoint_name="Progress Checkpoint",
+        checkpoint_type="progress",
+        is_safe_state=True,
+        state_snapshot={"progress": 50, "step": "analysis"},
+        variables={},
+        message_history=[],
+        verification_status="verified",
+        safety_checks_passed=["data_integrity"],
+        safety_warnings=[],
+        can_resume_from=True,
+        resume_actions_available=["continue", "rollback"],
     )
     db_session.add(checkpoint)
     db_session.commit()
@@ -211,10 +246,10 @@ def test_checkpoint_workflow(db_session: Session, test_workspace: Workspace, tes
 
     # Verify checkpoint exists
     saved_checkpoint = db_session.query(SafeCheckpoint).filter(
-        SafeCheckpoint.task_id == task.id
+        SafeCheckpoint.session_id == session.id
     ).first()
     assert saved_checkpoint is not None
-    assert saved_checkpoint.is_resumable is True
+    assert saved_checkpoint.can_resume_from is True
 
 
 @pytest.mark.workflow
@@ -225,18 +260,18 @@ def test_multi_agent_collaboration(db_session: Session, test_workspace: Workspac
     coder = Agent(
         id=uuid4(),
         name="Coder Agent",
-        role="coding",
+        agent_type="coding",
         workspace_id=test_workspace.id,
         is_active=True,
-        capabilities=["code_generation", "debugging"],
+        allowed_tools=["code_generation", "debugging"],
     )
     tester = Agent(
         id=uuid4(),
         name="Tester Agent",
-        role="testing",
+        agent_type="testing",
         workspace_id=test_workspace.id,
         is_active=True,
-        capabilities=["test_creation", "test_execution"],
+        allowed_tools=["test_creation", "test_execution"],
     )
     db_session.add_all([coder, tester])
     db_session.commit()
@@ -255,10 +290,11 @@ def test_multi_agent_collaboration(db_session: Session, test_workspace: Workspac
         workspace_id=test_workspace.id,
         assigned_agent_id=tester.id,
         status="pending",
-        depends_on_task_id=code_task.id,
     )
+    # Set dependency using relationship
+    test_task.dependencies.append(code_task)
     db_session.add_all([code_task, test_task])
     db_session.commit()
 
     # Verify collaboration setup
-    assert test_task.depends_on_task_id == code_task.id
+    assert code_task in test_task.dependencies

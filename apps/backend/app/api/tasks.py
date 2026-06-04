@@ -340,7 +340,7 @@ class TaskStats(BaseModel):
 )
 async def list_tasks(
     workspace_id: Optional[UUID] = None,
-    status: Optional[str] = None,
+    task_status: Optional[str] = None,
     assigned_only: bool = False,
     limit: int = 100,
     db: Session = Depends(get_db),
@@ -350,7 +350,7 @@ async def list_tasks(
 
     Args:
         workspace_id: Filter by workspace
-        status: Filter by status
+        task_status: Filter by status
         assigned_only: Only show assigned tasks
         limit: Maximum number of tasks to return
         db: Database session
@@ -364,8 +364,8 @@ async def list_tasks(
         if workspace_id:
             query = query.where(Task.workspace_id == workspace_id)
 
-        if status:
-            query = query.where(Task.status == status)
+        if task_status:
+            query = query.where(Task.status == task_status)
 
         if assigned_only:
             query = query.where(Task.assigned_agent_id.isnot(None))

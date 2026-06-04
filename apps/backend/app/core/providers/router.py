@@ -3,7 +3,7 @@ JARV Backend - Model Router
 
 Routes completion requests to the appropriate LLM provider based on model name.
 """
-from typing import Dict, Optional, AsyncIterator
+from typing import Any, Dict, Optional, AsyncIterator
 import logging
 
 from app.core.providers.base import (

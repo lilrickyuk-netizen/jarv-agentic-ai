@@ -14,7 +14,7 @@ from app.core.database import Base, get_db
 from app.models.workspace import Workspace
 from app.models.agent import Agent
 from app.models.task import Task
-from app.models.tool import Tool
+from app.models.tool_system import Tool
 from app.models.user import User
 
 # Test database URL
@@ -86,9 +86,9 @@ def test_user(db_session: Session) -> User:
         id=uuid4(),
         username="testuser",
         email="test@example.com",
-        hashed_password="$2b$12$test_hashed_password",
+        password_hash="$2b$12$test_hashed_password",
         is_active=True,
-        is_superuser=False,
+        is_admin=False,
     )
     db_session.add(user)
     db_session.commit()
@@ -123,11 +123,11 @@ def test_agent(db_session: Session, test_workspace: Workspace) -> Agent:
     agent = Agent(
         id=uuid4(),
         name="Test Agent",
-        role="test_agent",
+        agent_type="test_agent",
         workspace_id=test_workspace.id,
         is_active=True,
         authority_level=3,
-        capabilities=["test", "execute"],
+        allowed_tools=["test", "execute"],
     )
     db_session.add(agent)
     db_session.commit()
@@ -146,7 +146,7 @@ def test_task(db_session: Session, test_workspace: Workspace, test_agent: Agent)
         workspace_id=test_workspace.id,
         assigned_agent_id=test_agent.id,
         status="pending",
-        priority="medium",
+        priority=5,
         task_type="test",
     )
     db_session.add(task)
@@ -187,9 +187,9 @@ def sample_test_data():
         },
         "agent": {
             "name": "Sample Agent",
-            "role": "sample_role",
+            "agent_type": "sample_role",
             "authority_level": 3,
-            "capabilities": ["read", "write"],
+            "allowed_tools": ["read", "write"],
         },
         "task": {
             "title": "Sample Task",

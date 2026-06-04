@@ -27,7 +27,7 @@ async def init_redis() -> Redis:
     try:
         # Create connection pool
         _redis_pool = ConnectionPool.from_url(
-            settings.REDIS_URL,
+            str(settings.REDIS_URL),
             encoding="utf-8",
             decode_responses=True,
             max_connections=settings.REDIS_MAX_CONNECTIONS,

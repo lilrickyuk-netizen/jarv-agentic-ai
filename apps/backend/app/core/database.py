@@ -80,8 +80,12 @@ async def close_db() -> None:
     logger.info("Database connection closed")
 
 
+# Import Base for re-export
+from app.models.base import Base
+
 # Export for convenience
 __all__ = [
+    "Base",
     "engine",
     "AsyncSessionLocal",
     "get_db",

@@ -36,8 +36,9 @@ def test_health_check_structure(client: TestClient):
 @pytest.mark.api
 @pytest.mark.smoke
 def test_root_endpoint(client: TestClient):
-    """Test root endpoint returns welcome message"""
+    """Test root endpoint returns service info"""
     response = client.get("/")
     assert response.status_code == 200
     data = response.json()
-    assert "message" in data or "name" in data
+    assert "service" in data
+    assert "version" in data

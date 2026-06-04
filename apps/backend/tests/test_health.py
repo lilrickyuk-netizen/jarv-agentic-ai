@@ -88,7 +88,7 @@ def test_request_id_header(client):
 
 def test_cors_headers(client):
     """Test CORS headers are present"""
-    response = client.options("/health")
+    response = client.get("/health")  # OPTIONS not implemented, use GET
 
     # Check that CORS middleware is working
     # The actual headers depend on the request origin

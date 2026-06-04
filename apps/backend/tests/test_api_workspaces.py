@@ -12,7 +12,7 @@ from app.models.user import User
 @pytest.mark.integration
 def test_list_workspaces(client: TestClient, test_workspace: Workspace):
     """Test listing workspaces"""
-    response = client.get("/workspaces/list")
+    response = client.get("/api/workspaces/list")
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
@@ -30,7 +30,7 @@ def test_list_workspaces(client: TestClient, test_workspace: Workspace):
 @pytest.mark.integration
 def test_get_workspace_by_id(client: TestClient, test_workspace: Workspace):
     """Test getting workspace by ID"""
-    response = client.get(f"/workspaces/{test_workspace.id}")
+    response = client.get(f"/api/workspaces/{test_workspace.id}")
     assert response.status_code == 200
     data = response.json()
 
@@ -46,7 +46,7 @@ def test_get_nonexistent_workspace(client: TestClient):
     """Test getting non-existent workspace returns 404"""
     from uuid import uuid4
     fake_id = uuid4()
-    response = client.get(f"/workspaces/{fake_id}")
+    response = client.get(f"/api/workspaces/{fake_id}")
     assert response.status_code == 404
 
 
@@ -62,7 +62,7 @@ def test_create_workspace(client: TestClient, db_session: Session, test_user: Us
         "authority_level": 5,
     }
 
-    response = client.post("/workspaces/create", json=workspace_data)
+    response = client.post("/api/workspaces/create", json=workspace_data)
     assert response.status_code == 201
     data = response.json()
 
@@ -89,7 +89,7 @@ def test_create_workspace_duplicate_slug(client: TestClient, test_workspace: Wor
         "workspace_type": "general",
     }
 
-    response = client.post("/workspaces/create", json=workspace_data)
+    response = client.post("/api/workspaces/create", json=workspace_data)
     assert response.status_code == 400
 
 
@@ -102,7 +102,7 @@ def test_update_workspace(client: TestClient, test_workspace: Workspace):
         "description": "Updated description",
     }
 
-    response = client.patch(f"/workspaces/{test_workspace.id}", json=update_data)
+    response = client.patch(f"/api/workspaces/{test_workspace.id}", json=update_data)
     assert response.status_code == 200
     data = response.json()
 
@@ -115,7 +115,7 @@ def test_update_workspace(client: TestClient, test_workspace: Workspace):
 @pytest.mark.integration
 def test_workspace_stats(client: TestClient, test_workspace: Workspace):
     """Test workspace statistics endpoint"""
-    response = client.get("/workspaces/stats")
+    response = client.get("/api/workspaces/stats")
     assert response.status_code == 200
     data = response.json()
 
@@ -129,7 +129,7 @@ def test_workspace_stats(client: TestClient, test_workspace: Workspace):
 @pytest.mark.integration
 def test_list_workspaces_active_only(client: TestClient, test_workspace: Workspace):
     """Test listing only active workspaces"""
-    response = client.get("/workspaces/list?active_only=true")
+    response = client.get("/api/workspaces/list?active_only=true")
     assert response.status_code == 200
     data = response.json()
 
@@ -157,7 +157,7 @@ def test_delete_workspace(client: TestClient, db_session: Session, test_user: Us
     workspace_id = workspace.id
 
     # Delete it
-    response = client.delete(f"/workspaces/{workspace_id}")
+    response = client.delete(f"/api/workspaces/{workspace_id}")
     assert response.status_code == 204
 
     # Verify deleted

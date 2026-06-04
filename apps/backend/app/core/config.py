@@ -136,13 +136,15 @@ class Settings(BaseSettings):
     def set_celery_broker(cls, v: Optional[str], values: dict) -> str:
         if v:
             return v
-        return values.get("REDIS_URL", "redis://localhost:6379/0")
+        redis_url = values.get("REDIS_URL", "redis://localhost:6379/0")
+        return str(redis_url) if redis_url else "redis://localhost:6379/0"
 
     @validator("CELERY_RESULT_BACKEND", pre=True)
     def set_celery_backend(cls, v: Optional[str], values: dict) -> str:
         if v:
             return v
-        return values.get("REDIS_URL", "redis://localhost:6379/0")
+        redis_url = values.get("REDIS_URL", "redis://localhost:6379/0")
+        return str(redis_url) if redis_url else "redis://localhost:6379/0"
 
     # Voice
     VOICE_ENABLED: bool = False

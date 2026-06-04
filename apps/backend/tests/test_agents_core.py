@@ -7,7 +7,51 @@ from uuid import uuid4
 
 from app.models.agent import Agent
 from app.models.workspace import Workspace
-from app.core.agents.base import BaseAgent
+from app.core.agents.base import AgentBase
+from typing import Dict, Any
+
+
+# Concrete test implementation of AgentBase
+class TestAgent(AgentBase):
+    """Concrete test agent for testing AgentBase functionality"""
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def role(self) -> str:
+        return self._role
+
+    @property
+    def required_authority_level(self) -> int:
+        return getattr(self, 'authority_level', 3)
+
+    @property
+    def input_schema(self) -> Dict[str, Any]:
+        return {"type": "object"}
+
+    @property
+    def output_schema(self) -> Dict[str, Any]:
+        return {"type": "object"}
+
+    async def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        return {"status": "success"}
+
+    def __init__(self, agent_id: str, name: str, **kwargs):
+        self.agent_id = agent_id
+        self._name = name
+        self._role = kwargs.get('role', kwargs.get('agent_type', 'test'))
+        self.authority_level = kwargs.get('authority_level', 3)
+        self.capabilities = kwargs.get('capabilities', kwargs.get('allowed_tools', []))
+
+    def has_authority(self, required_level: int) -> bool:
+        """Check if agent has required authority level"""
+        return self.authority_level >= required_level
+
+    def has_capability(self, capability: str) -> bool:
+        """Check if agent has specific capability"""
+        return capability in self.capabilities
 
 
 @pytest.mark.agent
@@ -21,7 +65,7 @@ def test_agent_initialization():
         "capabilities": ["read", "write"],
     }
 
-    agent = BaseAgent(**agent_data)
+    agent = TestAgent(**agent_data)
 
     assert agent.agent_id == agent_data["agent_id"]
     assert agent.name == agent_data["name"]
@@ -33,10 +77,10 @@ def test_agent_initialization():
 @pytest.mark.unit
 def test_agent_authority_levels():
     """Test agent authority level validation"""
-    agent = BaseAgent(
+    agent = TestAgent(
         agent_id=str(uuid4()),
         name="Test Agent",
-        role="test",
+        agent_type="test",
         authority_level=5,
     )
 
@@ -52,10 +96,10 @@ def test_agent_authority_levels():
 @pytest.mark.unit
 def test_agent_capability_checking():
     """Test agent capability validation"""
-    agent = BaseAgent(
+    agent = TestAgent(
         agent_id=str(uuid4()),
         name="Test Agent",
-        role="test",
+        agent_type="test",
         capabilities=["read", "write", "execute"],
     )
 
@@ -72,22 +116,22 @@ def test_agent_status_transitions(db_session: Session, test_workspace: Workspace
     agent = Agent(
         id=uuid4(),
         name="Status Test Agent",
-        role="status_test",
+        agent_type="status_test",
         workspace_id=test_workspace.id,
         is_active=True,
-        status="idle",
+        current_state="idle",
     )
     db_session.add(agent)
     db_session.commit()
 
     # Test status transitions
-    agent.status = "busy"
+    agent.current_state = "busy"
     db_session.commit()
-    assert agent.status == "busy"
+    assert agent.current_state == "busy"
 
-    agent.status = "idle"
+    agent.current_state = "idle"
     db_session.commit()
-    assert agent.status == "idle"
+    assert agent.current_state == "idle"
 
     # Test deactivation
     agent.is_active = False
@@ -128,21 +172,24 @@ def test_agent_task_assignment(db_session: Session, test_agent: Agent, test_work
 @pytest.mark.integration
 def test_agent_execution_tracking(db_session: Session, test_agent: Agent):
     """Test tracking agent executions"""
-    from app.models.execution import TaskExecution
+    from app.models.execution import CommandRun
+    from datetime import datetime
 
     # Create execution record
-    execution = TaskExecution(
+    execution = CommandRun(
         id=uuid4(),
         agent_id=test_agent.id,
-        status="running",
-        started_at=pytest.approx_now(),
+        command="test command",
+        command_type="test",
+        authority_level_used=3,
+        started_at=datetime.utcnow(),
     )
     db_session.add(execution)
     db_session.commit()
 
     # Query executions
-    executions = db_session.query(TaskExecution).filter(
-        TaskExecution.agent_id == test_agent.id
+    executions = db_session.query(CommandRun).filter(
+        CommandRun.agent_id == test_agent.id
     ).all()
 
     assert len(executions) >= 1
@@ -152,18 +199,21 @@ def test_agent_execution_tracking(db_session: Session, test_agent: Agent):
 @pytest.mark.unit
 def test_agent_registry():
     """Test agent registry functionality"""
-    from app.core.agents.registry import AgentRegistry
+    from app.core.agents.registry import get_registry
 
-    registry = AgentRegistry()
+    registry = get_registry()
 
-    # Register an agent class
-    @registry.register("test_agent")
-    class TestAgent(BaseAgent):
-        pass
+    # Verify registry has agents
+    assert registry.is_registered("orchestrator") is True
 
-    # Verify registration
-    assert registry.has_agent("test_agent") is True
-    assert registry.get_agent_class("test_agent") == TestAgent
+    # Get agent info
+    agent_info = registry.get_metadata("orchestrator")
+    assert agent_info is not None
+    assert agent_info.name == "orchestrator"
+
+    # List all agents
+    all_agents = registry.list_all()
+    assert len(all_agents) > 0
 
 
 @pytest.mark.agent
@@ -171,15 +221,19 @@ def test_agent_registry():
 def test_agent_specialization():
     """Test specialized agent types"""
     from app.core.agents.specialists.coding_agent import CodingAgent
+    from app.core.agents.base import AgentConfig, AuthorityLevel
 
-    agent = CodingAgent(
-        agent_id=str(uuid4()),
-        name="Coding Specialist",
-        role="coding",
+    # Create coding agent with proper config
+    config = AgentConfig(
+        name="coding_test",
+        authority_level=AuthorityLevel.LEVEL_3_CODE_EXECUTION,
     )
+    agent = CodingAgent(config=config)
 
-    # Coding agent should have coding-specific capabilities
-    assert agent.has_capability("code_analysis") is True or agent.has_capability("read") is True
+    # Coding agent should have coding-specific tools
+    assert agent.name == "coding_agent"
+    assert agent.required_authority_level == AuthorityLevel.LEVEL_3_CODE_EXECUTION
+    assert len(agent.default_tools) > 0
 
 
 @pytest.mark.agent

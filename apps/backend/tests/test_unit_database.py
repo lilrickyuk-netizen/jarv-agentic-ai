@@ -19,7 +19,7 @@ def test_create_user(db_session: Session):
         id=uuid4(),
         username="unittest",
         email="unit@test.com",
-        hashed_password="hashed",
+        password_hash="hashed",
         is_active=True,
     )
     db_session.add(user)
@@ -61,7 +61,7 @@ def test_workspace_agent_relationship(db_session: Session, test_workspace: Works
         agent = Agent(
             id=uuid4(),
             name=f"Test Agent {i}",
-            role=f"role_{i}",
+            agent_type=f"role_{i}",
             workspace_id=test_workspace.id,
             is_active=True,
         )

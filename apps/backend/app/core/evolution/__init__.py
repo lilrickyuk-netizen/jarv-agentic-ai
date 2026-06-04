@@ -4,7 +4,6 @@ JARV Backend - Self-Evolution Layer
 Enables JARV to improve itself from experience with safety guards.
 """
 from app.core.evolution.experience import (
-    ExperienceRecord,
     ExperienceCreate,
     ExperienceResult,
     ExperienceManager,
@@ -14,7 +13,6 @@ from app.core.evolution.experience import (
 )
 from app.core.evolution.improvements import (
     ImprovementType,
-    ImprovementProposal,
     ImprovementCreate,
     ImprovementResult,
     RiskLevel,
@@ -42,7 +40,6 @@ from app.core.evolution.versioning import (
 
 __all__ = [
     # Experience
-    "ExperienceRecord",
     "ExperienceCreate",
     "ExperienceResult",
     "ExperienceManager",
@@ -51,7 +48,6 @@ __all__ = [
     "extract_lesson",
     # Improvements
     "ImprovementType",
-    "ImprovementProposal",
     "ImprovementCreate",
     "ImprovementResult",
     "RiskLevel",

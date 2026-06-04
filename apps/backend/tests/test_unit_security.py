@@ -104,9 +104,22 @@ def test_special_characters_in_password():
 @pytest.mark.unit
 @pytest.mark.security
 def test_long_password():
-    """Test very long password"""
-    long_password = "a" * 1000
-    hashed = get_password_hash(long_password)
+    """Test long password handling with bcrypt's 72-byte limit"""
+    # Test password within 72-byte limit
+    long_password_71 = "a" * 71
+    hashed = get_password_hash(long_password_71)
 
-    assert verify_password(long_password, hashed) is True
-    assert verify_password(long_password[:-1], hashed) is False
+    assert verify_password(long_password_71, hashed) is True
+    assert verify_password(long_password_71[:-1], hashed) is False
+
+    # Test that passwords exceeding 72 bytes are truncated
+    # This is bcrypt's documented behavior
+    very_long_password = "a" * 1000
+    very_long_hashed = get_password_hash(very_long_password)
+
+    # Password should still verify
+    assert verify_password(very_long_password, very_long_hashed) is True
+
+    # Passwords differing only after byte 72 will match (truncation behavior)
+    # This is expected and documented bcrypt behavior
+    assert verify_password("a" * 100, very_long_hashed) is True
