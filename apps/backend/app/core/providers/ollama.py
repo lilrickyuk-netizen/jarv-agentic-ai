@@ -179,10 +179,18 @@ class OllamaProvider(BaseLLMProvider):
                 original_error=e,
             )
 
-    async def get_available_models(self) -> List[str]:
-        """Get list of available Ollama models"""
-        if self._available_models is None:
-            self._available_models = await self._fetch_available_models()
+    def get_available_models(self) -> List[str]:
+        """Get list of available Ollama models.
+
+        Synchronous to match the provider interface (all other providers and
+        the base class are sync, and callers invoke this without awaiting).
+        Returns the cached list, or empty until populated via refresh_models().
+        """
+        return self._available_models or []
+
+    async def refresh_models(self) -> List[str]:
+        """Fetch and cache the live model list from the Ollama service."""
+        self._available_models = await self._fetch_available_models()
         return self._available_models
 
     def validate_model(self, model: str) -> bool:

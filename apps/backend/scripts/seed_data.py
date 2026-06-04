@@ -190,7 +190,7 @@ async def create_seed_agent(session: AsyncSession, workspace: Workspace, role: C
         is_active=True,
         is_subagent=False,
         model_provider="claude",
-        model_name="claude-3-5-sonnet-20241022",
+        model_name="claude-sonnet-4-6",
         allowed_tools=["read", "write", "search", "calculate"],
         blocked_tools=[],
         total_executions=0,

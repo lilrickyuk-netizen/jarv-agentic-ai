@@ -217,7 +217,7 @@ class CustomerSupportAgent(AgentBase):
 
         Args:
             prompt: Full prompt with ticket context
-            model: Model name (e.g., claude-3-5-sonnet-20241022)
+            model: Model name (e.g., claude-sonnet-4-6)
             temperature: Temperature setting
 
         Returns:

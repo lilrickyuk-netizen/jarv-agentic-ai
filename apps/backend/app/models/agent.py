@@ -57,7 +57,7 @@ class Agent(Base, UUIDMixin, TimestampMixin):
     model_name: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
-        default="claude-sonnet-4",
+        default="claude-sonnet-4-6",
     )
 
     # Authority and permissions

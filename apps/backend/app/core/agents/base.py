@@ -66,7 +66,7 @@ class AgentConfig(BaseModel):
         description="Execution timeout in seconds"
     )
     model: str = Field(
-        default="claude-3-5-sonnet-20241022",
+        default="claude-sonnet-4-6",
         description="LLM model to use for this agent"
     )
     temperature: float = Field(

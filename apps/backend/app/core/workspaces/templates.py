@@ -57,7 +57,7 @@ class TemplateManager:
                 "company_mode_enabled": False,
                 "max_subagents": 50,
                 "config": {
-                    "default_model": "claude-3-5-sonnet-20241022",
+                    "default_model": "claude-sonnet-4-6",
                     "max_context_length": 200000,
                 },
             },
@@ -71,7 +71,7 @@ class TemplateManager:
                 "company_mode_enabled": False,
                 "max_subagents": 100,
                 "config": {
-                    "default_model": "claude-3-5-sonnet-20241022",
+                    "default_model": "claude-sonnet-4-6",
                     "code_tools_enabled": True,
                     "git_enabled": True,
                     "testing_enabled": True,
@@ -87,7 +87,7 @@ class TemplateManager:
                 "company_mode_enabled": False,
                 "max_subagents": 75,
                 "config": {
-                    "default_model": "claude-3-5-sonnet-20241022",
+                    "default_model": "claude-sonnet-4-6",
                     "memory_enabled": True,
                     "analysis_tools_enabled": True,
                 },
@@ -102,7 +102,7 @@ class TemplateManager:
                 "company_mode_enabled": True,
                 "max_subagents": 500,
                 "config": {
-                    "default_model": "claude-3-5-sonnet-20241022",
+                    "default_model": "claude-sonnet-4-6",
                     "all_tools_enabled": True,
                     "financial_tools_enabled": True,
                     "marketing_tools_enabled": True,

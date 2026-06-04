@@ -169,7 +169,7 @@ async def example_usage():
         authority_level=AuthorityLevel.LEVEL_2_FILE_OPERATIONS,
         allowed_tools=["text_search", "file_read"],
         enable_memory=True,
-        model="claude-3-5-sonnet-20241022",
+        model="claude-sonnet-4-6",
         temperature=0.7,
     )
 
