@@ -372,7 +372,7 @@ async def list_tasks(
 
         query = query.order_by(Task.created_at.desc()).limit(limit)
 
-        result = db.execute(query)
+        result = await db.execute(query)
         tasks = result.scalars().all()
 
         return [
