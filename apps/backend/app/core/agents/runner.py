@@ -120,9 +120,13 @@ class AgentRunner:
         """Invoke one agent on a role-specific task; return a structured result."""
         if not get_registry().is_implemented(agent_name):
             return {"agent": agent_name, "success": False, "error": "agent not implemented"}
+        # Scope the agent to its own tool catalog (per-agent tool permissions).
+        meta = get_registry().get_metadata(agent_name)
+        allowed_tools = list(getattr(meta, "default_tools", []) or [])
         config = AgentConfig(
             agent_id=uuid4(), workspace_id=workspace_id, user_id=user_id,
             authority_level=AuthorityLevel.LEVEL_9_SWARM_CREATION, model=self.model,
+            allowed_tools=allowed_tools,
         )
         agent = create_agent(agent_name, config)
         if agent is None:

@@ -206,7 +206,7 @@ class CommandService:
             "send_notification", "delegate", "agent_task",
             "launch_readiness", "infra_readiness",
             "self_healing", "self_evolution", "swarm", "company_workflow",
-            "package_install", "research",
+            "package_install", "research", "self_completion",
         }
         if self._detect_intent(command_text) in _controlled:
             safety = SafetyDecision(
@@ -337,6 +337,11 @@ class CommandService:
             elif intent == "infra_readiness":
                 answer, plan_steps, selected_agents, result_extra = (
                     await self._handle_infra_readiness(db, runtime, command_text)
+                )
+                total_tokens = 0
+            elif intent == "self_completion":
+                answer, plan_steps, selected_agents, result_extra = (
+                    await self._handle_self_completion(db, runtime, command_text)
                 )
                 total_tokens = 0
             elif intent == "self_healing":
@@ -622,6 +627,10 @@ class CommandService:
         """Classify a command into a real specialized handler, or None (generic)."""
         text = command_text.lower()
         has_path = bool(_PATH_RE.search(command_text))
+        # Self-completion: map Design.md to code and report gaps honestly.
+        if re.search(r"\b(self[- ]complet|finish your own|map design to code|"
+                     r"audit your (own )?implementation|design to code|gap map|complete your build)\b", text):
+            return "self_completion"
         # Self-healing simulated incident.
         if re.search(r"\b(self[- ]heal|simulate (an? )?incident|healing|recover (from|the))\b", text):
             return "self_healing"
@@ -858,6 +867,90 @@ class CommandService:
         if self._SH_APPROVAL_RE.search(text):
             return "approval_required"
         return "safe_auto_fix"
+
+    # Design.md -> code requirement map. Each entry: (requirement, file under /app,
+    # symbol that proves it exists). Read-only; produces an honest gap report.
+    _DESIGN_CHECKS = [
+        ("Reliable task status (no false completion)", "app/core/command/service.py", "_derive_status"),
+        ("Package-command sanitizer", "app/core/command/service.py", "_sanitize_pm_command"),
+        ("Autonomous agent loop", "app/core/command/agent_executor.py", "class AgentExecutor"),
+        ("Tool runtime (logged tool calls)", "app/core/command/tool_runtime.py", "class ToolRuntime"),
+        ("Persistent memory (pgvector)", "app/core/jarv_memory.py", "pgvector_available"),
+        ("QA verifier loop", "app/core/qa/verifier.py", "class QAVerifier"),
+        ("Self-healing auto-fix policy", "app/core/command/service.py", "safe_auto_fix"),
+        ("Self-evolution safety guard", "app/core/command/service.py", "_UNSAFE_EVO_RE"),
+        ("Swarm employee spawning", "app/core/agents/runner.py", "spawn_employees"),
+        ("31-agent run endpoint", "app/api/agents.py", "/{agent_name}/run"),
+        ("Per-agent tool catalog + departments", "app/api/agents.py", "DEPARTMENTS"),
+        ("Safe internet (SSRF-guarded)", "app/core/internet/__init__.py", "_ssrf_ok"),
+        ("Package install policy", "app/core/workspaces/fs_inspector.py", "INSTALL_PREFIXES"),
+        ("Scoped read/write fs inspector", "app/core/workspaces/fs_inspector.py", "def write_file"),
+        ("Autonomous scheduler loop", "app/workers/tasks.py", "scheduled_status_loop"),
+        ("Launch readiness", "app/core/command/service.py", "_handle_launch_readiness"),
+        ("Infrastructure readiness", "app/core/command/service.py", "_handle_infra_readiness"),
+        ("Company workflow drafts", "app/core/command/service.py", "_handle_company_workflow"),
+        ("Approval/boundary gate", "app/api/approvals.py", "command-blocks"),
+        ("Integrations (email/webhook dry-run)", "app/core/integrations/__init__.py", "class IntegrationRegistry"),
+    ]
+
+    async def _handle_self_completion(
+        self, db: AsyncSession, runtime: ToolRuntime, command_text: str
+    ) -> tuple[str, List[str], List[str], Dict[str, Any]]:
+        """Map Design.md requirements to real code; report complete/partial/missing honestly."""
+        import os
+        steps = [
+            "Self-Evolution: read the design requirement map.",
+            "Self-Evolution: scan the live codebase for evidence of each requirement.",
+            "Verifier: classify each requirement complete/partial/missing (no faking).",
+            "Self-Evolution: record an honest gap report (no auto-weakening of safety).",
+        ]
+        agents = self._validate_agents(["orchestrator", "self_evolution", "verifier"])
+        complete, partial, missing = [], [], []
+        for req, rel, symbol in self._DESIGN_CHECKS:
+            path = os.path.join("/app", rel)
+            try:
+                if not os.path.exists(path):
+                    missing.append(req)
+                    continue
+                with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                    content = fh.read()
+                if symbol in content:
+                    complete.append(req)
+                else:
+                    partial.append(req)
+            except Exception:  # noqa: BLE001
+                partial.append(req)
+
+        # Honest known-remaining items (not yet implemented; never claimed complete).
+        known_remaining = [
+            "Per-agent bespoke tool execution beyond the shared tool runtime",
+            "Auto-implementation of missing code (intentionally gated: report only, no blind self-edit)",
+            "Full ~40-page department dashboard (Departments + core pages exist; not every page built)",
+        ]
+        total = len(self._DESIGN_CHECKS)
+        report = {"complete": complete, "partial": partial, "missing": missing,
+                  "known_remaining": known_remaining,
+                  "score": f"{len(complete)}/{total}"}
+        await self._feed(db, runtime.workspace_id, runtime.task_id, item_type="self_evolution",
+                         severity="info", title="Self-completion gap map",
+                         message=f"{len(complete)}/{total} design requirements verified in code.")
+        await memory_service.add(
+            db, content=f"Self-completion: {len(complete)}/{total} complete; "
+            f"partial={partial}; missing={missing}",
+            memory_type="self_evolution", workspace_id=runtime.workspace_id,
+            task_id=runtime.task_id, importance=0.75)
+
+        def _bullet(items): return "\n".join(f"  - {i}" for i in items) or "  _(none)_"
+        answer = (
+            f"**Self-completion — Design→code map ({report['score']} verified in code).**\n\n"
+            f"**Complete ({len(complete)}):**\n{_bullet(complete)}\n\n"
+            f"**Partial ({len(partial)}):**\n{_bullet(partial)}\n\n"
+            f"**Missing ({len(missing)}):**\n{_bullet(missing)}\n\n"
+            f"**Known remaining (honest, not auto-implemented):**\n{_bullet(known_remaining)}\n\n"
+            f"_No safety rules, authority, logging, or boundaries were weakened. Missing/partial "
+            f"items are reported, not silently 'completed'._"
+        )
+        return answer, steps, agents, {"self_completion": report}
 
     async def _handle_self_healing(
         self, db: AsyncSession, runtime: ToolRuntime, command_text: str

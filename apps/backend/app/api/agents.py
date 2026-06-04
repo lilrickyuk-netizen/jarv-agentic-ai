@@ -395,3 +395,59 @@ async def run_agent(
             "result_keys": result.get("result_keys", []),
             "employees": employees, "tokens": task.tokens_used,
             "error": result.get("error")}
+
+
+# The 6 design departments and their lead agents (names match the registry).
+DEPARTMENTS: Dict[str, List[str]] = {
+    "Executive Office": ["orchestrator", "company_operator", "business", "finance"],
+    "Product & Engineering": ["workspace_manager", "coding_agent", "debugging_agent",
+                              "qa", "verifier", "documentation"],
+    "Launch & Infrastructure": ["devops", "infrastructure", "monitoring",
+                                "self_healing", "rollback", "security"],
+    "Growth & Market": ["marketing", "growth", "content", "creation", "analytics"],
+    "Customer & Commercial": ["customer_support", "onboarding", "community", "sales",
+                              "partnerships", "legal"],
+    "Intelligence & Evolution": ["research", "memory", "self_evolution", "swarm_manager"],
+}
+
+
+@router.get("/departments/overview")
+async def departments_overview() -> List[Dict[str, Any]]:
+    """The autonomous company by department: agents, tools, and authority."""
+    reg = get_registry()
+    out: List[Dict[str, Any]] = []
+    for dept, members in DEPARTMENTS.items():
+        agents_info = []
+        for name in members:
+            m = reg.get_metadata(name)
+            if not m:
+                continue
+            agents_info.append({
+                "name": m.name, "role": m.role,
+                "authority_level": m.required_authority_level,
+                "tool_count": len(m.default_tools or []),
+                "tools": m.default_tools or [],
+                "implemented": m.is_implemented,
+            })
+        out.append({"department": dept, "agent_count": len(agents_info),
+                    "agents": agents_info})
+    return out
+
+
+@router.get("/{agent_name}/tools")
+async def agent_tools(agent_name: str) -> Dict[str, Any]:
+    """An agent's tool catalog, cross-referenced with the live tool registry."""
+    reg = get_registry()
+    m = reg.get_metadata(agent_name)
+    if not m:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+    try:
+        from app.core.tools.registry import get_registry as get_tool_registry
+        treg = get_tool_registry()
+        tools = [{"name": t, "implemented": treg.is_implemented(t)} for t in (m.default_tools or [])]
+    except Exception:  # noqa: BLE001
+        tools = [{"name": t, "implemented": None} for t in (m.default_tools or [])]
+    dept = next((d for d, members in DEPARTMENTS.items() if agent_name in members), "Unassigned")
+    return {"agent": m.name, "role": m.role, "department": dept,
+            "authority_level": m.required_authority_level, "tools": tools,
+            "tool_count": len(tools)}
