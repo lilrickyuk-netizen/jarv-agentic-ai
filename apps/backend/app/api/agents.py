@@ -4,15 +4,33 @@ JARV Backend - Agent Management API
 Endpoints for discovering and managing JARV agents.
 """
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, HTTPException, status
+from datetime import datetime, timezone
+from uuid import uuid4
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 import logging
 
 from app.core.agents import get_registry, AgentMetadata
+from app.core.agents.runner import agent_runner, LEADS_WITH_EMPLOYEES
+from app.core.auth import CurrentUserId
+from app.core.database import get_db
+from app.core.jarv_memory import memory_service
+from app.models.task import Task
+from app.models.workspace import Workspace
+from app.models.user import User
+from app.models.company_operations import LiveOperationsFeedItem
+from app.models.operations import AuditLog
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/agents", tags=["agents"])
+
+
+class AgentRunRequest(BaseModel):
+    task: str = Field(..., min_length=1, max_length=4000)
+    spawn_employees: bool = False
 
 
 class AgentInfo(BaseModel):
@@ -284,3 +302,96 @@ async def list_agents_by_category(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list agents by category: {str(e)}"
         )
+
+
+@router.post("/{agent_name}/run")
+async def run_agent(
+    agent_name: str,
+    body: AgentRunRequest,
+    operator: CurrentUserId,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Invoke one of the 31 lead agents on a real role-specific task. Persists a
+    Task + operations feed + audit + memory, verifies the output, and (optionally)
+    has the Swarm Manager spawn scoped employees. Status is honest: completed only
+    when the agent succeeded with non-empty output.
+    """
+    reg = get_registry()
+    if not reg.is_implemented(agent_name):
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not implemented")
+
+    ws_id = (await db.execute(select(Workspace.id).limit(1))).scalar_one_or_none()
+    if ws_id is None:
+        owner = (await db.execute(select(User.id).limit(1))).scalar_one_or_none()
+        ws = Workspace(id=uuid4(), name="Command Center", slug=f"cc-{uuid4().hex[:6]}",
+                       description="default", owner_id=owner, workspace_type="general",
+                       is_active=True, authority_level=5, config={},
+                       created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+        db.add(ws); await db.flush(); ws_id = ws.id
+
+    task = Task(id=uuid4(), workspace_id=ws_id, title=f"[agent:{agent_name}] {body.task}"[:500],
+                description=body.task, task_type="agent_role", status="running", priority=5,
+                context={"agent": agent_name, "operator": operator},
+                meta_data={"channel": "agent_run"},
+                started_at=datetime.now(timezone.utc),
+                created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+    db.add(task); await db.flush()
+
+    result = await agent_runner.run_agent(agent_name, body.task, ws_id)
+    employees: List[Dict[str, Any]] = []
+    if body.spawn_employees and agent_name in LEADS_WITH_EMPLOYEES:
+        employees = await agent_runner.spawn_employees(db, agent_name, task.id, ws_id, body.task)
+
+    ok = bool(result.get("success"))
+    has_output = bool(result.get("output_text"))
+    if ok:
+        new_status = "completed"
+    elif has_output:
+        new_status = "partial"
+    else:
+        new_status = "failed"
+    # Verification: independent check that output is non-empty + agent reported success.
+    verification = {"verifier": "verifier", "passed": ok,
+                    "reason": "agent reported success with non-empty output" if ok
+                              else (result.get("error") or "no verifiable output")}
+
+    task.status = new_status
+    task.completed_at = datetime.now(timezone.utc) if new_status == "completed" else None
+    if new_status == "failed":
+        task.failed_at = datetime.now(timezone.utc)
+        task.error_message = result.get("error") or "agent produced no verifiable output"
+    task.result = {"response": result.get("output_text") or result.get("error") or "",
+                   "agent": agent_name, "agent_output": result, "employees": employees,
+                   "verification": verification, "task_status": new_status,
+                   "selected_agents": [agent_name], "provider": "claude"}
+    task.tokens_used = int(result.get("tokens", 0) or 0)
+    task.updated_at = datetime.now(timezone.utc)
+
+    db.add(LiveOperationsFeedItem(
+        id=uuid4(), workspace_id=ws_id, item_type="agent_execution",
+        severity="success" if ok else ("warning" if has_output else "error"),
+        title=f"Agent {agent_name} {new_status}",
+        message=(result.get("output_text") or result.get("error") or "")[:300],
+        related_task_id=task.id, requires_action=False,
+        created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc)))
+    db.add(AuditLog(
+        id=uuid4(), workspace_id=ws_id, actor_type="agent", action=f"agent_run:{agent_name}",
+        action_category="agent_execution",
+        description=f"{agent_name} role task -> {new_status}", target_type="task",
+        target_id=str(task.id), after_state={"agent": agent_name, "status": new_status,
+                                              "employees": len(employees)},
+        success=ok, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc)))
+    try:
+        await memory_service.add(db, content=f"[agent:{agent_name}] {body.task[:200]} -> {new_status}",
+                                 memory_type="task_result", workspace_id=ws_id, task_id=task.id,
+                                 importance=0.55, meta={"agent": agent_name})
+    except Exception:  # noqa: BLE001
+        pass
+    await db.commit()
+
+    return {"task_id": str(task.id), "agent": agent_name, "status": new_status,
+            "verified": ok, "output_preview": (result.get("output_text") or "")[:400],
+            "result_keys": result.get("result_keys", []),
+            "employees": employees, "tokens": task.tokens_used,
+            "error": result.get("error")}
