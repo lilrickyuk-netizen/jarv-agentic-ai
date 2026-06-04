@@ -13,6 +13,7 @@ from datetime import datetime
 
 from app.core.database import get_db
 from app.models.company import CompanyRole
+from app.models.task import Task
 
 router = APIRouter(prefix="/api/company", tags=["company"])
 
@@ -196,7 +197,12 @@ async def get_company_stats(
     automated_roles = sum(1 for role in all_roles if role.is_automated)
     total_agents_assigned = sum(role.total_agents for role in all_roles)
     total_tasks_completed = sum(role.tasks_completed for role in all_roles)
-    tasks_failed = sum(role.tasks_failed for role in all_roles)
+    # CompanyRole has no failure counter; derive failed tasks from the Task
+    # table by status, applying the same workspace filter used for roles above.
+    failed_query = select(func.count()).select_from(Task).where(Task.status == "failed")
+    if workspace_id:
+        failed_query = failed_query.where(Task.workspace_id == workspace_id)
+    tasks_failed = (await db.execute(failed_query)).scalar() or 0
 
     # Get unique departments
     departments = set(role.department for role in all_roles if role.department)
