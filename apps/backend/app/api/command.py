@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth import CurrentUserId
 from app.core.command import CommandService
 from app.core.config import settings
 from app.core.database import get_db
@@ -60,10 +61,14 @@ class CommandHistoryItem(BaseModel):
 @router.post("/execute", response_model=CommandResponse)
 async def execute_command(
     request: CommandRequest,
+    operator: CurrentUserId,
     db: AsyncSession = Depends(get_db),
 ) -> CommandResponse:
     """
     Execute a dashboard command through the real JARV pipeline.
+
+    Requires authentication (CurrentUserId): unauthenticated command execution
+    is rejected with 401.
 
     Flow: safety gate -> task created -> orchestrator + Claude planning ->
     agent selection -> live execution -> task completed -> result returned.
@@ -75,6 +80,7 @@ async def execute_command(
             command_text=request.command,
             db=db,
             workspace_id=request.workspace_id,
+            operator=operator,
         )
         return CommandResponse(**result.to_dict())
     except ValueError as e:

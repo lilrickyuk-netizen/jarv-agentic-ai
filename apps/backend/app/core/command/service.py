@@ -41,6 +41,7 @@ from app.core.providers import CompletionRequest, Message, get_router
 from app.core.config import settings
 from app.models.agent import Agent
 from app.models.company_operations import LiveOperationsFeedItem
+from app.models.operations import AuditLog
 from app.models.task import Task
 from app.models.workspace import Workspace
 
@@ -173,11 +174,13 @@ class CommandService:
         db: AsyncSession,
         workspace_id: Optional[UUID] = None,
         user_id: Optional[UUID] = None,
+        operator: Optional[str] = None,
     ) -> CommandResult:
         start = time.time()
         command_text = (command_text or "").strip()
         if not command_text:
             raise ValueError("Command text is required")
+        self.operator = operator or "operator"
 
         # 1) Safety / approval classification (deterministic gate)
         safety = classify_command_safety(command_text)
@@ -214,6 +217,12 @@ class CommandService:
             title="Command received",
             message=command_text,
         )
+        await self._audit(
+            db, ws_id, action="command_received", category="command",
+            description=f"Command received from {self.operator}: {command_text[:300]}",
+            success=True, target_id=task_id,
+            metadata={"operator": self.operator, "provider": "claude", "model": self.model},
+        )
 
         # 4) Approval gate: do NOT execute, pause the blocked action
         if safety.requires_approval:
@@ -227,6 +236,13 @@ class CommandService:
                 title="Approval required before execution",
                 message=safety.reason,
                 requires_action=True,
+            )
+            await self._audit(
+                db, ws_id, action="command_blocked", category="approval",
+                description=f"BLOCKED pending approval ({safety.boundary_type}): {command_text[:300]}",
+                success=True, target_id=task_id, required_approval=True,
+                metadata={"operator": self.operator, "reason": safety.reason,
+                          "boundary_type": safety.boundary_type},
             )
             await db.commit()
             return CommandResult(
@@ -305,6 +321,13 @@ class CommandService:
                 title="Command completed",
                 message=f"JARV completed: {command_text[:200]}",
             )
+            await self._audit(
+                db, ws_id, action="command_executed", category="execution",
+                description=f"Command executed successfully by {self.operator}: {command_text[:300]}",
+                success=True, target_id=task_id,
+                metadata={"operator": self.operator, "provider": "claude", "model": self.model,
+                          "selected_agents": selected_agents, "tokens_used": total_tokens},
+            )
             await db.commit()
 
             return CommandResult(
@@ -334,6 +357,12 @@ class CommandService:
                     severity="error",
                     title="Command failed",
                     message=str(exc)[:1000],
+                )
+                await self._audit(
+                    db, ws_id, action="command_failed", category="execution",
+                    description=f"Command failed: {command_text[:200]}",
+                    success=False, target_id=task_id, error_message=str(exc)[:1000],
+                    metadata={"operator": self.operator},
                 )
                 await db.commit()
             except Exception:
@@ -539,3 +568,39 @@ class CommandService:
             await db.flush()
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"Failed to write operations feed item: {exc}")
+
+    async def _audit(
+        self,
+        db: AsyncSession,
+        workspace_id: UUID,
+        action: str,
+        category: str,
+        description: str,
+        success: bool,
+        target_id: Optional[str] = None,
+        required_approval: bool = False,
+        error_message: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Write a persistent AuditLog row (non-fatal) using the real model fields."""
+        try:
+            entry = AuditLog(
+                id=uuid4(),
+                workspace_id=workspace_id,
+                actor_type="operator",
+                action=action,
+                action_category=category,
+                description=description,
+                target_type="command",
+                target_id=target_id,
+                after_state=metadata or {},
+                success=success,
+                error_message=error_message,
+                required_approval=required_approval,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+            db.add(entry)
+            await db.flush()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Failed to write audit log: {exc}")

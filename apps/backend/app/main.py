@@ -190,6 +190,10 @@ app.include_router(voice.router, prefix="/api")
 from app.api import command
 app.include_router(command.router, prefix="/api")
 
+# Import and include audit log router (persistent audit trail)
+from app.api import audit
+app.include_router(audit.router, prefix="/api")
+
 
 # Root endpoint (included in health router but also accessible at root)
 @app.get("/")
