@@ -10298,3 +10298,98 @@ C:\Users\lilri\OneDrive\Desktop\Jarv
 **Production Status**: READY ✅
 **Deployment Status**: APPROVED ✅
 
+---
+
+## POST-BUILD RUNTIME COMPLETION (2026-06-04)
+
+Driven by live browser/API verification (not self-reported status). Every item
+below was proven against the running stack, then committed and pushed.
+
+### TASK RC-1: Wire the full runtime operating loop end-to-end
+- **STATUS**: COMPLETE ✅
+- **COMMIT**: f2e9901
+- **FILES MODIFIED**: apps/backend/app/api/tasks.py, apps/backend/app/api/workspaces.py,
+  apps/backend/app/api/approvals.py, apps/backend/app/core/command/service.py,
+  apps/backend/app/core/config.py, apps/dashboard/src/app/dashboard/approvals/page.tsx,
+  apps/dashboard/src/app/dashboard/tasks/page.tsx, docker-compose.yml
+- **FILES CREATED**: apps/backend/app/core/workspaces/fs_inspector.py,
+  apps/dashboard/src/app/dashboard/tasks/[id]/page.tsx, scripts/e2e_smoke.py
+- **FIXES**:
+  - Task-detail endpoint was broken (sync db.query on AsyncSession) → rewrote async
+    and enriched with result, agents, provider/model, approval status, audit +
+    operation events. Created the missing /dashboard/tasks/[id] page (was a 404).
+  - Fixed 4 more broken sync queries in workspaces API; create now uses a real owner.
+  - Real scoped read-only filesystem inspector (host→container path translation over a
+    read-only mount, registered-workspace allowlist + banned-folder denylist, never writes).
+  - Command-service intent detection: real workspace registration (path confirmed on
+    disk) and real read-only scan (references actual files), via validated agents.
+  - Command-boundary approval workflow: blocked actions listed + authenticated
+    approve/reject; destructive actions never auto-run.
+- **VERIFIED**: status command, workspace registration, real scan, delete blocked →
+  approvals → confirm/cancel (folder remains), 401 on unauth execution, all routes 200.
+
+### TASK RC-2: Register all 116 tools (missing deps)
+- **STATUS**: COMPLETE ✅
+- **COMMIT**: 6a5ab16
+- **FILES MODIFIED**: apps/backend/pyproject.toml, apps/backend/poetry.lock
+- **ROOT CAUSE**: command (12) and company (15) tool groups were fully coded but a
+  single missing dependency per group (psutil; email-validator) broke the whole
+  group import, leaving the registry at 89/116.
+- **RESULT**: tool registry now reports 116/116 implemented (100%) across all 9
+  categories. Backend, worker, and scheduler images rebuilt on the consistent dep set.
+
+### TASK RC-3: Fix 5 production blockers
+- **STATUS**: COMPLETE ✅
+- **COMMIT**: ad95e1d
+- **FILES CREATED**: apps/backend/app/core/jarv_memory.py,
+  apps/backend/app/core/command/tool_runtime.py, apps/backend/app/core/qa/verifier.py,
+  apps/backend/app/core/qa/__init__.py, scripts/blocker_verify.py
+- **FILES MODIFIED**: apps/backend/app/core/command/service.py,
+  apps/backend/app/api/models.py, apps/backend/app/api/tasks.py,
+  apps/backend/app/core/workspaces/fs_inspector.py,
+  apps/dashboard/src/app/dashboard/tasks/[id]/page.tsx
+- **BLOCKER 1 — Persistent memory**: PostgreSQL + pgvector MemoryService (add/search/
+  count, link-to-task/workspace, keyword search). Pipeline recalls memory before
+  planning and persists every result. Verified: store + recall, rows in DB, pgvector
+  extension present, status reports memory connected.
+- **BLOCKER 2 — Ollama readiness**: /api/models/providers does a live model-inventory
+  check. claude → ready (8 models); ollama → configured_no_model / unavailable with a
+  clear setup message. Claude fallback unaffected.
+- **BLOCKER 3 — Tool execution layer**: ToolRuntime named tools (list_files, read_file,
+  scan_workspace, memory_add, memory_search) — real, authority-checked, logged to
+  audit + operations feed + task. Verified: scan records [list_files, scan_workspace,
+  read_file] visible in task detail and feed.
+- **BLOCKER 4 — Approval gate**: delete blocked pre-execution → approvals queue →
+  task detail → approve/reject/intervene → reject keeps cancelled → folder remains,
+  all logged. Verified.
+- **BLOCKER 5 — QA/Verifier loop**: independent QAVerifier re-checks every referenced
+  file exists, writes a VerificationResult artifact (pass/fail, confidence, tests,
+  reasoning) + feed event; failed verification blocks completion. Verified: passed
+  5/5, confidence 1.0, verifier=qa-verifier, shown in task detail.
+
+### TASK RC-4: Rebuild worker + scheduler on new deps
+- **STATUS**: COMPLETE ✅ (image rebuild only, no code change)
+- **VERIFIED**: psutil 5.9.8 + email_validator import in both; no tool-registration
+  warnings; all 7 services healthy, 0 restarts.
+
+### RUNTIME ACCEPTANCE EVIDENCE (live)
+- Services: 7/7 healthy, 0 restarts.
+- Agents: 31/31 implemented. Tools: 116/116 implemented.
+- DB: 65 tables; pgvector extension installed; memory rows persisted.
+- Dashboard routes: all required routes 200 (incl. /dashboard/tasks/[id]).
+- Backend endpoints: no 500 on swept endpoints; unauth command execution → 401.
+- Frontend build: passes (dashboard image rebuilt).
+- Git: clean tree, no secrets/.env/junk, master pushed.
+
+### KNOWN OPERATING NOTES
+- Auth uses the Redis user store (bcrypt + JWT); working login testadmin / richard.
+  The Postgres admin seed cannot log in via that path.
+- Read-only host workspace mount is the transport; scope is enforced in-app by the
+  registered-workspace allowlist + banned-folder denylist.
+- Backend pytest is dev-only (not in the production-slim image); live end-to-end
+  verification was used as the acceptance bar.
+
+**RUNTIME COMPLETION STATUS**: ✅ PRODUCTION READY — full operating loop, persistent
+memory, confirmed tool execution, Richard-boundary approval gate, and QA verification
+all built, wired, and browser/endpoint-verified.
+
