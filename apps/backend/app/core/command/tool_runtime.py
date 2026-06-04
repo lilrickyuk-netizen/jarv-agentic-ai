@@ -215,6 +215,16 @@ class ToolRuntime:
 
     async def run_safe_readonly_command(self, command: str,
                                         cwd_host: Optional[str] = None) -> Dict[str, Any]:
+        return await self.run_command(command, cwd_host, allow_build=False)
+
+    async def run_command(self, command: str, cwd_host: Optional[str] = None,
+                          allow_build: bool = True, timeout: int = 120) -> Dict[str, Any]:
+        """
+        Execute a command with classification-based gating:
+          safe -> always; build -> allowed when allow_build (Level 3, in workspace);
+          dangerous -> blocked; risky -> requires approval.
+        Captures stdout/stderr/exit, times out, persists a CommandRun.
+        """
         cls = fs_inspector.classify_command(command)
         cwd = None
         if cwd_host:
@@ -222,19 +232,19 @@ class ToolRuntime:
             cwd = chk.container_path if (chk.accessible and chk.exists) else None
 
         if cls == "dangerous":
-            await self._record("run_safe_readonly_command", {"command": command}, False,
+            await self._record("run_command", {"command": command}, False,
                                "blocked: dangerous command")
             await self._persist_command_run(command, cwd_host, None, "", "blocked", False,
                                              dangerous=True)
             return {"success": False, "blocked": True, "classification": cls,
                     "reason": "Dangerous command blocked by safety policy."}
-        if cls == "risky":
-            await self._record("run_safe_readonly_command", {"command": command}, False,
-                               "requires approval: non-read-only command")
+        if cls == "risky" or (cls == "build" and not allow_build):
+            await self._record("run_command", {"command": command}, False,
+                               f"requires approval ({cls})")
             return {"success": False, "requires_approval": True, "classification": cls,
-                    "reason": "Command is not read-only; requires approval."}
+                    "reason": f"Command classified '{cls}'; requires approval."}
 
-        # safe: execute with timeout, capture stdout/stderr/exit code.
+        # safe/build: execute with timeout, capture stdout/stderr/exit code.
         stdout = stderr = ""
         exit_code = -1
         try:
@@ -242,7 +252,7 @@ class ToolRuntime:
                 command,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=cwd,
             )
-            out, err = await asyncio.wait_for(proc.communicate(), timeout=20)
+            out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
             exit_code = proc.returncode
             stdout = out.decode("utf-8", errors="replace")[:8000]
             stderr = err.decode("utf-8", errors="replace")[:4000]
@@ -251,16 +261,16 @@ class ToolRuntime:
                 proc.kill()
             except Exception:  # noqa: BLE001
                 pass
-            await self._record("run_safe_readonly_command", {"command": command}, False,
-                               "timed out after 20s")
+            await self._record("run_command", {"command": command}, False,
+                               f"timed out after {timeout}s")
             await self._persist_command_run(command, cwd_host, None, "timeout", "timeout", False)
-            return {"success": False, "reason": "Command timed out."}
+            return {"success": False, "reason": f"Command timed out after {timeout}s."}
         except Exception as exc:  # noqa: BLE001
-            await self._record("run_safe_readonly_command", {"command": command}, False, str(exc))
+            await self._record("run_command", {"command": command}, False, str(exc))
             return {"success": False, "reason": str(exc)}
 
         ok = exit_code == 0
-        await self._record("run_safe_readonly_command", {"command": command, "cwd": cwd_host}, ok,
+        await self._record("run_command", {"command": command, "cwd": cwd_host}, ok,
                            f"exit={exit_code}, {len(stdout)} bytes stdout",
                            output={"exit_code": exit_code})
         await self._persist_command_run(command, cwd_host, exit_code, stdout, stderr, ok)

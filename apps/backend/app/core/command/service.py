@@ -203,7 +203,7 @@ class CommandService:
         _controlled = {
             "remember_memory", "recall_memory", "register_workspace",
             "scan_workspace", "verify_last_scan", "write_file", "run_command",
-            "send_notification", "delegate",
+            "send_notification", "delegate", "agent_task",
         }
         if self._detect_intent(command_text) in _controlled:
             safety = SafetyDecision(
@@ -321,7 +321,12 @@ class CommandService:
             # Tool runtime: agents act through real, logged tools (BLOCKER 3).
             runtime = ToolRuntime(db, ws_id, task.id, operator=self.operator)
 
-            if intent == "write_file":
+            if intent == "agent_task":
+                answer, plan_steps, selected_agents, result_extra = (
+                    await self._handle_agent_task(db, runtime, command_text)
+                )
+                total_tokens = result_extra.pop("agent_tokens", 0)
+            elif intent == "write_file":
                 answer, plan_steps, selected_agents, result_extra = (
                     await self._handle_write_file(db, runtime, command_text)
                 )
@@ -565,6 +570,14 @@ class CommandService:
         """Classify a command into a real specialized handler, or None (generic)."""
         text = command_text.lower()
         has_path = bool(_PATH_RE.search(command_text))
+        # Autonomous engineering mission -> tool-using agent loop (inspect, edit,
+        # build, test, iterate). Highest priority for clear engineering verbs.
+        # Launch/deploy are intentionally NOT here: they hit the approval gate.
+        if (re.search(r"\b(fix|debug|refactor|implement|develop|integrate|migrate|rewrite|optimi[sz]e|finish)\b", text)
+                or re.search(r"\bbuild\b.*\b(the|my|this|project|app|feature|it|out)\b", text)
+                or re.search(r"\b(add|create|build|write)\b.*\b(feature|endpoint|function|component|module|route|api|test|class|method)\b", text)
+                or re.search(r"\b(make|get)\b.*\b(work|working|pass|passing|green|to build)\b", text)):
+            return "agent_task"
         # Agent-to-agent delegation chain.
         if (re.search(r"\b(delegat|multi[- ]agent|hand[- ]?off|chain)\b", text) or
                 ("researcher" in text and ("qa" in text or "verifier" in text))):
@@ -602,6 +615,39 @@ class CommandService:
             return validated or agents
         except Exception:  # noqa: BLE001
             return agents
+
+    async def _handle_agent_task(
+        self, db: AsyncSession, runtime: ToolRuntime, command_text: str
+    ) -> tuple[str, List[str], List[str], Dict[str, Any]]:
+        """Autonomous tool-using agent loop: inspect -> edit -> build/test -> iterate."""
+        from app.core.command.agent_executor import AgentExecutor
+
+        agents = self._validate_agents(
+            ["orchestrator", "coding", "debugging", "devops", "qa", "verifier"]
+        )
+        steps = [
+            "Orchestrator: hand the mission to the autonomous engineering loop.",
+            "Agent: inspect the workspace (list/read files) via tools.",
+            "Agent: edit files with the scoped write tool (Level 2).",
+            "Agent: run builds/tests via the command tool (Level 3) and read results.",
+            "Agent: iterate until the mission is verified or a boundary is reached.",
+        ]
+        root = await self._resolve_ws_root(db, command_text)
+        executor = AgentExecutor(runtime, self.model, root)
+        result = await executor.run(command_text, max_steps=10)
+        header = (
+            f"**Autonomous engineering run "
+            f"({'succeeded' if result['success'] else 'incomplete'}, "
+            f"{result['iterations']} step(s), {len(runtime.calls)} tool call(s)).**\n\n"
+            + (f"_Workspace:_ `{root}`\n\n" if root else
+               "_No approved workspace resolved — register one, or include its path._\n\n")
+        )
+        return (
+            header + result["answer"],
+            steps, agents,
+            {"agent_iterations": result["iterations"], "agent_success": result["success"],
+             "agent_tokens": result["tokens"], "workspace_path": root},
+        )
 
     async def _resolve_ws_root(self, db: AsyncSession, command_text: str) -> Optional[str]:
         """Resolve a workspace root path from the command, else the latest registered."""

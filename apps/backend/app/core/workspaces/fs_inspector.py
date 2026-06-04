@@ -410,17 +410,37 @@ SAFE_COMMAND_PREFIXES = (
     "python --version", "python3 --version", "node --version", "npm --version",
     "npm ls", "npm list", "pip list", "pip --version", "echo", "whoami", "date",
 )
-# Always-blocked dangerous tokens.
+# Build / test commands — allowed at Level 3 (build & test) inside an approved
+# workspace. These compile/test a project (JARV's core job) but do not delete,
+# deploy, push, install, or reach the network destructively.
+BUILD_TEST_PREFIXES = (
+    "npm run build", "npm run", "npm test", "npm run test", "yarn build",
+    "yarn test", "pnpm build", "pnpm test", "pnpm run", "pytest", "python -m pytest",
+    "python -m unittest", "python manage.py test", "tox", "make", "go build",
+    "go test", "go vet", "cargo build", "cargo test", "cargo check", "mvn test",
+    "mvn package", "gradle build", "gradle test", "jest", "vitest", "tsc",
+    "eslint", "ruff", "ruff check", "mypy", "black --check", "flake8",
+    "python -c", "python3 -c", "node -e",
+)
+
+# Always-blocked dangerous tokens (destructive / network / privilege / install).
 DANGEROUS_COMMAND_TOKENS = (
     "rm ", "rm -", "rmdir", "del ", "del/", "format", "mkfs", "dd ", "shutdown",
-    "reboot", "sudo", "curl", "wget", "ssh", "scp", "chmod", "chown", ">", ">>",
+    "reboot", "sudo", "curl", "wget", "ssh ", "scp ", "chmod", "chown", ">", ">>",
     "|", "&&", ";", "`", "$(", "kill", "pkill", "mv ", "cp ", "git push",
-    "git commit", "npm install", "pip install", "apt", "yum", "brew",
+    "git commit", "git reset --hard", "npm install", "npm i ", "pip install",
+    "yarn add", "pnpm add", "apt", "apt-get", "yum", "brew", "rmdir",
 )
 
 
 def classify_command(command: str) -> str:
-    """Return 'safe' (read-only allowed), 'dangerous' (blocked), or 'risky' (needs approval)."""
+    """
+    Classify a command:
+      'safe'      — read-only, runnable anywhere (Level 1).
+      'build'     — build/test of an approved workspace (Level 3).
+      'dangerous' — destructive/network/install/privilege; always blocked.
+      'risky'     — anything else; requires approval.
+    """
     c = (command or "").strip().lower()
     if not c:
         return "dangerous"
@@ -430,6 +450,9 @@ def classify_command(command: str) -> str:
     for pre in SAFE_COMMAND_PREFIXES:
         if c == pre or c.startswith(pre + " ") or c == pre.split()[0]:
             return "safe"
+    for pre in BUILD_TEST_PREFIXES:
+        if c == pre or c.startswith(pre + " "):
+            return "build"
     return "risky"
 
 
