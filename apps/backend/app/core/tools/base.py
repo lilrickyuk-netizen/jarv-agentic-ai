@@ -68,6 +68,18 @@ class ToolContext(BaseModel):
         default_factory=list,
         description="Commands tool must not run"
     )
+    approval_granted: bool = Field(
+        default=False,
+        description="True if an approval has been granted for this action/context"
+    )
+    approved_tools: List[str] = Field(
+        default_factory=list,
+        description="Tool names explicitly approved for execution in this context"
+    )
+    db_session: Optional[Any] = Field(
+        default=None,
+        description="Optional AsyncSession for ToolRun/audit logging (not required)"
+    )
     metadata: Dict[str, Any] = Field(
         default_factory=dict,
         description="Additional context metadata"
@@ -282,6 +294,7 @@ class ToolBase(ABC):
         import time
 
         self._execution_start_time = time.time()
+        self._started_at = datetime.utcnow()
 
         # Audit log: Tool execution start
         await self._audit_start(input_data, context)
@@ -303,13 +316,29 @@ class ToolBase(ABC):
             # Validate input
             validated_input = self._validate_input(input_data)
 
-            # Check if requires approval
-            if self.requires_approval and not self.config.dry_run:
-                # Tool requires approval but will execute (approval system in Phase 6)
-                self.logger.warning(
-                    f"Tool {self.name} requires approval but executing anyway "
-                    "(approval system not yet implemented)"
+            # ENFORCE APPROVAL: a tool that requires approval must NOT execute
+            # unless a valid approval is present in the context. We do not fake
+            # approval and we do not silently continue — we return a structured
+            # blocked result and log it. (dry_run is validation-only, so it is
+            # allowed to proceed without approval.)
+            if self.requires_approval and not self.config.dry_run \
+                    and not self._has_approval(context):
+                blocked = self._blocked_result(
+                    reason=(
+                        f"Tool '{self.name}' requires approval but no approval was "
+                        "granted in this execution context; execution was not "
+                        "performed."
+                    )
                 )
+                self.logger.warning(
+                    f"Tool {self.name} BLOCKED: requires approval, none granted"
+                )
+                blocked.metadata["tool_run_logged"] = await self._log_tool_run(
+                    context, status="blocked", input_data=validated_input,
+                    result=blocked, error_message=None,
+                )
+                await self._audit_complete(blocked, context)
+                return blocked
 
             # Execute tool
             result = await self.run(validated_input, context)
@@ -327,6 +356,15 @@ class ToolBase(ABC):
                     "success": result.success,
                     "execution_time": f"{execution_time:.2f}s",
                 }
+            )
+
+            # ToolRun logging (best-effort; marks tool_run_logged on the result)
+            result.metadata["tool_run_logged"] = await self._log_tool_run(
+                context,
+                status=("success" if result.success else "failed"),
+                input_data=validated_input,
+                result=result,
+                error_message=result.error_message,
             )
 
             # Audit log: Tool execution complete
@@ -462,6 +500,102 @@ class ToolBase(ABC):
             error_message=error_message,
             **kwargs
         )
+
+    # ===== Approval Enforcement =====
+
+    def _has_approval(self, context: ToolContext) -> bool:
+        """Whether a valid approval is present for this tool in the context.
+
+        Minimal, honest gate (NOT the full Richard Boundary / approval-resume
+        system): an approval must be explicitly signalled by the caller via
+        approval_granted, an approved_tools allowlist, or a metadata flag.
+        Defaults to False so risky tools are blocked rather than auto-run.
+        """
+        if getattr(context, "approval_granted", False):
+            return True
+        if self.name in (getattr(context, "approved_tools", None) or []):
+            return True
+        meta = getattr(context, "metadata", None) or {}
+        if meta.get("approval_granted") is True:
+            return True
+        approved = meta.get("approved_tools") or []
+        return self.name in approved
+
+    def _blocked_result(self, reason: str) -> ToolResult:
+        """Structured blocked result for an action that needs approval."""
+        risk_level = "high" if self.requires_approval else "normal"
+        return self.create_result(
+            success=False,
+            result_data={
+                "blocked": True,
+                "reason": reason,
+                "requires_approval": True,
+                "tool": self.name,
+                "risk_level": risk_level,
+                "recommended_next_action": (
+                    "Obtain approval for this action (set approval_granted / add "
+                    f"'{self.name}' to approved_tools in the tool context), then retry."
+                ),
+            },
+            output_text=f"BLOCKED: {reason}",
+            requires_approval=True,
+        )
+
+    # ===== ToolRun Logging =====
+
+    async def _log_tool_run(
+        self,
+        context: ToolContext,
+        status: str,
+        input_data: Dict[str, Any],
+        result: Optional[ToolResult],
+        error_message: Optional[str],
+    ) -> bool:
+        """Write a real ToolRun if a DB session + agent are available.
+
+        Best-effort: returns True if a row was written, False otherwise. Never
+        raises (tool execution must not fail because logging failed).
+        """
+        try:
+            from app.core.tools.run_logging import write_tool_run
+
+            started_at = getattr(self, "_started_at", None) or datetime.utcnow()
+            return await write_tool_run(
+                getattr(context, "db_session", None),
+                tool_name=self.name,
+                tool_group=self.category,
+                description=self.description,
+                input_schema_json=self._schema_json(self.input_schema),
+                output_schema_json=self._schema_json(self.output_schema),
+                minimum_authority_level=self.required_authority_level.value,
+                requires_approval=self.requires_approval,
+                status=status,
+                success=(result.success if result is not None else None),
+                input_data=input_data,
+                output_data=(result.result_data if result is not None else None),
+                error_message=error_message,
+                started_at=started_at,
+                completed_at=datetime.utcnow(),
+                authority_level_used=self.config.authority_level.value,
+                agent_id=context.agent_id,
+                session_id=context.session_id,
+                meta={"tool_id": str(self.config.tool_id), "status": status},
+            )
+        except Exception as e:  # noqa: BLE001
+            self.logger.warning(f"ToolRun logging skipped for {self.name}: {e}")
+            return False
+
+    @staticmethod
+    def _schema_json(schema_cls: Any) -> Dict[str, Any]:
+        """Best-effort JSON schema for a pydantic model (empty dict on failure)."""
+        try:
+            if hasattr(schema_cls, "model_json_schema"):
+                return schema_cls.model_json_schema()
+            if hasattr(schema_cls, "schema"):
+                return schema_cls.schema()
+        except Exception:  # noqa: BLE001
+            pass
+        return {}
 
     # ===== Audit Logging Methods =====
 

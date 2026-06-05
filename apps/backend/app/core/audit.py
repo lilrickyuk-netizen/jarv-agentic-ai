@@ -13,6 +13,7 @@ import logging
 
 from app.models.operations import AuditLog
 from app.core.database import get_db
+from app.core.security import redact_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,9 @@ class AuditLogger:
                 success=str(result).lower() in ("success", "completed", "started", "ok"),
                 ip_address=None,  # Will be set by API layer if available
                 user_agent=None,  # Will be set by API layer if available
-                meta_data={
+                # Redact any secret-bearing values (tool input/output, etc.)
+                # before they are persisted to the audit trail.
+                meta_data=redact_secrets({
                     "agent_name": agent_name,
                     "action": action,
                     "result": result,
@@ -79,7 +82,7 @@ class AuditLogger:
                     "task_id": str(task_id) if task_id else None,
                     "session_id": str(session_id) if session_id else None,
                     **(details or {}),
-                },
+                }),
             )
 
             session.add(audit_entry)

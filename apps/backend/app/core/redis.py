@@ -24,6 +24,26 @@ async def init_redis() -> Redis:
     if _redis_client is not None:
         return _redis_client
 
+    # Test-only path: use an in-memory fakeredis client so the test suite can
+    # run without a real Redis server. This branch is gated strictly on
+    # settings.TESTING (set only by tests/conftest.py); production and dev are
+    # unaffected and continue to use a real Redis connection pool below.
+    if getattr(settings, "TESTING", False):
+        import fakeredis.aioredis as _fakeredis  # dev/test dependency only
+
+        class _TestFakeRedis(_fakeredis.FakeRedis):
+            # fakeredis does not implement the Redis INFO command. The health/
+            # readiness checks call info("server"); provide a minimal, clearly
+            # test-only response so the in-memory double reports as reachable
+            # (real Redis returns full server info in production).
+            async def info(self, section=None):  # type: ignore[override]
+                return {"redis_version": "fakeredis", "uptime_in_seconds": 0}
+
+        _redis_client = _TestFakeRedis(decode_responses=True)
+        await _redis_client.ping()
+        logger.info("Redis (TEST MODE): using in-memory fakeredis")
+        return _redis_client
+
     try:
         # Create connection pool
         _redis_pool = ConnectionPool.from_url(

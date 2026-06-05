@@ -46,12 +46,14 @@ class TaskPlan(BaseModel):
 
 class OrchestratorOutput(BaseModel):
     """Output schema for orchestrator agent"""
-    mission_status: str = Field(..., description="Status: planned, in_progress, completed, failed, blocked")
+    mission_status: str = Field(..., description="Status: completed, partial, failed")
     task_plan: List[TaskPlan] = Field(..., description="Breakdown of tasks to execute")
     execution_summary: str = Field(..., description="Summary of what was accomplished")
-    completed_tasks: int = Field(default=0, description="Number of completed tasks")
+    completed_tasks: int = Field(default=0, description="Number of tasks that executed successfully")
+    failed_tasks: int = Field(default=0, description="Number of delegated tasks that failed")
     total_tasks: int = Field(..., description="Total number of tasks")
-    agents_used: List[str] = Field(default_factory=list, description="Agents that were used")
+    agents_used: List[str] = Field(default_factory=list, description="Agents actually invoked during execution")
+    task_results: List[Dict[str, Any]] = Field(default_factory=list, description="Per-task delegation outcome")
     tools_used: List[str] = Field(default_factory=list, description="Tools that were used")
     requires_human_input: bool = Field(default=False, description="Whether human input is needed")
     blocking_issues: List[str] = Field(default_factory=list, description="Issues blocking progress")
@@ -163,64 +165,257 @@ class OrchestratorAgent(AgentBase):
         # Step 5: Determine execution strategy
         execution_strategy = self._determine_execution_strategy(task_plan)
 
-        # Step 6: Execute or prepare for execution
-        # Execution delegation depends on:
-        # - Tool system (Phase 5) for tool invocation
-        # - Specialist agents (Phase 13) for task delegation
-        # - Swarm system (Phase 11) for parallel execution
-        # Integration points are ready; orchestrator will execute when dependencies complete
+        # Step 6: Execute the plan by delegating each task to its assigned
+        # registered specialist through the real AgentRunner -> registry ->
+        # agent.execute() path. No fabricated counts: agents_used,
+        # completed_tasks, and failed_tasks all come from real execution.
+        delegation = await self._delegate_tasks(task_plan, context)
+
+        # Step 7: Derive an honest mission status from real outcomes.
+        mission_status = self._derive_mission_status(delegation)
+
+        # Step 8: Build execution summary from what actually happened.
         execution_summary = self._generate_execution_summary(
             mission=mission,
             task_plan=task_plan,
             strategy=execution_strategy,
+            delegation=delegation,
         )
 
-        # Step 7: Prepare memory updates
+        # Step 9: Prepare memory updates
         memory_updates = self._prepare_memory_updates(
             mission=mission,
             task_plan=task_plan,
             context=context,
         )
 
-        # Step 8: Determine next steps
+        # Step 10: Determine next steps
         next_steps = self._determine_next_steps(task_plan, execution_strategy)
+        if delegation["deferred"]:
+            next_steps.insert(0, "Clear approval gate(s) so deferred tasks can resume")
 
-        # Create output
+        # Create output from real delegation results
         output_data = {
-            "mission_status": "planned",  # Will be "in_progress" or "completed" after execution
+            "mission_status": mission_status,
             "task_plan": [task.dict() for task in task_plan],
             "execution_summary": execution_summary,
-            "completed_tasks": 0,
+            "completed_tasks": delegation["completed"],
+            "failed_tasks": delegation["failed"],
             "total_tasks": len(task_plan),
-            "agents_used": [],  # Will be populated during execution
+            "agents_used": delegation["agents_used"],
+            "task_results": delegation["task_results"],
             "tools_used": [],
-            "requires_human_input": any(task.requires_approval for task in task_plan),
-            "blocking_issues": [],
+            "requires_human_input": bool(delegation["deferred"]),
+            "blocking_issues": delegation["errors"],
             "next_steps": next_steps,
             "memory_updates": memory_updates,
         }
 
         validated_output = self._validate_output(output_data)
 
-        # Calculate token usage (approximate)
-        # In real execution, this would come from LLM calls
-        estimated_tokens = len(mission) // 4 + sum(len(t.description) for t in task_plan) // 4
+        # Token usage from real delegated agent runs (summed honestly).
+        delegated_tokens = delegation["tokens"]
+        planning_tokens = len(mission) // 4 + sum(len(t.description) for t in task_plan) // 4
 
+        # The orchestrator's own run succeeds if it produced a plan and ran
+        # delegation without an internal error; mission_status conveys whether
+        # the delegated work actually succeeded.
         return self.create_result(
-            success=True,
+            success=mission_status in ("completed", "partial"),
             result_data=validated_output,
             output_text=execution_summary,
-            tools_used=["memory_search", "task_planner"],
-            iterations_used=1,
+            tools_used=["memory_search", "task_planner", "agent_invoke"],
+            iterations_used=max(1, delegation["attempted"]),
             tokens_used={
-                "input_tokens": estimated_tokens,
-                "output_tokens": estimated_tokens // 2,
-                "total_tokens": estimated_tokens + estimated_tokens // 2,
+                "input_tokens": planning_tokens,
+                "output_tokens": planning_tokens // 2,
+                "total_tokens": planning_tokens + planning_tokens // 2 + delegated_tokens,
             },
-            cost_estimate=0.0,  # Will be calculated based on actual LLM usage
-            requires_approval=any(task.requires_approval for task in task_plan),
+            cost_estimate=0.0,
+            requires_approval=bool(delegation["deferred"]),
             next_actions=next_steps,
         )
+
+    # ===== Delegation =====
+
+    async def _delegate_tasks(
+        self,
+        task_plan: List[TaskPlan],
+        context: AgentContext,
+    ) -> Dict[str, Any]:
+        """
+        Delegate each planned task to its assigned registered agent via the
+        real AgentRunner path (registry -> create_agent -> agent.execute()).
+
+        Returns an honest summary:
+        - attempted: number of tasks actually delegated (executed)
+        - completed: number that returned success
+        - failed: number that returned failure/raised
+        - deferred: tasks held back because they require human approval
+        - skipped: tasks with no resolvable implemented agent
+        - agents_used: unique agent names actually invoked
+        - task_results: per-task outcome records
+        - errors / tokens
+        """
+        # Lazy import avoids a circular import (registry imports this module).
+        from app.core.agents.runner import AgentRunner
+        from uuid import uuid4 as _uuid4
+
+        runner = AgentRunner(model=self.config.model)
+        workspace_id = context.workspace_id or _uuid4()
+
+        attempted = 0
+        completed = 0
+        failed = 0
+        deferred = 0
+        skipped = 0
+        agents_used: List[str] = []
+        task_results: List[Dict[str, Any]] = []
+        errors: List[str] = []
+        tokens = 0
+
+        for task in task_plan:
+            agent_name = self._resolve_agent_name(task.assigned_agent)
+
+            # Respect hard-boundary/approval gating: do not auto-execute tasks
+            # that the plan flagged as needing approval. They are deferred for
+            # the approval/resume layer (a later repair), not silently run.
+            if task.requires_approval:
+                deferred += 1
+                task_results.append({
+                    "task_id": task.task_id,
+                    "assigned_agent": task.assigned_agent,
+                    "resolved_agent": agent_name,
+                    "status": "deferred_approval",
+                })
+                continue
+
+            if not agent_name:
+                skipped += 1
+                task_results.append({
+                    "task_id": task.task_id,
+                    "assigned_agent": task.assigned_agent,
+                    "resolved_agent": None,
+                    "status": "skipped_no_implemented_agent",
+                })
+                continue
+
+            attempted += 1
+            if agent_name not in agents_used:
+                agents_used.append(agent_name)
+
+            result = await runner.run_agent(
+                agent_name=agent_name,
+                task=task.description,
+                workspace_id=workspace_id,
+                user_id=context.user_id,
+            )
+
+            success = bool(result.get("success"))
+            tokens += int(result.get("tokens") or 0)
+            if success:
+                completed += 1
+                status = "completed"
+            else:
+                failed += 1
+                status = "failed"
+                err = result.get("error")
+                if err:
+                    errors.append(f"task {task.task_id} ({agent_name}): {err}")
+
+            task_results.append({
+                "task_id": task.task_id,
+                "assigned_agent": task.assigned_agent,
+                "resolved_agent": agent_name,
+                "status": status,
+                "output_preview": (result.get("output_text") or "")[:200],
+            })
+
+        self.logger.info(
+            "Orchestrator delegation finished",
+            extra={
+                "attempted": attempted, "completed": completed,
+                "failed": failed, "deferred": deferred, "skipped": skipped,
+                "agents_used": agents_used,
+            },
+        )
+
+        return {
+            "attempted": attempted,
+            "completed": completed,
+            "failed": failed,
+            "deferred": deferred,
+            "skipped": skipped,
+            "agents_used": agents_used,
+            "task_results": task_results,
+            "errors": errors,
+            "tokens": tokens,
+        }
+
+    def _resolve_agent_name(self, assigned_agent: Optional[str]) -> Optional[str]:
+        """
+        Map a plan's assigned_agent to a real, implemented registry agent name.
+
+        Returns the canonical registry name if implemented, otherwise None.
+        Handles common aliases the planner/LLM may emit (e.g. "researcher" ->
+        "research", "qa-tester" -> "qa").
+        """
+        if not assigned_agent:
+            return None
+        try:
+            from app.core.agents.registry import get_registry
+            registry = get_registry()
+        except Exception:  # noqa: BLE001
+            return None
+
+        candidate = assigned_agent.strip().lower().replace(" ", "_").replace("-", "_")
+        aliases = {
+            "researcher": "research",
+            "qa_tester": "qa",
+            "qa_agent": "qa",
+            "tester": "qa",
+            "coder": "coding_agent",
+            "code_writer": "coding_agent",
+            "coding": "coding_agent",
+            "developer": "coding_agent",
+            "debugger": "debugging_agent",
+            "debug": "debugging_agent",
+            "docs": "documentation",
+            "writer": "documentation",
+            "ops": "devops",
+            "devops_launch": "devops",
+            "support": "customer_support",
+            "marketer": "marketing",
+            "verify": "verifier",
+        }
+        candidate = aliases.get(candidate, candidate)
+
+        if registry.is_implemented(candidate):
+            return candidate
+        return None
+
+    def _derive_mission_status(self, delegation: Dict[str, Any]) -> str:
+        """
+        Derive mission_status from real delegation outcomes.
+
+        Rules (never claim 'completed' if all delegated work failed):
+        - no tasks delegated at all -> 'partial' (planned but nothing executed,
+          e.g. all tasks deferred for approval or no implemented agent)
+        - all delegated tasks succeeded AND nothing deferred -> 'completed'
+        - at least one succeeded (or some deferred remain) -> 'partial'
+        - tasks were delegated but none succeeded -> 'failed'
+        """
+        attempted = delegation["attempted"]
+        completed = delegation["completed"]
+        deferred = delegation["deferred"]
+
+        if attempted == 0:
+            return "partial"
+        if completed == 0:
+            return "failed"
+        if completed == attempted and deferred == 0:
+            return "completed"
+        return "partial"
 
     # ===== Helper Methods =====
 
@@ -554,21 +749,20 @@ class OrchestratorAgent(AgentBase):
         constraints: List[str],
     ) -> List[TaskPlan]:
         """
-        Generate simple task plan (placeholder until full LLM integration).
+        Generate a basic, deterministic task plan when LLM planning is
+        unavailable (e.g. no provider key configured).
 
-        Args:
-            mission: Mission description
-            constraints: Constraints to respect
-
-        Returns:
-            Simple task plan
+        Agents are assigned to REAL implemented registry names so the
+        orchestrator can actually delegate them. The verification step is
+        flagged requires_approval only if the mission carried constraints,
+        so constrained work is deferred to the approval layer rather than
+        auto-executed.
         """
-        # Create basic 3-step plan as placeholder
         tasks = [
             TaskPlan(
                 task_id=1,
                 description=f"Analyze and understand the mission: {mission[:100]}",
-                assigned_agent="researcher",
+                assigned_agent="research",
                 dependencies=[],
                 estimated_complexity="low",
                 requires_approval=False,
@@ -576,20 +770,11 @@ class OrchestratorAgent(AgentBase):
             ),
             TaskPlan(
                 task_id=2,
-                description="Execute the core work based on mission requirements",
-                assigned_agent=None,  # Will be determined based on mission type
+                description="Verify results and produce a final report",
+                assigned_agent="qa",
                 dependencies=[1],
-                estimated_complexity="medium",
-                requires_approval=len(constraints) > 0,
-                requires_swarm=False,
-            ),
-            TaskPlan(
-                task_id=3,
-                description="Verify results and produce final report",
-                assigned_agent="qa-tester",
-                dependencies=[2],
                 estimated_complexity="low",
-                requires_approval=False,
+                requires_approval=len(constraints) > 0,
                 requires_swarm=False,
             ),
         ]
@@ -636,6 +821,7 @@ class OrchestratorAgent(AgentBase):
         mission: str,
         task_plan: List[TaskPlan],
         strategy: Dict[str, Any],
+        delegation: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
         Generate human-readable execution summary.
@@ -669,11 +855,30 @@ class OrchestratorAgent(AgentBase):
         if strategy["use_swarm"]:
             summary_parts.append("Will use swarm for parallel execution")
 
-        if strategy["approval_required"]:
+        if delegation is not None:
+            summary_parts.extend([
+                "",
+                "Execution results:",
+                f"  Delegated: {delegation['attempted']} | "
+                f"Completed: {delegation['completed']} | "
+                f"Failed: {delegation['failed']} | "
+                f"Deferred (approval): {delegation['deferred']} | "
+                f"Skipped (no agent): {delegation['skipped']}",
+            ])
+            if delegation["agents_used"]:
+                summary_parts.append(
+                    f"  Agents invoked: {', '.join(delegation['agents_used'])}"
+                )
+            for tr in delegation["task_results"]:
+                summary_parts.append(
+                    f"    - Task {tr['task_id']} -> "
+                    f"{tr.get('resolved_agent') or tr.get('assigned_agent') or 'n/a'}: {tr['status']}"
+                )
+            if delegation["errors"]:
+                summary_parts.append("  Errors:")
+                summary_parts.extend(f"    * {e}" for e in delegation["errors"])
+        elif strategy["approval_required"]:
             summary_parts.append("⚠️  Some tasks require approval before execution")
-
-        summary_parts.append("")
-        summary_parts.append("Ready to begin execution. Use /execute to start.")
 
         return "\n".join(summary_parts)
 

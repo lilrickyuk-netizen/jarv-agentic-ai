@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "JARV Agentic AI System"
     VERSION: str = "1.0.0"
     ENVIRONMENT: str = Field(default="development", pattern="^(development|staging|production)$")
+    # Test-only flag. When true, infrastructure clients (e.g. Redis) use an
+    # in-memory test double instead of connecting to real servers. Set ONLY by
+    # the test harness (tests/conftest.py); defaults False so production/dev
+    # behaviour is unchanged.
+    TESTING: bool = False
     DEBUG: bool = False
     LOG_LEVEL: str = Field(default="INFO", pattern="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$")
 

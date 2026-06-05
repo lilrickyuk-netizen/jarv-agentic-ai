@@ -1,13 +1,21 @@
 """
 JARV Backend - ContentAgent
 
-Creates blog posts, articles, and educational content
+Drafts blog posts, tutorials, changelogs, and educational content.
+
+This agent does NOT fabricate SEO/readability scores, word counts, or claim
+anything was published. When an LLM provider is configured it produces a real
+model-generated DRAFT (clearly labelled, unverified). When no provider is
+configured it returns an honest limitation instead of fake content. Nothing is
+ever published; the output is a DRAFT only and no external action is taken.
 """
-from typing import Dict, Any, Type
-from pydantic import BaseModel, Field
+from typing import Dict, Any, List, Optional, Type
 import logging
 
+from pydantic import BaseModel, Field
+
 from app.core.agents.base import AgentBase, AgentConfig, AgentContext, AgentResult, AuthorityLevel
+from app.core.agents.specialists import _helpers as helpers
 
 logger = logging.getLogger(__name__)
 
@@ -21,17 +29,18 @@ class ContentAgentInput(BaseModel):
 
 
 class ContentAgentOutput(BaseModel):
-    """ContentAgent output"""
-    content_created: bool
-    file_path: str
-    word_count: int
-    seo_score: float
-    readability_score: float
+    """ContentAgent output (honest; no fabricated scores; draft only)."""
+    content_type: str = ""
+    topic: str = ""
+    draft: str = ""
+    provider_used: Optional[str] = None
+    external_action_taken: bool = False
+    limitations: List[str] = []
 
 
 class ContentAgent(AgentBase):
     """
-    ContentAgent - Creates blog posts, articles, and educational content
+    ContentAgent - Drafts blog posts, articles, and educational content
     """
 
     @property
@@ -63,39 +72,77 @@ class ContentAgent(AgentBase):
         input_data: Dict[str, Any],
         context: AgentContext,
     ) -> AgentResult:
-        """
-        Execute task.
-
-        Args:
-            input_data: Task input
-            context: Execution context
-
-        Returns:
-            Agent result
-        """
         try:
-            content_type = input_data.get("content_type", "blog")
-            topic = input_data.get("topic", "")
-            length = input_data.get("length", "medium")
+            content_type = (input_data.get("content_type") or "blog").strip()
+            topic = helpers.task_text(input_data, "topic", "content_type")
+            target_audience = (input_data.get("target_audience") or "general").strip()
+            length = (input_data.get("length") or "medium").strip()
 
-            self.logger.info(f"Creating {content_type} about {topic}")
+            self.logger.info(f"Drafting {content_type} about {topic}")
 
-            word_counts = {"short": 500, "medium": 1500, "long": 3000}
-            word_count = word_counts.get(length, 1500)
+            limitations: List[str] = []
+            draft = ""
+            provider_used: Optional[str] = None
+            tokens: Dict[str, int] = {}
 
-            result_data = {
-                "content_created": True,
-                "file_path": f"/content/{content_type}_{topic.lower().replace(' ', '_')}.md",
-                "word_count": word_count,
-                "seo_score": 82.0,
-                "readability_score": 75.0,
-            }
+            prompt = (
+                f"Write a {length} {content_type} for a {target_audience} audience "
+                f"on the following topic:\n\n{topic}\n\n"
+                "Produce clean, ready-to-edit prose in Markdown. Do not invent "
+                "statistics, customer quotes, or sources you cannot support."
+            )
+
+            if helpers.provider_configured():
+                res = await helpers.llm_complete(
+                    self.config.model,
+                    prompt,
+                    system=(
+                        "You are a careful content writer. Produce an honest DRAFT. "
+                        "Never fabricate metrics, citations, or claims."
+                    ),
+                    temperature=self.config.temperature,
+                )
+                if res is not None and res.get("text"):
+                    draft = res["text"]
+                    provider_used = res["provider_used"]
+                    tokens = res["tokens"]
+                    limitations.append(
+                        "Model-generated DRAFT, unverified; no external action taken. "
+                        "Draft only, not published."
+                    )
+                else:
+                    limitations.append(
+                        "An LLM provider is configured but the call failed; no draft "
+                        "was generated."
+                    )
+            else:
+                limitations.append(helpers.no_provider_limitation())
+                limitations.append("Draft only, not published.")
+
+            if draft:
+                output_text = (
+                    f"Drafted {content_type} on '{topic}' "
+                    f"({len(draft)} chars) via {provider_used}; DRAFT, not published."
+                )
+            else:
+                output_text = (
+                    f"No {content_type} draft generated for '{topic}': "
+                    + (limitations[0] if limitations else "no provider available")
+                )
 
             return self.create_result(
                 success=True,
-                result_data=result_data,
-                output_text=f"Created {content_type}: {word_count} words",
-                tools_used=["file_write", "http_get"],
+                result_data={
+                    "content_type": content_type,
+                    "topic": topic,
+                    "draft": draft,
+                    "provider_used": provider_used,
+                    "external_action_taken": False,
+                    "limitations": limitations,
+                },
+                output_text=output_text,
+                tools_used=(["model_router"] if provider_used else []),
+                tokens_used=tokens or {},
             )
 
         except Exception as e:

@@ -1,15 +1,37 @@
 """
 JARV Backend - DebuggingAgent
 
-Debugs code, identifies issues, and proposes fixes
+Performs REAL, honest diagnosis of provided error/log/stack-trace text.
+
+This agent does NOT fix code and does NOT fabricate a confidence score. It
+parses the supplied text with real regex to extract exception type names and
+file:line references, and reports exactly what it found. When an LLM provider
+is configured it may add a model diagnosis, clearly labelled as model-generated
+and unverified. It never claims a fix was applied.
 """
-from typing import Dict, Any, Type
-from pydantic import BaseModel, Field
+from typing import Dict, Any, List, Type
+import re
 import logging
 
+from pydantic import BaseModel, Field
+
 from app.core.agents.base import AgentBase, AgentConfig, AgentContext, AgentResult, AuthorityLevel
+from app.core.agents.specialists._helpers import (
+    resolve_files,
+    provider_configured,
+    llm_complete,
+    no_provider_limitation,
+    task_text,
+)
 
 logger = logging.getLogger(__name__)
+
+# Real extraction patterns (no fabrication).
+_EXC_PATTERN = re.compile(r"\b([A-Z][A-Za-z0-9_]*(?:Error|Exception|Warning))\b")
+_FILELINE_PATTERNS = [
+    re.compile(r'File "([^"]+)", line (\d+)'),                 # Python traceback
+    re.compile(r'([\w./\\-]+\.(?:py|js|ts|tsx|jsx|go|rs|java|rb)):(\d+)'),  # path:line
+]
 
 
 class DebuggingAgentInput(BaseModel):
@@ -22,20 +44,26 @@ class DebuggingAgentInput(BaseModel):
 
 
 class DebuggingAgentOutput(BaseModel):
-    """DebuggingAgent output"""
-    error_identified: bool
-    error_category: str  # syntax, runtime, logic, performance, security
-    root_cause: str
-    affected_components: list[str]
-    proposed_fix: str
-    fix_confidence: float = Field(ge=0.0, le=1.0)
-    requires_testing: bool = True
-    related_issues: list[str] = Field(default_factory=list)
+    """DebuggingAgent output (honest parse; every field has a default)."""
+    error_identified: bool = False
+    exception_types: List[str] = Field(default_factory=list)
+    file_references: List[Dict[str, str]] = Field(default_factory=list)
+    affected_components: List[str] = Field(default_factory=list)
+    resolved_files: List[str] = Field(default_factory=list)
+    missing_files: List[str] = Field(default_factory=list)
+    model_diagnosis: str = ""
+    provider_used: str = ""
+    fix_applied: bool = False
+    limitations: List[str] = Field(default_factory=list)
 
 
 class DebuggingAgent(AgentBase):
     """
-    DebuggingAgent - Debugs code, identifies issues, and proposes fixes
+    DebuggingAgent - real text parsing of errors/stack traces.
+
+    Extracts genuine exception names and file:line references from the provided
+    text and (optionally) adds a labelled model diagnosis. It never claims to
+    have fixed anything.
     """
 
     @property
@@ -67,54 +95,101 @@ class DebuggingAgent(AgentBase):
         input_data: Dict[str, Any],
         context: AgentContext,
     ) -> AgentResult:
-        """
-        Execute task.
-
-        Args:
-            input_data: Task input
-            context: Execution context
-
-        Returns:
-            Agent result
-        """
         try:
-            error_msg = input_data.get("error_message", "")
-            stack_trace = input_data.get("stack_trace", "")
-            affected_files = input_data.get("affected_files", [])
+            error_msg = (input_data.get("error_message") or "").strip()
+            stack_trace = (input_data.get("stack_trace") or "").strip()
+            affected_files = list(input_data.get("affected_files", []) or [])
+            repro = (input_data.get("reproduction_steps") or "").strip()
 
-            self.logger.info(f"Starting debugging task: {error_msg[:100]}")
+            self.logger.info(f"Debugging analysis: error_len={len(error_msg)}")
 
-            # Classify error
-            error_category = self._classify_error(error_msg, stack_trace)
+            text = "\n".join(t for t in (error_msg, stack_trace, repro) if t)
+            tools_used: List[str] = []
+            limitations: List[str] = [
+                "This agent parses the supplied text and resolves provided files; "
+                "it does NOT apply fixes and reports no fabricated confidence score.",
+            ]
 
-            # Analyze stack trace and files
-            root_cause = self._analyze_root_cause(error_msg, stack_trace, error_category)
+            # Real regex extraction from the provided text.
+            exception_types: List[str] = sorted(set(_EXC_PATTERN.findall(text)))
+            file_references: List[Dict[str, str]] = []
+            seen = set()
+            for pat in _FILELINE_PATTERNS:
+                for m in pat.finditer(text):
+                    key = (m.group(1), m.group(2))
+                    if key not in seen:
+                        seen.add(key)
+                        file_references.append({"file": m.group(1), "line": m.group(2)})
 
-            # Identify affected components
-            components = affected_files if affected_files else self._extract_components(stack_trace)
+            # Affected components: real, from provided files + parsed references.
+            components = list(affected_files)
+            for ref in file_references:
+                if ref["file"] not in components:
+                    components.append(ref["file"])
 
-            # Propose fix
-            proposed_fix = self._propose_fix(error_category, root_cause, error_msg)
+            existing, missing = resolve_files(affected_files, context)
 
-            # Calculate confidence
-            confidence = self._calculate_confidence(error_category, stack_trace, affected_files)
+            error_identified = bool(text)
+            if not text:
+                limitations.append(
+                    "No error/log/stack-trace text supplied; nothing to diagnose."
+                )
 
-            result_data = {
-                "error_identified": True,
-                "error_category": error_category,
-                "root_cause": root_cause,
-                "affected_components": components,
-                "proposed_fix": proposed_fix,
-                "fix_confidence": confidence,
-                "requires_testing": True,
-                "related_issues": [],
-            }
+            # Optional model diagnosis (labelled, unverified).
+            model_diagnosis = ""
+            provider_used = ""
+            tokens: Dict[str, int] = {}
+            if text and provider_configured():
+                llm = await llm_complete(
+                    self.config.model,
+                    "Diagnose the likely root cause of this error and suggest a "
+                    "fix. Do NOT claim you applied any fix.\n\n"
+                    f"Error/log:\n{text[:4000]}",
+                    system="You are a debugging assistant. You have NOT edited or "
+                           "run any code; only suggest a diagnosis.",
+                    temperature=self.config.temperature,
+                )
+                if llm is not None:
+                    model_diagnosis = llm["text"]
+                    provider_used = llm["provider_used"]
+                    tokens = llm["tokens"]
+                    tools_used.append("model_router")
+                    limitations.append(
+                        "model_diagnosis is model-generated and UNVERIFIED; no fix "
+                        "was applied."
+                    )
+                else:
+                    limitations.append(
+                        "An LLM provider is configured but the call failed; "
+                        "returned parsed analysis only."
+                    )
+            elif text and not provider_configured():
+                limitations.append(no_provider_limitation())
+
+            output_text = (
+                f"Debugging analysis: exceptions={len(exception_types)} "
+                f"file_refs={len(file_references)} "
+                f"resolved_files={len(existing)} "
+                f"provider={provider_used or 'none'} (no fix applied)."
+            )
 
             return self.create_result(
                 success=True,
-                result_data=result_data,
-                output_text=f"Debugged {error_category} error: {root_cause}",
-                tools_used=["file_read", "analyze_code"],
+                result_data={
+                    "error_identified": error_identified,
+                    "exception_types": exception_types,
+                    "file_references": file_references,
+                    "affected_components": components,
+                    "resolved_files": existing,
+                    "missing_files": missing,
+                    "model_diagnosis": model_diagnosis,
+                    "provider_used": provider_used,
+                    "fix_applied": False,
+                    "limitations": limitations,
+                },
+                output_text=output_text,
+                tools_used=sorted(set(tools_used)),
+                tokens_used=tokens or {},
             )
 
         except Exception as e:
@@ -124,76 +199,3 @@ class DebuggingAgent(AgentBase):
                 result_data={},
                 error_message=str(e),
             )
-
-    def _classify_error(self, error_msg: str, stack_trace: str) -> str:
-        """Classify error type"""
-        error_msg_lower = error_msg.lower()
-        stack_lower = stack_trace.lower()
-
-        if any(kw in error_msg_lower for kw in ["syntax", "invalid syntax", "unexpected token"]):
-            return "syntax"
-        elif any(kw in error_msg_lower for kw in ["null", "undefined", "not defined", "attributeerror"]):
-            return "runtime"
-        elif any(kw in error_msg_lower for kw in ["permission", "access denied", "forbidden"]):
-            return "security"
-        elif any(kw in error_msg_lower for kw in ["timeout", "slow", "performance"]):
-            return "performance"
-        elif "test" in error_msg_lower or "assert" in error_msg_lower:
-            return "logic"
-        else:
-            return "runtime"
-
-    def _analyze_root_cause(self, error_msg: str, stack_trace: str, category: str) -> str:
-        """Analyze root cause"""
-        if category == "syntax":
-            return f"Syntax error in code: {error_msg[:100]}"
-        elif category == "runtime":
-            if "null" in error_msg.lower() or "undefined" in error_msg.lower():
-                return "Variable accessed before initialization or null reference"
-            return f"Runtime error: {error_msg[:100]}"
-        elif category == "security":
-            return "Permission or authentication issue"
-        elif category == "performance":
-            return "Performance bottleneck or timeout"
-        elif category == "logic":
-            return "Logic error in business rules or assertions"
-        return "Unknown error"
-
-    def _extract_components(self, stack_trace: str) -> list[str]:
-        """Extract affected components from stack trace"""
-        # Simple extraction - in production would parse stack trace properly
-        if not stack_trace:
-            return []
-        lines = [l.strip() for l in stack_trace.split("\n") if l.strip()]
-        components = []
-        for line in lines[:5]:  # Top 5 stack frames
-            if ".py" in line or ".js" in line or ".ts" in line:
-                components.append(line.split()[0] if line.split() else line[:50])
-        return components
-
-    def _propose_fix(self, category: str, root_cause: str, error_msg: str) -> str:
-        """Propose fix for the error"""
-        if category == "syntax":
-            return "Fix syntax error: review and correct the syntax at the indicated line"
-        elif category == "runtime":
-            if "null" in error_msg.lower():
-                return "Add null/undefined check before accessing the variable"
-            return "Add error handling and validate inputs"
-        elif category == "security":
-            return "Review and update permissions or authentication configuration"
-        elif category == "performance":
-            return "Optimize slow operation or increase timeout threshold"
-        elif category == "logic":
-            return "Review business logic and update assertions"
-        return "Investigate further and apply appropriate fix"
-
-    def _calculate_confidence(self, category: str, stack_trace: str, files: list) -> float:
-        """Calculate confidence in diagnosis"""
-        confidence = 0.5  # Base confidence
-        if category in ["syntax", "runtime"]:
-            confidence += 0.2
-        if stack_trace:
-            confidence += 0.2
-        if files:
-            confidence += 0.1
-        return min(confidence, 1.0)

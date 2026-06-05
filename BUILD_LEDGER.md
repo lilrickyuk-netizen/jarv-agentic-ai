@@ -10477,3 +10477,607 @@ all built, wired, and browser/endpoint-verified.
 - **Full sweeps**: 18 dashboard routes 200; 12 core API endpoints 200;
   regression 13/13; 7 services healthy, 0 restarts.
 
+---
+
+## POST-AUDIT REPAIR LOG
+
+> These entries follow the independent code audit recorded in
+> AUDIT_AGAINST_DESIGN.md (2026-06-05), which found the repository is a complete
+> scaffold whose execution core was largely non-functional/fabricated. The
+> repair log records ONLY verified, code-level fixes. No production-readiness
+> claim is made here. Earlier "COMPLETE ✅" / "production ready" entries above
+> and in the PHASE*/FINAL_* reports remain contradicted by the audit and are
+> NOT relied upon.
+
+TASK ID: REPAIR-1
+TASK NAME: Establish runtime truth + repair Orchestrator delegation
+STATUS: COMPLETE (this repair only; system NOT production ready)
+
+FILES CREATED:
+- apps/backend/tests/test_orchestrator_delegation.py (3 behaviour tests)
+
+FILES MODIFIED:
+- apps/backend/app/agents/orchestrator.py
+
+COMMANDS RUN:
+- python -m pip install --user fastapi "uvicorn[standard]" "pydantic[email]"
+  pydantic-settings "sqlalchemy[asyncio]" alembic asyncpg psycopg2-binary
+  "redis[asyncio]" "python-jose[cryptography]" "passlib[bcrypt]"
+  python-multipart celery pgvector httpx websockets psutil pytest pytest-asyncio
+  (editable `pip install -e .` FAILED: pyproject [tool.poetry] declares package
+  "jarv-backend" but the code package is "app" and no `packages` directive
+  exists, so poetry-core cannot build it. Dependencies were installed directly
+  via pip — same package manager, the repo's declared deps — because pytest adds
+  apps/backend to sys.path via the tests package, so the editable build is not
+  required to import `app`.)
+- python -m pytest (full suite, before and after)
+- python -m pytest tests/test_orchestrator_delegation.py
+- python -m py_compile app/agents/orchestrator.py tests/test_orchestrator_delegation.py
+
+DEPENDENCIES: Installed successfully into the user site (Windows global Scripts
+dir was locked; --user avoided it). All core imports verified.
+
+TESTS RUN (real, not claimed):
+- Baseline full suite: 143 collected -> 97 passed, 14 failed, 32 errors.
+- After repair full suite: 100 passed, 14 failed, 32 errors.
+- Net change: +3 passed (the 3 new orchestrator behaviour tests). ZERO new
+  failures, ZERO new errors -> no regressions introduced.
+- The 14 failures + 32 errors are PRE-EXISTING and environment-driven: all are
+  redis.exceptions.ConnectionError (Redis not running locally) or 500s from
+  endpoints that depend on Redis. They are NOT caused by this repair and are
+  left documented, not hidden, not deleted, not weakened.
+- Lint/typecheck (ruff/black/mypy) are dev deps that are NOT installed; lint was
+  not run. Edited files pass py_compile.
+
+ORCHESTRATOR REPAIR SUMMARY:
+- BEFORE: OrchestratorAgent.run() built a real plan but returned
+  mission_status="planned", completed_tasks=0, agents_used=[] and never invoked
+  any agent (orchestrator.py old lines ~166-201).
+- AFTER: run() now delegates each planned task to its assigned REGISTERED agent
+  through the existing real path: AgentRunner.run_agent -> registry.create_agent
+  -> agent.execute(). New _delegate_tasks() collects honest outcomes;
+  _resolve_agent_name() maps plan/alias names to implemented registry agents
+  (returns None if not implemented -> task skipped, never faked);
+  _derive_mission_status() returns completed / partial / failed and NEVER
+  "completed" when all delegated work failed. agents_used, completed_tasks, and
+  new failed_tasks are all derived from real execution. Approval-gated tasks are
+  DEFERRED (requires_human_input) rather than auto-run, respecting hard
+  boundaries. The registry is not bypassed; nothing is hardcoded/fabricated.
+- Schema: OrchestratorOutput gained failed_tasks and task_results; mission_status
+  description narrowed to completed/partial/failed. Fallback plan now uses real
+  registry agent names (research, qa) so delegation works without an LLM key.
+
+BEHAVIOUR TEST SUMMARY:
+- test_orchestrator_delegates_to_real_registered_agents: mocks ONLY the provider
+  layer (forces deterministic fallback plan), runs a mission, asserts a plan is
+  produced, real registered agents (research, qa) are invoked via the runner,
+  each is registry.is_implemented(), agents_used is populated from real
+  execution, completed_tasks==2/failed_tasks==0, every task produced real output
+  text, and mission_status=="completed" (never "planned").
+- test_orchestrator_defers_approval_tasks: proves approval-gated tasks are
+  deferred (requires_human_input True, status "partial", not auto-executed).
+- test_derive_mission_status_is_honest: pure-logic proof that all-failed ->
+  "failed", mixed -> "partial", all-success-no-deferred -> "completed".
+
+REMAINING FAILURES / BLOCKERS:
+- 14 failed + 32 errored backend tests remain (pre-existing) because Redis is not
+  running in this environment; needs Redis (or test-time fakeredis/skip) to
+  verify those API paths.
+- The delegated specialist agents themselves are still the audit's fabricated
+  stubs (e.g. research/qa return canned success). Delegation is now REAL and
+  honest, but specialist OUTPUT quality is a separate, still-open repair.
+- Orchestrator delegation is sequential and does not yet honor task dependency
+  graphs, swarm parallelism, or the approval/checkpoint-resume layer (later
+  repairs).
+
+NEXT TASK: REPAIR-2 — replace fabricated specialist agent output with real
+tool/model-router-backed implementations (start with research + qa so the
+orchestrator's delegated work produces genuine results), then make Redis-
+dependent tests runnable.
+
+---
+
+TASK ID: REPAIR-2
+TASK NAME: De-fabricate Research Agent + QA Agent (real provider/tool behaviour)
+STATUS: COMPLETE (these two agents only; system NOT production ready)
+
+SCOPE: Only the two specialists the repaired orchestrator delegates to first
+(Research, QA). The other ~26 specialists are still the audit's fabricated
+stubs and are explicitly OUT OF SCOPE for this repair.
+
+FILES CHANGED:
+- apps/backend/app/core/agents/specialists/research.py (rewritten, real)
+- apps/backend/app/core/agents/specialists/qa.py (rewritten, real)
+FILES CREATED:
+- apps/backend/tests/test_research_qa_agents.py (8 behaviour tests)
+
+RESEARCH AGENT REPAIR:
+- REMOVED fabrication: hardcoded confidence 0.85, fake "Source 1..N",
+  "Simulate research", invented findings/recommendations.
+- NEW real behaviour: gates on a real configured provider key (settings
+  CLAUDE/ANTHROPIC/OPENAI/GEMINI). If configured, calls the REAL model router
+  (get_router().complete(CompletionRequest(...))) on the actual query + local
+  context (context.memory_context / previous_results / workspace_rules) and
+  parses the model's real JSON output. If not configured (or the call fails),
+  performs local/contextual analysis only and says so.
+- HONEST limitations: no external web/search tool is wired in, so
+  external_search_used is ALWAYS False and that is reported; model findings are
+  labelled unverified. Memory needs a DB session (absent in isolated runs) so
+  only the already-loaded context is used — stated as a limitation.
+- Output schema replaced: dropped fabricated `confidence`; added
+  external_search_used, provider_used, limitations; sources_consulted now lists
+  what was ACTUALLY consulted (model id, local context), not fake source names.
+
+QA AGENT REPAIR:
+- REMOVED fabrication: coverage_percentage 88.5, tests_run = len(files)*5,
+  tests_passed = run*0.9, "Simulate test execution", fake failure entries.
+- NEW real behaviour: runs a REAL static check (Python stdlib py_compile,
+  doraise=True) on each existing Python target file; records real pass/fail and
+  the real compile error text on failure. Reports files_checked/passed/failed,
+  per-file checks, and commands_attempted (the actual py_compile invocations).
+- HONEST gating: arbitrary shell/test-runner commands (test_command) are NOT
+  executed — that needs the DB-backed authority/approval CommandService which is
+  unavailable to a standalone agent — so they are returned in commands_blocked
+  with a needs-approval limitation. No claim that tests ran unless py_compile
+  actually ran.
+- Output schema replaced: NO coverage_percentage, NO invented test counts; added
+  commands_attempted, commands_blocked, limitations, recommended_next_action.
+  States explicitly it measures static compilability only, not coverage.
+
+ORCHESTRATOR COMPATIBILITY: registry.create_agent, AgentRunner.run_agent, and
+orchestrator delegation unchanged and still work (agent names/input field names
+preserved so runner._auto_input still populates inputs). The 3 Repair-1
+behaviour tests still pass.
+
+TESTS ADDED (8, in test_research_qa_agents.py):
+- Research: no-provider honest limitations (no 0.85 / no "Source N");
+  uses-real-provider-output (mocked provider boundary -> findings come from the
+  response); invokable-via-runner.
+- QA: real py_compile pass+fail on temp files (no 88.5 / no coverage key);
+  blocks-shell-command-honestly; no-targets-honest; invokable-via-runner.
+- Integration: orchestrator delegates to research+qa via the real path; both
+  return non-fabricated structured outputs (asserts "external_search=False" and
+  "checked=" present; "0.85"/"88.5" absent); agents_used == {research, qa};
+  mission_status == completed.
+Mocked ONLY the provider boundary (ResearchAgent._provider_configured / module
+get_router, and orchestrator planning get_router). Orchestrator/registry/runner
+NOT mocked.
+
+TESTS RUN (real):
+- New + Repair-1 targeted: 11 passed, 0 failed (test_research_qa_agents.py 8/8,
+  test_orchestrator_delegation.py 3/3).
+- Full suite after repair: 108 passed, 14 failed, 32 errors.
+  Baseline before Repair-2 was 100 passed / 14 failed / 32 errors -> net +8
+  passed (exactly the 8 new tests), ZERO new failures, ZERO new errors.
+- The 14 failures + 32 errors are PRE-EXISTING and environment-driven (Redis not
+  running -> redis.exceptions.ConnectionError and dependent 500s). Not caused by
+  this repair; not hidden, not deleted, not weakened.
+
+RESIDUAL FAKE OUTPUT IN RESEARCH/QA: none. grep for 88.5 / 0.85 / Simulate /
+len(files)*5 / coverage_percentage assignment finds only honest docstring
+disclaimers ("does NOT fabricate"). No fabricated metric or simulated execution
+remains in these two files.
+
+REMAINING BLOCKERS:
+- ~26 other specialist agents still return fabricated/templated output (audit
+  findings unchanged for them).
+- No external web/search tool exists; Research is model+local only by design
+  until such a tool is built and authority-checked.
+- QA cannot run real shell test suites standalone; needs the approval/command
+  pipeline wired into agent execution.
+- 14 failed + 32 errored backend tests still require a running Redis (or
+  fakeredis/skip) to verify those API paths.
+
+NEXT TASK: REPAIR-3 — either (a) make the Redis-dependent API tests runnable
+(fakeredis or a test Redis) to clear the 32 pre-existing errors and 14 failures,
+or (b) de-fabricate the next delegated specialists (e.g. coding_agent,
+debugging_agent, documentation) following the same real-or-honestly-blocked
+pattern. Swarm and Richard-Boundary repairs remain deferred.
+
+---
+
+TASK ID: REPAIR-3
+TASK NAME: Redis/test-infrastructure fix (runnable, truthful test baseline)
+STATUS: COMPLETE for the Redis objective (0 Redis errors). A SEPARATE,
+pre-existing test-harness defect (async-DB vs sync test Session) is now
+unmasked and documented below; system NOT production ready.
+
+REDIS ROOT CAUSE:
+- app/main.py lifespan calls `await init_redis()` (main.py:43), which does
+  `_redis_client.ping()` (app/core/redis.py:42). With no Redis server, the
+  conftest `client` fixture's `with TestClient(app)` triggered lifespan ->
+  ConnectionError at fixture setup -> the 32 ERRORS. Tests whose client skipped
+  lifespan hit request-time `get_redis()` (auth/session via `redis.hgetall`,
+  health check) -> 500 -> part of the 14 FAILURES.
+- Redis is used for: auth/session token store (app/api/auth.py, app/core/auth.py
+  use real ops like hgetall), health check (app/api/health.py), and the command
+  service health probe. So a no-op mock would be wrong; real in-memory semantics
+  are needed -> fakeredis.
+
+TEST STRATEGY (test-scoped, production unchanged):
+- Added settings.TESTING flag (default False). Only the test harness sets it.
+- app/core/redis.init_redis(): when settings.TESTING is true, use
+  fakeredis.aioredis.FakeRedis(decode_responses=True) (real in-memory Redis
+  semantics) instead of a real ConnectionPool. Production/dev path untouched.
+- tests/conftest.py: set os.environ TESTING=1 BEFORE importing app (so the
+  settings singleton picks it up); added an autouse fixture that resets the
+  redis module globals between tests for per-test isolation.
+- No tests skipped, no assertions weakened, no failing tests deleted, no
+  production behaviour changed. fakeredis is wired ONLY under TESTING.
+
+FILES CHANGED:
+- apps/backend/app/core/config.py (added TESTING flag)
+- apps/backend/app/core/redis.py (test-only fakeredis branch in init_redis)
+- apps/backend/tests/conftest.py (set TESTING before import; redis-reset fixture)
+- apps/backend/pyproject.toml (fakeredis added to dev/test deps)
+
+DEPENDENCY CHANGES:
+- Added fakeredis (^2.20.0) to [tool.poetry.group.dev.dependencies]. Installed
+  fakeredis 2.36.0 (dev/test only; NOT a runtime/production dependency).
+
+COMMANDS RUN:
+- python -m pip install --user fakeredis
+- python -m pytest <previously-failing/erroring files> --tb=line
+- python -m pytest (full suite, --tb=no -rE)
+- python -m pytest <failing files> --tb=line | categorize root causes
+
+BEFORE (Repair-2 baseline): 108 passed, 14 failed, 32 errored (154 total).
+AFTER (Repair-3): 122 passed, 32 failed, 0 errored (154 total).
+- Errors 32 -> 0: ALL Redis connection errors eliminated; every test now RUNS.
+- Passed 108 -> 122 (+14): tests that previously could not even start now pass.
+- Failed 14 -> 32 (+18): tests that were previously ERRORS now RUN and fail on a
+  distinct, previously-masked defect (see below). This is surfaced truth, not a
+  regression: agent/research/QA/orchestrator suites all still pass.
+
+REMAINING FAILURES (32) — single, pre-existing root cause, NOT Redis:
+- `TypeError: object ChunkedIteratorResult can't be used in 'await' expression`.
+  API endpoints (app/api/workspaces.py, app/api/tasks.py, etc.) use ASYNC
+  SQLAlchemy (`await db.execute(...)`), but tests/conftest.py injects a SYNC
+  `Session` (sqlite via create_engine) through the get_db override. Awaiting a
+  sync Result fails -> 500 -> assert 500 == 200/201/404 across
+  test_api_workspaces, test_api_tasks, test_smoke, test_regression,
+  test_security_api, and test_health::test_readiness_check.
+- This is a TEST-HARNESS mismatch (sync session vs async app), not a production
+  bug: production uses an async session correctly. Left VISIBLE and documented
+  per the no-false-green rule. NOT fixed here because a correct fix converts the
+  entire fixture ecosystem (db_session + test_user/workspace/agent/task and ~30
+  integration tests that use the sync `.query()/.add()/.commit()` API) to async
+  — a broad change out of scope for the Redis repair.
+
+TESTS SKIPPED OR WEAKENED: none.
+
+NEXT TASK: REPAIR-4 — fix the async test-DB harness so client-driven API tests
+exercise the real async endpoints: provide an AsyncSession (sqlite+aiosqlite)
+via the get_db override and migrate the sync model fixtures/integration tests to
+the async session API. That should convert the 32 remaining failures into real
+pass/fail signal. (Alternatively, de-fabricate the next delegated specialists.)
+Swarm and Richard-Boundary repairs remain deferred.
+
+---
+
+TASK ID: REPAIR-4
+TASK NAME: Async DB test harness (real AsyncSession for API tests)
+STATUS: COMPLETE for the async-DB objective. 1 remaining failure is a genuine
+integration dependency (needs a live Postgres), left visible. System NOT
+production ready.
+
+ASYNC DB ROOT CAUSE:
+- Production is correctly ASYNC: app/core/database.py uses create_async_engine +
+  async_sessionmaker; get_db yields AsyncSession; API endpoints do
+  `await db.execute(...)`. (Production unchanged by this repair.)
+- The test harness injected a SYNC Session into the async get_db override
+  (conftest create_engine + Session). Awaiting a sync Result raised
+  "TypeError: object ChunkedIteratorResult can't be used in 'await' expression"
+  -> 500 on every client-driven API endpoint (workspaces, tasks, agents, etc.).
+- Extra constraint discovered: several API tests verify BIDIRECTIONALLY across
+  the two sessions (create via API/async then read via sync db_session, and
+  fixture-create via sync then API/async reads to detect duplicate/update/
+  delete). So the sync fixture session and the async API session must see each
+  other's committed writes.
+
+TEST DB STRATEGY (production untouched):
+- Back BOTH a sync engine (for existing sync fixtures + sync integration tests
+  that use Session.query/.add/.commit) AND an async engine (for the get_db
+  override the async API needs) with the SAME file-based SQLite DB
+  (sqlite:///./test_jarv.db and sqlite+aiosqlite:///./test_jarv.db).
+- Sync engine runs in isolation_level="AUTOCOMMIT" so every read starts a fresh
+  snapshot and immediately sees rows the async API just committed (and vice-
+  versa). Async engine uses NullPool (short-lived connections that commit+close
+  per request, releasing SQLite locks).
+- get_db override now yields a real AsyncSession (mirrors production get_db:
+  commit on success, rollback on error).
+- Isolation between tests changed from per-test transaction ROLLBACK (impossible
+  across two connections that must share committed data) to clearing ALL tables
+  before each test (_clean_db autouse fixture). Deterministic clean start; the
+  existing >=N count assertions still hold.
+- db_session keeps the sync Session API (.query/.add/.commit/.refresh) so NO
+  test or model fixture was rewritten. Repair-3 fakeredis test mode preserved.
+- Added a minimal, test-scoped info() to the fakeredis double (it does not
+  implement Redis INFO) so the Redis health/readiness check reports the in-
+  memory double as reachable instead of erroring. Documented, test-only.
+
+FILES CHANGED:
+- apps/backend/tests/conftest.py (dual sync+async engines on one file DB;
+  AUTOCOMMIT sync; async get_db override; _clean_db table-clear isolation;
+  aliased model-registration import)
+- apps/backend/app/core/redis.py (test-only _TestFakeRedis.info() shim)
+- apps/backend/pyproject.toml (aiosqlite added to dev/test deps)
+
+DEPENDENCY CHANGES:
+- Added aiosqlite (^0.20.0) to [tool.poetry.group.dev.dependencies]; installed
+  aiosqlite 0.22.1 (dev/test only; NOT a runtime/production dependency).
+
+COMMANDS RUN:
+- python -m pip install --user aiosqlite
+- python -m pytest <previously-failing API files> --tb=line  (targeted)
+- python -m pytest (full suite, --tb=line -rf)
+
+BEFORE (Repair-3): 122 passed, 32 failed, 0 errors (154 total).
+AFTER (Repair-4): 153 passed, 1 failed, 0 errors (154 total).
+- +31 passed / -31 failed: ALL "ChunkedIteratorResult can't be used in 'await'"
+  500 failures are resolved; client-driven API CRUD tests (workspaces, tasks,
+  agents, smoke, regression, security, health) now exercise the real async
+  endpoints and pass. Errors remain at 0.
+- Repair-1/2 agent suites (orchestrator delegation 3, research/qa 8) still pass:
+  no regressions.
+
+REMAINING FAILURE (1) — genuine integration dependency, NOT an async-harness bug:
+- tests/test_health.py::test_readiness_check asserts the /ready endpoint returns
+  "ready". That endpoint (app/api/health.py:97) checks the PRODUCTION async
+  engine directly (`from app.core.database import engine` -> Postgres at
+  localhost:5432), BYPASSING get_db, so the test get_db override cannot affect
+  it. With no Postgres running in this environment it correctly reports
+  "not_ready". This is a real, truthful pass/fail signal (readiness genuinely
+  requires a live DB), left VISIBLE and NOT faked green and NOT skipped. It will
+  pass when run against a real Postgres (e.g. docker compose) or could be marked
+  integration-only in a later repair.
+
+TESTS SKIPPED / WEAKENED / DELETED: none. No assertions weakened. No production
+async-to-sync downgrade. Production DB/Redis behaviour unchanged.
+
+NEXT TASK: REPAIR-5 — recommended: de-fabricate the next orchestrator-delegated
+specialists (coding_agent, debugging_agent, documentation) using the Repair-2
+real-or-honestly-blocked pattern. Optionally, mark test_readiness_check as an
+integration test that requires live Postgres/Redis (documented) or add a
+compose-based integration test lane. Swarm and Richard-Boundary repairs remain
+deferred.
+
+---
+
+TASK ID: REPAIR-5
+TASK NAME: De-fabricate ALL remaining specialist agents (one controlled pass)
+STATUS: COMPLETE for the agent-output objective. System NOT production ready.
+
+SCOPE: every registered specialist agent that still used fabricated/template
+output. EXCLUDED (already real/honest): research, qa (Repair 2),
+customer_support (genuinely implemented), swarm_manager (reads the real
+SwarmLimitManager, no fake metrics), orchestrator (Repair 1).
+
+AGENTS INSPECTED: all 31 registered (registry.py). 26 were fabricated and
+repaired; 4 specialists + orchestrator already honest (excluded above).
+
+AGENTS REPAIRED (26):
+- Local real-analysis (A): coding_agent (real py_compile + line counts),
+  debugging_agent (real regex parse of error/stack text), verifier (real
+  py_compile/test-file checks), security (real secret/dangerous-pattern regex
+  scan; count == real findings), analytics (summarises only real provided
+  numbers), monitoring (honest LIMITED: no live integration, targets ->
+  "unknown"), infrastructure (real local infra-file detection; no live/cost),
+  memory (real context summary + substring filter; no persistence without DB),
+  workspace_manager (real os.walk file/stack detection), devops (real CI/Docker
+  file detection; deploy BLOCKED + needs-approval).
+- Model-backed (B, real router when configured, honest limitation otherwise,
+  external_action_taken always False): marketing, growth, business, finance
+  (honest arithmetic only on provided numbers), sales, content, community,
+  onboarding, partnerships, legal (draft-only, "requires qualified legal
+  review"), creation (no asset tool -> draft spec only, nothing downloaded),
+  company_operator (plan draft; nothing persisted), self_evolution (PROPOSALS
+  only; never applied), documentation (draft + real outline from provided
+  files; not written to repo).
+- Blocked/limited (C): rollback (honest BLOCKED: no deployment/version
+  subsystem; never claims a rollback happened), self_healing (real local scan +
+  remediation PLAN; BLOCKED for live healing).
+
+AGENTS LEFT BLOCKED/LIMITED (honest, by design — subsystem/tool not wired into
+standalone agent execution):
+- rollback: no real deployment/version/release state available -> blocked.
+- self_healing: cannot heal live systems without monitoring + approved command/
+  deploy pipeline -> remediation plan only, blocked for execution.
+- devops: cannot deploy/build live -> deploy blocked, needs deployment subsystem
+  + approval (real local CI/Docker detection still performed).
+- monitoring: no live monitoring integration -> reports targets as "unknown".
+- memory: cannot persist / vector-search without a DB session -> context-only.
+- company_operator: cannot persist roles/tasks/plan without the company DB layer.
+- self_evolution: cannot apply/version changes without the verified self-
+  evolution pipeline -> proposals only.
+- creation: no asset source/download tool wired -> asset spec draft only.
+- All model-backed (B) agents: produce DRAFTS only; never send/post/publish/
+  deploy (external_action_taken=False); honest limitation when no provider key.
+
+SHARED HELPER ADDED:
+- app/core/agents/specialists/_helpers.py — provider_configured(), llm_complete()
+  (real model router, returns None on failure -> no fabrication), task_text(),
+  resolve_files()/read_file_safe()/count_lines(), scan_secrets()/scan_dangerous()
+  (real regex), context_summary(), no_provider_limitation(), and
+  FORBIDDEN_FAKE_TOKENS (used by tests). Does not bypass AgentBase.
+
+FILES CHANGED:
+- Added: app/core/agents/specialists/_helpers.py
+- Rewrote run()/output-schema of 26 specialist files: coding_agent, debugging_agent,
+  verifier, security, analytics, monitoring, infrastructure, memory,
+  workspace_manager, devops, marketing, growth, business, finance, sales,
+  content, community, onboarding, partnerships, legal, creation,
+  company_operator, self_evolution, self_healing, rollback, documentation.
+  (Preserved each agent's class name, `name`, Input schema field names,
+  required_authority_level, default_tools -> registry/runner/orchestrator
+  compatibility intact.)
+- Added tests/test_specialist_agents_repair5.py (36 tests).
+
+FAKE PATTERNS REMOVED (examples): coverage_percentage 88.5, confidence 0.85,
+forecast_accuracy 0.92, reach=len(channels)*5000, cost=len(resources)*50.0,
+vulns=len(targets)*2, tests_run=len(files)*5, roles_active:5/tasks_assigned:12,
+mem_123 / "Memory 1" / relevance 0.95, "Source N"/"Finding about", win_probability
+maps, fabricated asset/licence records, "Simulate ..." execution, "In production:"
+comments, and all unconditional fake-success claims.
+
+TESTS ADDED (36, tests/test_specialist_agents_repair5.py):
+- Parametrized over all 26 repaired agents: created via registry + executed via
+  the real path; success=True; output contains NO fabricated tokens (88.5/0.85/
+  Simulate/mem_123/...). With provider disabled (settings keys nulled) agents
+  return honest output/limitations.
+- Runner-path tests (AgentRunner.run_agent) for security/verifier/monitoring.
+- Real-input local analysis: security (real secret detected in a temp file vs 0
+  for a clean file), coding_agent (real py_compile pass+fail on temp files),
+  workspace_manager (detects pyproject.toml in a real temp dir).
+- Model boundary: marketing uses a MOCKED provider response (sentinel flows into
+  the draft; external_action_taken False) and returns honest limitation when no
+  provider. Only the provider boundary is mocked (registry/runner/agents real).
+- rollback honest-blocked test; source guard test (no fabrication tokens in live
+  agent files).
+
+TESTS RUN:
+- python -m pytest tests/test_specialist_agents_repair5.py -> 36 passed.
+- Full suite: python -m pytest.
+
+BEFORE (Repair-4): 153 passed, 1 failed, 0 errors (154 total).
+AFTER (Repair-5): 189 passed, 1 failed, 0 errors (190 total).
+- +36 passed = exactly the 36 new Repair-5 tests. ZERO new failures, ZERO errors.
+- Repair 1/2/3/4 all still pass (orchestrator delegation, research/qa, fakeredis
+  test mode, async DB harness) -> no regressions.
+
+REMAINING FAILURE (1, unchanged): tests/test_health.py::test_readiness_check —
+the /ready endpoint checks the production async engine (Postgres) directly,
+bypassing get_db; with no Postgres in this environment it reports not_ready.
+Genuine integration dependency, left visible (not skipped, not faked).
+
+FAKE/SIMULATED OUTPUT REMAINING: none in any registered/live specialist agent.
+The non-registered scaffolding scripts (enhance_agents.py, generate_agents.py,
+verify_agents.py) still contain template/fake strings but are NOT imported by
+the registry and are NOT live agents; they are flagged for deletion in a later
+cleanup (left untouched here to avoid out-of-scope changes).
+
+NEXT TASK: REPAIR-6 — recommended: delete the dead fabrication-generator scripts
+(enhance_agents.py, generate_agents.py, verify_agents.py) after confirming they
+are unreferenced; and/or wire real subsystems so the honestly-blocked agents
+(rollback, self_healing, devops deploy, company_operator persistence,
+self_evolution application) can perform real actions. Optionally mark
+test_readiness_check as integration-only (live Postgres). Swarm subsystem,
+Richard Boundary, approval/resume, and dashboard repairs remain deferred.
+
+---
+
+TASK ID: REPAIR-6
+TASK NAME: Tool authority enforcement + ToolRun logging + secret redaction
+STATUS: COMPLETE for these objectives. System NOT production ready.
+
+TOOL APPROVAL FIX:
+- Before: app/core/tools/base.py execute() only LOGGED a warning for a
+  requires_approval tool and executed anyway ("approval system not yet
+  implemented").
+- After: execute() ENFORCES approval. If a tool's requires_approval is True,
+  it is not a dry_run, and no approval is present in the context, the tool is
+  BLOCKED before run(): it returns a structured result {blocked:true, reason,
+  requires_approval:true, tool, risk_level, recommended_next_action}, success
+  False, and the underlying action never runs. Approval is signalled minimally
+  (NOT the full Richard Boundary / approval-resume system) via
+  ToolContext.approval_granted, ToolContext.approved_tools allowlist, or a
+  metadata flag. Tools that do not require approval execute normally. No fake
+  approval; no silent continue.
+
+TOOLRUN LOGGING FIX:
+- New module app/core/tools/run_logging.py: write_tool_run() get-or-creates the
+  catalog Tool row by name (real) and inserts a real ToolRun (input_params,
+  output_result, status success/failed/blocked, success flag, error_message,
+  started/completed timestamps, duration_ms, authority_level_used,
+  required_approval). Input/output are REDACTED before persistence.
+- base.py execute() calls it after run() (status success/failed) and on the
+  approval-block path (status blocked), setting result.metadata.tool_run_logged
+  True/False. ToolContext gained an optional db_session for this.
+- Honest + safe: requires a real DB session AND an agent_id (ToolRun.agent_id is
+  a non-null FK); when either is missing or any DB error occurs it returns False
+  and execution continues (tool_run_logged=false). No fabricated rows, no dummy
+  sessions, never crashes execution.
+
+SECRET REDACTION FIX:
+- New central helper in app/core/security.py: redact_secrets()/redact_value()/
+  redact_text() + REDACTED marker. Redacts by sensitive KEY name (password,
+  secret, token, api_key, authorization, private_key, access_key, refresh_token,
+  client_secret, webhook_secret, ...) and by VALUE pattern (JWTs, PEM private
+  keys, bearer tokens, sk-/ghp_/xox- keys, AWS AKIA keys, DB/broker URLs with
+  embedded credentials scheme://user:pass@host, and key=secret/.env-style
+  assignments). Recursive, depth-limited, fail-safe. Non-secret context is kept.
+- Applied to: app/core/audit.py (log_agent_execution redacts the whole meta_data
+  -> covers log_tool_use tool_input/tool_output) and ToolRun input/output via
+  run_logging.write_tool_run.
+
+REGISTRY CHANGES:
+- Registered 4 REAL, safe, read-only/compute infrastructure tools that existed
+  but were unregistered: ssl_check, dns_verify, resource_metrics, cost_estimate
+  (added to REQUIRED_TOOLS + CATEGORIES["infrastructure"] and a registration
+  block). All createable from the registry.
+- Deliberately did NOT register the mutating/mock infra tools (resource
+  provision/scale/terminate, service deploy/rollback, backup create/restore/
+  cleanup, deployment status/logs) because they contain mock/no-op behaviour
+  (e.g. resources.py "create a mock provider resource ID"). Registering them
+  would be registering fake behaviour. No tool names were renamed; existing
+  callers/tests unaffected.
+
+MISSING TOOL GROUPS STILL NOT IMPLEMENTED (NOT faked; left for later repair):
+Per Design_md.txt section 12, these design tool groups still have no real,
+registered implementation and were NOT invented: Swarm tools, Self-Evolution
+tools, Approval/Resume tools, Asset tools, Support tools, Marketing tools,
+Content tools, Onboarding tools, Community tools, Partnership tools, Sales
+tools, Revenue tools, Monitoring tools (as a group), Voice tools, Boundary
+tools, and the mutating Infrastructure/Deployment tools listed above. The
+registry also uses a different tool TAXONOMY than the design names; design-name
+aliasing was not added in this repair (no real targets exist for most names).
+
+FILES CHANGED:
+- app/core/security.py (redaction helper)
+- app/core/audit.py (apply redaction to audit meta_data)
+- app/core/tools/base.py (approval enforcement, ToolRun logging hook,
+  ToolContext approval/session fields, helpers)
+- app/core/tools/run_logging.py (NEW)
+- app/core/tools/registry.py (register 4 real infrastructure tools)
+- tests/test_tool_authority_repair6.py (NEW, 11 tests)
+- BUILD_LEDGER.md
+
+TESTS ADDED (11, tests/test_tool_authority_repair6.py):
+- Approval: requires_approval tool blocked w/o approval (and file NOT deleted);
+  executes with approval_granted (file actually deleted); approved_tools
+  allowlist permits; non-approval tool executes normally.
+- ToolRun: logged with status=success when session+agent present (row verified
+  via a fresh session); blocked execution logs status=blocked; no session ->
+  tool_run_logged False and no crash.
+- Redaction: unit test masks api key/bearer/password/DB URL/JWT/private key and
+  keeps non-secret context; ToolRun input/output stored redacted (raw secrets
+  absent, non-secret field preserved).
+- Registry: the 4 real infrastructure tools are registered+createable; known
+  design-named-but-unimplemented tools (spawn_sub_agent, transcribe_voice,
+  detect_hard_boundary, create_boundary_report, deploy_production_with_boundary)
+  are NOT registered as fakes.
+
+TESTS RUN:
+- python -m pytest tests/test_tool_authority_repair6.py -> 11 passed.
+- Full suite: python -m pytest -p no:cacheprovider -q --tb=line -rf.
+
+BEFORE (Repair-5): 189 passed, 1 failed, 0 errors (190 total).
+AFTER (Repair-6): 200 passed, 1 failed, 0 errors (201 total).
+- +11 passed = exactly the 11 new tests. ZERO new failures, ZERO errors.
+- All Repair 1-5 tests still pass (orchestrator delegation, research/qa,
+  specialist agents, fakeredis test mode, async DB harness) -> no regressions.
+
+REMAINING FAILURE (1, unchanged): tests/test_health.py::test_readiness_check —
+the /ready endpoint checks the production async engine (Postgres) directly,
+bypassing get_db; no Postgres in this environment -> not_ready. Genuine
+integration dependency, left visible (not skipped, not faked).
+
+TESTS SKIPPED / WEAKENED / DELETED: none.
+
+NEXT TASK: REPAIR-7 — recommended: implement the missing design tool groups with
+REAL behaviour and register them under design names (start with Boundary tools +
+Approval/Resume tools so the approval gate has a real backing subsystem), then
+wire ToolContext.db_session through the agent/runner path so ToolRun logging is
+populated in normal operation. Swarm subsystem, Richard Boundary, approval/resume
+backend, and dashboard repairs remain deferred.
+

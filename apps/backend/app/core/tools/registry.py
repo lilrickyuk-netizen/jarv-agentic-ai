@@ -173,6 +173,12 @@ class ToolRegistry:
         "analyze_types": "Type checking and inference",
         "analyze_imports": "Analyze import structure",
         "analyze_architecture": "Architectural analysis",
+
+        # Infrastructure tools (real, read-only/compute — Repair 6)
+        "ssl_check": "Check a domain's SSL/TLS certificate (read-only)",
+        "dns_verify": "Verify DNS A/AAAA records for a domain (read-only)",
+        "resource_metrics": "Read local resource metrics (CPU/memory/disk)",
+        "cost_estimate": "Estimate infrastructure cost from provided inputs",
     }
 
     # Tool categories
@@ -224,6 +230,9 @@ class ToolRegistry:
             "analyze_code", "analyze_dependencies", "analyze_security", "analyze_performance",
             "analyze_coverage", "analyze_metrics", "analyze_complexity", "analyze_duplication",
             "analyze_style", "analyze_types", "analyze_imports", "analyze_architecture"
+        ],
+        "infrastructure": [
+            "ssl_check", "dns_verify", "resource_metrics", "cost_estimate"
         ],
     }
 
@@ -894,6 +903,27 @@ def _register_implemented_tools(registry: ToolRegistry) -> None:
 
     except ImportError as e:
         logger.warning(f"Analysis tools not available for registration: {e}")
+
+    # Infrastructure tools (Repair 6): register only the REAL, safe, read-only/
+    # compute tools. Mutating/mock infra tools (provision/scale/terminate/deploy/
+    # rollback/backup-create/restore/cleanup) are intentionally NOT registered
+    # because they contain mock/no-op behaviour; they are tracked as missing
+    # real implementations in BUILD_LEDGER.md for a later repair.
+    try:
+        from app.tools.infrastructure import (
+            SSLCheckTool,
+            DNSVerifyTool,
+            ResourceMetricsTool,
+            CostEstimateTool,
+        )
+
+        for tool in [SSLCheckTool, DNSVerifyTool, ResourceMetricsTool, CostEstimateTool]:
+            registry.register(tool, category="infrastructure")
+
+        logger.info("Registered 4 infrastructure tools (real, read-only/compute)")
+
+    except ImportError as e:
+        logger.warning(f"Infrastructure tools not available for registration: {e}")
 
 
 def register_tool(
