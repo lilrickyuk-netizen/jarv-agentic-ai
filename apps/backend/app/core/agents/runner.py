@@ -132,8 +132,19 @@ class AgentRunner:
     async def run_agent(
         self, agent_name: str, task: str, workspace_id: UUID,
         user_id: Optional[UUID] = None,
+        db: Optional[AsyncSession] = None,
+        task_id: Optional[UUID] = None,
+        session_id: Optional[UUID] = None,
+        approval_granted: bool = False,
+        approved_tools: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """Invoke one agent on a role-specific task; return a structured result."""
+        """Invoke one agent on a role-specific task; return a structured result.
+
+        When a real ``db`` AsyncSession is supplied it is carried into the
+        AgentContext so any tool the agent runs (via ``execute_tool``) executes
+        with real persistence and writes a ToolRun. Callers without a session
+        continue to work unchanged (no-session execution stays safe).
+        """
         if not get_registry().is_implemented(agent_name):
             return {"agent": agent_name, "success": False, "error": "agent not implemented"}
         # Scope the agent to its own tool catalog (per-agent tool permissions).
@@ -141,6 +152,7 @@ class AgentRunner:
         allowed_tools = list(getattr(meta, "default_tools", []) or [])
         config = AgentConfig(
             agent_id=uuid4(), workspace_id=workspace_id, user_id=user_id,
+            session_id=session_id,
             authority_level=AuthorityLevel.LEVEL_9_SWARM_CREATION, model=self.model,
             allowed_tools=allowed_tools,
         )
@@ -148,6 +160,10 @@ class AgentRunner:
         if agent is None:
             return {"agent": agent_name, "success": False, "error": "could not create agent"}
         ctx = AgentContext(workspace_id=workspace_id, user_id=user_id,
+                           task_id=task_id, session_id=session_id,
+                           db_session=db,
+                           approval_granted=bool(approval_granted),
+                           approved_tools=list(approved_tools or []),
                            metadata={"role_task": True, "source": "agent_runner"})
         try:
             try:

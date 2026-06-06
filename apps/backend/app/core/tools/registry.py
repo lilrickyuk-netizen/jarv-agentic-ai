@@ -179,6 +179,27 @@ class ToolRegistry:
         "dns_verify": "Verify DNS A/AAAA records for a domain (read-only)",
         "resource_metrics": "Read local resource metrics (CPU/memory/disk)",
         "cost_estimate": "Estimate infrastructure cost from provided inputs",
+
+        # Boundary tools (real — Repair 7; design-aligned names)
+        "boundary.detect": "Detect Design section 6 hard boundaries in real input",
+        "boundary.report.create": "Persist a BoundaryReport",
+        "boundary.report.get": "Read a BoundaryReport by id",
+        "boundary.report.list": "List BoundaryReports",
+        "boundary.status": "Report real boundary/approval state",
+        "boundary.recommend_next_action": "Recommend next action from detection + state",
+
+        # Approval tools (real — Repair 7)
+        "approval.request": "Create a pending approval request",
+        "approval.status": "Read persisted approval status",
+        "approval.list_pending": "List pending approvals",
+        "approval.grant": "Grant a pending approval (authorised context required)",
+        "approval.reject": "Reject a pending approval (authorised context required)",
+
+        # Checkpoint / resume tools (real — Repair 7)
+        "checkpoint.create": "Persist a SafeCheckpoint",
+        "checkpoint.get": "Read a SafeCheckpoint by id",
+        "resume.plan": "Derive a resume plan from a checkpoint + approval state",
+        "resume.execute": "Restore checkpoint state into the session; record a ResumeAction",
     }
 
     # Tool categories
@@ -233,6 +254,17 @@ class ToolRegistry:
         ],
         "infrastructure": [
             "ssl_check", "dns_verify", "resource_metrics", "cost_estimate"
+        ],
+        "boundary": [
+            "boundary.detect", "boundary.report.create", "boundary.report.get",
+            "boundary.report.list", "boundary.status", "boundary.recommend_next_action"
+        ],
+        "approval": [
+            "approval.request", "approval.status", "approval.list_pending",
+            "approval.grant", "approval.reject"
+        ],
+        "resume": [
+            "checkpoint.create", "checkpoint.get", "resume.plan", "resume.execute"
         ],
     }
 
@@ -924,6 +956,52 @@ def _register_implemented_tools(registry: ToolRegistry) -> None:
 
     except ImportError as e:
         logger.warning(f"Infrastructure tools not available for registration: {e}")
+
+    # Boundary tools (Repair 7): real detection + BoundaryReport persistence.
+    try:
+        from app.tools.boundary import (
+            BoundaryDetectTool, BoundaryReportCreateTool, BoundaryReportGetTool,
+            BoundaryReportListTool, BoundaryStatusTool, BoundaryRecommendNextActionTool,
+        )
+
+        for tool in [BoundaryDetectTool, BoundaryReportCreateTool, BoundaryReportGetTool,
+                     BoundaryReportListTool, BoundaryStatusTool, BoundaryRecommendNextActionTool]:
+            registry.register(tool, category="boundary")
+
+        logger.info("Registered 6 boundary tools (real, Repair 7)")
+
+    except ImportError as e:
+        logger.warning(f"Boundary tools not available for registration: {e}")
+
+    # Approval tools (Repair 7): real BoundaryApproval request + authorised decisions.
+    try:
+        from app.tools.approval import (
+            ApprovalRequestTool, ApprovalStatusTool, ApprovalListPendingTool,
+            ApprovalGrantTool, ApprovalRejectTool,
+        )
+
+        for tool in [ApprovalRequestTool, ApprovalStatusTool, ApprovalListPendingTool,
+                     ApprovalGrantTool, ApprovalRejectTool]:
+            registry.register(tool, category="approval")
+
+        logger.info("Registered 5 approval tools (real, Repair 7)")
+
+    except ImportError as e:
+        logger.warning(f"Approval tools not available for registration: {e}")
+
+    # Checkpoint / resume tools (Repair 7): real SafeCheckpoint + state restoration.
+    try:
+        from app.tools.resume import (
+            CheckpointCreateTool, CheckpointGetTool, ResumePlanTool, ResumeExecuteTool,
+        )
+
+        for tool in [CheckpointCreateTool, CheckpointGetTool, ResumePlanTool, ResumeExecuteTool]:
+            registry.register(tool, category="resume")
+
+        logger.info("Registered 4 checkpoint/resume tools (real, Repair 7)")
+
+    except ImportError as e:
+        logger.warning(f"Checkpoint/resume tools not available for registration: {e}")
 
 
 def register_tool(

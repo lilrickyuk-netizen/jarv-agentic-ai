@@ -11081,3 +11081,209 @@ wire ToolContext.db_session through the agent/runner path so ToolRun logging is
 populated in normal operation. Swarm subsystem, Richard Boundary, approval/resume
 backend, and dashboard repairs remain deferred.
 
+
+================================================================================
+TASK ID: REPAIR-7
+TASK NAME: Real Boundary + Approval/Checkpoint/Resume tool layer + ToolContext
+           propagation through the agent/runner path
+STATUS: COMPLETE for these objectives. System NOT production ready.
+
+STARTING COMMIT: 34fa2b9732b23b5ff6cac12fc27bbc6932c3b854 (branch: master)
+STARTING TEST BASELINE: 200 passed, 1 failed, 0 errors (201 total).
+  Known failure: tests/test_health.py::test_readiness_check (the /ready endpoint
+  checks the live production Postgres engine; no Postgres in this environment).
+  Baseline re-verified by running the full suite ALONE before editing
+  (200 passed, 1 failed, 0 errors). NOTE: running two pytest processes against the
+  shared SQLite test file at once causes spurious errors (DB contention); the
+  suite must be run as a sole process.
+
+FILES INSPECTED (read-only, before editing):
+- app/core/tools/{base,registry,run_logging}.py
+- app/core/agents/{base,runner,registry}.py
+- app/core/safety/{boundaries,detector,reporter}.py
+- app/core/approval/{manager,workflow,batch}.py
+- app/core/resume/{checkpoint,restore}.py
+- app/core/richard/{operator,guidance}.py
+- app/models/{boundary,session,tool_system}.py
+- tests/conftest.py, tests/test_tool_authority_repair6.py
+- Design_md.txt (sections 2, 6, 12), AUDIT_AGAINST_DESIGN.md, CLAUDE.md
+
+CLASSIFICATION OUTCOME:
+- REAL NOW: boundary.detect, boundary.report.create/get/list, boundary.status,
+  boundary.recommend_next_action, approval.request/status/list_pending/grant/
+  reject, checkpoint.create/get, resume.plan.
+- LIMITED BUT REAL: resume.execute (performs real state restoration into the
+  AgentSession + persists a ResumeAction; does NOT itself re-drive the mission
+  via a workflow engine -- documented limitation).
+- NOT IMPLEMENTABLE YET (NOT registered, NOT faked): the remaining Design
+  Approval/Resume names whose backing workflow/Richard-operator subsystem is
+  still incomplete (cancel_blocked_action, continue_safe_parallel_work,
+  create_approval_window/check/expire, request_richard_boundary_input,
+  record_richard_boundary_input, attach_boundary_report_to_task/workspace,
+  resolve_boundary_report), and all other missing design tool groups (Swarm,
+  Self-Evolution, Asset, Support, Marketing, Content, Onboarding, Community,
+  Partnership, Sales, Revenue, Voice, mutating Infrastructure/Deployment).
+
+HARD-BOUNDARY DETECTOR (minimum repair):
+- NEW app/core/safety/hard_boundary.py: detect_hard_boundaries() deterministically
+  inspects real input text/action/metadata against the 26 Design section 6 /
+  CLAUDE.md hard-boundary categories. Returns detected[], rules_checked[],
+  requires_pause, highest_severity, and an explicit COVERAGE_LIMITATIONS string
+  (keyword/regex SIGNAL detection only; not semantic; a match means "pause for
+  review", not certainty). The pre-existing SafetyDetector was left untouched;
+  this adds the minimum truthful detector the boundary tool needs. No claim of
+  full Design compliance is made.
+
+BOUNDARY TOOLS IMPLEMENTED (NEW app/tools/boundary/, all via ToolBase.execute):
+- boundary.detect (L0): deterministic detection over real input; states rules
+  checked + coverage limitations. No DB needed.
+- boundary.report.create (L1): persists a real BoundaryReport (needs db_session +
+  agent_id + session_id). Missing persistence -> truthful blocked result naming
+  the exact missing inputs. No fabricated records.
+- boundary.report.get (L0): reads one report; missing -> found=false.
+- boundary.report.list (L0): lists reports (filterable); empty -> truthful empty.
+- boundary.status (L0): real counts (reports, blocked, pending approvals) from DB;
+  no session -> persistence_available=false (reported as zero, not faked).
+- boundary.recommend_next_action (L0): recommendation DERIVED from real detection
+  + (if approval_id+session present) the persisted approval state -- branches
+  proceed / pause+request-approval / resume, never hardcoded success.
+
+APPROVAL TOOLS IMPLEMENTED (NEW app/tools/approval/):
+- approval.request (L1): persists a pending BoundaryApproval (needs db_session +
+  user_id + session_id). Missing -> truthful blocked.
+- approval.status (L0): reads persisted state; missing -> found=false.
+- approval.list_pending (L0): queries real pending records.
+- approval.grant (L6) / approval.reject (L6): REQUIRE explicit authorised
+  decision context -- both authorized=True AND a decided_by user id; otherwise
+  BLOCKED (no silent/default/self-inferred approval). Decision persists who
+  decided, when, and the decision (meta_data.decided_by/decided_at + approved_at).
+  Repeated decisions are idempotent (already_decided, no silent overwrite).
+
+CHECKPOINT/RESUME TOOLS IMPLEMENTED (NEW app/tools/resume/):
+- checkpoint.create (L1): persists a real SafeCheckpoint (needs db_session +
+  session_id). Missing -> truthful blocked.
+- checkpoint.get (L0): reads a checkpoint; missing -> found=false.
+- resume.plan (L0): derives a plan from a real checkpoint + current approval
+  state; blocks (can_resume=false + blocked_on_approvals) when approvals pending;
+  missing checkpoint -> truthful not-found. Read-only.
+- resume.execute (L6, LIMITED BUT REAL): restores checkpoint state (variables,
+  current_step, execution_stack) into the real AgentSession row, marks it
+  is_resumed, and persists a ResumeAction. success=True ONLY when restoration
+  truly occurred. Blocks with the EXACT missing requirement when the checkpoint
+  is missing, an approval is still pending, or the session row does not exist.
+  Documented limitation: it does not itself re-drive the mission (no workflow
+  engine in scope); the orchestrator must trigger continuation after restoration.
+
+TOOLS DELIBERATELY NOT IMPLEMENTED: see CLASSIFICATION (NOT IMPLEMENTABLE YET).
+None were registered as fakes; none return placeholder/empty/fabricated success.
+
+BACKEND COMPATIBILITY FIX:
+- app/core/resume/checkpoint.py: added module-level `timedelta` import (the
+  CheckpointManager.create_checkpoint expires_at path referenced timedelta which
+  was only imported inside a different function -> latent NameError). Minimal
+  fix; no behaviour rewrite.
+
+TOOLCONTEXT PROPAGATION CHANGES:
+- AgentContext gained: db_session (optional AsyncSession), request_id,
+  approval_granted, approved_tools. No-session execution stays safe.
+- AgentBase.execute_tool(tool_name, input_data, context): the real agent->tool
+  path. Builds a ToolConfig from the agent's own config (authority, workspace,
+  agent_id, user, session) and a ToolContext carrying db_session + approval state,
+  then runs the tool via ToolBase.execute (approval enforcement + ToolRun logging).
+  Enforces the agent's per-agent tool allowlist; never raises on a missing tool.
+- AgentRunner.run_agent() gained optional db / task_id / session_id /
+  approval_granted / approved_tools, threaded into AgentContext. Backward
+  compatible (all default None/False); callers without a session unaffected.
+- No dummy IDs, no dummy sessions, no global mutable request state.
+
+TOOLRUN LOGGING RESULT THROUGH NORMAL AGENT EXECUTION:
+- Proven: a registered agent run through AgentRunner.run_agent(db=session) whose
+  run() calls execute_tool("boundary.detect", ...) writes a real ToolRun row
+  (status=success) linked to the boundary.detect catalog Tool -- verified via a
+  fresh session in test_agentrunner_threads_db_session_and_creates_toolrun. With
+  no session, execute_tool runs the tool and marks tool_run_logged=false (no crash).
+
+REGISTRY (design-aligned names, real only):
+- REQUIRED_TOOLS + CATEGORIES gained 3 new groups: boundary (6), approval (5),
+  resume (4). _register_implemented_tools registers all 15 real tool classes.
+- Existing tool names/callers unchanged; no destructive renames; no inflated
+  counts; no fake groups. Verified: all 15 are is_implemented + createable; the
+  known design-named-but-unimplemented tools remain unregistered as fakes
+  (covered by the Repair 6 test, still passing).
+
+INTERNAL TOOL INVENTORY (name | file | registered | approval | min-authority | persistence | limitations):
+- boundary.detect | app/tools/boundary/tools.py | yes | no | L0 | none | keyword/regex signal detection (see COVERAGE_LIMITATIONS)
+- boundary.report.create | app/tools/boundary/tools.py | yes | no | L1 | BoundaryReport | needs db_session+agent_id+session_id else truthful blocked
+- boundary.report.get | app/tools/boundary/tools.py | yes | no | L0 | BoundaryReport (read) | needs db_session
+- boundary.report.list | app/tools/boundary/tools.py | yes | no | L0 | BoundaryReport (read) | needs db_session
+- boundary.status | app/tools/boundary/tools.py | yes | no | L0 | BoundaryReport+BoundaryApproval (read) | no session -> zeros, flagged
+- boundary.recommend_next_action | app/tools/boundary/tools.py | yes | no | L0 | BoundaryApproval (read, optional) | recommendation derived, not hardcoded
+- approval.request | app/tools/approval/tools.py | yes | no | L1 | BoundaryApproval | needs db_session+user_id+session_id
+- approval.status | app/tools/approval/tools.py | yes | no | L0 | BoundaryApproval (read) | needs db_session
+- approval.list_pending | app/tools/approval/tools.py | yes | no | L0 | BoundaryApproval (read) | needs db_session
+- approval.grant | app/tools/approval/tools.py | yes | no | L6 | BoundaryApproval (write) | requires authorized=True + decided_by; idempotent
+- approval.reject | app/tools/approval/tools.py | yes | no | L6 | BoundaryApproval (write) | requires authorized=True + decided_by; idempotent
+- checkpoint.create | app/tools/resume/tools.py | yes | no | L1 | SafeCheckpoint | needs db_session+session_id
+- checkpoint.get | app/tools/resume/tools.py | yes | no | L0 | SafeCheckpoint (read) | needs db_session
+- resume.plan | app/tools/resume/tools.py | yes | no | L0 | SafeCheckpoint+BoundaryApproval (read) | blocks on pending approvals
+- resume.execute | app/tools/resume/tools.py | yes | no | L6 | AgentSession (write)+ResumeAction | restores state only; no workflow re-drive
+
+FILES CHANGED:
+- app/core/safety/hard_boundary.py (NEW)
+- app/tools/boundary/{__init__,tools}.py (NEW)
+- app/tools/approval/{__init__,tools}.py (NEW)
+- app/tools/resume/{__init__,tools}.py (NEW)
+- app/core/agents/base.py (AgentContext fields + execute_tool)
+- app/core/agents/runner.py (db/session propagation into AgentContext)
+- app/core/resume/checkpoint.py (timedelta import fix)
+- app/core/tools/registry.py (register 3 real groups / 15 tools)
+- tests/test_repair7_boundary_approval_resume.py (NEW, 15 tests)
+- BUILD_LEDGER.md
+
+TESTS ADDED (15, tests/test_repair7_boundary_approval_resume.py):
+- Boundary: detection depends on real input (hit vs innocuous); honest coverage +
+  rules_checked; report.create blocked without persistence; create/get/list
+  persist + missing->not-found; recommend_next_action branches on real state.
+- Approval: request/status/list_pending persist+read; grant requires explicit
+  authorised context (unauthorised blocked, state unchanged); grant + reject
+  persist decider + are idempotent.
+- Checkpoint/resume: checkpoint create+get (missing->not-found); resume.plan uses
+  real checkpoint + blocks on pending approval + missing->not-found; resume.execute
+  real restoration (session row + ResumeAction verified) + blocked paths (missing
+  checkpoint, no session row); does not fake success.
+- Context/ToolRun: AgentRunner threads db_session -> ToolContext and a normal
+  agent-driven tool execution writes a ToolRun; no-session execution does not crash
+  and marks tool_run_logged=false. Redaction remains active (Repair 6 path reused).
+
+TESTS RUN:
+- python -m pytest tests/test_repair7_boundary_approval_resume.py -> 15 passed.
+- Full suite: python -m pytest -p no:cacheprovider -q --tb=line -rf (sole process).
+
+BEFORE (Repair-6): 200 passed, 1 failed, 0 errors (201 total).
+AFTER  (Repair-7): 215 passed, 1 failed, 0 errors (216 total).
+- +15 passed = exactly the 15 new Repair-7 tests. ZERO new failures, ZERO errors.
+- All Repair 1-6 tests still pass (orchestrator delegation, research/qa,
+  specialist agents, fakeredis, async DB harness, tool authority/logging/
+  redaction) -> no regressions.
+
+REMAINING FAILURE (1, unchanged): tests/test_health.py::test_readiness_check --
+the /ready endpoint checks the production async Postgres engine directly; no
+Postgres in this environment -> not_ready. Genuine integration dependency, left
+visible (not skipped, not faked).
+
+REMAINING ERRORS: 0.
+TESTS SKIPPED / WEAKENED / DELETED: none.
+
+REMAINING MISSING TOOL GROUPS (NOT faked; later repairs): Swarm tools,
+Self-Evolution tools, Asset, Support, Marketing, Content, Onboarding, Community,
+Partnership, Sales, Revenue, Voice tools, mutating Infrastructure/Deployment
+tools, and the remaining Approval/Resume/Boundary design names whose backing
+Richard-Boundary-Operator / workflow subsystem is still incomplete.
+
+NEXT TASK: REPAIR-8 -- recommended: make the safety CORE drive these tools end to
+end: (a) persist Boundary Reports/Approvals/Checkpoints from the orchestrator when
+a hard boundary is hit (pause-blocked-action + continue-safe-work), and (b) build
+the real Richard Boundary Operator workflow (request_richard_boundary_input /
+record_richard_boundary_input / approval windows) so resume.execute can be driven
+to true mission continuation. Swarm authority/scope guards and dashboard wiring
+remain deferred.

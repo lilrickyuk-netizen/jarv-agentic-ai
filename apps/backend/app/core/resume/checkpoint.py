@@ -5,7 +5,7 @@ Creates and manages safe checkpoints for resume capability.
 """
 from typing import Optional, Dict, Any, List
 from uuid import UUID, uuid4
-from datetime import datetime
+from datetime import datetime, timedelta
 from pydantic import BaseModel, Field
 import logging
 import json

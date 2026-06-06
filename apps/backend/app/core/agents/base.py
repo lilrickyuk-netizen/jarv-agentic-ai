@@ -104,6 +104,22 @@ class AgentContext(BaseModel):
         default_factory=list,
         description="Results from previous steps or agents"
     )
+    db_session: Optional[Any] = Field(
+        default=None,
+        description="Optional AsyncSession carried through for tool ToolRun/persistence "
+                    "(not required; no-session execution stays safe)"
+    )
+    request_id: Optional[UUID] = Field(
+        None, description="Mission/request id, if available"
+    )
+    approval_granted: bool = Field(
+        default=False,
+        description="True if an approval has been granted for this execution context"
+    )
+    approved_tools: List[str] = Field(
+        default_factory=list,
+        description="Tool names explicitly approved for execution in this context"
+    )
     metadata: Dict[str, Any] = Field(
         default_factory=dict,
         description="Additional context metadata"
@@ -497,6 +513,62 @@ class AgentBase(ABC):
             List of allowed tool names
         """
         return self.config.allowed_tools or self.default_tools
+
+    async def execute_tool(
+        self,
+        tool_name: str,
+        input_data: Dict[str, Any],
+        context: "AgentContext",
+    ):
+        """Execute a registered tool through the real tool path, carrying context.
+
+        This is the normal agent -> tool path. It builds a ToolConfig from the
+        agent's own config (authority, workspace, agent, user, session) and a
+        ToolContext that carries the DB session and approval state from the
+        AgentContext, then runs the tool via ToolBase.execute (which enforces
+        approval and writes a ToolRun when a DB session + agent_id are present).
+
+        Returns the tool's ToolResult, or a ToolResult-shaped error object if the
+        tool is unavailable / not permitted. Never raises for a missing tool.
+        """
+        from app.core.tools.base import ToolConfig, ToolContext, ToolResult
+        from app.core.tools.registry import create_tool
+
+        if not self.can_use_tool(tool_name):
+            return ToolResult(
+                success=False, tool_name=tool_name, tool_id=uuid4(),
+                result_data={"blocked": True, "reason": f"agent {self.name} is not permitted tool {tool_name}"},
+                error_message="tool not permitted for this agent",
+            )
+
+        tool_config = ToolConfig(
+            workspace_id=context.workspace_id or self.config.workspace_id,
+            user_id=context.user_id or self.config.user_id,
+            agent_id=self.config.agent_id,
+            task_id=context.task_id,
+            session_id=context.session_id or self.config.session_id,
+            authority_level=self.config.authority_level,
+        )
+        tool = create_tool(tool_name, tool_config)
+        if tool is None:
+            return ToolResult(
+                success=False, tool_name=tool_name, tool_id=tool_config.tool_id,
+                result_data={"reason": f"tool {tool_name} not found in registry"},
+                error_message="tool not found",
+            )
+
+        tool_context = ToolContext(
+            workspace_id=context.workspace_id or self.config.workspace_id,
+            user_id=context.user_id or self.config.user_id,
+            agent_id=self.config.agent_id,
+            task_id=context.task_id,
+            session_id=context.session_id or self.config.session_id,
+            approval_granted=bool(getattr(context, "approval_granted", False)),
+            approved_tools=list(getattr(context, "approved_tools", []) or []),
+            db_session=getattr(context, "db_session", None),
+            metadata=dict(getattr(context, "metadata", {}) or {}),
+        )
+        return await tool.execute(input_data, tool_context)
 
     # ===== Memory Access =====
 
