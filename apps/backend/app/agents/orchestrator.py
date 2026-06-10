@@ -54,6 +54,8 @@ class OrchestratorOutput(BaseModel):
     total_tasks: int = Field(..., description="Total number of tasks")
     agents_used: List[str] = Field(default_factory=list, description="Agents actually invoked during execution")
     task_results: List[Dict[str, Any]] = Field(default_factory=list, description="Per-task delegation outcome")
+    boundaries: List[Dict[str, Any]] = Field(default_factory=list, description="Persisted hard-boundary records (report/approval/checkpoint ids) for paused tasks")
+    session_id: Optional[str] = Field(None, description="Mission AgentSession id when persistence is active")
     tools_used: List[str] = Field(default_factory=list, description="Tools that were used")
     requires_human_input: bool = Field(default=False, description="Whether human input is needed")
     blocking_issues: List[str] = Field(default_factory=list, description="Issues blocking progress")
@@ -204,6 +206,8 @@ class OrchestratorAgent(AgentBase):
             "total_tasks": len(task_plan),
             "agents_used": delegation["agents_used"],
             "task_results": delegation["task_results"],
+            "boundaries": delegation.get("boundaries", []),
+            "session_id": delegation.get("session_id"),
             "tools_used": [],
             "requires_human_input": bool(delegation["deferred"]),
             "blocking_issues": delegation["errors"],
@@ -247,22 +251,54 @@ class OrchestratorAgent(AgentBase):
         Delegate each planned task to its assigned registered agent via the
         real AgentRunner path (registry -> create_agent -> agent.execute()).
 
-        Returns an honest summary:
-        - attempted: number of tasks actually delegated (executed)
-        - completed: number that returned success
-        - failed: number that returned failure/raised
-        - deferred: tasks held back because they require human approval
-        - skipped: tasks with no resolvable implemented agent
-        - agents_used: unique agent names actually invoked
-        - task_results: per-task outcome records
-        - errors / tokens
+        Hard-boundary interception (Repair 8): when a task is flagged
+        requires_approval it is treated as a hard boundary. ONLY that blocked
+        action is paused — a real BoundaryReport, SafeCheckpoint and pending
+        BoundaryApproval are persisted (when a DB session + workspace + user are
+        available) and the task is marked waiting_on_richard with the persisted
+        ids. Tasks that depend (transitively) on a blocked task WAIT; independent
+        safe tasks continue. Nothing is silently abandoned and no blocked action
+        executes early. Without persistence context the blocked task is still
+        held back (deferred) rather than run — honest, documented degradation.
+
+        Returns an honest summary including attempted/completed/failed/deferred/
+        skipped, agents_used, per-task results, persisted boundary records, the
+        mission session id, and tokens.
         """
         # Lazy import avoids a circular import (registry imports this module).
         from app.core.agents.runner import AgentRunner
+        from app.core.safety.hard_boundary import detect_hard_boundaries
         from uuid import uuid4 as _uuid4
 
         runner = AgentRunner(model=self.config.model)
         workspace_id = context.workspace_id or _uuid4()
+
+        # Persistence is only possible with a real DB session + owner + workspace.
+        db = getattr(context, "db_session", None)
+        can_persist = bool(db is not None and context.workspace_id is not None
+                           and context.user_id is not None)
+        workflow = None
+        session_id = context.session_id
+        session_agent_id = None
+        if can_persist:
+            from app.core.richard.workflow import RichardBoundaryWorkflow
+
+            workflow = RichardBoundaryWorkflow(db)
+            try:
+                agent_row = await workflow.ensure_orchestrator_agent(context.workspace_id)
+                session_agent_id = agent_row.id
+                sess = await workflow.ensure_session(
+                    session_id=session_id, user_id=context.user_id,
+                    workspace_id=context.workspace_id, agent_id=session_agent_id,
+                    initial_prompt="orchestrated mission")
+                session_id = sess.id
+                await db.commit()
+            except Exception as exc:  # noqa: BLE001
+                self.logger.warning(f"could not establish mission session: {exc}")
+                can_persist = False
+
+        # Map dependents: a task waits if it depends (transitively) on a blocked task.
+        deps_by_id = {t.task_id: set(t.dependencies or []) for t in task_plan}
 
         attempted = 0
         completed = 0
@@ -273,21 +309,110 @@ class OrchestratorAgent(AgentBase):
         task_results: List[Dict[str, Any]] = []
         errors: List[str] = []
         tokens = 0
+        boundaries: List[Dict[str, Any]] = []
+        blocked_ids: set = set()
+        completed_ids: List[int] = []
+
+        def _depends_on_blocked(task: TaskPlan) -> bool:
+            seen, stack = set(), list(deps_by_id.get(task.task_id, set()))
+            while stack:
+                d = stack.pop()
+                if d in seen:
+                    continue
+                seen.add(d)
+                if d in blocked_ids:
+                    return True
+                stack.extend(deps_by_id.get(d, set()))
+            return False
+
+        def _dependent_tasks(blocked_task: TaskPlan) -> List[Dict[str, Any]]:
+            out = []
+            for t in task_plan:
+                if t.task_id == blocked_task.task_id:
+                    continue
+                seen, stack = set(), list(deps_by_id.get(t.task_id, set()))
+                hit = False
+                while stack:
+                    d = stack.pop()
+                    if d in seen:
+                        continue
+                    seen.add(d)
+                    if d == blocked_task.task_id:
+                        hit = True
+                        break
+                    stack.extend(deps_by_id.get(d, set()))
+                if hit:
+                    out.append({"task_id": t.task_id,
+                                "agent": self._resolve_agent_name(t.assigned_agent),
+                                "assigned_agent": t.assigned_agent,
+                                "description": t.description,
+                                "dependencies": list(t.dependencies or [])})
+            return out
 
         for task in task_plan:
             agent_name = self._resolve_agent_name(task.assigned_agent)
 
-            # Respect hard-boundary/approval gating: do not auto-execute tasks
-            # that the plan flagged as needing approval. They are deferred for
-            # the approval/resume layer (a later repair), not silently run.
-            if task.requires_approval:
+            # A task that depends on an already-blocked task must WAIT (do not run).
+            if _depends_on_blocked(task):
                 deferred += 1
                 task_results.append({
                     "task_id": task.task_id,
                     "assigned_agent": task.assigned_agent,
                     "resolved_agent": agent_name,
-                    "status": "deferred_approval",
+                    "status": "waiting_dependent",
                 })
+                continue
+
+            # Hard-boundary / approval gating: pause ONLY this blocked action.
+            if task.requires_approval:
+                deferred += 1
+                blocked_ids.add(task.task_id)
+                boundary_type = self._classify_boundary(task.description, detect_hard_boundaries)
+                record = {
+                    "task_id": task.task_id,
+                    "assigned_agent": task.assigned_agent,
+                    "resolved_agent": agent_name,
+                    # A persisted pause is "waiting_on_richard"; without persistence
+                    # context the blocked action is held as "deferred_approval"
+                    # (the established no-persistence contract) — still never run.
+                    "status": "waiting_on_richard" if can_persist else "deferred_approval",
+                    "boundary_type": boundary_type,
+                }
+                if can_persist:
+                    snapshot = {
+                        "blocked_task": {
+                            "task_id": task.task_id, "agent": agent_name,
+                            "assigned_agent": task.assigned_agent,
+                            "description": task.description,
+                            "dependencies": list(task.dependencies or []),
+                            "requested_authority_level": 8,
+                        },
+                        "dependent_tasks": _dependent_tasks(task),
+                        "completed_task_ids": list(completed_ids),
+                        "current_step": f"blocked:{task.task_id}",
+                        "model": self.config.model,
+                    }
+                    res = await workflow.handle_hard_boundary(
+                        session_id=session_id, agent_id=session_agent_id,
+                        workspace_id=context.workspace_id, user_id=context.user_id,
+                        blocked_action=task.description, boundary_type=boundary_type,
+                        reason=f"Task {task.task_id} requires approval (hard boundary: {boundary_type}).",
+                        severity="high", requested_authority_level=8,
+                        available_authority_level=int(self.config.authority_level.value),
+                        safe_work_continuing=[str(t.task_id) for t in task_plan
+                                              if t.task_id != task.task_id and not t.requires_approval],
+                        resume_snapshot=snapshot, task_id=None,
+                        detection={"boundary_type": boundary_type})
+                    record.update({
+                        "boundary_report_id": res.get("boundary_report_id"),
+                        "approval_id": res.get("approval_id"),
+                        "checkpoint_id": res.get("checkpoint_id"),
+                    })
+                    boundaries.append({"task_id": task.task_id, **res,
+                                       "boundary_type": boundary_type})
+                else:
+                    record["persistence"] = "unavailable (no db_session/workspace/user); held, not run"
+                task_results.append(record)
                 continue
 
             if not agent_name:
@@ -300,6 +425,7 @@ class OrchestratorAgent(AgentBase):
                 })
                 continue
 
+            # Independent safe work continues.
             attempted += 1
             if agent_name not in agents_used:
                 agents_used.append(agent_name)
@@ -309,12 +435,15 @@ class OrchestratorAgent(AgentBase):
                 task=task.description,
                 workspace_id=workspace_id,
                 user_id=context.user_id,
+                db=db if can_persist else None,
+                session_id=session_id if can_persist else None,
             )
 
             success = bool(result.get("success"))
             tokens += int(result.get("tokens") or 0)
             if success:
                 completed += 1
+                completed_ids.append(task.task_id)
                 status = "completed"
             else:
                 failed += 1
@@ -336,7 +465,7 @@ class OrchestratorAgent(AgentBase):
             extra={
                 "attempted": attempted, "completed": completed,
                 "failed": failed, "deferred": deferred, "skipped": skipped,
-                "agents_used": agents_used,
+                "agents_used": agents_used, "boundaries": len(boundaries),
             },
         )
 
@@ -350,7 +479,25 @@ class OrchestratorAgent(AgentBase):
             "task_results": task_results,
             "errors": errors,
             "tokens": tokens,
+            "boundaries": boundaries,
+            "session_id": str(session_id) if session_id else None,
         }
+
+    @staticmethod
+    def _classify_boundary(description: str, detect_fn) -> str:
+        """Classify a blocked task's boundary type from its description.
+
+        Uses the real deterministic hard-boundary detector; falls back to the
+        honest generic 'requires_approval' type when no specific signal matches.
+        """
+        try:
+            detection = detect_fn(text=description, action=description)
+            detected = detection.get("detected") or []
+            if detected:
+                return detected[0]["key"]
+        except Exception:  # noqa: BLE001
+            pass
+        return "requires_approval"
 
     def _resolve_agent_name(self, assigned_agent: Optional[str]) -> Optional[str]:
         """

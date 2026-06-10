@@ -160,6 +160,9 @@ app.include_router(experience.router)
 app.include_router(approvals.router)
 app.include_router(boundary_reports.router)
 app.include_router(checkpoints.router)
+# Richard Boundary Operator: authenticated hard-boundary decision + resume loop (Repair 8)
+from app.api import richard as richard_api
+app.include_router(richard_api.router)
 app.include_router(assets.router)
 
 # Import and include workflow router

@@ -11287,3 +11287,256 @@ the real Richard Boundary Operator workflow (request_richard_boundary_input /
 record_richard_boundary_input / approval windows) so resume.execute can be driven
 to true mission continuation. Swarm authority/scope guards and dashboard wiring
 remain deferred.
+
+
+================================================================================
+TASK ID: REPAIR-8
+TASK NAME: End-to-end Richard Boundary Operator workflow — orchestrator hard-
+           boundary interception, authenticated decision, scoped approval window,
+           and real mission resume (close the safety loop)
+STATUS: COMPLETE for these objectives. System NOT production ready.
+
+STARTING COMMIT: bbcd48dbbfa58b1045cb4b90343e96ee0ca8df29 (branch: master)
+STARTING TEST BASELINE: 215 passed, 1 failed, 0 errors (216 total), re-verified
+  by running the full suite ALONE before editing (215 passed, 1 failed, 0 errors,
+  980.45s). Known failure: tests/test_health.py::test_readiness_check (the /ready
+  endpoint checks the live production Postgres engine directly; no Postgres in
+  this environment -> not_ready). The suite must be run as a SOLE process (two
+  concurrent pytest runs against the shared SQLite test file cause DB contention).
+
+FILES INSPECTED (read-only, before editing):
+- app/agents/orchestrator.py
+- app/core/agents/{base,runner,registry}.py
+- app/core/safety/{hard_boundary,boundaries,detector,reporter}.py
+- app/core/richard/{operator,guidance}.py
+- app/core/approval/{manager,workflow,batch}.py, app/core/resume/{checkpoint,restore}.py
+- app/tools/boundary/tools.py, app/tools/approval/tools.py, app/tools/resume/tools.py
+- app/core/tools/{base,registry,run_logging}.py
+- app/models/{boundary,session,task,agent,operations}.py
+- app/api/{approvals,boundary_reports,checkpoints,auth}.py, app/core/auth.py
+- app/main.py, tests/conftest.py, tests/test_repair{6,7}*.py, tests/test_orchestrator_delegation.py
+- Design_md.txt (section 6 hard boundaries / approval-resume / Richard Boundary
+  Operator), CLAUDE.md, AUDIT_AGAINST_DESIGN.md, BUILD_LEDGER Repair 1-7 entries
+
+WHAT REPAIR 7 LEFT OPEN (verified in code, now closed by Repair 8):
+- resume.execute restored state but did NOT re-drive the original mission.
+- approval.grant/reject trusted tool-input fields (authorized=true, decided_by).
+- the decision was not bound to the authenticated current user.
+- the orchestrator did not persist BoundaryReport/checkpoint/approval/pause on a
+  hard boundary; safe-parallel-work continuation was not wired; ApprovalWindow
+  scope/expiry did not drive continuation; the Richard workflow was not real e2e.
+
+WORKFLOW DESIGN (single coordinator, real DB persistence):
+- NEW app/core/richard/workflow.py :: RichardBoundaryWorkflow(db: AsyncSession).
+  One instance wraps one real AsyncSession; all persistence is real; all failures
+  roll back and are reported honestly. Public methods:
+  * ensure_orchestrator_agent / ensure_session — get-or-create the real Agent +
+    AgentSession rows a mission needs (AgentSession.agent_id is a non-null FK).
+  * handle_hard_boundary(...) — STEP 3 interception (below).
+  * record_richard_decision(...) — STEP 5/6/7 authenticated decision + window.
+  * validate_window(...) / _consume_window(...) — STEP 7 scope enforcement.
+  * resume_mission(...) — STEP 8 real mission continuation.
+  * list_pending_decisions(...) — read support for the API.
+  States are honest only: waiting_on_richard / resumed / completed / partial /
+  failed / rejected / expired. "planned" is never terminal.
+
+BOUNDARY INTERCEPTION (orchestrator, app/agents/orchestrator.py _delegate_tasks):
+- When a planned task is flagged requires_approval it is treated as a hard
+  boundary. ONLY that blocked action is paused. With a real DB session + workspace
+  + owner present, the orchestrator establishes the mission AgentSession and calls
+  workflow.handle_hard_boundary, which persists (one DB transaction):
+    1. a real BoundaryReport (was_blocked=True, action_taken="paused_blocked_action",
+       boundary_type from the real deterministic detector, severity, requested vs
+       available authority; workspace/task/mission ids + safe-work list + detection
+       carried in context because the model is session/agent-centric — see
+       AUDIT section 9);
+    2. a real pending BoundaryApproval (Richard is asked ONLY for this decision);
+    3. a real SafeCheckpoint capturing exactly how to resume (blocked task +
+       dependent tasks + completed_task_ids + agent + model);
+    4. report.approval_id <-> approval, report.context.checkpoint_id cross-links;
+    5. the AgentSession is paused (is_paused=True, status="paused"), NOT abandoned;
+    6. an AuditLog row.
+  Idempotent: an existing unresolved boundary for the same (session, task,
+  boundary_type) is reused, never duplicated. The blocked task is marked
+  waiting_on_richard with the persisted ids. Real ids only — never fabricated.
+
+SAFE-WORK CONTINUATION (deterministic, dependency-aware):
+- The orchestrator computes a transitive dependency graph from the plan. A task
+  that depends (transitively) on a blocked task is marked "waiting_dependent" and
+  is NOT executed. Independent safe tasks continue to run through the real
+  AgentRunner path (carrying the db session so ToolRuns log). HONEST LIMITATION:
+  continuation is SEQUENTIAL (the orchestrator delegates tasks in order); it is
+  not concurrent parallelism. No parallel completion is claimed. Without a DB
+  session/workspace/owner, a blocked task is held as "deferred_approval" (the
+  established no-persistence contract) and still never executed.
+
+RICHARD AUTHENTICATION (decision binding — the security fix):
+- record_richard_decision takes authenticated_user_id from TRUSTED execution
+  context (the FastAPI auth dependency / ToolContext.user_id), never from caller
+  decision fields. There is NO authorized/decided_by parameter to trust. The
+  decision is authorised only when the authenticated user matches the mission
+  owner (approval.user_id); a mismatched or unauthenticated identity is BLOCKED
+  (and audited) and the approval stays pending. decided_by is bound to the
+  authenticated user. The API endpoint (POST /api/richard/decisions/{id}) derives
+  the identity from CurrentUserId; its request body has NO decided_by/authorized
+  field, and a smuggled one is ignored (proven by test). Decisions are idempotent:
+  an identical repeat is a no-op; a CONFLICTING repeat is rejected (no silent
+  overwrite — a new approval is required to change a decision). Single-user owner
+  model per CLAUDE.md (no invented enterprise IAM).
+
+RICHARDBOUNDARYINPUT PERSISTENCE (STEP 6):
+- Every decision persists a real RichardBoundaryInput row: authenticated user_id,
+  session_id, input_type, input_category (boundary_type), input_prompt, the
+  structured input_value, input_format, related_approval_id, is_validated=True,
+  validation_result="authenticated_owner_decision", and a structured context
+  (decision, boundary_report_id, workspace_id, task_id, scope_action,
+  authority_granted, spend_limit, reason). Not an unstructured string.
+
+APPROVALWINDOW SCOPE RULES (STEP 7):
+- On APPROVAL a real ApprovalWindow is opened with EXACT scope (stored in
+  meta_data — the model has no dedicated scope columns; this avoids a migration
+  while enforcing scope): approval_id, boundary_report_id, workspace_id, task_id,
+  scope_action, boundary_type, authority_granted, spend_limit, release_scope,
+  expires_at, single_use, max_uses, uses, decided_by, reason. status=active.
+  validate_window enforces: active status, not expired, uses<max_uses, matching
+  workspace, matching task, matching action/scope, and authority_required<=
+  authority_granted. An out-of-scope or expired window is NEVER usable; a
+  single-use window is consumed on resume (status->consumed). REJECTION creates
+  NO window (and marks the report resolution=rejected_by_richard). There is no
+  universal "Richard approved everything" flag.
+
+MISSION RESUME (STEP 8 — the Repair 7 gap closed):
+- resume_mission loads the SafeCheckpoint, confirms the linked approval is granted
+  (pending->waiting, rejected->rejected, expired window->expired), validates the
+  ApprovalWindow scope+expiry against the blocked action, restores the AgentSession
+  state (variables, current_step, execution_stack; is_resumed=True; unpaused),
+  consumes the single-use window, then ACTUALLY RE-DRIVES the work through the real
+  AgentRunner: it runs the previously-blocked action (with approval_granted=True),
+  then the dependent tasks, and NEVER re-runs already-completed safe work
+  (completed_task_ids are skipped). It persists a real ResumeAction (success from
+  real execution), updates the BoundaryReport resolution, approval.executed +
+  execution_result, the session/mission status, and an AuditLog. Honest status:
+  completed (blocked+dependents ok), partial (blocked ok, a dependent failed),
+  failed (blocked action failed). Tests assert the blocked action AND its dependent
+  re-ran via the real runner while the already-completed task did not.
+
+REJECTION AND EXPIRY (STEP 9):
+- Rejection: blocked action stays stopped, NO active window is created, no
+  ResumeAction is created, the BoundaryReport is resolved "rejected_by_richard",
+  and the rejection is audited. resume_mission on a rejected approval returns
+  status="rejected", resumed=False (no retry without a new approval).
+- Expiry: validate_window returns expired -> resume_mission returns
+  status="expired", resumed=False; no action executes under expired authority.
+
+IDEMPOTENCY / CRASH SAFETY (STEP 10):
+- handle_hard_boundary reuses an existing unresolved boundary (no duplicate
+  report/approval/checkpoint). record_richard_decision is idempotent (identical
+  repeat = already_decided no-op; conflicting repeat rejected). resume_mission
+  marks approval.executed BEFORE running so a duplicate resume returns
+  idempotent=True and does NOT re-run (verified: exactly one ResumeAction). A FAILED
+  blocked action does NOT fake completion: executed is cleared, the BoundaryReport
+  is left UNRESOLVED, and the resume is reported retryable from the same checkpoint.
+  An EXCEPTION during execution rolls back, clears executed, and returns
+  retryable. AuditLog meta_data is redacted via app.core.security.redact_secrets;
+  ToolRun logging from the resumed agent run reuses the Repair 6/7 redaction path.
+
+API ENTRY POINTS (NEW app/api/richard.py, registered in app/main.py):
+- GET  /api/richard/pending                         (list pending Richard decisions)
+- GET  /api/richard/boundary-reports/{report_id}    (read a BoundaryReport)
+- POST /api/richard/decisions/{approval_id}         (authenticated decision; 403 on
+                                                     non-owner, 401 unauthenticated)
+- GET  /api/richard/approval-windows/{approval_id}  (read the window + exact scope)
+- POST /api/richard/resume                          (authenticated resume)
+  All require CurrentUserId (authenticated), use real persistence, no static data,
+  no dashboard work. The decision body carries NO decided_by/authorized field.
+
+FILES CHANGED:
+- app/core/richard/workflow.py (NEW — the coordinator)
+- app/api/richard.py (NEW — authenticated Richard Boundary Operator API)
+- app/agents/orchestrator.py (hard-boundary interception + dependency-aware
+  safe-work continuation in _delegate_tasks; OrchestratorOutput gained
+  boundaries[] + session_id; _classify_boundary helper)
+- app/main.py (register the richard router — 3 lines)
+- tests/test_repair8_richard_workflow.py (NEW — 14 behaviour tests)
+- BUILD_LEDGER.md
+
+NO MIGRATION ADDED: the existing boundary/session models already carry the needed
+data; structured scope/ids that the session/agent-centric models lack columns for
+are stored in their existing JSON context/meta_data fields. No schema change was
+genuinely required, so none was made.
+
+TESTS ADDED (14, tests/test_repair8_richard_workflow.py — REAL path, no mocks of
+orchestrator/runner/DB/checkpoint/approval/ToolBase):
+1. orchestrator pauses ONLY the blocked action and persists BoundaryReport +
+   SafeCheckpoint + pending BoundaryApproval; independent safe tasks complete; the
+   dependent task waits; the session is paused.
+2. no-DB orchestrator holds the blocked action (deferred, never run); no fake ids.
+3. unauthenticated decision is blocked; approval stays pending.
+4. a mismatched authenticated identity cannot decide another owner's approval.
+5. authenticated owner approval persists RichardBoundaryInput + the decision +
+   an ApprovalWindow with EXACT scope (decided_by == authenticated user).
+6. ApprovalWindow rejects wrong action, wrong workspace, excess authority,
+   expiry, and single-use reuse.
+7. rejection: no resume, no active window, no ResumeAction, report resolved
+   rejected, rejection audited.
+8. resume RE-DRIVES the blocked action AND its dependent via the real runner,
+   does not re-run completed safe work, persists one ResumeAction, updates the
+   report + session (is_resumed) + approval.executed.
+9. resume blocked while approval pending (no premature execution; no ResumeAction).
+10. failed resume (real runner, unimplemented blocked agent) -> status=failed,
+    retryable=True, executed cleared, report left unresolved (no fake completion).
+11. idempotency: duplicate decision = already_decided; conflicting = rejected;
+    one window only; duplicate resume = idempotent, exactly one execution.
+12. audit records created and secret-redacted (no raw api key leaks into audit).
+13/14. authenticated Richard API binds decided_by to the auth user (smuggled body
+    decided_by ignored); unauthenticated /pending and /decisions return 401.
+(Repair 1-7 regression suites prove no behaviour was broken.)
+
+COMMANDS RUN (serial, sole pytest process each time):
+- python -m py_compile app/core/richard/workflow.py app/agents/orchestrator.py app/api/richard.py
+- TESTING=1 python -c "import app.main; ... assert richard routes registered"
+- python -m pytest tests/test_repair8_richard_workflow.py            -> 14 passed (119.58s)
+- python -m pytest tests/test_orchestrator_delegation.py tests/test_research_qa_agents.py
+    tests/test_tool_authority_repair6.py tests/test_repair7_boundary_approval_resume.py
+    tests/test_repair8_...::test_orchestrator_without_db...           -> 38 passed (657.52s)
+- python -m pytest (full suite, sole process)                        -> 229 passed, 1 failed (1109.57s)
+
+BEFORE (Repair-7): 215 passed, 1 failed, 0 errors (216 total).
+AFTER  (Repair-8): 229 passed, 1 failed, 0 errors (230 total).
+- +14 passed = exactly the 14 new Repair-8 tests. ZERO new failures, ZERO errors.
+- All Repair 1-7 tests still pass (orchestrator delegation, research/qa, specialist
+  agents, fakeredis test mode, async DB harness, tool authority/logging/redaction,
+  boundary/approval/checkpoint/resume) -> no regressions.
+
+REMAINING FAILURE (1, unchanged): tests/test_health.py::test_readiness_check — the
+/ready endpoint checks the production async Postgres engine directly; no Postgres
+in this environment -> not_ready. Genuine integration dependency, left VISIBLE
+(not skipped, not weakened, not deleted).
+
+REMAINING ERRORS: 0.
+TESTS SKIPPED / WEAKENED / DELETED: none.
+
+KNOWN LIMITATIONS (honest):
+- Safe-work continuation is SEQUENTIAL, not concurrent (documented; no parallelism
+  claimed). True parallel execution would need a worker/async-task layer.
+- Hard-boundary detection is the Repair-7 deterministic keyword/regex detector
+  (signal-only; not semantic). The orchestrator also treats any planner
+  requires_approval flag as a boundary, so coverage does not depend solely on the
+  detector.
+- BoundaryReport/SafeCheckpoint/ApprovalWindow/RichardBoundaryInput remain
+  session/agent-centric (AUDIT section 9); workspace/task/mission ids and exact
+  approval scope live in their JSON context/meta_data fields rather than dedicated
+  FK columns. Functionally complete and enforced; the Design section 17 FK
+  relationship contract is a separate, still-open schema repair.
+- Resume re-drives the blocked task + its direct/transitive dependents from the
+  checkpoint snapshot; it does not reconstruct an arbitrarily deep multi-mission
+  graph beyond what the snapshot captured.
+- The legacy app/core/richard/operator.py stub is unchanged (the real workflow
+  lives in workflow.py); it remains a documented stub, not used by the loop.
+
+NEXT TASK: REPAIR-9 — recommended: (a) implement the Design section 17 workspace/
+task-centric FK relationship contract for the boundary/approval/checkpoint models
+(+ Alembic migration) so scope lives in real columns; (b) wire the Richard
+Boundary Operator dashboard page to /api/richard/*; and/or (c) add a worker/async
+layer so safe-parallel-work continuation is genuinely concurrent. Swarm
+authority/scope guards and the remaining missing tool groups remain deferred.
