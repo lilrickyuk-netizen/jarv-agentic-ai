@@ -22,11 +22,54 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import CurrentUserId
 from app.core.database import get_db
 from app.core.richard.workflow import RichardBoundaryWorkflow
+from app.core.richard.service import (
+    RichardBoundaryService, OK, NOT_FOUND, FORBIDDEN,
+)
 from app.models.boundary import ApprovalWindow, BoundaryApproval, BoundaryReport
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/richard", tags=["richard-boundary-operator"])
+
+
+def _access_to_http(access: str) -> None:
+    """Raise the right HTTP error for a service access result (or return)."""
+    if access == NOT_FOUND:
+        raise HTTPException(status_code=404, detail="Boundary case not found")
+    if access == FORBIDDEN:
+        raise HTTPException(
+            status_code=403,
+            detail="Not authorised for this workspace's boundary case",
+        )
+
+
+def _decision_to_http(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Map a workflow decision result dict to HTTP semantics."""
+    if result.get("decided"):
+        return result
+    reason = result.get("reason", "") or ""
+    if result.get("already_decided"):
+        if result.get("idempotent"):
+            return result  # identical repeat is a successful no-op (200)
+        raise HTTPException(status_code=409, detail=reason or "conflicting decision")
+    if result.get("blocked"):
+        if "not found" in reason:
+            raise HTTPException(status_code=404, detail=reason)
+        if "not authorised" in reason or "mission owner" in reason:
+            raise HTTPException(status_code=403, detail=reason)
+        if "unauthenticated" in reason:
+            raise HTTPException(status_code=401, detail=reason)
+    return result
+
+
+def _resume_to_http(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Map a workflow resume result dict to HTTP semantics."""
+    status = result.get("status")
+    if status == "expired":
+        raise HTTPException(status_code=410, detail=result.get("reason", "approval expired"))
+    if status in ("rejected", "waiting_on_richard"):
+        raise HTTPException(status_code=409, detail=result.get("reason", "cannot resume"))
+    return result
 
 
 # ----------------------------------------------------------------------------- #
@@ -53,6 +96,29 @@ class DecisionRequest(BaseModel):
 
 class ResumeRequest(BaseModel):
     checkpoint_id: str = Field(..., description="SafeCheckpoint id to resume from")
+
+
+class BoundaryCaseResponse(BaseModel):
+    """Structured, redacted view of one complete boundary case (Repair 9).
+
+    Sensitive metadata is redacted and the checkpoint is summarised (no raw state
+    snapshot) by the service before this model is constructed.
+    """
+    report: Dict[str, Any]
+    description: str
+    boundary_type: str
+    severity: str
+    authority_level_required: int
+    authority_level_available: int
+    safe_work_continuing: List[str]
+    workflow_state: str
+    pending_approval: Optional[Dict[str, Any]] = None
+    richard_decision: Optional[Dict[str, Any]] = None
+    approval_window: Optional[Dict[str, Any]] = None
+    checkpoint: Optional[Dict[str, Any]] = None
+    resume_history: List[Dict[str, Any]] = Field(default_factory=list)
+    timestamps: Dict[str, Any]
+    limitations: List[str] = Field(default_factory=list)
 
 
 # ----------------------------------------------------------------------------- #
@@ -169,3 +235,101 @@ async def resume_mission(
     wf = RichardBoundaryWorkflow(db)
     result = await wf.resume_mission(checkpoint_id=cid, authenticated_user_id=operator)
     return result
+
+
+# =========================================================================== #
+# Repair 9: report-centric, workspace-isolated operator API.
+# These use the RichardBoundaryService (ownership isolation + real relational
+# queries) and DELEGATE all state changes to the same Repair-8 workflow above.
+# =========================================================================== #
+
+@router.get("/reports")
+async def list_reports(
+    operator: CurrentUserId,
+    workspace_id: Optional[UUID] = None,
+    task_id: Optional[UUID] = None,
+    status: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+) -> List[Dict[str, Any]]:
+    """List boundary reports in workspaces the authenticated operator owns."""
+    svc = RichardBoundaryService(db)
+    return await svc.list_reports(
+        operator, workspace_id=workspace_id, task_id=task_id,
+        status=status, limit=limit, offset=offset)
+
+
+@router.get("/reports/{report_id}", response_model=BoundaryCaseResponse)
+async def get_boundary_case(
+    report_id: UUID,
+    operator: CurrentUserId,
+    db: AsyncSession = Depends(get_db),
+) -> BoundaryCaseResponse:
+    """Return the complete, redacted boundary case for one report."""
+    svc = RichardBoundaryService(db)
+    case, access = await svc.get_case(operator, report_id)
+    _access_to_http(access)
+    return BoundaryCaseResponse(**case)
+
+
+@router.get("/reports/{report_id}/history")
+async def get_boundary_history(
+    report_id: UUID,
+    operator: CurrentUserId,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Return the full approval/checkpoint/window/resume history for a report."""
+    svc = RichardBoundaryService(db)
+    history, access = await svc.get_history(operator, report_id)
+    _access_to_http(access)
+    return history
+
+
+@router.post("/reports/{report_id}/decision")
+async def decide_report(
+    report_id: UUID,
+    body: DecisionRequest,
+    operator: CurrentUserId,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Record Richard's authenticated decision for a report's pending approval.
+
+    ``decided_by`` is bound to the authenticated operator (the workflow enforces
+    the owner check); the request body carries no identity/authorisation field.
+    """
+    svc = RichardBoundaryService(db)
+    result, access = await svc.submit_decision(
+        operator, report_id, approve=body.approve, reason=body.reason,
+        richard_input_value=body.richard_input_value, scope_action=body.scope_action,
+        authority_granted=body.authority_granted, spend_limit=body.spend_limit,
+        release_scope=body.release_scope, expiry_seconds=body.expiry_seconds,
+        single_use=body.single_use)
+    _access_to_http(access)
+    return _decision_to_http(result)
+
+
+@router.post("/reports/{report_id}/resume")
+async def resume_report(
+    report_id: UUID,
+    operator: CurrentUserId,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Resume a report's paused mission from its safe checkpoint."""
+    svc = RichardBoundaryService(db)
+    result, access = await svc.resume(operator, report_id)
+    _access_to_http(access)
+    return _resume_to_http(result)
+
+
+@router.get("/sessions/{session_id}/status")
+async def get_session_status(
+    session_id: UUID,
+    operator: CurrentUserId,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Return the live status of a mission session the operator owns."""
+    svc = RichardBoundaryService(db)
+    status, access = await svc.session_status(operator, session_id)
+    _access_to_http(access)
+    return status

@@ -31,6 +31,27 @@ class BoundaryReport(Base, UUIDMixin, TimestampMixin):
         index=True,
     )
 
+    # Relational scope (Repair 9). Workspace/task/mission scope are real FK columns
+    # now, not JSON-only. Nullable + SET NULL so historic rows (which carried scope
+    # only in `context`) remain valid and so deleting a workspace/task never silently
+    # erases boundary decision history (the hard mission ownership cascade is the
+    # existing session_id FK above).
+    workspace_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    task_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("tasks.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    created_by: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     # Report information
     report_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     severity: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
@@ -69,7 +90,17 @@ class BoundaryReport(Base, UUIDMixin, TimestampMixin):
     # Relationships
     session: Mapped["AgentSession"] = relationship("AgentSession")
     agent: Mapped["Agent"] = relationship("Agent")
-    approval: Mapped[Optional["BoundaryApproval"]] = relationship("BoundaryApproval")
+    workspace: Mapped[Optional["Workspace"]] = relationship("Workspace")
+    task: Mapped[Optional["Task"]] = relationship("Task")
+    created_by_user: Mapped[Optional["User"]] = relationship(
+        "User", foreign_keys=[created_by]
+    )
+    # boundary_reports.approval_id -> boundary_approvals is one of TWO FKs between
+    # these tables (the other is boundary_approvals.boundary_report_id, added in
+    # Repair 9), so foreign_keys must be explicit to disambiguate the mapper.
+    approval: Mapped[Optional["BoundaryApproval"]] = relationship(
+        "BoundaryApproval", foreign_keys=[approval_id], post_update=True
+    )
 
     def __repr__(self) -> str:
         return f"<BoundaryReport(id={self.id}, type={self.report_type}, severity={self.severity})>"
@@ -89,6 +120,35 @@ class BoundaryApproval(Base, UUIDMixin, TimestampMixin):
     session_id: Mapped[UUID] = mapped_column(
         ForeignKey("agent_sessions.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
+    )
+
+    # Relational scope (Repair 9). An approval belongs to exactly one BoundaryReport
+    # and inherits its workspace/task scope. Nullable + SET NULL for historic rows
+    # and to preserve decision history when a report/task/workspace is removed.
+    workspace_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    task_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("tasks.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    # use_alter breaks the boundary_reports <-> boundary_approvals FK cycle for
+    # metadata table-sorting (the reverse FK is boundary_reports.approval_id).
+    boundary_report_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("boundary_reports.id", ondelete="SET NULL", use_alter=True,
+                   name="fk_boundary_approvals_boundary_report_id"),
+        nullable=True,
+        index=True,
+    )
+    # The authenticated owner who decided this approval. Bound to the trusted
+    # identity in the workflow; never to caller-supplied input.
+    decided_by: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
     )
 
@@ -139,9 +199,22 @@ class BoundaryApproval(Base, UUIDMixin, TimestampMixin):
     meta_data: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
 
     # Relationships
-    user: Mapped["User"] = relationship("User")
+    user: Mapped["User"] = relationship("User", foreign_keys=[user_id])
+    decided_by_user: Mapped[Optional["User"]] = relationship(
+        "User", foreign_keys=[decided_by]
+    )
     session: Mapped["AgentSession"] = relationship("AgentSession")
-    approval_window: Mapped[Optional["ApprovalWindow"]] = relationship("ApprovalWindow")
+    workspace: Mapped[Optional["Workspace"]] = relationship("Workspace")
+    task: Mapped[Optional["Task"]] = relationship("Task")
+    boundary_report: Mapped[Optional["BoundaryReport"]] = relationship(
+        "BoundaryReport", foreign_keys=[boundary_report_id]
+    )
+    # boundary_approvals.approval_window_id -> approval_windows is one of TWO FKs
+    # between these tables (the other is approval_windows.approval_id, added in
+    # Repair 9); foreign_keys must be explicit.
+    approval_window: Mapped[Optional["ApprovalWindow"]] = relationship(
+        "ApprovalWindow", foreign_keys=[approval_window_id], post_update=True
+    )
 
     def __repr__(self) -> str:
         return f"<BoundaryApproval(id={self.id}, type={self.approval_type}, status={self.status})>"
@@ -164,6 +237,45 @@ class ApprovalWindow(Base, UUIDMixin, TimestampMixin):
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
+    )
+
+    # Relational scope (Repair 9). A window belongs to the approval/decision it
+    # authorises and carries the exact workspace/task scope as real columns.
+    # use_alter breaks the boundary_approvals <-> approval_windows FK cycle for
+    # metadata table-sorting (the reverse FK is boundary_approvals.approval_window_id).
+    approval_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("boundary_approvals.id", ondelete="SET NULL", use_alter=True,
+                   name="fk_approval_windows_approval_id"),
+        nullable=True,
+        index=True,
+    )
+    # use_alter also breaks the third leg of the BR->BA->AW->BR cycle.
+    boundary_report_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("boundary_reports.id", ondelete="SET NULL", use_alter=True,
+                   name="fk_approval_windows_boundary_report_id"),
+        nullable=True,
+        index=True,
+    )
+    workspace_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    task_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("tasks.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    decided_by: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    # Real expiry column (was JSON-only) so scope/expiry can be queried + enforced
+    # relationally, not only from meta_data.
+    expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
     )
 
     # Window information
@@ -193,7 +305,18 @@ class ApprovalWindow(Base, UUIDMixin, TimestampMixin):
 
     # Relationships
     session: Mapped["AgentSession"] = relationship("AgentSession")
-    user: Mapped["User"] = relationship("User")
+    user: Mapped["User"] = relationship("User", foreign_keys=[user_id])
+    decided_by_user: Mapped[Optional["User"]] = relationship(
+        "User", foreign_keys=[decided_by]
+    )
+    workspace: Mapped[Optional["Workspace"]] = relationship("Workspace")
+    task: Mapped[Optional["Task"]] = relationship("Task")
+    boundary_report: Mapped[Optional["BoundaryReport"]] = relationship(
+        "BoundaryReport", foreign_keys=[boundary_report_id]
+    )
+    approval: Mapped[Optional["BoundaryApproval"]] = relationship(
+        "BoundaryApproval", foreign_keys=[approval_id], post_update=True
+    )
 
     def __repr__(self) -> str:
         return f"<ApprovalWindow(id={self.id}, type={self.window_type}, status={self.status})>"
@@ -208,6 +331,29 @@ class SafeCheckpoint(Base, UUIDMixin, TimestampMixin):
     session_id: Mapped[UUID] = mapped_column(
         ForeignKey("agent_sessions.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
+    )
+
+    # Relational scope (Repair 9). A checkpoint belongs to one session and
+    # optionally one task, and references the boundary/approval it was captured for.
+    workspace_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    task_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("tasks.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    boundary_report_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("boundary_reports.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    approval_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("boundary_approvals.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
     )
 
@@ -247,6 +393,14 @@ class SafeCheckpoint(Base, UUIDMixin, TimestampMixin):
 
     # Relationships
     session: Mapped["AgentSession"] = relationship("AgentSession")
+    workspace: Mapped[Optional["Workspace"]] = relationship("Workspace")
+    task: Mapped[Optional["Task"]] = relationship("Task")
+    boundary_report: Mapped[Optional["BoundaryReport"]] = relationship(
+        "BoundaryReport", foreign_keys=[boundary_report_id]
+    )
+    approval: Mapped[Optional["BoundaryApproval"]] = relationship(
+        "BoundaryApproval", foreign_keys=[approval_id]
+    )
 
     def __repr__(self) -> str:
         return f"<SafeCheckpoint(id={self.id}, name={self.checkpoint_name}, safe={self.is_safe_state})>"
@@ -268,6 +422,29 @@ class ResumeAction(Base, UUIDMixin, TimestampMixin):
     checkpoint_id: Mapped[UUID] = mapped_column(
         ForeignKey("safe_checkpoints.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
+    )
+
+    # Relational scope (Repair 9). A resume action references the approval that
+    # authorised it and the boundary/workspace/task it resumed.
+    approval_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("boundary_approvals.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    boundary_report_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("boundary_reports.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    workspace_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    task_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("tasks.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
     )
 
@@ -298,7 +475,17 @@ class ResumeAction(Base, UUIDMixin, TimestampMixin):
     # Relationships
     session: Mapped["AgentSession"] = relationship("AgentSession")
     checkpoint: Mapped["SafeCheckpoint"] = relationship("SafeCheckpoint")
-    executed_by_user: Mapped[Optional["User"]] = relationship("User")
+    executed_by_user: Mapped[Optional["User"]] = relationship(
+        "User", foreign_keys=[executed_by]
+    )
+    workspace: Mapped[Optional["Workspace"]] = relationship("Workspace")
+    task: Mapped[Optional["Task"]] = relationship("Task")
+    approval: Mapped[Optional["BoundaryApproval"]] = relationship(
+        "BoundaryApproval", foreign_keys=[approval_id]
+    )
+    boundary_report: Mapped[Optional["BoundaryReport"]] = relationship(
+        "BoundaryReport", foreign_keys=[boundary_report_id]
+    )
 
     def __repr__(self) -> str:
         return f"<ResumeAction(id={self.id}, type={self.action_type}, success={self.success})>"
@@ -320,6 +507,24 @@ class RichardBoundaryInput(Base, UUIDMixin, TimestampMixin):
     session_id: Mapped[UUID] = mapped_column(
         ForeignKey("agent_sessions.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
+    )
+
+    # Relational scope (Repair 9). Richard's input belongs to a boundary decision
+    # and carries its workspace/task scope as real columns.
+    boundary_report_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("boundary_reports.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    workspace_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    task_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("tasks.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
     )
 
@@ -349,8 +554,13 @@ class RichardBoundaryInput(Base, UUIDMixin, TimestampMixin):
     # Relationships
     user: Mapped["User"] = relationship("User")
     session: Mapped["AgentSession"] = relationship("AgentSession")
+    workspace: Mapped[Optional["Workspace"]] = relationship("Workspace")
+    task: Mapped[Optional["Task"]] = relationship("Task")
+    boundary_report: Mapped[Optional["BoundaryReport"]] = relationship(
+        "BoundaryReport", foreign_keys=[boundary_report_id]
+    )
     related_approval: Mapped[Optional["BoundaryApproval"]] = relationship(
-        "BoundaryApproval"
+        "BoundaryApproval", foreign_keys=[related_approval_id]
     )
 
     def __repr__(self) -> str:

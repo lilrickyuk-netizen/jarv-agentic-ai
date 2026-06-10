@@ -243,6 +243,10 @@ class RichardBoundaryWorkflow:
             report = BoundaryReport(
                 session_id=session_id,
                 agent_id=agent_id,
+                # Repair 9: real relational scope columns (no longer JSON-only).
+                workspace_id=workspace_id,
+                task_id=task_id,
+                created_by=user_id,
                 report_type="hard_boundary",
                 severity=severity,
                 title=f"Hard boundary: {boundary_type}",
@@ -269,6 +273,11 @@ class RichardBoundaryWorkflow:
             approval = BoundaryApproval(
                 user_id=user_id,
                 session_id=session_id,
+                # Repair 9: real relational scope. The approval belongs to this
+                # report and inherits its workspace/task.
+                workspace_id=workspace_id,
+                task_id=task_id,
+                boundary_report_id=report.id,
                 approval_type=approval_type,
                 action_description=blocked_action,
                 action_details={
@@ -298,6 +307,11 @@ class RichardBoundaryWorkflow:
             snap["task_id"] = str(task_id) if task_id else None
             checkpoint = SafeCheckpoint(
                 session_id=session_id,
+                # Repair 9: real relational scope (was JSON snapshot only).
+                workspace_id=workspace_id,
+                task_id=task_id,
+                boundary_report_id=report.id,
+                approval_id=approval.id,
                 checkpoint_name=f"pre-boundary:{boundary_type}",
                 checkpoint_type="pre_boundary",
                 is_safe_state=True,
@@ -423,9 +437,14 @@ class RichardBoundaryWorkflow:
 
         details = approval.action_details or {}
         boundary_type = details.get("boundary_type") or "boundary"
-        workspace_id = _maybe_uuid(details.get("workspace_id"))
-        task_id = details.get("task_id")
-        report_id = details.get("boundary_report_id")
+        # Repair 9: prefer the real relational columns; fall back to JSON only for
+        # historic rows written before this migration.
+        workspace_id = approval.workspace_id or _maybe_uuid(details.get("workspace_id"))
+        task_uuid = approval.task_id or _maybe_uuid(details.get("task_id"))
+        report_uuid = approval.boundary_report_id or _maybe_uuid(details.get("boundary_report_id"))
+        # String forms for JSON metadata (UUID is not JSON-serializable).
+        task_id = str(task_uuid) if task_uuid else None
+        report_id = str(report_uuid) if report_uuid else None
         scope_action = scope_action or approval.action_description
         if authority_granted is None:
             authority_granted = int(details.get("requested_authority_level") or 0)
@@ -436,6 +455,7 @@ class RichardBoundaryWorkflow:
             approval.status = "approved" if approve else "rejected"
             approval.approved_at = now
             approval.response_message = reason
+            approval.decided_by = auth_uid  # Repair 9: real column, bound to auth user
             if richard_input_value is not None:
                 approval.richard_input_value = str(richard_input_value)
             meta = dict(approval.meta_data or {})
@@ -449,6 +469,10 @@ class RichardBoundaryWorkflow:
             rbi = RichardBoundaryInput(
                 user_id=auth_uid,
                 session_id=approval.session_id,
+                # Repair 9: real relational scope.
+                workspace_id=workspace_id,
+                task_id=task_uuid,
+                boundary_report_id=report_uuid,
                 input_type=approval.richard_input_type or "approval",
                 input_category=boundary_type,
                 input_prompt=approval.input_prompt or approval.action_description,
@@ -483,6 +507,15 @@ class RichardBoundaryWorkflow:
                 window = ApprovalWindow(
                     session_id=approval.session_id,
                     user_id=auth_uid,
+                    # Repair 9: real relational scope + real expiry column. The
+                    # window belongs to this approval/decision; scope is enforced
+                    # from columns, not only meta_data.
+                    approval_id=approval.id,
+                    boundary_report_id=report_uuid,
+                    workspace_id=workspace_id,
+                    task_id=task_uuid,
+                    decided_by=auth_uid,
+                    expires_at=expires_at,
                     window_type=boundary_type,
                     title=f"Approval window: {scope_action}"[:500],
                     description=reason or f"Scoped approval for {scope_action}",
@@ -516,9 +549,9 @@ class RichardBoundaryWorkflow:
                 window_id = str(window.id)
             else:
                 # Rejection creates NO active window; mark the report resolved-rejected.
-                if report_id:
+                if report_uuid:
                     rep = (await self.db.execute(
-                        select(BoundaryReport).where(BoundaryReport.id == _maybe_uuid(report_id))
+                        select(BoundaryReport).where(BoundaryReport.id == report_uuid)
                     )).scalar_one_or_none()
                     if rep is not None:
                         rep.resolution = "rejected_by_richard"
@@ -571,22 +604,32 @@ class RichardBoundaryWorkflow:
         if window.status != "active":
             return {"ok": False, "expired": window.status == "expired",
                     "reason": f"window status is '{window.status}', not active"}
-        exp = meta.get("expires_at")
-        if exp:
-            try:
-                if now > datetime.fromisoformat(exp):
-                    return {"ok": False, "expired": True, "reason": "approval window expired"}
-            except Exception:  # noqa: BLE001
-                pass
+        # Repair 9: expiry is enforced from the real expires_at column first, then
+        # meta_data as a fallback for historic rows.
+        exp_dt = window.expires_at
+        if exp_dt is None:
+            exp_meta = meta.get("expires_at")
+            if exp_meta:
+                try:
+                    exp_dt = datetime.fromisoformat(exp_meta)
+                except Exception:  # noqa: BLE001
+                    exp_dt = None
+        if exp_dt is not None:
+            # Compare naive-to-naive (stored values are UTC) to avoid tz mismatch.
+            exp_cmp = exp_dt.replace(tzinfo=None) if exp_dt.tzinfo else exp_dt
+            if now > exp_cmp:
+                return {"ok": False, "expired": True, "reason": "approval window expired"}
         max_uses = int(meta.get("max_uses") or 1)
         uses = int(meta.get("uses") or 0)
         if uses >= max_uses:
             return {"ok": False, "expired": False,
                     "reason": f"approval window already used ({uses}/{max_uses})"}
-        scope_ws = meta.get("workspace_id")
+        # Workspace/task scope enforced from real columns first (ownership lives in
+        # columns, not JSON), with meta fallback for historic windows.
+        scope_ws = window.workspace_id or meta.get("workspace_id")
         if scope_ws and workspace_id is not None and str(scope_ws) != str(workspace_id):
             return {"ok": False, "expired": False, "reason": "workspace out of approval scope"}
-        scope_task = meta.get("task_id")
+        scope_task = window.task_id or meta.get("task_id")
         if scope_task and task_id is not None and str(scope_task) != str(task_id):
             return {"ok": False, "expired": False, "reason": "task out of approval scope"}
         scope_action = meta.get("scope_action")
@@ -642,10 +685,13 @@ class RichardBoundaryWorkflow:
                     "reason": "checkpoint is not resumable"}
 
         snap = cp.state_snapshot or {}
-        approval_id = _maybe_uuid(snap.get("approval_id"))
-        report_id = _maybe_uuid(snap.get("boundary_report_id"))
-        workspace_id = _maybe_uuid(snap.get("workspace_id"))
-        task_id = snap.get("task_id")
+        # Repair 9: prefer the checkpoint's real relational columns; JSON snapshot
+        # is the fallback for historic checkpoints written before this migration.
+        approval_id = cp.approval_id or _maybe_uuid(snap.get("approval_id"))
+        report_id = cp.boundary_report_id or _maybe_uuid(snap.get("boundary_report_id"))
+        workspace_id = cp.workspace_id or _maybe_uuid(snap.get("workspace_id"))
+        task_uuid = cp.task_id
+        task_id = str(task_uuid) if task_uuid else snap.get("task_id")
         blocked = snap.get("blocked_task") or {}
         blocked_action = blocked.get("description") or snap.get("boundary_type") or ""
         authority_required = int(blocked.get("requested_authority_level")
@@ -783,6 +829,11 @@ class RichardBoundaryWorkflow:
         action = ResumeAction(
             session_id=cp.session_id,
             checkpoint_id=cp.id,
+            # Repair 9: real relational scope (approval columns are authoritative).
+            approval_id=approval.id,
+            boundary_report_id=approval.boundary_report_id or report_id,
+            workspace_id=approval.workspace_id or workspace_id,
+            task_id=approval.task_id or task_uuid,
             action_type="resume_from_checkpoint",
             action_description=f"Resume after boundary cleared: {blocked_action}"[:1000],
             action_details={"ran": ran, "errors": errors,
@@ -885,18 +936,22 @@ class RichardBoundaryWorkflow:
                                      limit: int = 100) -> List[Dict[str, Any]]:
         """List pending Richard decisions (pending BoundaryApprovals)."""
         q = select(BoundaryApproval).where(BoundaryApproval.status == "pending")
+        # Repair 9: filter on the real workspace_id column (was JSON inspection).
+        if workspace_id is not None:
+            q = q.where(BoundaryApproval.workspace_id == workspace_id)
         q = q.order_by(BoundaryApproval.created_at.desc()).limit(limit)
         rows = (await self.db.execute(q)).scalars().all()
         out: List[Dict[str, Any]] = []
         for r in rows:
             details = r.action_details or {}
-            if workspace_id is not None and str(details.get("workspace_id")) != str(workspace_id):
-                continue
             out.append({"approval_id": str(r.id), "approval_type": r.approval_type,
                         "action_description": r.action_description,
                         "boundary_type": details.get("boundary_type"),
-                        "boundary_report_id": details.get("boundary_report_id"),
-                        "task_id": details.get("task_id"),
+                        "boundary_report_id": (str(r.boundary_report_id)
+                                               if r.boundary_report_id
+                                               else details.get("boundary_report_id")),
+                        "workspace_id": str(r.workspace_id) if r.workspace_id else None,
+                        "task_id": str(r.task_id) if r.task_id else details.get("task_id"),
                         "session_id": str(r.session_id),
                         "created_at": r.created_at.isoformat() if r.created_at else None})
         return out

@@ -278,15 +278,18 @@ def test_approval_window_scope_is_enforced():
                                           workspace_id=uuid4(), authority_required=8)
             too_much_auth = wf.validate_window(win, action="delete production database",
                                                workspace_id=wid, authority_required=10)
-            # Expired window.
+            # Expired window. Repair 9 makes the real expires_at COLUMN authoritative
+            # (meta is only a fallback for historic rows), so expire the column too.
             meta = dict(win.meta_data)
             meta["expires_at"] = (datetime.utcnow() - timedelta(seconds=5)).isoformat()
             win.meta_data = meta
+            win.expires_at = datetime.utcnow() - timedelta(seconds=5)
             expired = wf.validate_window(win, action="delete production database",
                                          workspace_id=wid, authority_required=8)
             # Restore expiry, then consume single-use -> further use rejected.
             meta["expires_at"] = (datetime.utcnow() + timedelta(hours=1)).isoformat()
             win.meta_data = meta
+            win.expires_at = datetime.utcnow() + timedelta(hours=1)
             await wf._consume_window(win)
             reused = wf.validate_window(win, action="delete production database",
                                         workspace_id=wid, authority_required=8)

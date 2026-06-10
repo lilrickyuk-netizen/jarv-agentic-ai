@@ -11540,3 +11540,212 @@ task-centric FK relationship contract for the boundary/approval/checkpoint model
 Boundary Operator dashboard page to /api/richard/*; and/or (c) add a worker/async
 layer so safe-parallel-work continuation is genuinely concurrent. Swarm
 authority/scope guards and the remaining missing tool groups remain deferred.
+
+
+================================================================================
+TASK ID: REPAIR-9
+TASK NAME: Relational boundary contract (Design section 17 workspace/task-centric
+           FKs) for the hard-boundary / approval / checkpoint / resume models,
+           plus the authenticated, workspace-isolated Richard Boundary API.
+STATUS: COMPLETE for these objectives. System NOT production ready.
+
+STARTING COMMIT: b1914bf2cc75fd708235ec601b89504211030236 (branch: master)
+STARTING TEST BASELINE: 229 passed, 1 failed, 0 errors (230 total), re-verified by
+  running the FULL suite ALONE before editing (229 passed, 1 failed, 1001.04s).
+  Known failure: tests/test_health.py::test_readiness_check (the /ready endpoint
+  checks the live production Postgres engine directly; no Postgres in this
+  environment -> not_ready). The suite must be run as a SOLE process.
+
+WHAT REPAIR 8 LEFT OPEN (verified in code, now closed by Repair 9):
+- BoundaryReport / BoundaryApproval / ApprovalWindow / SafeCheckpoint /
+  RichardBoundaryInput / ResumeAction were session/agent-centric: workspace/task/
+  mission scope + cross-record links + window expiry lived in JSON context/
+  action_details/state_snapshot/meta_data, not in real FK columns.
+- No report-centric, workspace-isolated API surface existed for Richard to operate
+  the completed workflow (only approval-id / checkpoint-id endpoints).
+- The legacy app/core/richard/operator.py stub persisted nothing and was unused.
+
+FILES INSPECTED (read-only, before editing):
+- app/models/boundary.py, app/models/{session,task,workspace,agent,operations,user}.py
+- app/models/base.py, app/models/__init__.py
+- alembic/versions/{2026_06_03_0001-initial_setup, ...d784fd7cd498...}.py
+- alembic/env.py, alembic.ini
+- app/core/richard/{workflow,operator,guidance,__init__}.py
+- app/api/richard.py, app/main.py (router registration)
+- app/core/auth.py, app/core/security.py (redact_secrets)
+- app/agents/orchestrator.py (handle_hard_boundary call site)
+- tests/conftest.py, tests/test_repair8_richard_workflow.py, test_repair7_*.py
+- Design_md.txt (section 6 + 17), CLAUDE.md, AUDIT_AGAINST_DESIGN.md (section 9),
+  BUILD_LEDGER Repair 1-8 entries.
+
+RELATIONAL SCHEMA CONTRACT (real columns added, app/models/boundary.py):
+- BoundaryReport      += workspace_id, task_id, created_by
+- BoundaryApproval    += workspace_id, task_id, boundary_report_id, decided_by
+- ApprovalWindow      += approval_id, boundary_report_id, workspace_id, task_id,
+                         decided_by, expires_at (DateTime; was JSON-only)
+- SafeCheckpoint      += workspace_id, task_id, boundary_report_id, approval_id
+- ResumeAction        += approval_id, boundary_report_id, workspace_id, task_id
+- RichardBoundaryInput+= boundary_report_id, workspace_id, task_id
+  All new FK columns are NULLABLE with ondelete=SET NULL (preserve decision/audit
+  history; the hard mission-ownership cascade stays on the existing session_id FK).
+  Relationships added one-directionally (no back_populates -> no edits to
+  session/task/workspace/user/agent models). Ambiguous relationships qualified with
+  explicit foreign_keys. Three cross-reference FKs use use_alter=True to break the
+  boundary_reports<->boundary_approvals<->approval_windows metadata cycle:
+  boundary_approvals.boundary_report_id, approval_windows.approval_id,
+  approval_windows.boundary_report_id.
+
+FOREIGN KEYS / INDEXES / CONSTRAINTS:
+- 23 new FK columns total, each with its own ix_<table>_<col> index for filtering.
+- Deletion behaviour: SET NULL on every new FK (no accidental cascade-delete of
+  decision/audit history). FK integrity is real and DB-enforced (proven by a test
+  that inserts a bogus workspace_id under PRAGMA foreign_keys=ON -> IntegrityError).
+- One-active-window-per-approval is enforced in the workflow layer (it creates and
+  links exactly one window per approval); workspace/task/action/authority/expiry
+  scope is enforced in validate_window from real columns first.
+
+ALEMBIC MIGRATION (alembic/versions/2026_06_10_0900-r9_boundary_relational_contract.py):
+- revision r9_boundary_relational, down_revision d784fd7cd498 (single head chain).
+- upgrade(): batch_alter_table per table (SQLite-safe) adds each nullable UUID FK
+  column + named FK + index; adds approval_windows.expires_at.
+- BACKFILL (no fabrication): reads existing JSON and sets a new column ONLY when the
+  JSON holds a valid UUID --
+    boundary_reports.context        -> workspace_id, task_id, created_by(user_id)
+    boundary_approvals.action_details/meta_data -> workspace_id, task_id,
+                                       boundary_report_id, decided_by
+    approval_windows.meta_data      -> approval_id, boundary_report_id, workspace_id,
+                                       task_id, decided_by, expires_at(parsed ISO)
+    safe_checkpoints.state_snapshot -> workspace_id, task_id, boundary_report_id,
+                                       approval_id
+    richard_boundary_inputs.context -> boundary_report_id, workspace_id, task_id
+    resume_actions                  -> derived from the (backfilled) parent
+                                       SafeCheckpoint via the existing checkpoint_id FK
+  Unresolvable / invalid historic values are left NULL; no row is deleted, no id is
+  invented. downgrade(): drops expires_at, then per table drops indexes + (on
+  Postgres) named FK constraints + columns. Upgrade/downgrade proven on SQLite.
+
+REPAIR 8 WORKFLOW UPDATES (app/core/richard/workflow.py):
+- handle_hard_boundary writes report.workspace_id/task_id/created_by,
+  approval.workspace_id/task_id/boundary_report_id,
+  checkpoint.workspace_id/task_id/boundary_report_id/approval_id.
+- record_richard_decision prefers real columns (approval.workspace_id/task_id/
+  boundary_report_id) over JSON; sets approval.decided_by; writes rbi.* and
+  window.approval_id/boundary_report_id/workspace_id/task_id/decided_by/expires_at.
+- resume_mission prefers checkpoint columns; writes ResumeAction.approval_id/
+  boundary_report_id/workspace_id/task_id.
+- validate_window enforces expiry from the real expires_at column first, then
+  workspace/task from real columns (meta is fallback for historic rows only).
+- list_pending_decisions filters on the real workspace_id column (was JSON).
+  Workflow behaviour, approval/resume security, idempotency, and "no mission
+  abandonment" are unchanged; JSON metadata is still written for compatibility but
+  is no longer the source of identity/ownership.
+
+SERVICE / REPOSITORY LAYER (NEW app/core/richard/service.py :: RichardBoundaryService):
+- list_pending / list_reports (filter by real workspace_id/task_id/status/since),
+  get_case (complete redacted case), get_history, session_status,
+  submit_decision + resume (DELEGATE to the real workflow; no duplicate logic).
+- Ownership isolation: a caller may see/act only on reports in workspaces they own
+  (Workspace.owner_id) or missions they created (BoundaryReport.created_by);
+  returns ok / not_found / forbidden which the API maps to 200 / 404 / 403.
+
+AUTHENTICATED API (app/api/richard.py; existing Repair-8 endpoints preserved):
+- GET  /api/richard/reports                         (list; workspace-isolated)
+- GET  /api/richard/reports/{report_id}             (BoundaryCaseResponse model)
+- GET  /api/richard/reports/{report_id}/history
+- POST /api/richard/reports/{report_id}/decision    (auth identity bound; 409 on
+                                                     conflicting/finalised)
+- POST /api/richard/reports/{report_id}/resume      (410 on expired window)
+- GET  /api/richard/sessions/{session_id}/status
+  decided_by is always the authenticated user; the body has NO decided_by/authorized
+  field (a smuggled one is ignored). Status codes: 401 unauth, 403 wrong workspace,
+  404 missing, 409 conflict, 410 expired. Sensitive leaves (window scope, decision
+  reason, description, resume error) are redacted; the checkpoint is summarised
+  (no raw state_snapshot dump).
+
+AUTHENTICATION & ISOLATION:
+- Identity from the FastAPI auth dependency (CurrentUserId), coerced to a stable
+  UUID. Never trusts caller-supplied decided_by/authorized. Cross-workspace read,
+  decide, and resume are all refused (proven). JSON metadata cannot override
+  relational ownership (queries filter on columns). Single-user private model
+  (no enterprise tenancy added).
+
+LEGACY OPERATOR OUTCOME (Step 10 -> option A, facade):
+- app/core/richard/operator.py is now a THIN COMPATIBILITY FACADE: RichardOperator(db)
+  .decide() delegates to RichardBoundaryWorkflow.record_richard_decision and
+  .get_pending_inputs()/.list_pending() delegate to the real workflow/service (one
+  decision/resume implementation only). The advisory submit_input (used by
+  RichardGuidance) is preserved but emits DeprecationWarning for real decisions.
+  Retained Pydantic models (RichardInput/RichardDecision/DecisionType) because
+  guidance.py imports them. A test proves the facade reaches the real workflow.
+
+FILES CHANGED:
+- app/models/boundary.py            (23 FK columns + relationships + use_alter)
+- app/core/richard/workflow.py      (write/query real columns)
+- app/api/richard.py                (report-centric API + BoundaryCaseResponse +
+                                     status-code mapping)
+- app/core/richard/operator.py      (rewired to a real workflow facade)
+- app/core/richard/service.py       (NEW)
+- alembic/versions/2026_06_10_0900-r9_boundary_relational_contract.py (NEW)
+- tests/test_repair9_relational_contract.py (NEW, 23 tests)
+- tests/test_repair8_richard_workflow.py (1 test updated: expire the real
+  expires_at column now that it is authoritative -- intent preserved, not weakened)
+- BUILD_LEDGER.md
+
+TESTS ADDED (23, tests/test_repair9_relational_contract.py; REAL DB + REAL workflow,
+no mocks of persistence/relationships/workflow/approval/resume/auth):
+  Schema/relationships (8): report persists workspace/task/session/created_by;
+   approval->report; checkpoint->task/session(+report/approval); rbi->approval/report;
+   window->decision(+expires_at); resume->checkpoint/session(+approval/report);
+   cross-workspace read/decide/resume refused; invalid FK fails honestly
+   (DB IntegrityError under PRAGMA foreign_keys=ON + workflow honest not-found).
+  Migration (within 2 funcs): upgrade creates columns/indexes/FKs; valid JSON UUIDs
+   backfilled; invalid/absent NOT fabricated; downgrade removes columns safely.
+  API (13): unauth 401; owner lists pending; report list workspace-filtered;
+   complete case returns real related records; decision ignores caller identity +
+   uses real workflow; rejection uses real workflow; resume real continuation;
+   missing 404; wrong workspace 403; conflicting decision 409; expired window 410;
+   sensitive fields redacted.
+  Compatibility (1): legacy operator facade reaches the real workflow + deprecation.
+
+COMMANDS RUN (serial, sole pytest process each time):
+- python -m py_compile (models, workflow, migration, service, api, operator, tests)
+- configure_mappers() + Base.metadata.sorted_tables -> no SAWarning cycle; columns present
+- python -m pytest tests/test_repair9_relational_contract.py            -> 23 passed
+- python -m pytest test_repair8 + test_repair7 + orchestrator_delegation +
+    tool_authority_repair6 (after fixing the 1 expiry test)             -> 43 passed
+- python -m pytest (full suite, sole process)                           -> 252 passed, 1 failed
+
+BEFORE (Repair-8): 229 passed, 1 failed, 0 errors (230 total).
+AFTER  (Repair-9): 252 passed, 1 failed, 0 errors (253 total).
+- +23 passed = exactly the 23 new Repair-9 tests. ZERO new failures, ZERO errors.
+- All Repair 1-8 tests still pass (the single Repair-8 expiry test was updated to
+  expire the now-authoritative expires_at column; its intent is preserved).
+
+REMAINING FAILURE (1, unchanged): tests/test_health.py::test_readiness_check -- the
+/ready endpoint checks the live production async Postgres engine directly; no
+Postgres in this environment -> not_ready. Genuine integration dependency, left
+VISIBLE (not skipped, not weakened, not deleted).
+
+REMAINING ERRORS: 0.
+TESTS SKIPPED / WEAKENED / DELETED: none.
+
+KNOWN LIMITATIONS (honest):
+- The orchestrator currently passes task_id=None to handle_hard_boundary (planner
+  task ids are integers, not persisted Task rows), so BoundaryReport.task_id is
+  populated only when a real Task UUID is supplied; the relationship + persistence +
+  backfill are fully implemented and tested with a real Task.
+- Operational (non-ownership) window fields (max_uses/uses/authority_granted/
+  scope_action/release_scope) still live in ApprovalWindow.meta_data (no dedicated
+  columns); identity/ownership/expiry are now real columns.
+- The Repair-9 migration is applied/verified in isolation on SQLite (the production
+  base migrations require pgvector, unavailable here); on Postgres the cyclic
+  cross-reference FKs are created normally.
+- Safe-work continuation remains SEQUENTIAL (Repair-8 limitation; out of scope).
+- Hard-boundary detection remains the Repair-7 deterministic detector (signal-only).
+
+NEXT TASK: REPAIR-10 -- recommended: (a) wire the Richard Boundary Operator dashboard
+page to the new /api/richard/reports* endpoints (currently static); and/or (b) add a
+worker/async layer so safe-parallel-work continuation is genuinely concurrent; and/or
+(c) thread a real Task row through the orchestrator so BoundaryReport.task_id is
+populated end-to-end in the normal mission flow. Swarm authority/scope guards and the
+remaining missing tool groups remain deferred.
