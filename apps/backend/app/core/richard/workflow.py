@@ -64,6 +64,24 @@ PARTIAL = "partial"
 FAILED = "failed"
 REJECTED = "rejected"
 EXPIRED = "expired"
+NEEDS_OPERATOR_REVIEW = "needs_operator_review"
+
+# Task statuses used when a boundary pauses/clears the linked Task. The string
+# "waiting_on_approval" matches the existing task API gate (resume refuses
+# blocked/waiting_on_approval tasks), so the whole system agrees on one value.
+TASK_WAITING_ON_APPROVAL = "waiting_on_approval"
+TASK_REJECTED = "rejected"
+TASK_EXPIRED = "expired"
+
+# Default lifetime of a PENDING approval request (Repair 10): 72 hours. After
+# this, the request expires honestly and can never be approved or resumed.
+DEFAULT_APPROVAL_REQUEST_TTL_SECONDS = 72 * 3600
+
+# Loop guard (Repair 10): once this many boundary chains exist for the SAME
+# (session, boundary_type, attempted_action) and the latest was not approved,
+# a further identical attempt stops with needs_operator_review instead of
+# opening yet another approval chain.
+REPEAT_BLOCK_LIMIT = 2
 
 
 def coerce_user_id(value: Any) -> Optional[UUID]:
@@ -179,9 +197,38 @@ class RichardBoundaryWorkflow:
                 meta_data=redact_secrets(meta or {}),
                 occurred_at=datetime.utcnow(),
             ))
-            await self.db.flush()
+            # Audit evidence must be durable: every _audit call site runs after
+            # its transaction's own commit, so committing here is safe and
+            # guarantees the trail survives the session (Repair 10).
+            await self.db.commit()
         except Exception as exc:  # noqa: BLE001
             self.logger.warning(f"audit write skipped: {exc}")
+
+    # ------------------------------------------------------------------ #
+    # Task state (Repair 10): pause/clear ONLY the linked blocked task
+    # ------------------------------------------------------------------ #
+
+    async def _set_task_status(self, task_id: Optional[UUID],
+                               status: str) -> Optional[str]:
+        """Set the linked Task's status; returns its PRIOR status (or None).
+
+        Only the blocked task is touched — unrelated tasks keep running. A
+        missing task is reported as None, never fabricated.
+        """
+        if task_id is None:
+            return None
+        from app.models.task import Task
+
+        task = (await self.db.execute(
+            select(Task).where(Task.id == task_id)
+        )).scalar_one_or_none()
+        if task is None:
+            return None
+        prior = task.status
+        task.status = status
+        if status == TASK_REJECTED:
+            task.failed_at = datetime.utcnow()
+        return prior
 
     # ------------------------------------------------------------------ #
     # STEP 3 - hard-boundary interception
@@ -206,13 +253,18 @@ class RichardBoundaryWorkflow:
         approval_type: str = "boundary",
         input_prompt: Optional[str] = None,
         detection: Optional[Dict[str, Any]] = None,
+        request_ttl_seconds: Optional[int] = DEFAULT_APPROVAL_REQUEST_TTL_SECONDS,
     ) -> Dict[str, Any]:
         """Persist the pause: BoundaryReport + SafeCheckpoint + pending approval.
 
         Only the blocked action is paused; the caller continues safe work. Returns
         the persisted ids and ``status='waiting_on_richard'``. Idempotent: if an
         unresolved boundary for the same (session, task, boundary_type) already
-        exists, its ids are returned instead of creating duplicates.
+        exists, its ids are returned instead of creating duplicates. Repair 10:
+        the pending approval expires after ``request_ttl_seconds``; the linked
+        Task (when one exists) is set to waiting_on_approval; and a repeatedly
+        re-blocked identical action stops with needs_operator_review instead of
+        opening approval chains forever.
         """
         # Idempotency: reuse an existing unresolved boundary for this exact action.
         existing = (await self.db.execute(
@@ -235,6 +287,40 @@ class RichardBoundaryWorkflow:
                     "checkpoint_id": ctx.get("checkpoint_id"),
                     "session_id": str(session_id),
                 }
+
+        # Loop guard (Repair 10): the SAME action blocked for the SAME reason,
+        # already decided/expired before, must not spin new approval chains
+        # forever. After REPEAT_BLOCK_LIMIT prior chains with no approval, stop
+        # honestly and hand the case to the operator.
+        from sqlalchemy import func as _func
+
+        prior_count = (await self.db.execute(
+            select(_func.count()).select_from(BoundaryReport).where(
+                BoundaryReport.session_id == session_id,
+                BoundaryReport.boundary_type == boundary_type,
+                BoundaryReport.attempted_action == blocked_action,
+            )
+        )).scalar() or 0
+        if prior_count >= REPEAT_BLOCK_LIMIT:
+            await self._audit(
+                workspace_id=workspace_id, user_id=user_id, agent_id=agent_id,
+                session_id=session_id, action="boundary_repeat_stopped",
+                description=(f"Action '{blocked_action[:200]}' was blocked "
+                             f"{prior_count} times for '{boundary_type}' with no new "
+                             "input; stopping with needs_operator_review instead of "
+                             "opening another approval chain."),
+                success=False, target_type="boundary_report", target_id=None,
+                required_approval=True,
+                meta={"boundary_type": boundary_type, "prior_chains": int(prior_count)})
+            await self.db.commit()
+            return {
+                "status": NEEDS_OPERATOR_REVIEW,
+                "idempotent": False,
+                "reason": (f"the same action has been blocked {prior_count} times for "
+                           f"'{boundary_type}' with no new input; operator review is "
+                           "required before it can be requested again"),
+                "session_id": str(session_id),
+            }
 
         try:
             # 1) BoundaryReport - records the 15 Design section 6 fields available
@@ -292,9 +378,18 @@ class RichardBoundaryWorkflow:
                 input_prompt=input_prompt or f"Approve blocked action: {blocked_action}",
                 status="pending",
                 approved=None,
+                # Repair 10: the pending request itself expires; after this it
+                # can never be approved or resumed.
+                expires_at=(datetime.utcnow() + timedelta(seconds=int(request_ttl_seconds))
+                            if request_ttl_seconds else None),
             )
             self.db.add(approval)
             await self.db.flush()
+
+            # Repair 10: pause ONLY the linked blocked task (unrelated tasks
+            # keep running); remember its prior state so resume can restore it.
+            prior_task_status = await self._set_task_status(
+                task_id, TASK_WAITING_ON_APPROVAL)
 
             # 3) SafeCheckpoint - captures exactly how to resume the blocked action.
             snap = dict(resume_snapshot or {})
@@ -305,6 +400,7 @@ class RichardBoundaryWorkflow:
             snap["boundary_report_id"] = str(report.id)
             snap["approval_id"] = str(approval.id)
             snap["task_id"] = str(task_id) if task_id else None
+            snap["prior_task_status"] = prior_task_status
             checkpoint = SafeCheckpoint(
                 session_id=session_id,
                 # Repair 9: real relational scope (was JSON snapshot only).
@@ -424,13 +520,44 @@ class RichardBoundaryWorkflow:
                     "reason": ("authenticated user is not authorised to decide this approval "
                                "(must be the mission owner)")}
 
+        # Repair 10: a pending request past its expiry can never be approved or
+        # rejected-into-resume — it is finalised as "expired" honestly.
+        if approval.status == "pending" and approval.expires_at is not None:
+            exp_cmp = (approval.expires_at.replace(tzinfo=None)
+                       if approval.expires_at.tzinfo else approval.expires_at)
+            if datetime.utcnow() > exp_cmp:
+                approval.status = "expired"
+                rep_uuid = approval.boundary_report_id
+                if rep_uuid is not None:
+                    rep = (await self.db.execute(
+                        select(BoundaryReport).where(BoundaryReport.id == rep_uuid)
+                    )).scalar_one_or_none()
+                    if rep is not None and rep.resolution is None:
+                        rep.resolution = "expired"
+                        rep.action_taken = "approval_request_expired"
+                await self._set_task_status(approval.task_id, TASK_EXPIRED)
+                await self.db.commit()
+                await self._audit(
+                    workspace_id=approval.workspace_id, user_id=auth_uid, agent_id=None,
+                    session_id=approval.session_id, action="boundary_approval_expired",
+                    description="Approval request expired before a decision; it can no "
+                                "longer be approved or resumed.",
+                    success=False, target_type="boundary_approval",
+                    target_id=str(approval.id), required_approval=True,
+                    meta={"expired_at": exp_cmp.isoformat()})
+                return {"decided": False, "expired": True, "blocked": True,
+                        "approval_id": str(approval.id), "status": "expired",
+                        "reason": "approval request expired; it can no longer be decided"}
+
         # Idempotency: a decided approval is not silently overwritten.
-        if approval.status in ("approved", "rejected") or approval.approved is not None:
+        if (approval.status in ("approved", "rejected", "expired", "cancelled")
+                or approval.approved is not None):
             same = (approval.status == ("approved" if approve else "rejected"))
             window_id = str(approval.approval_window_id) if approval.approval_window_id else None
             return {"decided": False, "already_decided": True, "idempotent": same,
                     "approval_id": str(approval.id), "status": approval.status,
                     "approval_window_id": window_id,
+                    "expired": approval.status == "expired",
                     "reason": (f"approval already {approval.status}"
                                + ("" if same else "; conflicting decision rejected — "
                                   "request a new approval to change it"))}
@@ -548,7 +675,8 @@ class RichardBoundaryWorkflow:
                 approval.approval_window_id = window.id
                 window_id = str(window.id)
             else:
-                # Rejection creates NO active window; mark the report resolved-rejected.
+                # Rejection creates NO active window; mark the report resolved-rejected
+                # and stop the linked blocked task honestly (Repair 10).
                 if report_uuid:
                     rep = (await self.db.execute(
                         select(BoundaryReport).where(BoundaryReport.id == report_uuid)
@@ -556,6 +684,7 @@ class RichardBoundaryWorkflow:
                     if rep is not None:
                         rep.resolution = "rejected_by_richard"
                         rep.action_taken = "rejected_blocked_action"
+                await self._set_task_status(approval.task_id or task_uuid, TASK_REJECTED)
 
             await self.db.commit()
 
@@ -711,12 +840,29 @@ class RichardBoundaryWorkflow:
             return {"status": "blocked", "resumed": False,
                     "reason": "authenticated user is not the mission owner"}
 
+        # Repair 10: a pending approval past its expiry can never resume; it is
+        # finalised as expired here, honestly, rather than left to linger.
+        if approval.status == "pending" and approval.expires_at is not None:
+            exp_cmp = (approval.expires_at.replace(tzinfo=None)
+                       if approval.expires_at.tzinfo else approval.expires_at)
+            if datetime.utcnow() > exp_cmp:
+                approval.status = "expired"
+                await self._set_task_status(approval.task_id or task_uuid, TASK_EXPIRED)
+                await self.db.commit()
+                return {"status": EXPIRED, "resumed": False,
+                        "reason": "approval request expired before a decision; cannot resume"}
         if approval.status == "pending":
             return {"status": WAITING, "resumed": False,
                     "reason": "approval still pending; cannot resume"}
         if approval.status == "rejected":
             return {"status": REJECTED, "resumed": False,
                     "reason": "approval was rejected; blocked action stays stopped"}
+        if approval.status == "expired":
+            return {"status": EXPIRED, "resumed": False,
+                    "reason": "approval expired; blocked action stays stopped"}
+        if approval.status == "cancelled":
+            return {"status": "blocked", "resumed": False,
+                    "reason": "approval was cancelled; blocked action stays stopped"}
 
         # Idempotency: if already executed, do not run the blocked action twice.
         if approval.executed:
@@ -739,9 +885,17 @@ class RichardBoundaryWorkflow:
                                  task_id=task_id, authority_required=authority_required)
         if not v["ok"]:
             if v["expired"]:
+                # Persist the expiry honestly (window + linked task), durably.
+                if window.status == "active":
+                    window.status = "expired"
+                    window.closed_at = datetime.utcnow()
+                await self._set_task_status(approval.task_id or task_uuid, TASK_EXPIRED)
+                await self.db.commit()
                 return {"status": EXPIRED, "resumed": False,
                         "reason": f"cannot resume under expired authority: {v['reason']}"}
             return {"status": "blocked", "resumed": False,
+                    "consumed": ("used" in (v["reason"] or "")
+                                 or "consumed" in (v["reason"] or "")),
                     "reason": f"approval window does not cover this action: {v['reason']}"}
 
         sess = (await self.db.execute(
@@ -867,6 +1021,10 @@ class RichardBoundaryWorkflow:
             if mission_status == COMPLETED:
                 sess.ended_at = datetime.utcnow()
             sess.current_step = f"resumed:{mission_status}"
+            # Repair 10: clear the linked task's waiting state honestly.
+            await self._set_task_status(
+                approval.task_id or task_uuid,
+                "completed" if mission_status == COMPLETED else mission_status)
         else:
             # The blocked action ran but FAILED. Do not fake completion and do not
             # lock the mission: leave the boundary report UNRESOLVED and clear the
@@ -877,6 +1035,8 @@ class RichardBoundaryWorkflow:
                 rep.action_taken = "resume_attempt_failed"  # resolution stays None
             sess.status = "active"
             sess.current_step = f"resume_failed_retryable:{blocked_action[:60]}"
+            # Repair 10: the linked task failed honestly (retryable from checkpoint).
+            await self._set_task_status(approval.task_id or task_uuid, FAILED)
 
         await self.db.commit()
 

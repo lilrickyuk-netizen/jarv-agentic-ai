@@ -48,6 +48,9 @@ def _decision_to_http(result: Dict[str, Any]) -> Dict[str, Any]:
     if result.get("decided"):
         return result
     reason = result.get("reason", "") or ""
+    # Repair 10: an expired approval request can never be decided (410 Gone).
+    if result.get("expired"):
+        raise HTTPException(status_code=410, detail=reason or "approval request expired")
     if result.get("already_decided"):
         if result.get("idempotent"):
             return result  # identical repeat is a successful no-op (200)
@@ -65,10 +68,14 @@ def _decision_to_http(result: Dict[str, Any]) -> Dict[str, Any]:
 def _resume_to_http(result: Dict[str, Any]) -> Dict[str, Any]:
     """Map a workflow resume result dict to HTTP semantics."""
     status = result.get("status")
+    reason = result.get("reason", "") or ""
     if status == "expired":
-        raise HTTPException(status_code=410, detail=result.get("reason", "approval expired"))
+        raise HTTPException(status_code=410, detail=reason or "approval expired")
     if status in ("rejected", "waiting_on_richard"):
-        raise HTTPException(status_code=409, detail=result.get("reason", "cannot resume"))
+        raise HTTPException(status_code=409, detail=reason or "cannot resume")
+    # Repair 10: a consumed (already-used) approval window cannot resume again.
+    if status == "blocked" and (result.get("consumed") or "already used" in reason):
+        raise HTTPException(status_code=409, detail=reason or "approval already consumed")
     return result
 
 
@@ -320,6 +327,51 @@ async def resume_report(
     result, access = await svc.resume(operator, report_id)
     _access_to_http(access)
     return _resume_to_http(result)
+
+
+@router.get("/checkpoints")
+async def list_checkpoints(
+    operator: CurrentUserId,
+    workspace_id: Optional[UUID] = None,
+    task_id: Optional[UUID] = None,
+    limit: int = 100,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+) -> List[Dict[str, Any]]:
+    """List safe checkpoints (summaries only) the operator owns (Repair 10)."""
+    svc = RichardBoundaryService(db)
+    return await svc.list_checkpoints(
+        operator, workspace_id=workspace_id, task_id=task_id,
+        limit=limit, offset=offset)
+
+
+@router.get("/resume-actions")
+async def list_resume_actions(
+    operator: CurrentUserId,
+    workspace_id: Optional[UUID] = None,
+    task_id: Optional[UUID] = None,
+    limit: int = 100,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+) -> List[Dict[str, Any]]:
+    """List resume actions in workspaces the operator owns (Repair 10)."""
+    svc = RichardBoundaryService(db)
+    return await svc.list_resume_actions(
+        operator, workspace_id=workspace_id, task_id=task_id,
+        limit=limit, offset=offset)
+
+
+@router.get("/reports/{report_id}/audit")
+async def get_boundary_audit_trail(
+    report_id: UUID,
+    operator: CurrentUserId,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """Return the redacted audit trail for one boundary flow (Repair 10)."""
+    svc = RichardBoundaryService(db)
+    trail, access = await svc.get_audit_trail(operator, report_id)
+    _access_to_http(access)
+    return trail
 
 
 @router.get("/sessions/{session_id}/status")

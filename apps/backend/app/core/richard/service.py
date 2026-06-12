@@ -122,6 +122,7 @@ class RichardBoundaryService:
                 "task_id": str(r.task_id) if r.task_id else None,
                 "session_id": str(r.session_id),
                 "status": r.status,
+                "expires_at": r.expires_at.isoformat() if r.expires_at else None,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
             })
         return out
@@ -291,6 +292,124 @@ class RichardBoundaryService:
         }
         return history, OK
 
+    async def list_checkpoints(
+        self, authenticated_user_id: Any, *,
+        workspace_id: Optional[UUID] = None,
+        task_id: Optional[UUID] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """List safe checkpoints in workspaces the authenticated user owns.
+
+        Summaries only — never the raw state_snapshot (Repair 10 redaction rule).
+        """
+        auth_uid = coerce_user_id(authenticated_user_id)
+        if auth_uid is None:
+            return []
+        owned = await self._owned_workspace_ids(auth_uid)
+        own_sessions = select(AgentSession.id).where(AgentSession.user_id == auth_uid)
+        q = select(SafeCheckpoint)
+        if owned:
+            q = q.where(SafeCheckpoint.workspace_id.in_(owned)
+                        | SafeCheckpoint.session_id.in_(own_sessions))
+        else:
+            q = q.where(SafeCheckpoint.session_id.in_(own_sessions))
+        if workspace_id is not None:
+            if workspace_id not in owned:
+                return []
+            q = q.where(SafeCheckpoint.workspace_id == workspace_id)
+        if task_id is not None:
+            q = q.where(SafeCheckpoint.task_id == task_id)
+        q = q.order_by(SafeCheckpoint.created_at.desc()).limit(limit).offset(offset)
+        rows = (await self.db.execute(q)).scalars().all()
+        return [self._checkpoint_summary(c) for c in rows]
+
+    async def list_resume_actions(
+        self, authenticated_user_id: Any, *,
+        workspace_id: Optional[UUID] = None,
+        task_id: Optional[UUID] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """List resume actions in workspaces the authenticated user owns."""
+        auth_uid = coerce_user_id(authenticated_user_id)
+        if auth_uid is None:
+            return []
+        owned = await self._owned_workspace_ids(auth_uid)
+        own_sessions = select(AgentSession.id).where(AgentSession.user_id == auth_uid)
+        q = select(ResumeAction)
+        if owned:
+            q = q.where(ResumeAction.workspace_id.in_(owned)
+                        | ResumeAction.session_id.in_(own_sessions))
+        else:
+            q = q.where(ResumeAction.session_id.in_(own_sessions))
+        if workspace_id is not None:
+            if workspace_id not in owned:
+                return []
+            q = q.where(ResumeAction.workspace_id == workspace_id)
+        if task_id is not None:
+            q = q.where(ResumeAction.task_id == task_id)
+        q = q.order_by(ResumeAction.created_at.desc()).limit(limit).offset(offset)
+        rows = (await self.db.execute(q)).scalars().all()
+        return [self._resume_view(r) for r in rows]
+
+    async def get_audit_trail(
+        self, authenticated_user_id: Any, report_id: UUID, *, limit: int = 200,
+    ) -> Tuple[Optional[Dict[str, Any]], str]:
+        """Return the redacted audit trail for one boundary flow.
+
+        Collects AuditLog rows targeting the report, its approvals, checkpoints
+        and resume actions, plus boundary-category entries on the same session.
+        Ownership is enforced exactly like get_case.
+        """
+        auth_uid = coerce_user_id(authenticated_user_id)
+        if auth_uid is None:
+            return None, FORBIDDEN
+        rep, access = await self._load_report_checked(auth_uid, report_id)
+        if access != OK:
+            return None, access
+
+        from app.models.operations import AuditLog
+
+        related_ids: List[str] = [str(report_id)]
+        approvals = (await self.db.execute(
+            select(BoundaryApproval.id).where(
+                BoundaryApproval.boundary_report_id == report_id))).scalars().all()
+        checkpoints = (await self.db.execute(
+            select(SafeCheckpoint.id).where(
+                SafeCheckpoint.boundary_report_id == report_id))).scalars().all()
+        resumes = (await self.db.execute(
+            select(ResumeAction.id).where(
+                ResumeAction.boundary_report_id == report_id))).scalars().all()
+        if rep.approval_id is not None:
+            related_ids.append(str(rep.approval_id))
+        related_ids += [str(x) for x in approvals]
+        related_ids += [str(x) for x in checkpoints]
+        related_ids += [str(x) for x in resumes]
+
+        q = select(AuditLog).where(
+            AuditLog.target_id.in_(related_ids)
+            | ((AuditLog.session_id == rep.session_id)
+               & (AuditLog.action_category == "boundary"))
+        ).order_by(AuditLog.created_at.asc()).limit(limit)
+        rows = (await self.db.execute(q)).scalars().all()
+        entries = [{
+            "id": str(a.id),
+            "action": a.action,
+            "action_category": a.action_category,
+            "actor_type": a.actor_type,
+            "description": redact_secrets(a.description),
+            "target_type": a.target_type,
+            "target_id": a.target_id,
+            "success": a.success,
+            "required_approval": a.required_approval,
+            "workspace_id": str(a.workspace_id) if a.workspace_id else None,
+            "session_id": str(a.session_id) if a.session_id else None,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+        } for a in rows]
+        return {"report_id": str(report_id), "entries": entries,
+                "entry_count": len(entries)}, OK
+
     async def session_status(
         self, authenticated_user_id: Any, session_id: UUID
     ) -> Tuple[Optional[Dict[str, Any]], str]:
@@ -395,6 +514,7 @@ class RichardBoundaryService:
             "decided_by": str(a.decided_by) if a.decided_by else None,
             "executed": a.executed,
             "approved_at": a.approved_at.isoformat() if a.approved_at else None,
+            "expires_at": a.expires_at.isoformat() if a.expires_at else None,
         }
 
     @staticmethod

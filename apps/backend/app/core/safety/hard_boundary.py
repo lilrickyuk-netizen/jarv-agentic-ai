@@ -187,3 +187,276 @@ def detect_hard_boundaries(
             "metadata_keys": sorted(list(metadata.keys())) if metadata else [],
         },
     }
+
+
+# =========================================================================== #
+# Repair 10: structured, deterministic action evaluation
+#
+# evaluate_action() is the detector the central tool-permission layer calls
+# BEFORE any tool executes. It composes, in strict precedence order:
+#   1. protected-location paths (banking/crypto/passwords/keys fragments),
+#   2. workspace scope (out-of-scope access/writes),
+#   3. command risks (destructive/privileged, pipe-to-shell, unknown
+#      executables, global installs) via the same classifier the runtime uses,
+#   4. the Design section 6 hard-boundary text rules above,
+#   5. high-confidence secret material in command/content/payload,
+#   6. residual command classification (risky / gated build / gated install).
+#
+# It returns ONE structured decision (never raises) and redacts secrets in
+# everything it emits, so its output is safe to persist, log, or return from
+# an API. Outcomes are honest: "blocked" means never-runnable on this path;
+# "requires_approval" means pause ONLY this action for Richard.
+# =========================================================================== #
+
+# Risk levels for structured decisions.
+RISK_LOW = "low"
+RISK_MEDIUM = "medium"
+RISK_HIGH = "high"
+RISK_CRITICAL = "critical"
+
+# High-confidence secret-material patterns (a strict subset of the redaction
+# patterns in app.core.security): these almost never appear in legitimate
+# non-secret tool input, so they gate for approval rather than only redact.
+_SECRET_MATERIAL_PATTERNS = [
+    re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),  # JWT
+    re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----"),
+    re.compile(r"(?i)bearer\s+[A-Za-z0-9._\-]{10,}"),
+    re.compile(r"\bsk-[A-Za-z0-9]{16,}\b"),
+    re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b"),
+    re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    re.compile(r"(?i)\b[a-z][a-z0-9+.\-]*://[^\s:/@]+:[^\s:/@]+@[^\s]+"),  # creds-in-URL
+]
+
+# Executable suffixes that indicate running a binary/script directly. Combined
+# with "./", ".\" launch forms these are the "unknown executable" hard boundary.
+_EXECUTABLE_SUFFIXES = (".exe", ".msi", ".bat", ".cmd", ".com", ".scr",
+                        ".bin", ".run", ".app", ".ps1", ".vbs")
+
+_PIPE_TO_SHELL_RE = re.compile(r"\|\s*(ba)?sh\b|\|\s*powershell\b|\|\s*pwsh\b", re.IGNORECASE)
+
+
+def _contains_secret_material(*texts: Optional[str]) -> bool:
+    for t in texts:
+        if not t:
+            continue
+        for pat in _SECRET_MATERIAL_PATTERNS:
+            if pat.search(str(t)):
+                return True
+    return False
+
+
+def _is_unknown_executable(command: str) -> bool:
+    """First token launches a local/unknown executable directly."""
+    stripped = (command or "").strip()
+    if not stripped:
+        return False
+    first = stripped.split()[0].strip("\"'").lower()
+    if first.startswith("./") or first.startswith(".\\"):
+        return True
+    return first.endswith(_EXECUTABLE_SUFFIXES)
+
+
+def _decision(
+    *,
+    allowed: bool,
+    requires_approval: bool,
+    boundary_type: Optional[str],
+    boundary_reason: Optional[str],
+    risk_level: str,
+    safe_alternative: Optional[str],
+    display: Optional[str],
+    audit_metadata: Dict[str, Any],
+) -> Dict[str, Any]:
+    # Redaction must never break detection; fall back to a coarse marker.
+    try:
+        from app.core.security import redact_text
+        redacted_display = redact_text(display or "")[:500]
+        redacted_reason = redact_text(boundary_reason or "") or None
+    except Exception:  # noqa: BLE001
+        redacted_display = "[REDACTED]"
+        redacted_reason = boundary_reason
+    return {
+        "allowed": allowed,
+        "requires_approval": requires_approval,
+        "boundary_type": boundary_type,
+        "boundary_reason": redacted_reason,
+        "risk_level": risk_level,
+        "safe_alternative": safe_alternative,
+        "redacted_display": redacted_display,
+        "audit_metadata": audit_metadata,
+    }
+
+
+def evaluate_action(
+    *,
+    tool_id: str,
+    command: Optional[str] = None,
+    target_path: Optional[str] = None,
+    action_description: Optional[str] = None,
+    content: Optional[str] = None,
+    payload: Optional[Dict[str, Any]] = None,
+    workspace_scope_required: bool = False,
+    path_in_scope: Optional[bool] = None,
+    allow_build: bool = True,
+    allow_install: bool = True,
+) -> Dict[str, Any]:
+    """Deterministically evaluate one tool action against the hard boundaries.
+
+    ``path_in_scope`` is the caller's real scope verdict for ``target_path``
+    (e.g. fs_inspector.host_to_container(...) is not None); None means the
+    caller does not enforce path scope on this runtime path.
+
+    Returns the structured decision dict described in the module header. This
+    never raises and never returns a fabricated "allowed" for an unchecked
+    category — every check that ran is named in ``audit_metadata.checks_run``.
+    """
+    from app.core.workspaces.fs_inspector import _is_banned, classify_command
+
+    checks_run: List[str] = []
+    display = command or action_description or target_path or tool_id
+    meta: Dict[str, Any] = {"tool_id": tool_id, "checks_run": checks_run}
+
+    # 1) Protected locations (banking / crypto / wallets / passwords / keys).
+    checks_run.append("protected_location_path")
+    if target_path and _is_banned(target_path):
+        return _decision(
+            allowed=False, requires_approval=False,
+            boundary_type="protected_location",
+            boundary_reason=("Target path matches a hard-boundary protected location "
+                             "(banking/crypto/passwords/keys); access is never allowed "
+                             "on this path."),
+            risk_level=RISK_CRITICAL,
+            safe_alternative="Operate only on non-protected files inside the approved workspace.",
+            display=display, audit_metadata=meta)
+
+    # 2) Workspace scope (out-of-scope reads/writes are a hard boundary).
+    checks_run.append("workspace_scope")
+    if workspace_scope_required and path_in_scope is False:
+        return _decision(
+            allowed=False, requires_approval=False,
+            boundary_type="out_of_scope_access",
+            boundary_reason=("Target is outside the approved workspace root; "
+                             "out-of-scope access is blocked."),
+            risk_level=RISK_HIGH,
+            safe_alternative="Use a path inside the approved workspace root.",
+            display=display, audit_metadata=meta)
+
+    cls: Optional[str] = None
+    if command is not None:
+        cls = classify_command(command)
+        meta["command_classification"] = cls
+
+        # 3a) Pipe-to-shell (named specifically; classifier also blocks it).
+        checks_run.append("pipe_to_shell")
+        if _PIPE_TO_SHELL_RE.search(command):
+            return _decision(
+                allowed=False, requires_approval=False,
+                boundary_type="pipe_to_shell",
+                boundary_reason="Piping downloaded/streamed content into a shell is never allowed.",
+                risk_level=RISK_CRITICAL,
+                safe_alternative=("Download to a workspace file first, inspect it, then run an "
+                                  "approved build/test command."),
+                display=display, audit_metadata=meta)
+
+        # 3b) Unknown executables.
+        checks_run.append("unknown_executable")
+        if _is_unknown_executable(command):
+            return _decision(
+                allowed=False, requires_approval=False,
+                boundary_type="unknown_executable",
+                boundary_reason="Running unknown executable files is a hard boundary and is blocked.",
+                risk_level=RISK_CRITICAL,
+                safe_alternative=("Use a known interpreter/build tool (python3, node, npm, pytest) "
+                                  "on source files inside the workspace."),
+                display=display, audit_metadata=meta)
+
+        # 3c) Destructive / privileged / global / chained commands.
+        checks_run.append("destructive_command")
+        if cls == "dangerous":
+            return _decision(
+                allowed=False, requires_approval=False,
+                boundary_type="destructive_or_privileged_command",
+                boundary_reason=("Command is destructive, privileged, global, or uses shell "
+                                 "chaining/redirection; it is blocked by safety policy."),
+                risk_level=RISK_CRITICAL,
+                safe_alternative=("Run ONE simple read-only or build/test command (no &&, ;, |, >, "
+                                  "sudo, rm, global installs) inside the approved workspace."),
+                display=display, audit_metadata=meta)
+
+    # 4) Hard-boundary TEXT rules. Always scanned on the action description;
+    #    scanned on the command only when the command is not already classified
+    #    as a known-safe form (safe/build/install), so benign commands like
+    #    `npm install buy-button` are not topic-flagged.
+    checks_run.append("hard_boundary_text_rules")
+    scan_command = command if (cls not in ("safe", "build", "install")) else None
+    text_result = detect_hard_boundaries(text=scan_command, action=action_description)
+    meta["hard_boundary_rules_checked"] = text_result["rules_checked_count"]
+    if text_result["detected"]:
+        first = text_result["detected"][0]
+        meta["hard_boundaries_detected"] = [d["key"] for d in text_result["detected"]]
+        return _decision(
+            allowed=False, requires_approval=True,
+            boundary_type=first["key"],
+            boundary_reason=(f"Hard boundary detected: {first['title']}. The action is paused "
+                             "for Richard's decision (not abandoned)."),
+            risk_level=RISK_CRITICAL,
+            safe_alternative="Continue safe parallel work while this action waits for approval.",
+            display=display, audit_metadata=meta)
+
+    # 5) High-confidence secret material (keys/tokens/credentials) in the input.
+    checks_run.append("secret_material")
+    payload_text = None
+    if payload:
+        try:
+            import json as _json
+            payload_text = _json.dumps(payload)
+        except Exception:  # noqa: BLE001
+            payload_text = str(payload)
+    if _contains_secret_material(command, content, action_description, payload_text):
+        return _decision(
+            allowed=False, requires_approval=True,
+            boundary_type="secret_material",
+            boundary_reason=("Input contains secret material (key/token/credential). Handling "
+                             "secrets requires Richard's approval; the value is redacted "
+                             "everywhere it is recorded."),
+            risk_level=RISK_HIGH,
+            safe_alternative=("Reference the secret by name and let Richard supply it through "
+                              "the boundary input flow instead of embedding the raw value."),
+            display=display, audit_metadata=meta)
+
+    # 6) Residual command gating: risky commands and policy-gated build/install.
+    if command is not None:
+        checks_run.append("command_approval_gate")
+        if cls == "risky":
+            return _decision(
+                allowed=False, requires_approval=True,
+                boundary_type="approval_required_command",
+                boundary_reason=("Command is not in the approved safe/build/install command "
+                                 "policy and requires approval before execution."),
+                risk_level=RISK_MEDIUM,
+                safe_alternative=("Use an approved read-only/build/test command, or request "
+                                  "approval for exactly this command."),
+                display=display, audit_metadata=meta)
+        if cls == "build" and not allow_build:
+            return _decision(
+                allowed=False, requires_approval=True,
+                boundary_type="build_requires_approval",
+                boundary_reason="Build/test execution requires approval in this context.",
+                risk_level=RISK_MEDIUM,
+                safe_alternative="Request approval, or run a read-only inspection command.",
+                display=display, audit_metadata=meta)
+        if cls == "install" and not allow_install:
+            return _decision(
+                allowed=False, requires_approval=True,
+                boundary_type="install_requires_approval",
+                boundary_reason="Package install requires approval in this context.",
+                risk_level=RISK_MEDIUM,
+                safe_alternative="Request approval for this exact install command.",
+                display=display, audit_metadata=meta)
+
+    return _decision(
+        allowed=True, requires_approval=False,
+        boundary_type=None, boundary_reason=None,
+        risk_level=RISK_LOW, safe_alternative=None,
+        display=display, audit_metadata=meta)

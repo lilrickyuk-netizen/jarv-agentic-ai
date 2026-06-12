@@ -170,6 +170,15 @@ class BoundaryApproval(Base, UUIDMixin, TimestampMixin):
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
     approved: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
 
+    # Request expiry (Repair 10). A pending approval request that passes this
+    # instant can no longer be approved or resumed; it is marked "expired"
+    # honestly instead of silently lingering. Nullable: historic rows and
+    # requests with no TTL never expire by time.
+    expires_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
     # Response
     approved_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True),

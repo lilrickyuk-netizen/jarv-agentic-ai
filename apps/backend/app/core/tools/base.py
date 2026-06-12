@@ -316,22 +316,50 @@ class ToolBase(ABC):
             # Validate input
             validated_input = self._validate_input(input_data)
 
-            # ENFORCE APPROVAL: a tool that requires approval must NOT execute
-            # unless a valid approval is present in the context. We do not fake
-            # approval and we do not silently continue — we return a structured
-            # blocked result and log it. (dry_run is validation-only, so it is
-            # allowed to proceed without approval.)
-            if self.requires_approval and not self.config.dry_run \
-                    and not self._has_approval(context):
+            # CENTRAL PERMISSION ENFORCEMENT (Repair 10): this registry path and
+            # the command ToolRuntime both route through the ONE shared
+            # permission function. It covers this tool's own approval flag AND
+            # deterministic hard-boundary detection on the validated input
+            # (destructive/pipe-to-shell/unknown-executable commands, protected
+            # paths, secret material, Design section 6 text rules). We never
+            # fake approval and never silently continue — a denied action
+            # returns a structured blocked result and is logged. (dry_run is
+            # validation-only, so approval-gated outcomes may proceed for it;
+            # never-runnable outcomes stay blocked even in dry_run.)
+            from app.core.safety.permission_policy import check_tool_permission
+
+            decision = check_tool_permission(
+                tool_id=self.name,
+                command=(str(validated_input["command"])
+                         if isinstance(validated_input.get("command"), str) else None),
+                target_path=(str(validated_input["path"])
+                             if isinstance(validated_input.get("path"), str) else None),
+                authority_level=int(self.config.authority_level.value),
+                required_authority=int(self.required_authority_level.value),
+                requires_approval_flag=self.requires_approval,
+                approval_granted=self._has_approval(context),
+                approved_tools=list(getattr(context, "approved_tools", None) or []),
+                workspace_id=context.workspace_id,
+                task_id=context.task_id,
+                agent_id=context.agent_id,
+            )
+            hard_blocked = (not decision.allowed) and (not decision.requires_approval)
+            approval_blocked = (decision.requires_approval and not self.config.dry_run)
+            if hard_blocked or approval_blocked:
                 blocked = self._blocked_result(
-                    reason=(
-                        f"Tool '{self.name}' requires approval but no approval was "
-                        "granted in this execution context; execution was not "
-                        "performed."
-                    )
+                    reason=(decision.boundary_reason
+                            or (f"Tool '{self.name}' requires approval but no approval "
+                                "was granted in this execution context; execution was "
+                                "not performed.")),
+                    approvable=not hard_blocked,
                 )
+                blocked.result_data["boundary_type"] = decision.boundary_type
+                blocked.result_data["risk_level"] = decision.risk_level
+                if decision.safe_alternative:
+                    blocked.result_data["safe_alternative"] = decision.safe_alternative
                 self.logger.warning(
-                    f"Tool {self.name} BLOCKED: requires approval, none granted"
+                    f"Tool {self.name} BLOCKED ({decision.boundary_type or 'approval'}): "
+                    f"{decision.boundary_reason}"
                 )
                 blocked.metadata["tool_run_logged"] = await self._log_tool_run(
                     context, status="blocked", input_data=validated_input,
@@ -521,24 +549,27 @@ class ToolBase(ABC):
         approved = meta.get("approved_tools") or []
         return self.name in approved
 
-    def _blocked_result(self, reason: str) -> ToolResult:
-        """Structured blocked result for an action that needs approval."""
-        risk_level = "high" if self.requires_approval else "normal"
+    def _blocked_result(self, reason: str, approvable: bool = True) -> ToolResult:
+        """Structured blocked result. ``approvable=False`` marks an action that
+        is never runnable on this path (no approval can un-block it)."""
+        risk_level = "high" if (self.requires_approval or not approvable) else "normal"
         return self.create_result(
             success=False,
             result_data={
                 "blocked": True,
                 "reason": reason,
-                "requires_approval": True,
+                "requires_approval": approvable,
                 "tool": self.name,
                 "risk_level": risk_level,
                 "recommended_next_action": (
-                    "Obtain approval for this action (set approval_granted / add "
-                    f"'{self.name}' to approved_tools in the tool context), then retry."
+                    ("Obtain approval for this action (set approval_granted / add "
+                     f"'{self.name}' to approved_tools in the tool context), then retry.")
+                    if approvable else
+                    "This action is never allowed on this path; use a safe alternative."
                 ),
             },
             output_text=f"BLOCKED: {reason}",
-            requires_approval=True,
+            requires_approval=approvable,
         )
 
     # ===== ToolRun Logging =====
