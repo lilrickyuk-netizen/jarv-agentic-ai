@@ -60,7 +60,7 @@ class PartnershipsAgent(AgentBase):
 
     @property
     def required_authority_level(self) -> AuthorityLevel:
-        return AuthorityLevel.LEVEL_5_NETWORK_ACCESS
+        return AuthorityLevel.LEVEL_6_DATABASE_WRITE
 
     @property
     def default_tools(self) -> list[str]:

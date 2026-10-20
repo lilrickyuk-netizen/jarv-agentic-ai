@@ -108,11 +108,10 @@ class OrchestratorAgent(AgentBase):
     @property
     def default_tools(self) -> List[str]:
         return [
-            "text_search",
+            "file_search",
             "file_read",
-            "workspace_query",
+            "workspace_info",
             "memory_search",
-            "agent_invoke",
         ]
 
     async def run(
@@ -228,7 +227,9 @@ class OrchestratorAgent(AgentBase):
             success=mission_status in ("completed", "partial"),
             result_data=validated_output,
             output_text=execution_summary,
-            tools_used=["memory_search", "task_planner", "agent_invoke"],
+            # Delegation/planning above use JARV's internal orchestration
+            # services, not ToolRegistry executions. Do not fabricate tool use.
+            tools_used=[],
             iterations_used=max(1, delegation["attempted"]),
             tokens_used={
                 "input_tokens": planning_tokens,

@@ -496,13 +496,10 @@ class AgentBase(ABC):
         Returns:
             True if tool is allowed, False otherwise
         """
-        # If no tools are explicitly allowed, use defaults
+        # If no tools are explicitly configured, fall back to this agent's
+        # declared defaults. An empty catalog means NO tool access -- never
+        # wildcard access.
         allowed = self.config.allowed_tools or self.default_tools
-
-        # Empty list means all tools allowed
-        if not allowed:
-            return True
-
         return tool_name in allowed
 
     def get_allowed_tools(self) -> List[str]:

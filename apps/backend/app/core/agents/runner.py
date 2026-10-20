@@ -149,11 +149,24 @@ class AgentRunner:
             return {"agent": agent_name, "success": False, "error": "agent not implemented"}
         # Scope the agent to its own tool catalog (per-agent tool permissions).
         meta = get_registry().get_metadata(agent_name)
-        allowed_tools = list(getattr(meta, "default_tools", []) or [])
+        if meta is None:
+            return {"agent": agent_name, "success": False, "error": "agent metadata missing"}
+
+        allowed_tools = list(meta.default_tools or [])
+
+        try:
+            runtime_authority = AuthorityLevel(meta.required_authority_level)
+        except ValueError:
+            return {
+                "agent": agent_name,
+                "success": False,
+                "error": f"invalid registered authority level: {meta.required_authority_level}",
+            }
+
         config = AgentConfig(
             agent_id=uuid4(), workspace_id=workspace_id, user_id=user_id,
             session_id=session_id,
-            authority_level=AuthorityLevel.LEVEL_9_SWARM_CREATION, model=self.model,
+            authority_level=runtime_authority, model=self.model,
             allowed_tools=allowed_tools,
         )
         agent = create_agent(agent_name, config)

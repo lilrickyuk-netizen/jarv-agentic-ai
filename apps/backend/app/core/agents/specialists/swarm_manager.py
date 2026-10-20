@@ -53,7 +53,9 @@ class SwarmManagerAgent(AgentBase):
 
     @property
     def default_tools(self) -> list[str]:
-        return ["swarm_spawn", "swarm_dissolve", "swarm_track"]
+        # SwarmManagerAgent exposes app.core.swarm directly. These operations
+        # are not ToolRegistry tools.
+        return []
 
     async def run(
         self,
@@ -91,6 +93,6 @@ class SwarmManagerAgent(AgentBase):
                 + (f"Limits: {limits}. " if limits else "")
                 + ("Capacity available for requested sub-agents." if can_spawn else "Requested swarm exceeds limits.")
             ),
-            tools_used=["swarm_track"],
+            tools_used=[],
             iterations_used=1,
         )

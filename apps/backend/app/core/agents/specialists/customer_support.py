@@ -67,7 +67,7 @@ class CustomerSupportAgent(AgentBase):
 
     @property
     def required_authority_level(self) -> AuthorityLevel:
-        return AuthorityLevel.LEVEL_2_FILE_OPERATIONS
+        return AuthorityLevel.LEVEL_5_NETWORK_ACCESS
 
     @property
     def default_tools(self) -> list[str]:
