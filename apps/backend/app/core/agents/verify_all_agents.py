@@ -83,7 +83,7 @@ def verify_specialist_agents():
 
 
 def verify_core_agents():
-    """Verify 2 core agents (Orchestrator + Example)"""
+    """Verify the 2 design core agents (Orchestrator + Swarm Manager)"""
     print_header("CORE AGENTS (2 required)")
 
     core_count = 0
@@ -102,13 +102,19 @@ def verify_core_agents():
     except ImportError as e:
         print(f"[MISSING] OrchestratorAgent: {e}")
 
-    # Check ExampleAgent
+    # Check SwarmManagerAgent
     try:
-        from app.core.agents.example_agent import ExampleAgent
-        print("[OK] ExampleAgent exists and importable")
+        from app.core.agents.specialists.swarm_manager import SwarmManagerAgent
+        print("[OK] SwarmManagerAgent exists and importable")
+
+        if hasattr(SwarmManagerAgent, "run"):
+            print("  - Has run method")
+        if hasattr(SwarmManagerAgent, "name"):
+            print("  - Has name property")
+
         core_count += 1
     except ImportError as e:
-        print(f"[MISSING] ExampleAgent: {e}")
+        print(f"[MISSING] SwarmManagerAgent: {e}")
 
     print(f"\nCore agents: {core_count}/2")
     return core_count == 2
@@ -145,11 +151,11 @@ def verify_all_imports():
         print(f"[ERROR] OrchestratorAgent import failed: {e}")
 
     try:
-        from app.core.agents.example_agent import ExampleAgent
-        print("[OK] ExampleAgent imported")
+        from app.core.agents.specialists.swarm_manager import SwarmManagerAgent
+        print("[OK] SwarmManagerAgent imported")
         import_count += 1
     except ImportError as e:
-        print(f"[ERROR] ExampleAgent import failed: {e}")
+        print(f"[ERROR] SwarmManagerAgent import failed: {e}")
 
     print(f"\nTotal imports successful: {import_count}/31")
     return import_count == 31
@@ -187,11 +193,8 @@ def verify_registry_registration():
         print("[OK] orchestrator registered")
         core_registered += 1
 
-    # ExampleAgent might have a different name in registry
-    all_agents = registry.list_implemented()
-    example_found = any(a.name == "example" or "example" in a.name.lower() for a in all_agents)
-    if example_found:
-        print("[OK] example agent registered")
+    if registry.is_registered("swarm_manager") and registry.is_implemented("swarm_manager"):
+        print("[OK] swarm_manager registered")
         core_registered += 1
 
     print(f"Core agents registered: {core_registered}/2")
