@@ -9,6 +9,14 @@ import os
 # real Redis server. This affects test mode only; production/dev are unchanged.
 os.environ.setdefault("TESTING", "1")
 
+# Production requires SECRET_KEY and enforces a minimum length. Tests must
+# provide their own deterministic test-only value before Settings() is created.
+# Never weaken the production requirement or reuse this value outside tests.
+os.environ.setdefault(
+    "SECRET_KEY",
+    "jarv-test-secret-key-only-not-for-production-2026",
+)
+
 import pytest
 from typing import Generator
 from fastapi.testclient import TestClient

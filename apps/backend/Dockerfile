@@ -27,6 +27,17 @@ COPY . .
 RUN poetry install --no-interaction --no-ansi --only main
 
 
+# Test stage
+# Keeps development/test tooling out of the production runtime image while
+# providing a reproducible environment for pytest, fakeredis, aiosqlite,
+# Ruff, mypy, and the rest of JARV's backend verification suite.
+FROM builder AS test
+
+RUN poetry install --no-interaction --no-ansi --with dev
+
+CMD ["python", "-m", "pytest"]
+
+
 # Production stage
 FROM python:3.11-slim
 
