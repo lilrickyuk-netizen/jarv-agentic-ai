@@ -5,7 +5,7 @@ and the host. Defined in `docker-compose.monitoring.yml` at the repository root.
 
 ## Start
 
-Set `GRAFANA_ADMIN_PASSWORD` in the root `.env`, then:
+Set `GRAFANA_ADMIN_PASSWORD` in `.env.production` (or `.env`) at the repository root. Grafana reads only that variable from those files, then:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d

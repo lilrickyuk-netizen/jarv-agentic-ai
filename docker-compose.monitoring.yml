@@ -5,7 +5,7 @@
 #   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
 #   (production: -f docker-compose.prod.yml -f docker-compose.monitoring.yml)
 #
-# Grafana:      http://localhost:3001  (user admin, password GRAFANA_ADMIN_PASSWORD)
+# Grafana:      http://localhost:3001  (user admin, password GRAFANA_ADMIN_PASSWORD from .env.production or .env)
 # Prometheus:   http://localhost:9090
 # Alertmanager: http://localhost:9093
 # All three bind to localhost only; reach them remotely through an SSH tunnel
@@ -51,9 +51,26 @@ services:
   grafana:
     image: grafana/grafana:11.2.0
     container_name: jarv-grafana
+    # The admin password is read from GRAFANA_ADMIN_PASSWORD in .env.production
+    # (or .env). Only that variable is used; the files are loaded into this
+    # container alone, so they cannot change the main stack's settings.
+    env_file:
+      - path: .env.production
+        required: false
+      - path: .env
+        required: false
+    entrypoint:
+      - sh
+      - -c
+      - |
+        if [ -z "$$GRAFANA_ADMIN_PASSWORD" ]; then
+          echo "GRAFANA_ADMIN_PASSWORD is not set in .env.production or .env" >&2
+          exit 1
+        fi
+        export GF_SECURITY_ADMIN_PASSWORD="$$GRAFANA_ADMIN_PASSWORD"
+        exec /run.sh
     environment:
       GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env before starting monitoring}
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/jarv-overview.json
