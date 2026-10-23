@@ -85,6 +85,26 @@ GEMINI_API_KEY=your_gemini_key
 OLLAMA_BASE_URL=http://localhost:11434
 ```
 
+### Memory Embedding Configuration
+
+Every memory is embedded on write and searched by semantic similarity plus
+keyword overlap. No key is needed: by default JARV uses its built-in local
+embedder (`jarv-hash-v1`), which runs offline and matches word, phrase, and
+sub-word overlap. Set a provider for neural embeddings that also match
+synonyms.
+
+```env
+# auto (default): openai when OPENAI_API_KEY is set, otherwise local
+EMBEDDING_PROVIDER=auto        # auto | local | openai | ollama | custom
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_DIMENSIONS=1536      # must stay 1536 (the memories.embedding column size)
+CUSTOM_EMBEDDING_ENDPOINT=     # only for EMBEDDING_PROVIDER=custom
+```
+
+Vectors from different models are never compared. Each row records the model
+that produced it; after changing provider, existing rows stay keyword-searchable
+and can be re-embedded with `memory_service.backfill_embeddings`.
+
 ### Authority Configuration
 
 ```env

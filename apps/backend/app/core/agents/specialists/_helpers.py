@@ -70,6 +70,12 @@ async def llm_complete(
                 "your own inference.\n\n"
                 f"{references}\n\nTask:\n{prompt}"
             )
+        from app.core.memory.context import get_recall_context, render_recall
+
+        recall = get_recall_context()
+        recalled = render_recall(recall["memories"], recall["lessons"])
+        if recalled:
+            prompt = f"{recalled}\n\n{prompt}"
         req = CompletionRequest(
             model=model,
             messages=[Message(role="user", content=prompt)],

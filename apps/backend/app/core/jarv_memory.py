@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.memory.embeddings import get_embedding_service
 from app.core.memory.taxonomy import categorise, validate_category
+from app.core.security import redact_text
 from app.models.agent import Agent
 from app.models.memory import Memory
 
@@ -75,6 +76,12 @@ def _dialect(db: AsyncSession) -> str:
         return db.get_bind().dialect.name
     except Exception:  # noqa: BLE001 - unbound session: rank in Python
         return ""
+
+
+def _timestamp(value: Optional[datetime]) -> float:
+    if value is None:
+        return 0.0
+    return (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).timestamp()
 
 
 def _query_terms(text: str) -> List[str]:
@@ -202,9 +209,11 @@ class MemoryService:
         session_id: Optional[UUID] = None,
     ) -> Memory:
         """Persist a memory, or reinforce the identical one already stored."""
-        text = (content or "").strip()
+        # Secrets never enter memory, whichever caller wrote them.
+        text = redact_text((content or "").strip())
         if not text:
             raise ValueError("Memory content cannot be empty")
+        summary = redact_text(summary) if summary else None
         workspace_id = _as_uuid(workspace_id)
         memory_category = (validate_category(category) if category
                            else categorise(memory_type, has_workspace=workspace_id is not None))
@@ -221,6 +230,7 @@ class MemoryService:
             duplicate.confidence_score = min(1.0, max(duplicate.confidence_score or 0.0, confidence))
             duplicate.access_count = (duplicate.access_count or 0) + 1
             duplicate.last_accessed_at = _now()
+            duplicate.updated_at = _now()
             if task_id and not duplicate.task_id:
                 duplicate.task_id = task_id
             reinforced = dict(duplicate.meta_data or {})
@@ -296,7 +306,7 @@ class MemoryService:
             history = list((record.meta_data or {}).get("history", []))[-9:]
             history.append({"version": record.version, "content": record.content,
                             "changed_at": _now().isoformat()})
-            record.content = content.strip()
+            record.content = redact_text(content.strip())
             record.summary = summary or record.content[:200]
             record.embedding, record.embedding_model = await self._embed(record.content)
             record.version = (record.version or 1) + 1
@@ -368,11 +378,19 @@ class MemoryService:
     # ----- read ------------------------------------------------------------
 
     def _scope(self, workspace_id: Optional[UUID], include_global: bool):
+        """Rows visible from ``workspace_id``.
+
+        A row without a workspace (written outside any workspace, or a legacy row
+        the migration could not attribute) is visible only from the workspace its
+        owning agent belongs to, so it can never leak to another owner.
+        """
         workspace_id = _as_uuid(workspace_id)
         if workspace_id is None:
             return Memory.workspace_id.is_(None)
         if include_global:
-            return or_(Memory.workspace_id == workspace_id, Memory.workspace_id.is_(None))
+            owned_agents = select(Agent.id).where(Agent.workspace_id == workspace_id)
+            return or_(Memory.workspace_id == workspace_id,
+                       and_(Memory.workspace_id.is_(None), Memory.agent_id.in_(owned_agents)))
         return Memory.workspace_id == workspace_id
 
     def _live(self):
@@ -484,8 +502,7 @@ class MemoryService:
             reasons = [r for r, ok in (("semantic", sim >= 0.08), ("keyword", kw > 0)) if ok]
             hits.append(ScoredMemory(record, score, sim, kw, reasons))
 
-        hits.sort(key=lambda h: (h.score, h.memory.created_at or datetime.min.replace(tzinfo=timezone.utc)),
-                  reverse=True)
+        hits.sort(key=lambda h: (h.score, _timestamp(h.memory.created_at)), reverse=True)
         return await self._finish(db, hits[:limit], touch)
 
     async def _finish(self, db: AsyncSession, hits: List[ScoredMemory], touch: bool) -> List[ScoredMemory]:
@@ -494,6 +511,9 @@ class MemoryService:
             for hit in hits:
                 hit.memory.access_count = (hit.memory.access_count or 0) + 1
                 hit.memory.last_accessed_at = now
+                # Set explicitly: a server-side onupdate would expire the attribute,
+                # and reading an expired attribute on an AsyncSession fails.
+                hit.memory.updated_at = now
             await db.flush()
         return hits
 
@@ -513,6 +533,7 @@ class MemoryService:
             vector, used_model = await self._embed(record.content)
             if vector is not None:
                 record.embedding, record.embedding_model = vector, used_model
+                record.updated_at = _now()
                 record.memory_category = record.memory_category or categorise(
                     record.memory_type, has_workspace=record.workspace_id is not None)
                 updated += 1

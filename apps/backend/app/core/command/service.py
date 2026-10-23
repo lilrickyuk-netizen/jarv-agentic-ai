@@ -42,6 +42,8 @@ from app.core.providers import CompletionRequest, Message, get_router
 from app.core.config import settings
 from app.core.workspaces import fs_inspector
 from app.core.jarv_memory import memory_service
+from app.core.learning import learning_service
+from app.core.safety.evolution_guard import is_unsafe_change
 from app.core.command.tool_runtime import ToolRuntime
 from app.core.qa.verifier import qa_verifier
 from app.models.agent import Agent
@@ -324,13 +326,29 @@ class CommandService:
             result_extra: Dict[str, Any] = {}
 
             # Retrieve relevant persistent memory BEFORE planning (BLOCKER 1).
+            # Workspace-isolated, semantically ranked recall plus verified lessons (Repair 11).
+            applied_lessons: List[Dict[str, Any]] = []
             try:
-                recalled = await memory_service.search(db, command_text, limit=5, workspace_id=ws_id)
+                recalled = await memory_service.search_scored(db, command_text, limit=5, workspace_id=ws_id)
                 system_context["relevant_memory"] = [
-                    {"type": m.memory_type, "content": m.content} for m in recalled
+                    {"type": hit.memory.memory_type, "category": hit.memory.memory_category,
+                     "content": hit.memory.content, "score": round(hit.score, 3)}
+                    for hit in recalled
                 ]
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"memory recall failed: {exc}")
                 system_context["relevant_memory"] = []
+            try:
+                if ws_id is not None:
+                    applied_lessons = await learning_service.retrieve_lessons(
+                        db, workspace_id=ws_id, agent_name="orchestrator", query=command_text, limit=3)
+                system_context["verified_lessons"] = [
+                    {"lesson": item["lesson"], "outcome": item["polarity"],
+                     "success_rate": item["success_rate"]} for item in applied_lessons
+                ]
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"lesson recall failed: {exc}")
+                system_context["verified_lessons"] = []
 
             # Tool runtime: agents act through real, logged tools (BLOCKER 3).
             runtime = ToolRuntime(db, ws_id, task.id, operator=self.operator)
@@ -488,6 +506,35 @@ class CommandService:
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning(f"memory persist failed: {exc}")
+
+            # Experience + lesson performance (Repair 11). Approval waits are not outcomes.
+            if ws_id is not None and status in ("completed", "partial", "failed"):
+                try:
+                    await learning_service.record_experience(
+                        db, workspace_id=ws_id, agent_name="orchestrator",
+                        situation=command_text,
+                        action=f"intent={intent}; agents={', '.join(selected_agents)}; "
+                               f"tool_calls={len(runtime.calls)}",
+                        result=(failure or {}).get("reason") or answer[:800],
+                        outcome={"completed": "success", "failed": "failure"}.get(status, "partial"),
+                        task_id=task.id,
+                        tools_used=sorted({c.get("tool") for c in runtime.calls
+                                           if isinstance(c, dict) and c.get("tool")}),
+                    )
+                    if applied_lessons:
+                        retired = await learning_service.record_application(
+                            db, workspace_id=ws_id,
+                            lesson_keys=[item["lesson_key"] for item in applied_lessons],
+                            success=status == "completed",
+                        )
+                        if retired:
+                            await self._feed(
+                                db, ws_id, task.id, item_type="self_evolution", severity="warning",
+                                title="Lesson retired",
+                                message=f"{len(retired)} verified lesson(s) stopped working and were rolled back.",
+                            )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(f"experience capture failed: {exc}")
 
             task.updated_at = datetime.now(timezone.utc)
 
@@ -1303,7 +1350,10 @@ class CommandService:
             "Self-Evolution: accept + version a safe change, or BLOCK an unsafe one.",
         ]
         agents = self._validate_agents(["orchestrator", "self_evolution", "verifier", "security"])
-        unsafe = bool(self._UNSAFE_EVO_RE.search(command_text))
+        unsafe = is_unsafe_change(command_text) or bool(self._UNSAFE_EVO_RE.search(command_text))
+        proposal = await learning_service.record_proposal(
+            db, workspace_id=runtime.workspace_id, proposal=command_text, task_id=runtime.task_id)
+        version = (proposal.meta_data or {}).get("version")
         if unsafe:
             await self._feed(db, runtime.workspace_id, runtime.task_id, item_type="self_evolution",
                              severity="warning", title="Self-evolution change BLOCKED",
@@ -1322,25 +1372,30 @@ class CommandService:
                 "controls. JARV cannot self-modify in a way that reduces its own safety. "
                 "No change was applied; the block is logged and recorded in memory."
             )
-            return answer, steps, agents, {"self_evolution": {"verdict": "blocked", "applied": False}}
+            return answer, steps, agents, {"self_evolution": {
+                "verdict": "blocked", "applied": False, "record_id": str(proposal.id)}}
 
         # Safe proposal: accept + version it (recorded as a workflow improvement).
         await self._feed(db, runtime.workspace_id, runtime.task_id, item_type="self_evolution",
-                         severity="success", title="Self-evolution proposal accepted (safe)",
+                         severity="success", title="Self-evolution proposal recorded (safe, pending verification)",
                          message=command_text[:300])
-        await self._audit(db, runtime.workspace_id, action="self_evolution_applied",
+        await self._audit(db, runtime.workspace_id, action="self_evolution_proposal_accepted",
                           category="self_evolution", description=f"Safe proposal accepted: {command_text[:200]}",
                           success=True, target_id=str(runtime.task_id),
-                          metadata={"verdict": "safe", "versioned": True})
+                          metadata={"verdict": "safe", "versioned": True, "record_id": str(proposal.id)})
         await memory_service.add(db, content=f"Self-evolution accepted (safe): {command_text[:200]}",
                                  memory_type="self_evolution", workspace_id=runtime.workspace_id,
                                  task_id=runtime.task_id, importance=0.7)
         answer = (
             "**Self-evolution proposal accepted (classified SAFE).**\n\n"
-            "The change does not touch safety, authority, logging, boundaries, or approval, so "
-            "it is versioned and recorded (reversible). Unsafe changes are always blocked."
+            "The change does not touch safety, authority, logging, boundaries, or approval. It is "
+            f"recorded as proposal version {version} (record {str(proposal.id)[:8]}) and stays "
+            "pending until verified; it does not change behaviour before then. Unsafe changes are "
+            "always blocked."
         )
-        return answer, steps, agents, {"self_evolution": {"verdict": "safe", "applied": True}}
+        return answer, steps, agents, {"self_evolution": {
+            "verdict": "safe", "applied": False, "status": "pending_verification",
+            "record_id": str(proposal.id), "version": version}}
 
     # Role-specific swarm employees: (label, keyword(s), lead agent, output file).
     _SWARM_ROLES = [

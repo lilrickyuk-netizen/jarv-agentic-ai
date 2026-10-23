@@ -41,7 +41,8 @@ _VALUE_PATTERNS = [
     # Bearer / token auth headers
     re.compile(r"(?i)bearer\s+[A-Za-z0-9._\-]{10,}"),
     # OpenAI-style and generic prefixed keys
-    re.compile(r"\bsk-[A-Za-z0-9]{16,}\b"),
+    # OpenAI (sk-..., sk-proj-..., sk-svcacct-...) and Anthropic (sk-ant-api03-...) keys.
+    re.compile(r"\bsk-(?:[A-Za-z]+-)*(?:api\d+-)?[A-Za-z0-9_-]{16,}"),
     re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b"),
     re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),
     # AWS access key id + secret

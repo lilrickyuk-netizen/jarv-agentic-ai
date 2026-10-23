@@ -4,14 +4,22 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api';
 
+interface ExperienceLesson {
+  lesson_text: string;
+  confidence_score: number;
+  metadata: { status?: string; times_applied?: number; success_rate?: number | null };
+}
+
 interface Experience {
   id: string;
-  workspace_id: string;
-  agent_id: string | null;
+  workspace_id: string | null;
+  agent_id: string;
+  agent_name: string;
   experience_type: string;
-  content: string;
-  context: Record<string, any>;
-  lessons_learned: string[];
+  task_description: string;
+  outcome: string;
+  summary: string | null;
+  lessons: ExperienceLesson[];
   created_at: string;
 }
 
@@ -251,7 +259,9 @@ export default function SelfEvolutionPage() {
                     <h3 className="text-lg font-semibold mb-2">
                       {experience.experience_type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
                     </h3>
-                    <p className="text-sm text-muted-foreground line-clamp-2">{experience.content}</p>
+                    <p className="text-sm text-muted-foreground line-clamp-2">
+                      {experience.agent_name}: {experience.task_description}
+                    </p>
                   </div>
                   <div className="text-xs text-muted-foreground ml-4">
                     {new Date(experience.created_at).toLocaleDateString()}
@@ -259,14 +269,21 @@ export default function SelfEvolutionPage() {
                 </div>
 
                 {/* Lessons Learned */}
-                {experience.lessons_learned && experience.lessons_learned.length > 0 && (
+                {experience.lessons.length > 0 && (
                   <div className="mt-4 pt-4 border-t">
-                    <p className="text-sm font-medium mb-2">Lessons Learned:</p>
+                    <p className="text-sm font-medium mb-2">Lesson:</p>
                     <ul className="space-y-1">
-                      {experience.lessons_learned.map((lesson, idx) => (
+                      {experience.lessons.map((lesson, idx) => (
                         <li key={idx} className="text-sm text-muted-foreground flex items-start gap-2">
                           <span className="text-primary mt-1">•</span>
-                          <span>{lesson}</span>
+                          <span>
+                            {lesson.lesson_text}
+                            {lesson.metadata.status && (
+                              <span className="ml-2 text-xs uppercase tracking-wide">
+                                [{lesson.metadata.status}]
+                              </span>
+                            )}
+                          </span>
                         </li>
                       ))}
                     </ul>

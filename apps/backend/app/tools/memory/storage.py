@@ -3,19 +3,14 @@ JARV Backend - Memory Storage Tools
 
 Real memory operations with database integration.
 
-SETUP INSTRUCTIONS:
-- Memory data stored in PostgreSQL database (Memory table from Phase 2)
-- Vector embeddings stored in pgvector extension
-- Set EMBEDDING_SERVICE_ENABLED=true to enable semantic search
-- Configure embedding service:
-  - OpenAI: OPENAI_API_KEY (uses text-embedding-ada-002, 1536 dimensions)
-  - Local: SENTENCE_TRANSFORMERS_MODEL (e.g., all-MiniLM-L6-v2)
-
-When embedding service not configured, search uses full-text search instead of semantic search.
+Memory is stored through ``app.core.jarv_memory.memory_service``: rows are
+workspace-isolated, embedded on write, and searched by semantic similarity plus
+keyword overlap. Embeddings use the built-in local embedder by default (no key
+needed); set EMBEDDING_PROVIDER=openai with OPENAI_API_KEY for OpenAI vectors.
 """
 from typing import Dict, Any, Type, List, Optional
 from pydantic import BaseModel, Field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 import os
 from uuid import UUID, uuid4
@@ -31,8 +26,8 @@ logger = logging.getLogger(__name__)
 
 
 def is_embedding_enabled() -> bool:
-    """Check if embedding service is configured"""
-    return os.getenv("EMBEDDING_SERVICE_ENABLED", "false").lower() == "true"
+    """Embeddings are always produced (local embedder when no provider key is set)."""
+    return True
 
 
 async def _memory_scope(context: ToolContext):
@@ -141,22 +136,19 @@ class MemoryStoreTool(ToolBase):
                 "created_by_tool": "memory_store",
             }
 
-            # Embeddings remain disabled until a working provider adapter exists.
-            has_embedding = False
-            if is_embedding_enabled():
-                logger.warning("Embedding requested but no embedding adapter is installed; storing without embedding")
-            record = Memory(
-                id=uuid4(), agent_id=agent_id, memory_type=memory_type,
-                content=content, summary=summary or content[:200],
-                embedding=None, importance_score=importance_score,
-                access_count=0, session_id=context.session_id,
-                task_id=context.task_id,
-                context={**additional_context, "workspace_id": str(context.workspace_id)},
-                meta_data=meta_data, expires_at=expires_at,
-                is_permanent=is_permanent,
+            from app.core.jarv_memory import memory_service
+
+            record = await memory_service.add(
+                db, content=content, memory_type=memory_type,
+                workspace_id=context.workspace_id, task_id=context.task_id,
+                importance=importance_score, summary=summary, meta=meta_data,
+                permanent=is_permanent, agent_id=agent_id, expires_at=expires_at,
+                session_id=context.session_id,
             )
-            db.add(record)
+            record.context = {**additional_context, "workspace_id": str(context.workspace_id)}
+            record.updated_at = datetime.now(timezone.utc)
             await db.flush()
+            has_embedding = record.embedding is not None
             memory_id = str(record.id)
 
             logger.info(f"Stored memory: {memory_id}, type={memory_type}, importance={importance_score}")
@@ -348,42 +340,42 @@ class MemorySearchTool(ToolBase):
 
         try:
             db, agent_id = await _memory_scope(context)
-            terms = [term for term in query.lower().replace(",", " ").split() if len(term) > 2]
-            stmt = select(Memory).where(
-                Memory.agent_id == agent_id,
-                Memory.context["workspace_id"].as_string() == str(context.workspace_id),
+            from app.core.jarv_memory import memory_service
+
+            # All agents in the workspace share its memory; other workspaces are never visible.
+            hits = await memory_service.search_scored(
+                db, query, limit=50, workspace_id=context.workspace_id,
+                include_global=False, min_score=0.0 if not use_semantic else 0.12, touch=False,
             )
+            if not use_semantic:
+                hits = [hit for hit in hits if hit.keyword > 0]
             if memory_type:
-                stmt = stmt.where(Memory.memory_type == memory_type)
+                hits = [hit for hit in hits if hit.memory.memory_type == memory_type]
             if min_importance is not None:
-                stmt = stmt.where(Memory.importance_score >= min_importance)
-            if terms:
-                stmt = stmt.where(or_(*[
-                    condition for term in terms
-                    for condition in (Memory.content.ilike(f"%{term}%"), Memory.summary.ilike(f"%{term}%"))
-                ]))
-            stmt = stmt.order_by(Memory.importance_score.desc(), Memory.created_at.desc())
-            records = (await db.execute(stmt)).scalars().all()
+                hits = [hit for hit in hits if hit.memory.importance_score >= min_importance]
             if tags:
                 required = set(tags)
-                records = [record for record in records
-                           if required.issubset(set((record.meta_data or {}).get("tags", [])))]
-            records = records[:limit]
+                hits = [hit for hit in hits
+                        if required.issubset(set((hit.memory.meta_data or {}).get("tags", [])))]
+            hits = hits[:limit]
             now = datetime.utcnow()
             results = []
-            for record in records:
+            for hit in hits:
+                record = hit.memory
                 record.access_count += 1
                 record.last_accessed_at = now
+                record.updated_at = now
                 results.append({
                     "memory_id": str(record.id), "content": record.content,
                     "summary": record.summary, "memory_type": record.memory_type,
                     "importance_score": record.importance_score,
-                    "similarity_score": None, "created_at": record.created_at.isoformat(),
+                    "similarity_score": round(hit.semantic, 4),
+                    "created_at": record.created_at.isoformat() if record.created_at else None,
                     "tags": (record.meta_data or {}).get("tags", []),
                 })
-            if records:
+            if hits:
                 await db.flush()
-            search_method = "keyword"
+            search_method = "semantic+keyword" if use_semantic else "keyword"
 
             return self.create_result(
                 success=True,

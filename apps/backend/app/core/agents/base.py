@@ -409,8 +409,27 @@ class AgentBase(ABC):
             if context.knowledge_context:
                 knowledge_token = set_knowledge_context(context.knowledge_context)
 
+            # Recall workspace memory and verified lessons (Repair 11).
+            task_query = " ".join(str(value) for value in validated_input.values()
+                                  if isinstance(value, (str, list)))[:2000]
+            applied_lessons, recall_token = await self._recall(context, task_query)
+
             # Execute agent
-            result = await self.run(validated_input, context)
+            try:
+                result = await self.run(validated_input, context)
+            except Exception as run_error:
+                await self._learn(context, task_query, None, applied_lessons, run_error)
+                raise
+            finally:
+                if recall_token is not None:
+                    from app.core.memory.context import set_recall_context
+
+                    set_recall_context([], [], reset_token=recall_token)
+            await self._learn(context, task_query, result, applied_lessons, None)
+            result.metadata["recalled_memory_ids"] = [m["id"] for m in context.memory_context
+                                                      if isinstance(m, dict) and "id" in m]
+            result.metadata["applied_lessons"] = [{"id": item["id"], "lesson_key": item["lesson_key"]}
+                                                  for item in applied_lessons]
             result.metadata["specialist_knowledge"] = [{
                 "id": item["id"],
                 "title": item["title"],
@@ -468,6 +487,94 @@ class AgentBase(ABC):
                 from app.core.knowledge.context import set_knowledge_context
 
                 set_knowledge_context((), reset_token=knowledge_token)
+
+    # ===== Memory and verified learning (Repair 11) =====
+
+    def _learning_enabled(self, context: AgentContext) -> bool:
+        """Recall and capture run whenever the agent has a database session and a
+        workspace. The unit-test suite opts in per test via
+        ``context.metadata["learning_enabled"]`` so unrelated tests see no extra rows."""
+        if context.db_session is None or context.workspace_id is None:
+            return False
+        from app.core.config import settings
+
+        return bool(context.metadata.get("learning_enabled", not settings.TESTING))
+
+    async def _recall(self, context: AgentContext, task_query: str):
+        """Load relevant workspace memory and verified lessons into this task's prompt."""
+        if not self._learning_enabled(context) or not task_query.strip():
+            return [], None
+        from app.core.jarv_memory import memory_service
+        from app.core.learning import learning_service
+        from app.core.memory.context import set_recall_context
+
+        try:
+            hits = await memory_service.search_scored(
+                context.db_session, task_query, limit=5, workspace_id=context.workspace_id,
+            )
+            memories = [hit.as_dict() for hit in hits]
+            lessons = await learning_service.retrieve_lessons(
+                context.db_session, workspace_id=context.workspace_id,
+                agent_name=self.name, query=task_query, limit=3,
+            )
+        except Exception as exc:  # noqa: BLE001 - recall is advisory; the task still runs
+            self.logger.warning(f"Memory recall failed for {self.name}: {exc}")
+            return [], None
+        known = {m.get("id") for m in context.memory_context if isinstance(m, dict)}
+        context.memory_context = list(context.memory_context) + [
+            m for m in memories if m["id"] not in known]
+        if not memories and not lessons:
+            return [], None
+        self.logger.info(
+            f"{self.name} recalled {len(memories)} memories and {len(lessons)} verified lessons",
+            extra={"workspace_id": str(context.workspace_id)},
+        )
+        return lessons, set_recall_context(memories, lessons)
+
+    async def _learn(
+        self,
+        context: AgentContext,
+        task_query: str,
+        result: Optional["AgentResult"],
+        applied_lessons: List[Dict[str, Any]],
+        error: Optional[BaseException],
+    ) -> None:
+        """Record the outcome as experience, memory, and lesson performance."""
+        if not self._learning_enabled(context):
+            return
+        from app.core.learning import learning_service
+
+        succeeded = error is None and result is not None and result.success
+        if error is not None:
+            outcome, observed = "failure", f"{type(error).__name__}: {error}"
+        elif result is None:
+            return
+        else:
+            outcome = "success" if result.success else "failure"
+            observed = result.error_message or result.output_text or ""
+        tools = list(result.tools_used) if result is not None else []
+        try:
+            await learning_service.record_experience(
+                context.db_session,
+                workspace_id=context.workspace_id,
+                agent_name=self.name,
+                situation=task_query or self.role,
+                action=(f"{self.role}; tools: {', '.join(tools)}" if tools else self.role),
+                result=observed[:1500] or outcome,
+                outcome=outcome,
+                task_id=context.task_id,
+                tools_used=tools,
+                agent_id=self.config.agent_id,
+                meta={"parent_agent_id": str(context.parent_agent_id) if context.parent_agent_id else None},
+            )
+            if applied_lessons:
+                await learning_service.record_application(
+                    context.db_session, workspace_id=context.workspace_id,
+                    lesson_keys=[item["lesson_key"] for item in applied_lessons],
+                    success=succeeded,
+                )
+        except Exception as exc:  # noqa: BLE001 - never mask the task's own result
+            self.logger.warning(f"Experience capture failed for {self.name}: {exc}")
 
     # ===== Validation Methods =====
 
