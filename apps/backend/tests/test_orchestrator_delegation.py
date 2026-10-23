@@ -20,6 +20,35 @@ from app.core.agents.base import AgentConfig, AgentContext, AuthorityLevel
 from app.core.agents.registry import get_registry
 
 
+@pytest.fixture
+def runtime_knowledge():
+    """Install the specialist knowledge catalog into the runtime database.
+
+    The orchestrator delegates through AgentRunner without a session, so the
+    runner reads knowledge from settings.DATABASE_URL. Test mode does not run
+    the startup catalog install, so without this the tests would depend on a
+    database that JARV had already been started against. Ingest is idempotent.
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from app.core.config import settings
+    from app.core.knowledge.catalog import specialist_knowledge
+    from app.core.knowledge.service import knowledge_service
+
+    async def install():
+        url = str(settings.DATABASE_URL).replace("postgresql://", "postgresql+asyncpg://", 1)
+        engine = create_async_engine(url, poolclass=NullPool)
+        try:
+            async with async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)() as db:
+                await knowledge_service.ingest(db, specialist_knowledge())
+                await db.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(install())
+
+
 def _make_orchestrator() -> OrchestratorAgent:
     config = AgentConfig(
         agent_id=uuid4(),
@@ -31,7 +60,7 @@ def _make_orchestrator() -> OrchestratorAgent:
 
 @pytest.mark.agent
 @pytest.mark.integration
-def test_orchestrator_delegates_to_real_registered_agents(monkeypatch):
+def test_orchestrator_delegates_to_real_registered_agents(monkeypatch, runtime_knowledge):
     """
     A mission enters the orchestrator, a plan is produced, and the planned
     tasks are delegated to REAL registered agents through the runner/registry
@@ -92,7 +121,7 @@ def test_orchestrator_delegates_to_real_registered_agents(monkeypatch):
 
 @pytest.mark.agent
 @pytest.mark.integration
-def test_orchestrator_defers_approval_tasks(monkeypatch):
+def test_orchestrator_defers_approval_tasks(monkeypatch, runtime_knowledge):
     """
     When the mission carries constraints, the fallback plan flags the
     verification task as requires_approval. The orchestrator must DEFER it
