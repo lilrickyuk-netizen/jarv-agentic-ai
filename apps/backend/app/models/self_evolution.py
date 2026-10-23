@@ -67,6 +67,20 @@ class ExperienceRecord(Base, UUIDMixin, TimestampMixin):
     # Metadata
     meta_data: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
 
+    # Repair 11: verified learning lifecycle
+    workspace_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    agent_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, index=True)
+    # candidate -> verified -> retired, or candidate -> rejected
+    lesson_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="candidate", server_default="candidate", index=True,
+    )
+    # Stable fingerprint of the normalised lesson text; equal keys are the same lesson.
+    lesson_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+
     # Relationships
     agent: Mapped["Agent"] = relationship("Agent")
     session: Mapped[Optional["AgentSession"]] = relationship("AgentSession")

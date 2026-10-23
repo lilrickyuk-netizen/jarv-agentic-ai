@@ -462,7 +462,7 @@ class ToolRuntime:
         # Persist a FileChange record (best-effort).
         if ok:
             try:
-                agent_id = await memory_service._agent_id(self.db)
+                agent_id = await memory_service._agent_id(self.db, self.workspace_id)
                 prev = res.data.get("previous_content")
                 self.db.add(FileChange(
                     id=uuid4(), agent_id=agent_id,
@@ -580,7 +580,7 @@ class ToolRuntime:
     async def _persist_command_run(self, command, cwd, exit_code, stdout, stderr, success,
                                    dangerous=False):
         try:
-            agent_id = await memory_service._agent_id(self.db)
+            agent_id = await memory_service._agent_id(self.db, self.workspace_id)
             self.db.add(CommandRun(
                 id=uuid4(), agent_id=agent_id, command=redact_text(command or ""),
                 command_type="readonly",
