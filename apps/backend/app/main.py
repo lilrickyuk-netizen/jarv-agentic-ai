@@ -100,58 +100,52 @@ if settings.CORS_ENABLED:
     logger.info(f"CORS enabled for origins: {settings.ALLOWED_ORIGINS}")
 
 
-# Request ID Middleware
+# Request tracing, metrics, and logging (Repair 12b)
 @app.middleware("http")
-async def add_request_id(request: Request, call_next):
-    """Add unique request ID to each request"""
+async def trace_and_measure(request: Request, call_next):
+    """One middleware so every log line for a request carries its request id.
+
+    Accepts a well-formed incoming X-Request-ID (so the dashboard and nginx can
+    correlate), records Prometheus metrics by route template, and logs the
+    request with method, route, status, and duration.
+    """
     import uuid
 
-    request_id = str(uuid.uuid4())
+    from app.core.observability.context import accept_request_id, request_id_var
+    from app.core.observability.metrics import http_metrics
+
+    request_id = accept_request_id(request.headers.get("x-request-id")) or str(uuid.uuid4())
     request.state.request_id = request_id
+    token = request_id_var.set(request_id)
+    start_time = time.perf_counter()
+    status_code = 500
+    http_metrics.started()
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        response.headers["X-Request-ID"] = request_id
+        return response
+    finally:
+        duration = time.perf_counter() - start_time
+        route = request.scope.get("route")
+        template = getattr(route, "path", None)
+        if template is None:
+            from starlette.routing import Match
 
-    # Add to response headers
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = request_id
-
-    return response
-
-
-# Logging Middleware
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    """Log all requests"""
-    start_time = time.time()
-
-    # Log request
-    logger.info(
-        f"Request started",
-        extra={
-            "method": request.method,
-            "path": request.url.path,
-            "client": request.client.host if request.client else None,
-            "request_id": getattr(request.state, "request_id", None),
-        }
-    )
-
-    # Process request
-    response = await call_next(request)
-
-    # Calculate duration
-    duration = time.time() - start_time
-
-    # Log response
-    logger.info(
-        f"Request completed",
-        extra={
-            "method": request.method,
-            "path": request.url.path,
-            "status_code": response.status_code,
-            "duration": f"{duration:.3f}s",
-            "request_id": getattr(request.state, "request_id", None),
-        }
-    )
-
-    return response
+            for candidate in request.app.router.routes:
+                if candidate.matches(request.scope)[0] == Match.FULL:
+                    template = getattr(candidate, "path", None)
+                    break
+        template = template or "unmatched"
+        if template != "/metrics":
+            http_metrics.observe(request.method, template, status_code, duration)
+        logger.info(
+            f"{request.method} {template} -> {status_code} in {duration * 1000:.0f}ms",
+            extra={"method": request.method, "path": request.url.path, "route": template,
+                   "status_code": status_code, "duration_ms": round(duration * 1000, 1),
+                   "client": request.client.host if request.client else None},
+        )
+        request_id_var.reset(token)
 
 
 # Exception Handlers
@@ -162,6 +156,10 @@ app.add_exception_handler(Exception, general_exception_handler)
 
 # Include routers
 app.include_router(health.router)
+from app.api import metrics as metrics_api  # noqa: E402
+app.include_router(metrics_api.router)
+from app.api import observability as observability_api  # noqa: E402
+app.include_router(observability_api.router)
 app.include_router(auth.router)
 app.include_router(models.router, prefix="/api")
 app.include_router(agents.router, prefix="/api")

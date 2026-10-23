@@ -1,0 +1,110 @@
+# JARV monitoring stack (Repair 12b): Prometheus, Alertmanager, Grafana, and
+# exporters for PostgreSQL, Redis, and the host. Run together with the main
+# stack so they share its network:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+#   (production: -f docker-compose.prod.yml -f docker-compose.monitoring.yml)
+#
+# Grafana:      http://localhost:3001  (user admin, password GRAFANA_ADMIN_PASSWORD)
+# Prometheus:   http://localhost:9090
+# Alertmanager: http://localhost:9093
+# All three bind to localhost only; reach them remotely through an SSH tunnel
+# or a reverse proxy with authentication.
+services:
+  prometheus:
+    image: prom/prometheus:v2.53.2
+    container_name: jarv-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --web.enable-lifecycle
+    volumes:
+      - ./infra/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/monitoring/alerting-rules.yml:/etc/prometheus/rules/jarv.yml:ro
+      - ./infra/monitoring/secrets:/etc/prometheus/secrets:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    depends_on:
+      - backend
+    networks:
+      - jarv-network
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: jarv-alertmanager
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    volumes:
+      - ./infra/monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./infra/monitoring/secrets:/etc/alertmanager/secrets:ro
+      - alertmanager_data:/alertmanager
+    ports:
+      - "127.0.0.1:9093:9093"
+    networks:
+      - jarv-network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: jarv-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env before starting monitoring}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/jarv-overview.json
+    volumes:
+      - ./infra/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/monitoring/grafana-dashboard.json:/var/lib/grafana/dashboards/jarv-overview.json:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3001:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - jarv-network
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: jarv-postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: postgresql://${POSTGRES_USER:-jarv}:${POSTGRES_PASSWORD:-jarv_password}@postgres:5432/${POSTGRES_DB:-jarv}?sslmode=disable
+    depends_on:
+      - postgres
+    networks:
+      - jarv-network
+    restart: unless-stopped
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.62.0
+    container_name: jarv-redis-exporter
+    environment:
+      REDIS_ADDR: redis://redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    depends_on:
+      - redis
+    networks:
+      - jarv-network
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: jarv-node-exporter
+    command:
+      - --path.rootfs=/host
+    volumes:
+      - /:/host:ro
+    pid: host
+    networks:
+      - jarv-network
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  alertmanager_data:
+  grafana_data:

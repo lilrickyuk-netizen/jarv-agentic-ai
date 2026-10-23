@@ -33,9 +33,12 @@ class JSONFormatter(logging.Formatter):
         if hasattr(record, "extra"):
             log_data.update(record.extra)
 
-        # Add request context if available
-        if hasattr(record, "request_id"):
-            log_data["request_id"] = record.request_id
+        # Trace context (request and mission) and any structured extras
+        for key in ("request_id", "mission_id", "method", "route", "status_code", "duration_ms",
+                    "agent_id", "task_id", "tool"):
+            value = getattr(record, key, None)
+            if value not in (None, "-"):
+                log_data[key] = value
         if hasattr(record, "user_id"):
             log_data["user_id"] = record.user_id
         if hasattr(record, "workspace_id"):
@@ -66,11 +69,15 @@ def setup_logging() -> None:
         formatter = JSONFormatter()
     else:
         formatter = logging.Formatter(
-            fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            fmt="%(asctime)s - %(name)s - %(levelname)s - [req=%(request_id)s mission=%(mission_id)s] %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S"
         )
 
     console_handler.setFormatter(formatter)
+    # Every record gets request_id / mission_id from the current context.
+    from app.core.observability.context import TraceContextFilter
+
+    console_handler.addFilter(TraceContextFilter())
     root_logger.addHandler(console_handler)
 
     # Set specific log levels for libraries

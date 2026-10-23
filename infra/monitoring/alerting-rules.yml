@@ -1,126 +1,145 @@
+# JARV alert rules (Repair 12b). Every expression uses a metric that is
+# actually exported: the backend's /metrics, postgres-exporter,
+# redis-exporter, or node-exporter.
 groups:
-  - name: jarv_alerts
-    interval: 30s
+  - name: jarv_availability
     rules:
-      # Service down alerts
-      - alert: BackendDown
+      - alert: JarvBackendDown
         expr: up{job="jarv-backend"} == 0
         for: 2m
-        labels:
-          severity: critical
+        labels: {severity: critical}
         annotations:
-          summary: "JARV Backend is down"
-          description: "Backend service has been down for more than 2 minutes."
+          summary: "JARV backend is not responding"
+          description: "Prometheus could not scrape the backend for 2 minutes."
+
+      - alert: JarvWorkersDown
+        expr: jarv_workers_up == 0
+        for: 3m
+        labels: {severity: critical}
+        annotations:
+          summary: "No JARV workers are running"
+          description: "No Celery worker answered a ping for 3 minutes; queued missions are not being executed."
+
+      - alert: JarvMetricsDatabaseUnavailable
+        expr: jarv_metrics_database_up == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations:
+          summary: "JARV cannot read its database"
+          description: "Database-backed metrics have failed for 2 minutes."
 
       - alert: DatabaseDown
-        expr: up{job="postgres"} == 0
+        expr: pg_up == 0
         for: 1m
-        labels:
-          severity: critical
+        labels: {severity: critical}
         annotations:
-          summary: "PostgreSQL database is down"
-          description: "Database has been unreachable for more than 1 minute."
+          summary: "PostgreSQL is down"
+          description: "postgres-exporter cannot connect to the database."
 
       - alert: RedisDown
-        expr: up{job="redis"} == 0
+        expr: redis_up == 0
         for: 1m
-        labels:
-          severity: critical
+        labels: {severity: critical}
         annotations:
           summary: "Redis is down"
-          description: "Redis cache has been unreachable for more than 1 minute."
+          description: "redis-exporter cannot connect to Redis (the mission queue broker)."
 
-      # High resource usage alerts
-      - alert: HighCPUUsage
-        expr: rate(process_cpu_seconds_total[5m]) > 0.8
+  - name: jarv_missions
+    rules:
+      - alert: JarvMissionsStuck
+        expr: jarv_missions_stale > 0
         for: 5m
-        labels:
-          severity: warning
+        labels: {severity: warning}
         annotations:
-          summary: "High CPU usage detected"
-          description: "CPU usage is above 80% for more than 5 minutes."
+          summary: "{{ $value }} mission(s) stopped heartbeating and were not recovered"
+          description: "Recovery normally re-queues these within 2 minutes; check the scheduler (beat) and workers."
 
-      - alert: HighMemoryUsage
-        expr: process_resident_memory_bytes / process_virtual_memory_max_bytes > 0.9
+      - alert: JarvMissionQueueBacklog
+        expr: jarv_mission_queue_oldest_seconds > 600
         for: 5m
-        labels:
-          severity: warning
+        labels: {severity: warning}
         annotations:
-          summary: "High memory usage detected"
-          description: "Memory usage is above 90% for more than 5 minutes."
-
-      # Database alerts
-      - alert: DatabaseConnectionsHigh
-        expr: pg_stat_database_numbackends > 80
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "High number of database connections"
-          description: "More than 80 active database connections."
-
-      - alert: DatabaseSlowQueries
-        expr: rate(pg_stat_statements_mean_exec_time[5m]) > 1000
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Slow database queries detected"
-          description: "Average query execution time is above 1 second."
-
-      # Application alerts
-      - alert: HighErrorRate
-        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.05
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "High error rate detected"
-          description: "More than 5% of requests are returning 5xx errors."
-
-      - alert: HighResponseTime
-        expr: http_request_duration_seconds{quantile="0.95"} > 2
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "High response time detected"
-          description: "95th percentile response time is above 2 seconds."
-
-      # Celery worker alerts
-      - alert: CeleryWorkerDown
-        expr: up{job="celery"} == 0
-        for: 2m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Celery worker is down"
-          description: "Celery worker has been down for more than 2 minutes."
+          summary: "A mission has been queued for over 10 minutes"
+          description: "Workers are not picking up missions fast enough, or none are running."
 
       - alert: CeleryQueueBacklog
-        expr: celery_queue_length > 1000
+        expr: celery_queue_length > 100
         for: 10m
-        labels:
-          severity: warning
+        labels: {severity: warning}
         annotations:
-          summary: "Large Celery queue backlog"
-          description: "More than 1000 tasks waiting in queue."
+          summary: "{{ $value }} messages waiting in the worker queue"
+          description: "Consider adding worker replicas."
 
-      # Disk space alerts
-      - alert: DiskSpaceWarning
-        expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) < 0.2
-        for: 5m
-        labels:
-          severity: warning
+      - alert: JarvMissionFailureRateHigh
+        expr: |
+          jarv_mission_outcomes_24h{status="failed"}
+            / ignoring(status) clamp_min(sum without (status) (jarv_mission_outcomes_24h), 1) > 0.25
+          and ignoring(status) sum without (status) (jarv_mission_outcomes_24h) > 4
+        for: 15m
+        labels: {severity: warning}
         annotations:
-          summary: "Low disk space"
-          description: "Less than 20% disk space remaining."
+          summary: "More than 25% of missions failed in the last 24 hours"
+          description: "Review failed missions in the Command Center history."
+
+      - alert: JarvApprovalsWaiting
+        expr: jarv_approvals_waiting > 0
+        for: 30m
+        labels: {severity: info}
+        annotations:
+          summary: "{{ $value }} mission(s) waiting for your approval"
+          description: "Missions are paused at a hard boundary until approved on the Approvals page."
+
+  - name: jarv_api
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{job="jarv-backend",status=~"5.."}[5m]))
+            / clamp_min(sum(rate(http_requests_total{job="jarv-backend"}[5m])), 0.001) > 0.05
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "More than 5% of API requests are failing"
+          description: "Server errors exceed 5% of requests over 5 minutes."
+
+      - alert: HighResponseTime
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job="jarv-backend"}[5m]))) > 2
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "API p95 latency above 2s"
+          description: "95th percentile request latency has been above 2 seconds for 10 minutes."
+
+      - alert: BackendMemoryHigh
+        expr: process_resident_memory_bytes{job="jarv-backend"} > 1.5e9
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Backend process using more than 1.5 GB"
+          description: "Resident memory of the API process is above 1.5 GB."
+
+  - name: jarv_infrastructure
+    rules:
+      - alert: DatabaseConnectionsHigh
+        expr: sum(pg_stat_database_numbackends) > 80
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "PostgreSQL has more than 80 connections"
+          description: "Connection count is approaching the server limit."
+
+      - alert: DiskSpaceWarning
+        expr: (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) < 0.2
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "Disk space below 20% on {{ $labels.mountpoint }}"
+          description: "Free space is below 20%."
 
       - alert: DiskSpaceCritical
-        expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) < 0.1
+        expr: (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}) < 0.1
         for: 2m
-        labels:
-          severity: critical
+        labels: {severity: critical}
         annotations:
-          summary: "Critical disk space"
-          description: "Less than 10% disk space remaining. Immediate action required."
+          summary: "Disk space below 10% on {{ $labels.mountpoint }}"
+          description: "Free space is below 10%; the database and backups are at risk."

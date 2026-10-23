@@ -167,6 +167,12 @@ class Settings(BaseSettings):
     MISSION_MAX_RECOVERIES: int = 2
     MISSION_RECOVERY_INTERVAL_SECONDS: float = 60.0
 
+    # Observability (Repair 12b). When set, /metrics requires this bearer token.
+    METRICS_TOKEN: str = ""
+    # When set, Alertmanager must send this bearer token to /api/observability/alerts.
+    # When empty, only private-network callers are accepted.
+    ALERT_WEBHOOK_TOKEN: str = ""
+
     # Logging and Monitoring
     AUDIT_LOGGING_ENABLED: bool = True
     BOUNDARY_REPORTING_ENABLED: bool = True

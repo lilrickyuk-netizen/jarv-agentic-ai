@@ -1,344 +1,68 @@
-# JARV Monitoring and Logging
+# JARV Monitoring
 
-Complete monitoring and logging setup for JARV production deployment.
+Prometheus, Alertmanager, and Grafana, plus exporters for PostgreSQL, Redis,
+and the host. Defined in `docker-compose.monitoring.yml` at the repository root.
 
-## Overview
+## Start
 
-JARV monitoring stack includes:
-- **Prometheus**: Metrics collection and storage
-- **Grafana**: Metrics visualization and dashboards
-- **Alertmanager**: Alert management and notifications
-- **Loki**: Log aggregation
-- **Promtail**: Log collection agent
-
-## Quick Start (Optional - for Oracle Cloud deployment)
-
-### Add to docker-compose.prod.yml
-
-```yaml
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: jarv-prometheus
-    volumes:
-      - ./infra/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./infra/monitoring/alerting-rules.yml:/etc/prometheus/rules/alerting-rules.yml:ro
-      - prometheus_data:/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
-      - '--web.console.templates=/usr/share/prometheus/consoles'
-    ports:
-      - "9090:9090"
-    networks:
-      - jarv-network
-    restart: always
-
-  grafana:
-    image: grafana/grafana:latest
-    container_name: jarv-grafana
-    environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
-      - GF_USERS_ALLOW_SIGN_UP=false
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./infra/monitoring/grafana-dashboard.json:/etc/grafana/provisioning/dashboards/jarv.json:ro
-    ports:
-      - "3001:3000"
-    networks:
-      - jarv-network
-    depends_on:
-      - prometheus
-    restart: always
-
-volumes:
-  prometheus_data:
-  grafana_data:
-```
-
-## Application Metrics
-
-### Add Prometheus metrics to backend
-
-Install prometheus_client:
-
-```python
-# In apps/backend/pyproject.toml dependencies
-prometheus-client = "^0.19.0"
-```
-
-Add metrics endpoint in `apps/backend/app/main.py`:
-
-```python
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
-from fastapi import Response
-
-# Metrics
-http_requests_total = Counter(
-    'http_requests_total',
-    'Total HTTP requests',
-    ['method', 'path', 'status']
-)
-
-http_request_duration_seconds = Histogram(
-    'http_request_duration_seconds',
-    'HTTP request duration in seconds',
-    ['method', 'path']
-)
-
-@app.get("/metrics")
-async def metrics():
-    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
-
-@app.middleware("http")
-async def track_metrics(request: Request, call_next):
-    start_time = time.time()
-    response = await call_next(request)
-    duration = time.time() - start_time
-
-    http_requests_total.labels(
-        method=request.method,
-        path=request.url.path,
-        status=response.status_code
-    ).inc()
-
-    http_request_duration_seconds.labels(
-        method=request.method,
-        path=request.url.path
-    ).observe(duration)
-
-    return response
-```
-
-## Log Aggregation with Loki (Optional)
-
-### Add Loki and Promtail to docker-compose.prod.yml
-
-```yaml
-  loki:
-    image: grafana/loki:latest
-    container_name: jarv-loki
-    ports:
-      - "3100:3100"
-    volumes:
-      - loki_data:/loki
-    networks:
-      - jarv-network
-    restart: always
-
-  promtail:
-    image: grafana/promtail:latest
-    container_name: jarv-promtail
-    volumes:
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-      - /var/log:/var/log:ro
-      - ./infra/monitoring/promtail-config.yml:/etc/promtail/config.yml:ro
-    command: -config.file=/etc/promtail/config.yml
-    networks:
-      - jarv-network
-    restart: always
-
-volumes:
-  loki_data:
-```
-
-## Simple Monitoring (Without Prometheus/Grafana)
-
-For simpler deployments, use built-in health checks and log aggregation:
-
-### Health Check Monitoring Script
-
-Create `scripts/health-check.sh`:
+Set `GRAFANA_ADMIN_PASSWORD` in the root `.env`, then:
 
 ```bash
-#!/bin/bash
-# Simple health check script for cron jobs
-
-API_URL="${1:-http://localhost/health}"
-WEBHOOK_URL="$2"
-
-response=$(curl -s -o /dev/null -w "%{http_code}" "$API_URL")
-
-if [ "$response" -ne 200 ]; then
-    echo "ALERT: API health check failed with status $response"
-
-    # Send notification (optional)
-    if [ -n "$WEBHOOK_URL" ]; then
-        curl -X POST "$WEBHOOK_URL" \
-            -H "Content-Type: application/json" \
-            -d "{\"text\":\"JARV API health check failed with status $response\"}"
-    fi
-
-    exit 1
-fi
-
-echo "API health check passed"
-exit 0
+docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+# production
+docker compose -f docker-compose.prod.yml -f docker-compose.monitoring.yml up -d
 ```
 
-Add to crontab:
+| Service      | URL                    | Notes                                       |
+|--------------|------------------------|---------------------------------------------|
+| Grafana      | http://localhost:3001  | user `admin`; opens on the JARV Overview dashboard |
+| Prometheus   | http://localhost:9090  | Status → Targets shows every scrape target  |
+| Alertmanager | http://localhost:9093  |                                             |
 
-```bash
-# Check health every 5 minutes
-*/5 * * * * /path/to/jarv/scripts/health-check.sh http://localhost/health >> /var/log/jarv-health.log 2>&1
-```
+All three listen on localhost only. Reach them remotely through an SSH tunnel
+or an authenticated reverse proxy.
 
-## Log Management
+## What is measured
 
-### View logs from all services
+The backend's `GET /metrics` exports:
 
-```bash
-# All logs
-docker compose -f docker-compose.prod.yml logs -f
+- HTTP: `http_requests_total`, `http_request_duration_seconds` (histogram, by
+  route template), `http_requests_in_flight`, process CPU and memory.
+- Missions (read from the database, so they cover work done on any worker):
+  `jarv_missions{status}`, `jarv_missions_stale`,
+  `jarv_mission_queue_oldest_seconds`, `jarv_mission_recoveries`,
+  `jarv_mission_outcomes_24h{status}`, `jarv_mission_duration_seconds`,
+  `jarv_tokens_used_24h`, `jarv_approvals_waiting`.
+- Agents and tools: `jarv_agent_runs_24h{agent,result}`,
+  `jarv_tool_calls_24h{tool,result}`.
+- Memory and learning: `jarv_memories{category}`, `jarv_lessons{status}`.
+- Workers and queue: `jarv_workers_up`, `celery_queue_length`.
+- `jarv_metrics_database_up` is 0 when the database could not be read.
 
-# Specific service
-docker compose -f docker-compose.prod.yml logs -f backend
+The exporters add `pg_*`, `redis_*`, and `node_*` metrics.
 
-# Last 100 lines
-docker compose -f docker-compose.prod.yml logs --tail=100 backend
+## Alerts
 
-# Filter by time
-docker compose -f docker-compose.prod.yml logs --since 2024-01-01T00:00:00 backend
-```
+Rules are in `alerting-rules.yml`. Alertmanager delivers every alert to
+`POST /api/observability/alerts` on the backend. JARV opens an incident per
+alert (one per alert fingerprint, so a repeating alert updates the same
+incident), posts it to the Live Operations Feed, and resolves the incident when
+the alert clears. Critical alerts are flagged as needing action.
 
-### Rotate logs to prevent disk fill
+## Logs
 
-Create `/etc/logrotate.d/docker-containers`:
+Every backend and worker log line carries `request_id` and `mission_id`. A
+mission submitted through the API logs with its request id, then with its
+mission id on whichever worker runs it. In production the logs are JSON with
+these as fields; in development they appear as `[req=… mission=…]`.
 
-```
-/var/lib/docker/containers/*/*.log {
-    rotate 7
-    daily
-    compress
-    missingok
-    delaycompress
-    copytruncate
-    maxsize 100M
-}
-```
+## Tokens (optional)
 
-## Error Tracking with Sentry
+To require authentication on `/metrics` and the alert webhook:
 
-### Add Sentry to Backend
+1. Set `METRICS_TOKEN` and `ALERT_WEBHOOK_TOKEN` in `apps/backend/.env`.
+2. Write the same values to `infra/monitoring/secrets/metrics_token` and
+   `infra/monitoring/secrets/alert_webhook_token` (one line each; git ignores them).
+3. Uncomment the `authorization` blocks in `prometheus.yml` and `alertmanager.yml`.
 
-Install sentry-sdk:
-
-```python
-# In apps/backend/pyproject.toml
-sentry-sdk = {extras = ["fastapi"], version = "^1.40.0"}
-```
-
-Initialize in `apps/backend/app/main.py`:
-
-```python
-import sentry_sdk
-from sentry_sdk.integrations.fastapi import FastApiIntegration
-
-if os.getenv("SENTRY_DSN"):
-    sentry_sdk.init(
-        dsn=os.getenv("SENTRY_DSN"),
-        integrations=[FastApiIntegration()],
-        traces_sample_rate=0.1,
-        environment=os.getenv("ENVIRONMENT", "production"),
-    )
-```
-
-Add `SENTRY_DSN` to `.env.production`:
-
-```
-SENTRY_DSN=https://xxxxx@xxxxx.ingest.sentry.io/xxxxx
-```
-
-Sign up for free Sentry account at sentry.io.
-
-## Cloud Provider Monitoring
-
-### Oracle Cloud
-
-Use Oracle Cloud's built-in monitoring:
-1. Go to **Observability & Management > Monitoring**
-2. Create alarm for:
-   - CPU utilization > 80%
-   - Memory utilization > 90%
-   - Disk utilization > 85%
-
-### Render
-
-Render includes built-in metrics:
-1. Go to service dashboard
-2. Click **Metrics** tab
-3. View CPU, Memory, Request metrics
-4. Set up alerts in **Settings > Notifications**
-
-### Railway
-
-Railway includes built-in monitoring:
-1. Go to service page
-2. View **Metrics** section
-3. Check CPU, Memory, Network usage
-4. Configure alerts in project settings
-
-## Uptime Monitoring (External)
-
-Use external uptime monitoring services (free options):
-
-1. **UptimeRobot** (uptimerobot.com) - Free for 50 monitors
-2. **StatusCake** (statuscake.com) - Free for 10 monitors
-3. **Pingdom** (pingdom.com) - Free trial
-
-Configure to check:
-- Dashboard URL every 5 minutes
-- API health endpoint every 5 minutes
-- Alert via email/SMS/webhook on downtime
-
-## Key Metrics to Monitor
-
-### Application Health
-- HTTP response time (p50, p95, p99)
-- Error rate (4xx, 5xx)
-- Request throughput
-- Active connections
-
-### Infrastructure
-- CPU usage
-- Memory usage
-- Disk space
-- Network bandwidth
-
-### Database
-- Active connections
-- Query duration
-- Cache hit rate
-- Deadlocks
-
-### Workers
-- Queue length
-- Task processing time
-- Failed tasks
-- Active workers
-
-## Alerting Best Practices
-
-1. **Alert on symptoms, not causes**: Alert on high error rates, not on CPU usage
-2. **Set appropriate thresholds**: Avoid alert fatigue
-3. **Use multiple channels**: Email, SMS, Slack, PagerDuty
-4. **Group related alerts**: Reduce noise during incidents
-5. **Document runbooks**: Include resolution steps in alerts
-
-## Cost Considerations
-
-### Free Options
-- Sentry (10k errors/month free)
-- UptimeRobot (50 monitors free)
-- Grafana Cloud (10k metrics free)
-
-### Self-Hosted (Oracle Cloud)
-- $0/month on Oracle Always Free tier
-- Includes Prometheus + Grafana + Loki
-- Full control and unlimited metrics
-
-### Managed Options
-- Datadog: ~$15/host/month
-- New Relic: ~$25/month
-- Better Stack: ~$10/month
+Without `ALERT_WEBHOOK_TOKEN`, the webhook only accepts private-network callers.
