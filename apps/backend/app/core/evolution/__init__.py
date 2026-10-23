@@ -7,9 +7,7 @@ from app.core.evolution.experience import (
     ExperienceCreate,
     ExperienceResult,
     ExperienceManager,
-    capture_experience,
-    summarize_experience,
-    extract_lesson,
+    LessonExtract,
 )
 from app.core.evolution.improvements import (
     ImprovementType,
@@ -43,9 +41,7 @@ __all__ = [
     "ExperienceCreate",
     "ExperienceResult",
     "ExperienceManager",
-    "capture_experience",
-    "summarize_experience",
-    "extract_lesson",
+    "LessonExtract",
     # Improvements
     "ImprovementType",
     "ImprovementCreate",

@@ -15,14 +15,14 @@
 
 ## LOCKED REPAIR ORDER (2026-10-20)
 - Repair 10 is IN_PROGRESS. The focused tests recorded below verify subsets only; they do not prove all 31 agents are executable, all declared tools are real, or the complete orchestrator/swarm acceptance flow.
-- Repair 11: persistent memory and verified learning.
+- Repair 11: IN_PROGRESS (implementation delivered 2026-10-23; awaiting test run and PostgreSQL migration verification on the owner's machine). Persistent, workspace-isolated semantic memory and the verified-learning lifecycle. See REPAIR-11-MEMORY-LEARNING.
 - Repair 12: runtime, observability, and recovery.
 - Repair 13: COMPLETE for non-paid knowledge installation, retrieval, authenticated administration, and attributed public-source research. All 31 registered agents passed individual retrieval/task verification. Live paid-LLM generation is DEFERRED to Repair 15 and is not reported as passed.
 - Repair 14: IN_PROGRESS after the user approved the cinematic UI and Voicebox integration direction. Implementation and runtime checks are recorded below; hands-on voice acceptance remains open.
 - Repair 15: production hardening and hands-on end-to-end acceptance.
 - No production readiness or system-completion claim is authorized before the final acceptance flow passes.
 - Earlier entries labeled Repair 11-14 below were created before the locked definitions were supplied. They are reclassified as supporting work and do not complete those locked repairs.
-- Last verified continuation update: 2026-10-22.
+- Last verified continuation update: 2026-10-23.
 
 ## BUILD PROGRESS SUMMARY
 
@@ -12059,3 +12059,57 @@ TESTS RUN:
 RESULT: The approved cockpit and voice operator now use Talk to me as the canonical wake phrase. A real sherpa-onnx test detected generated Talk to me speech and did not trigger on five seconds of silence. The backend admin updater rewrites the installed keyword file atomically, validates the new spotter, restores the old file on failure, and refuses updates during active streams; phrase_current reports whether persistent keywords match. The dashboard exposes the admin update button only for stale keywords and blocks hands-free until the update validates. The local Whisper fallback tolerates ASR prefix noise and displays likely wake-related mismatches transiently. Backend adapter tests (10), dashboard focused tests (8), and TypeScript checks pass. Voicebox remains healthy on the RTX 4050; profile setup, TTS generation/retrieval, and STT remain verified.
 BLOCKERS: The persistent keyword file now reports phrase_current=true and passed the local phrase/silence test. The shared browser is still at login, so authenticated JARV command and live microphone acknowledgment cannot be verified. Revocation of the earlier exposed credential is not independently verified. The user set a £10 ceiling; no application-level cumulative cost guard enforces that ceiling, so further requests must remain individually bounded and usage reviewed. Interruption remains unverified. Repair 10 is still open; this checkpoint is not Repair 14 completion or final acceptance.
 NEXT TASK: Share the authenticated dashboard tab and confirm hands-free/microphone state. Run one harmless read-only JARV command through GPT-6 Luna with strict planner/answer token bounds, then review usage against the £10 ceiling. Confirm the earlier exposed key was revoked. Continue spoken acknowledgment and interruption acceptance; continue Repair 15 only after the locked repair order permits it.
+
+
+TASK ID: REPAIR-11-MEMORY-LEARNING
+TASK NAME: Persistent memory and verified learning
+STATUS: IN_PROGRESS (migration verified on PostgreSQL; 431/433 passed; orchestrator test-isolation fix awaiting confirmation)
+AUDIT FINDINGS THAT DROVE THIS REPAIR:
+- core/memory/search.py returned [] for every semantic search; core/memory/embeddings.py returned an all-zero vector when no provider key was set. Neither was on a live path; memory search everywhere was keyword-only.
+- core/jarv_memory.py (the live store used by the command center, tool runtime, agent runner, and agents API) accepted workspace_id in search() but never filtered on it, so missions recalled every workspace's memories. Its owner-agent lookup took the first Agent row in the database, from any workspace.
+- core/evolution/experience.py persisted nothing (returned uuid4) and extract_lesson returned a hard-coded fake lesson string; /api/evolution served this to the Self-Evolution page.
+- The command center's safe self-evolution path told the user changes were "versioned and recorded (reversible)" but wrote no version record.
+- /api/memory, /api/experience, and /api/evolution had no authentication (11 further routers also have none; recorded for Repair 15).
+- Secret redaction missed hyphenated provider keys (sk-proj-..., sk-ant-api03-..., sk-svcacct-...).
+- .gitignore rule `lib/` hid apps/dashboard/src/lib (api.ts, auth.ts) from git; fixed by the owner in commit 24bbe2e.
+FILES CREATED:
+- apps/backend/app/core/memory/taxonomy.py (23 design categories + legacy type mapping)
+- apps/backend/app/core/memory/context.py (task-scoped recall context + prompt rendering)
+- apps/backend/app/core/learning/__init__.py
+- apps/backend/app/core/learning/service.py (experience capture, clustering, evidence/human verification, application tracking, auto-retirement, versioned SelfEvolutionRecords, proposals)
+- apps/backend/app/core/safety/evolution_guard.py (shared self-evolution safety classifier)
+- apps/backend/alembic/versions/2026_10_23_1200-r11_memory_learning.py (revision r11_memory_learning, down_revision r13_source_attribution; PostgreSQL backfill of workspace_id and memory_category)
+- apps/backend/scripts/backfill_memory_embeddings.py
+- apps/backend/tests/test_repair11_memory_learning.py
+FILES MODIFIED:
+- apps/backend/app/core/memory/embeddings.py (offline jarv-hash-v1 embedder replaces the zero vector; model id recorded per vector; auto provider)
+- apps/backend/app/core/memory/__init__.py
+- apps/backend/app/core/jarv_memory.py (rewritten: isolation, semantic+keyword ranking via pgvector or Python, dedupe/reinforce, update/version, delete, link-to-task/workspace, redaction, backfill)
+- apps/backend/app/models/memory.py (workspace_id, memory_category, confidence_score, source_ref, version, embedding_model, parent/sub-agent/approval/checkpoint/boundary-input references)
+- apps/backend/app/models/self_evolution.py (ExperienceRecord workspace_id, agent_name, lesson_status, lesson_key)
+- apps/backend/app/core/agents/base.py (execute() recalls memory + verified lessons before run and records experience + lesson outcome after)
+- apps/backend/app/core/agents/specialists/_helpers.py (recalled context injected into provider prompts)
+- apps/backend/app/core/command/service.py (semantic recall, verified lessons in context, experience capture, lesson outcome tracking, real versioned proposal records, shared safety guard)
+- apps/backend/app/core/command/tool_runtime.py (owner agent scoped to the task workspace)
+- apps/backend/app/tools/memory/storage.py (memory_store/memory_search use the shared store; semantic search)
+- apps/backend/app/core/evolution/experience.py and __init__.py (database-backed)
+- apps/backend/app/api/memory.py (authenticated, owner-scoped; create/search/update/delete/link endpoints added)
+- apps/backend/app/api/experience.py (authenticated, owner-scoped; lessons, evolution history, approve/reject/retire)
+- apps/backend/app/api/evolution.py (router-wide authentication; experience endpoints and dashboard health use real data)
+- apps/backend/app/core/security.py (redaction of hyphenated provider keys)
+- apps/dashboard/src/app/dashboard/self-evolution/page.tsx (matches the real experience response)
+- apps/backend/.env.example, docs/CONFIGURATION.md (embedding settings)
+FILES DELETED:
+- apps/backend/app/core/memory/manager.py, apps/backend/app/core/memory/search.py (dead, non-functional)
+COMMANDS RUN:
+- python -m py_compile on every changed backend file: passed
+- Dependency-free checks of the embedder ranking and the safety guard: passed
+- pytest: not runnable in the authoring environment (no package registry access); run on the owner's machine with the jarv-backend-test image
+- 2026-10-23 owner run, SQLite only (no PostgreSQL, no Docker CLI mounted): 429 passed, 4 failed (orchestrator delegation x2, readiness, docker compose; all need PostgreSQL or the Docker CLI)
+- 2026-10-23 owner run, fresh pgvector/pgvector:pg16 + Docker CLI mounted: alembic upgrade head -> downgrade r13_source_attribution -> upgrade head all succeeded; pytest 431 passed, 2 failed
+- The 2 remaining failures (test_orchestrator_delegation) are pre-existing test-isolation defects: AgentRunner without a session reads specialist knowledge from settings.DATABASE_URL, test mode skips the startup catalog install, so the tests only passed against a database JARV had previously been started on. Fixed by an idempotent runtime_knowledge fixture that installs the catalog first.
+TESTS RUN:
+- Repair 11 suite passed in both owner runs. Written: tests/test_repair11_memory_learning.py (embedder, taxonomy, guard, isolation, redaction, dedupe, versioned update, scoped delete/link, evidence verification, unsafe rejection, auto-retirement with rollback, agent recall into prompt, experience capture, authenticated memory and experience APIs, redaction regression)
+RESULT: Repair 11 code and migration verified. Full suite 431 passed; the 2 failures are pre-existing orchestrator test-isolation defects, fixed in tests/test_orchestrator_delegation.py.
+BLOCKERS: Owner to confirm the two orchestrator delegation tests pass with the runtime_knowledge fixture; then this task is COMPLETE. /api/evolution improvement and version endpoints remain backed by non-persistent managers (core/evolution/improvements.py, verification.py, versioning.py); lesson verification, versioning, and rollback are now real through the learning service, and the improvement/version endpoints are scheduled for Repair 12. Learning is on whenever an agent has a database session and a workspace; the unit-test suite enables it per test via context.metadata["learning_enabled"].
+NEXT TASK: Owner runs the Repair 11 verification commands; then Repair 12.

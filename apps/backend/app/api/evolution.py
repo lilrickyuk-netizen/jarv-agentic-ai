@@ -5,7 +5,13 @@ REST API for self-evolution management.
 """
 from typing import Optional, List
 from uuid import UUID
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.auth import CurrentUserId, get_current_user_id
+from app.core.database import get_db
+from app.models.workspace import Workspace
 from pydantic import BaseModel, Field
 
 from app.core.evolution.experience import (
@@ -35,7 +41,10 @@ from app.core.evolution.versioning import (
     VersionManager,
 )
 
-router = APIRouter(prefix="/api/evolution", tags=["evolution"])
+router = APIRouter(
+    prefix="/api/evolution", tags=["evolution"],
+    dependencies=[Depends(get_current_user_id)],
+)
 
 # Initialize managers
 experience_manager = ExperienceManager()
@@ -101,88 +110,88 @@ class StatsResponse(BaseModel):
 # EXPERIENCE ENDPOINTS
 # =============================================================================
 
-@router.post("/experiences", response_model=ExperienceResponse)
-async def capture_experience_endpoint(experience: ExperienceCreate):
-    """
-    Capture agent experience.
+async def _owned_workspaces(db: AsyncSession, user_id: str) -> List[UUID]:
+    return list((await db.execute(
+        select(Workspace.id).where(Workspace.owner_id == UUID(str(user_id)))
+    )).scalars().all())
 
-    Creates an experience record from agent execution.
-    """
+
+@router.post("/experiences", response_model=ExperienceResponse)
+async def capture_experience_endpoint(
+    experience: ExperienceCreate, user_id: CurrentUserId, db: AsyncSession = Depends(get_db),
+):
+    """Capture an experience into the verified-learning lifecycle."""
+    if experience.workspace_id not in await _owned_workspaces(db, user_id):
+        raise HTTPException(status_code=404, detail="Workspace not found")
     try:
-        experience_id = await experience_manager.capture_experience(experience)
-        return ExperienceResponse(
-            id=experience_id,
-            message="Experience captured successfully"
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        experience_id = await experience_manager.capture_experience(db, experience)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    stored = await experience_manager.get_experience(db, experience_id, [experience.workspace_id])
+    return ExperienceResponse(id=experience_id, message="Experience captured", experience=stored)
 
 
 @router.post("/experiences/{experience_id}/summarize", response_model=dict)
-async def summarize_experience_endpoint(experience_id: UUID):
-    """
-    Summarize experience.
-
-    Creates summary of experience using LLM.
-    """
-    try:
-        summary = await experience_manager.summarize_experience(experience_id)
-        return {"experience_id": str(experience_id), "summary": summary}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def summarize_experience_endpoint(
+    experience_id: UUID, user_id: CurrentUserId, db: AsyncSession = Depends(get_db),
+):
+    """Summary built from the stored record."""
+    summary = await experience_manager.summarize_experience(
+        db, experience_id, await _owned_workspaces(db, user_id))
+    if summary is None:
+        raise HTTPException(status_code=404, detail="Experience not found")
+    return {"experience_id": str(experience_id), "summary": summary}
 
 
 @router.post("/experiences/{experience_id}/extract-lessons", response_model=dict)
-async def extract_lessons_endpoint(experience_id: UUID):
-    """
-    Extract lessons from experience.
+async def extract_lessons_endpoint(
+    experience_id: UUID, user_id: CurrentUserId, db: AsyncSession = Depends(get_db),
+):
+    """The lesson held by the record and its verification status."""
+    lessons = await experience_manager.extract_lesson(
+        db, experience_id, await _owned_workspaces(db, user_id))
+    if lessons is None:
+        raise HTTPException(status_code=404, detail="Experience not found")
+    return {"experience_id": str(experience_id), "lessons": [lesson.model_dump() for lesson in lessons]}
 
-    Analyzes experience and extracts actionable lessons.
-    """
-    try:
-        lessons = await experience_manager.extract_lesson(experience_id)
-        return {
-            "experience_id": str(experience_id),
-            "lessons": [lesson.dict() for lesson in lessons]
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/experiences/stats/{workspace_id}", response_model=StatsResponse)
+async def get_experience_stats_endpoint(
+    workspace_id: UUID, user_id: CurrentUserId, db: AsyncSession = Depends(get_db),
+):
+    if workspace_id not in await _owned_workspaces(db, user_id):
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    stats = await experience_manager.get_experience_stats(db, workspace_id)
+    return StatsResponse(workspace_id=workspace_id, stats=stats)
 
 
 @router.get("/experiences/{experience_id}", response_model=ExperienceResponse)
-async def get_experience_endpoint(experience_id: UUID):
-    """Get experience by ID"""
-    experience = await experience_manager.get_experience(experience_id)
+async def get_experience_endpoint(
+    experience_id: UUID, user_id: CurrentUserId, db: AsyncSession = Depends(get_db),
+):
+    experience = await experience_manager.get_experience(
+        db, experience_id, await _owned_workspaces(db, user_id))
     if not experience:
         raise HTTPException(status_code=404, detail="Experience not found")
-    return ExperienceResponse(
-        id=experience_id,
-        message="Experience retrieved",
-        experience=experience
-    )
+    return ExperienceResponse(id=experience_id, message="Experience retrieved", experience=experience)
 
 
 @router.get("/experiences", response_model=List[ExperienceResult])
 async def list_experiences_endpoint(
+    user_id: CurrentUserId,
     workspace_id: Optional[UUID] = Query(None),
     agent_id: Optional[UUID] = Query(None),
     experience_type: Optional[ExperienceType] = Query(None),
     limit: int = Query(100, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
 ):
-    """List experiences with filters"""
+    owned = await _owned_workspaces(db, user_id)
+    if workspace_id is not None:
+        if workspace_id not in owned:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+        owned = [workspace_id]
     return await experience_manager.list_experiences(
-        workspace_id=workspace_id,
-        agent_id=agent_id,
-        experience_type=experience_type,
-        limit=limit,
-    )
-
-
-@router.get("/experiences/stats/{workspace_id}", response_model=StatsResponse)
-async def get_experience_stats_endpoint(workspace_id: UUID):
-    """Get experience statistics"""
-    stats = await experience_manager.get_experience_stats(workspace_id)
-    return StatsResponse(workspace_id=workspace_id, stats=stats)
+        db, owned, agent_id=agent_id, experience_type=experience_type, limit=limit)
 
 
 # =============================================================================
@@ -499,26 +508,41 @@ async def restore_snapshot_endpoint(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _evolution_health(stats: dict) -> dict:
+    """Rates computed from stored experiences; None where there is no data yet."""
+    total = stats.get("total", 0)
+    by_status = stats.get("by_status", {})
+    by_outcome = stats.get("by_outcome", {})
+    verified, retired = by_status.get("verified", 0), by_status.get("retired", 0)
+    return {
+        "learning_rate": round(verified / total, 3) if total else None,
+        "success_rate": round(by_outcome.get("success", 0) / total, 3) if total else None,
+        "rollback_rate": round(retired / (verified + retired), 3) if verified + retired else None,
+        "experiences": total,
+    }
+
+
 # =============================================================================
 # DASHBOARD ENDPOINTS
 # =============================================================================
 
 @router.get("/dashboard/{workspace_id}")
-async def get_evolution_dashboard(workspace_id: UUID):
+async def get_evolution_dashboard(
+    workspace_id: UUID, user_id: CurrentUserId, db: AsyncSession = Depends(get_db),
+):
     """
     Get self-evolution dashboard data.
 
     Returns comprehensive evolution metrics and status.
     """
+    if workspace_id not in await _owned_workspaces(db, user_id):
+        raise HTTPException(status_code=404, detail="Workspace not found")
     try:
-        experience_stats = await experience_manager.get_experience_stats(workspace_id)
+        experience_stats = await experience_manager.get_experience_stats(db, workspace_id)
         improvement_stats = await improvement_manager.get_improvement_stats(workspace_id)
         version_stats = await version_manager.get_version_stats(workspace_id)
 
-        recent_experiences = await experience_manager.list_experiences(
-            workspace_id=workspace_id,
-            limit=10,
-        )
+        recent_experiences = await experience_manager.list_experiences(db, [workspace_id], limit=10)
 
         recent_improvements = await improvement_manager.list_improvements(
             workspace_id=workspace_id,
@@ -538,12 +562,7 @@ async def get_evolution_dashboard(workspace_id: UUID):
             "recent_experiences": [exp.dict() for exp in recent_experiences],
             "recent_improvements": [imp.dict() for imp in recent_improvements],
             "recent_versions": [ver.dict() for ver in recent_versions],
-            "evolution_health": {
-                "learning_rate": 0.0,
-                "improvement_rate": 0.0,
-                "success_rate": 0.0,
-                "rollback_rate": 0.0,
-            }
+            "evolution_health": _evolution_health(experience_stats),
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

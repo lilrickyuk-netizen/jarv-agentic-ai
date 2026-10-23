@@ -67,6 +67,27 @@ class Memory(Base, UUIDMixin, TimestampMixin):
     context: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     meta_data: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
 
+    # Repair 11: isolation, taxonomy, provenance, and references (design section 13)
+    workspace_id: Mapped[Optional[UUID]] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    memory_category: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="global", server_default="global", index=True,
+    )
+    confidence_score: Mapped[float] = mapped_column(
+        Float, nullable=False, default=0.5, server_default="0.5",
+    )
+    source_ref: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    embedding_model: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
+    parent_agent_id: Mapped[Optional[UUID]] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    sub_agent_id: Mapped[Optional[UUID]] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    approval_id: Mapped[Optional[UUID]] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    checkpoint_id: Mapped[Optional[UUID]] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+    boundary_input_id: Mapped[Optional[UUID]] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
+
     # Expiration
     expires_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True),
