@@ -43,6 +43,7 @@ from app.core.config import settings
 from app.core.workspaces import fs_inspector
 from app.core.jarv_memory import memory_service
 from app.core.learning import learning_service
+from app.core.runtime import lifecycle
 from app.core.safety.evolution_guard import is_unsafe_change
 from app.core.command.tool_runtime import ToolRuntime
 from app.core.qa.verifier import qa_verifier
@@ -115,6 +116,15 @@ class SafetyDecision:
     reason: str
     boundary_type: Optional[str] = None
     forced_safe: bool = False
+
+
+def _maybe_uuid(value: Any) -> Optional[UUID]:
+    if value is None or isinstance(value, UUID):
+        return value
+    try:
+        return UUID(str(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def classify_command_safety(command_text: str) -> SafetyDecision:
@@ -199,6 +209,33 @@ class CommandService:
         user_id: Optional[UUID] = None,
         operator: Optional[str] = None,
     ) -> CommandResult:
+        """Submit and run a mission in this process (used by tools and tests).
+
+        The dashboard API submits and hands the mission to the worker queue
+        instead, so missions survive restarts and do not hold a web request open.
+        """
+        submitted = await self.submit(command_text, db, workspace_id=workspace_id,
+                                      user_id=user_id, operator=operator)
+        if submitted.status != lifecycle.QUEUED:
+            return submitted
+        task = (await db.execute(select(Task).where(Task.id == UUID(submitted.task_id)))).scalar_one()
+        lifecycle.transition(task, lifecycle.RUNNING, reason="run in-process", actor=self.operator)
+        await db.commit()
+        return await self.run_task(db, task)
+
+    async def submit(
+        self,
+        command_text: str,
+        db: AsyncSession,
+        workspace_id: Optional[UUID] = None,
+        user_id: Optional[UUID] = None,
+        operator: Optional[str] = None,
+    ) -> CommandResult:
+        """Validate, safety-classify, and record a mission.
+
+        Returns status ``queued`` (ready for a worker) or ``blocked`` (needs
+        Richard's approval before it may start). Nothing is executed here.
+        """
         start = time.time()
         command_text = (command_text or "").strip()
         if not command_text:
@@ -228,8 +265,8 @@ class CommandService:
                 forced_safe=True,
             )
 
-        # 2) Resolve a workspace to attach the task to
-        ws_id = await self._resolve_workspace(db, workspace_id)
+        # 2) Resolve a workspace the operator owns
+        ws_id = await self._resolve_workspace(db, workspace_id, operator=self.operator)
 
         # 3) Create the real Task record (pending)
         task = Task(
@@ -245,7 +282,9 @@ class CommandService:
                 "requires_approval": safety.requires_approval,
                 "safety_reason": safety.reason,
             },
-            meta_data={"channel": "dashboard"},
+            meta_data={"channel": "dashboard", "operator": self.operator,
+                       "user_id": str(user_id) if user_id else None,
+                       "provider": self.provider_name, "model": self.model},
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
@@ -269,9 +308,9 @@ class CommandService:
 
         # 4) Approval gate: do NOT execute, pause the blocked action
         if safety.requires_approval:
-            task.status = "blocked"
-            task.meta_data = {**(task.meta_data or {}), "blocked_reason": safety.reason}
-            task.updated_at = datetime.now(timezone.utc)
+            lifecycle.transition(task, lifecycle.BLOCKED, reason=safety.reason, actor="safety_gate")
+            task.meta_data = {**(task.meta_data or {}), "blocked_reason": safety.reason,
+                              "boundary_type": safety.boundary_type}
             await self._feed(
                 db, ws_id, task.id,
                 item_type="boundary",
@@ -306,15 +345,35 @@ class CommandService:
                 execution_time=time.time() - start,
             )
 
-        # 5) Execute: mark running, persist immediately so the dashboard sees it
-        task.status = "running"
-        task.started_at = datetime.now(timezone.utc)
-        task.updated_at = task.started_at
+        lifecycle.transition(task, lifecycle.QUEUED, reason="accepted for execution", actor=self.operator)
+        await db.commit()
+        return CommandResult(
+            task_id=task_id,
+            command=command_text,
+            status=lifecycle.QUEUED,
+            requires_approval=False,
+            response_text="Mission accepted and queued for execution.",
+            provider=self.provider_name,
+            model=self.model,
+            execution_time=time.time() - start,
+        )
+
+    async def run_task(self, db: AsyncSession, task: Task) -> CommandResult:
+        """Execute a mission that has already been claimed (status ``running``)."""
+        start = time.time()
+        meta = task.meta_data or {}
+        self.operator = meta.get("operator") or getattr(self, "operator", None) or "operator"
+        command_text = (task.description or task.title or "").strip()
+        ws_id = task.workspace_id
+        task_id = str(task.id)
+        user_id = _maybe_uuid(meta.get("user_id"))
+        attempt = int(task.retry_count or 0)
+
         await self._feed(
             db, ws_id, task.id,
             item_type="agent_execution",
             severity="info",
-            title="Orchestrator running",
+            title="Orchestrator running" if attempt == 0 else f"Orchestrator recovering (attempt {attempt + 1})",
             message=f"JARV is planning and executing: {command_text[:200]}",
         )
         await db.commit()
@@ -463,15 +522,14 @@ class CommandService:
             #    "completed". Failed commands / installs / builds / verification /
             #    step-limit / missing report downgrade the status accordingly.
             status, failure = self._derive_status(intent, result_extra, runtime.calls, answer)
-            task.status = status
+            status = await self._finish(db, task, status, (failure or {}).get("reason"))
             now = datetime.now(timezone.utc)
-            task.updated_at = now
-            if status in ("completed", "partial", "failed"):
-                task.completed_at = now if status == "completed" else task.completed_at
-                if status == "failed":
-                    task.failed_at = now
             if task.started_at:
-                task.execution_duration_seconds = int((now - task.started_at).total_seconds())
+                # A worker's claim reloads started_at from the database; SQLite returns
+                # it without a timezone, so normalise before subtracting.
+                started = task.started_at if task.started_at.tzinfo else \
+                    task.started_at.replace(tzinfo=timezone.utc)
+                task.execution_duration_seconds = int((now - started).total_seconds())
             task.tokens_used = total_tokens
             task.result = {
                 "response": answer,
@@ -579,10 +637,8 @@ class CommandService:
 
         except Exception as exc:  # noqa: BLE001 - surface real failure on the task
             logger.error(f"Command execution failed: {exc}", exc_info=True)
-            task.status = "failed"
-            task.failed_at = datetime.now(timezone.utc)
+            await self._finish(db, task, lifecycle.FAILED, str(exc))
             task.error_message = str(exc)
-            task.updated_at = datetime.now(timezone.utc)
             try:
                 await self._feed(
                     db, ws_id, task.id,
@@ -614,21 +670,53 @@ class CommandService:
 
     # ===== Pipeline steps =====
 
+    async def _finish(self, db: AsyncSession, task: Task, status: str, reason: Optional[str]) -> str:
+        """Record the mission outcome through the enforced lifecycle.
+
+        A boundary flow may already have moved the task to waiting_on_approval
+        during the run, and an operator may have cancelled it; neither is
+        overwritten by the outcome computed here.
+        """
+        try:
+            await db.refresh(task, attribute_names=["status"])
+        except Exception:  # noqa: BLE001 - unsaved task in a fresh session
+            pass
+        current = lifecycle.normalise(task.status)
+        if current in (lifecycle.CANCELLED, lifecycle.WAITING_ON_APPROVAL) or current == status:
+            return current
+        try:
+            lifecycle.transition(task, status, reason=reason or "", actor="orchestrator")
+        except lifecycle.IllegalTransition as exc:
+            logger.error(f"Refused mission status change for {task.id}: {exc}")
+            lifecycle.transition(task, lifecycle.FAILED, actor="orchestrator",
+                                 reason=f"illegal outcome '{status}' from '{current}'")
+            return lifecycle.FAILED
+        return status
+
     async def _resolve_workspace(
-        self, db: AsyncSession, workspace_id: Optional[UUID]
+        self, db: AsyncSession, workspace_id: Optional[UUID], operator: Optional[str] = None,
     ) -> UUID:
+        owner = _maybe_uuid(operator)
         if workspace_id:
+            if owner is not None:
+                owned = (await db.execute(select(Workspace.id).where(
+                    Workspace.id == workspace_id, Workspace.owner_id == owner,
+                ))).scalar_one_or_none()
+                if owned is None:
+                    raise ValueError("Workspace not found")
             return workspace_id
-        result = await db.execute(select(Workspace.id).limit(1))
-        existing = result.scalar_one_or_none()
+        query = select(Workspace.id).where(Workspace.is_active.is_(True))
+        if owner is not None:
+            query = query.where(Workspace.owner_id == owner)
+        existing = (await db.execute(query.order_by(Workspace.created_at.asc()).limit(1))).scalar_one_or_none()
         if existing:
             return existing
         # No workspace yet: create a Command Center workspace so commands have a home.
-        owner_id = await self._first_user_id(db)
+        owner_id = owner or await self._first_user_id(db)
         ws = Workspace(
             id=uuid4(),
             name="Command Center",
-            slug="command-center",
+            slug=f"command-center-{str(owner_id)[:8]}",
             description="Default workspace for dashboard commands.",
             owner_id=owner_id,
             workspace_type="general",

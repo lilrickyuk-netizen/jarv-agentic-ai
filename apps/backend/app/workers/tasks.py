@@ -139,3 +139,32 @@ def scheduled_status_loop(self: Task) -> dict[str, Any]:
     return asyncio.run(_run_scheduled_loop(
         "daily_status_check",
         "Autonomous read-only system status check (no operator command)."))
+
+
+# ===== Mission runtime (Repair 12) =====
+
+@celery_app.task(name="run_mission", bind=True, acks_late=True, reject_on_worker_lost=True)
+def run_mission(self: Task, task_id: str, reason: str = "") -> dict[str, Any]:
+    """Claim and run one queued mission. A duplicate delivery is a no-op: the
+    claim only succeeds for a mission that is still queued or recovering."""
+    from app.core.runtime.missions import MissionRunner
+
+    logger.info(f"run_mission {task_id} ({reason or 'dispatch'}) on {self.request.hostname}")
+    return asyncio.run(MissionRunner().run(task_id))
+
+
+@celery_app.task(name="resume_checkpoint", bind=True, acks_late=True)
+def resume_checkpoint_task(self: Task, checkpoint_id: str, user_id: str) -> dict[str, Any]:
+    """Resume a boundary-paused mission after Richard approved it. The workflow
+    is idempotent, so a redelivered message cannot run the action twice."""
+    from app.core.runtime.dispatcher import resume_checkpoint
+
+    return asyncio.run(resume_checkpoint(checkpoint_id, user_id))
+
+
+@celery_app.task(name="recover_stale_missions", bind=True)
+def recover_stale_missions(self: Task) -> dict[str, Any]:
+    """Re-queue missions whose worker stopped heartbeating (Celery beat)."""
+    from app.core.runtime.missions import MissionRunner
+
+    return asyncio.run(MissionRunner().recover_stale())

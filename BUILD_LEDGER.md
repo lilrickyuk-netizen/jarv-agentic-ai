@@ -8,15 +8,15 @@
 
 ## CURRENT STATUS
 - **Current Phase**: REPAIR CONTINUATION (10-15)
-- **Current Task**: REPAIR 14 continuation - complete the approved cinematic dashboard and voice interaction path; Repair 10 remains unresolved
+- **Current Task**: REPAIR 12 - runtime, recovery, observability, and real tool wiring for all 31 agents (Repair 11 complete 2026-10-23)
 - **Build Status**: NOT ACCEPTED; Repairs 11-15 remain open under the locked execution order
 - **Build Start Date**: 2026-06-03
 - **Build Completion Date**: 2026-06-03
 
 ## LOCKED REPAIR ORDER (2026-10-20)
 - Repair 10 is IN_PROGRESS. The focused tests recorded below verify subsets only; they do not prove all 31 agents are executable, all declared tools are real, or the complete orchestrator/swarm acceptance flow.
-- Repair 11: IN_PROGRESS (implementation delivered 2026-10-23; awaiting test run and PostgreSQL migration verification on the owner's machine). Persistent, workspace-isolated semantic memory and the verified-learning lifecycle. See REPAIR-11-MEMORY-LEARNING.
-- Repair 12: runtime, observability, and recovery.
+- Repair 11: COMPLETE (2026-10-23, commit f5e92cb). Persistent, workspace-isolated semantic memory and the verified-learning lifecycle; migration verified up/down/up on PostgreSQL+pgvector; full suite 433 passed. See REPAIR-11-MEMORY-LEARNING.
+- Repair 12: IN_PROGRESS. 12a (mission runtime, recovery, automatic resume) delivered 2026-10-23, awaiting owner test run; 12b observability and 12c-12e agent tool wiring follow. See REPAIR-12A-MISSION-RUNTIME.
 - Repair 13: COMPLETE for non-paid knowledge installation, retrieval, authenticated administration, and attributed public-source research. All 31 registered agents passed individual retrieval/task verification. Live paid-LLM generation is DEFERRED to Repair 15 and is not reported as passed.
 - Repair 14: IN_PROGRESS after the user approved the cinematic UI and Voicebox integration direction. Implementation and runtime checks are recorded below; hands-on voice acceptance remains open.
 - Repair 15: production hardening and hands-on end-to-end acceptance.
@@ -12063,7 +12063,7 @@ NEXT TASK: Share the authenticated dashboard tab and confirm hands-free/micropho
 
 TASK ID: REPAIR-11-MEMORY-LEARNING
 TASK NAME: Persistent memory and verified learning
-STATUS: IN_PROGRESS (migration verified on PostgreSQL; 431/433 passed; orchestrator test-isolation fix awaiting confirmation)
+STATUS: COMPLETE
 AUDIT FINDINGS THAT DROVE THIS REPAIR:
 - core/memory/search.py returned [] for every semantic search; core/memory/embeddings.py returned an all-zero vector when no provider key was set. Neither was on a live path; memory search everywhere was keyword-only.
 - core/jarv_memory.py (the live store used by the command center, tool runtime, agent runner, and agents API) accepted workspace_id in search() but never filtered on it, so missions recalled every workspace's memories. Its owner-agent lookup took the first Agent row in the database, from any workspace.
@@ -12109,7 +12109,53 @@ COMMANDS RUN:
 - 2026-10-23 owner run, fresh pgvector/pgvector:pg16 + Docker CLI mounted: alembic upgrade head -> downgrade r13_source_attribution -> upgrade head all succeeded; pytest 431 passed, 2 failed
 - The 2 remaining failures (test_orchestrator_delegation) are pre-existing test-isolation defects: AgentRunner without a session reads specialist knowledge from settings.DATABASE_URL, test mode skips the startup catalog install, so the tests only passed against a database JARV had previously been started on. Fixed by an idempotent runtime_knowledge fixture that installs the catalog first.
 TESTS RUN:
-- Repair 11 suite passed in both owner runs. Written: tests/test_repair11_memory_learning.py (embedder, taxonomy, guard, isolation, redaction, dedupe, versioned update, scoped delete/link, evidence verification, unsafe rejection, auto-retirement with rollback, agent recall into prompt, experience capture, authenticated memory and experience APIs, redaction regression)
+- 2026-10-23 owner run after the fixture fix, fresh pgvector/pgvector:pg16: tests/test_orchestrator_delegation.py 3 passed (with the earlier run: 433 of 433)
+- Repair 11 suite passed in all owner runs. Written: tests/test_repair11_memory_learning.py (embedder, taxonomy, guard, isolation, redaction, dedupe, versioned update, scoped delete/link, evidence verification, unsafe rejection, auto-retirement with rollback, agent recall into prompt, experience capture, authenticated memory and experience APIs, redaction regression)
 RESULT: Repair 11 code and migration verified. Full suite 431 passed; the 2 failures are pre-existing orchestrator test-isolation defects, fixed in tests/test_orchestrator_delegation.py.
-BLOCKERS: Owner to confirm the two orchestrator delegation tests pass with the runtime_knowledge fixture; then this task is COMPLETE. /api/evolution improvement and version endpoints remain backed by non-persistent managers (core/evolution/improvements.py, verification.py, versioning.py); lesson verification, versioning, and rollback are now real through the learning service, and the improvement/version endpoints are scheduled for Repair 12. Learning is on whenever an agent has a database session and a workspace; the unit-test suite enables it per test via context.metadata["learning_enabled"].
-NEXT TASK: Owner runs the Repair 11 verification commands; then Repair 12.
+BLOCKERS: None for Repair 11. /api/evolution improvement and version endpoints remain backed by non-persistent managers (core/evolution/improvements.py, verification.py, versioning.py); lesson verification, versioning, and rollback are now real through the learning service, and the improvement/version endpoints are scheduled for Repair 12. Learning is on whenever an agent has a database session and a workspace; the unit-test suite enables it per test via context.metadata["learning_enabled"].
+NEXT TASK: Repair 12 - runtime, recovery, observability, and real tool wiring for all 31 agents.
+
+
+TASK ID: REPAIR-12A-MISSION-RUNTIME
+TASK NAME: Mission runtime, crash recovery, and automatic resume after approval
+STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- Every command mission ran inside the HTTP request (POST /command/execute awaited the whole pipeline). Celery workers only ran a test task and a heartbeat loop. A restart mid-mission left the task "running" forever with nothing to resume it.
+- The task state machine existed but only an API helper used it; statuses were assigned directly everywhere, and the enum ("complete") disagreed with the pipeline and dashboard ("completed").
+- Approving a blocked command set status "approved" and nothing ran. The Richard boundary chain resumed only after a second, manual /resume call, contrary to "JARV resumes automatically after approval".
+- Step-limited missions (needs_continuation) waited for a manual resume, handing routine work back to Richard.
+- Workspace ownership was not checked: _resolve_workspace used any caller-supplied workspace or the first workspace in the database; command history, command-block approvals, approval list/stats/detail, and task resume had no owner scoping (several had no authentication).
+- Celery jobs ran asyncio.run() against the pooled engine; pooled asyncpg connections are bound to the first event loop, so a long-lived worker would fail on its second job.
+- The worker container lacked the workspace mount the backend uses, so file-tool missions could not have run there.
+FILES CREATED:
+- apps/backend/app/core/runtime/__init__.py
+- apps/backend/app/core/runtime/lifecycle.py (enforced mission statuses and transitions, status history, legacy status mapping)
+- apps/backend/app/core/runtime/dispatcher.py (celery | background | sync | deferred; broker-outage fallback; resume dispatch)
+- apps/backend/app/core/runtime/missions.py (atomic claim with lease, heartbeat on its own column/session, release, crash-safe failure, automatic continuation, recovery sweeper, cancel, retry)
+- apps/backend/app/core/command/continuation.py (continuation logic shared by the runner and the tasks API)
+- apps/backend/alembic/versions/2026_10_23_1500-r12_mission_runtime.py (tasks.lease_owner, tasks.heartbeat_at; legacy "approved" commands returned to the approval queue)
+- apps/backend/tests/test_repair12_mission_runtime.py
+- apps/dashboard/src/lib/missions.ts (submit and follow a mission; cancel; retry)
+FILES MODIFIED:
+- apps/backend/app/core/command/service.py (execute split into submit + run_task; lifecycle-enforced outcomes that never overwrite a cancellation or a boundary pause; owner-scoped workspace resolution)
+- apps/backend/app/api/command.py (submit + dispatch; GET /command/tasks/{id} with history and events; cancel; retry; owner-scoped history; authenticated info)
+- apps/backend/app/api/approvals.py (router-wide auth; owner-scoped command blocks; approve re-queues with a single-mission grant and dispatches; reject cancels; approval list/stats/detail scoped to the caller)
+- apps/backend/app/api/richard.py (approve decisions dispatch the idempotent checkpoint resume automatically)
+- apps/backend/app/api/tasks.py (resume uses the shared continuation, lifecycle, and an owner check)
+- apps/backend/app/workers/tasks.py (run_mission, resume_checkpoint, recover_stale_missions)
+- apps/backend/app/workers/__init__.py, apps/backend/app/core/database.py (worker processes use a connection per use)
+- apps/backend/app/core/celery.py (mission-recovery beat every 60s; prefetch 1 for long missions)
+- apps/backend/app/core/config.py, apps/backend/app/main.py (runtime settings; recovery at API startup)
+- apps/backend/app/models/task.py (lease_owner, heartbeat_at)
+- docker-compose.yml, docker-compose.prod.yml (worker role; worker gets the workspace mount)
+- apps/dashboard/src/app/dashboard/page.tsx, apps/dashboard/src/app/dashboard/command/page.tsx (missions followed live; cancel and retry)
+- apps/backend/.env.example
+COMMANDS RUN:
+- python -m py_compile on every changed backend file: passed
+- Intent routing of every command used in the tests checked against the real _detect_intent: as intended
+- pytest and dashboard type-check: not runnable in the authoring environment; to be run on the owner's machine
+TESTS RUN:
+- None yet. Written: lifecycle, submit/block, exclusive claim, end-to-end run with lease release, recovery (re-queue, repeated-loss failure, legacy abandonment, live mission untouched), recovered mission re-runs, cancellation not claimable and not overwritten, automatic continuation with cap, command API (auth, run, status, history, cancel, owner scoping), approval re-queue with grant and owner scoping, Richard approval auto-resume with idempotent second resume.
+RESULT: Pending owner test run.
+BLOCKERS: A recovered mission re-runs its pipeline from the start; its tools are idempotent (full-content writes, classified read/build/test commands, memory de-duplication), and step-limited agent missions continue from their saved step. In celery mode a mission waits in the queue if no worker is running; set MISSION_EXECUTION_MODE=background for a single-process setup.
+NEXT TASK: Owner runs the Repair 12a verification commands; then 12b observability.

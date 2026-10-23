@@ -13,7 +13,10 @@ from datetime import datetime, timezone
 import logging
 
 from app.core.database import get_db
-from app.core.auth import CurrentUserId
+from app.core.auth import CurrentUserId, get_current_user_id
+from app.core.runtime import lifecycle
+from app.core.runtime.dispatcher import dispatch_mission
+from app.models.workspace import Workspace
 from app.models.approval import Approval
 from app.models.task import Task
 from app.models.operations import AuditLog
@@ -21,16 +24,17 @@ from app.models.company_operations import LiveOperationsFeedItem
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/approvals", tags=["approvals"])
+router = APIRouter(prefix="/api/approvals", tags=["approvals"],
+                   dependencies=[Depends(get_current_user_id)])
 
 
 # ===== Command-boundary approvals =====
 # When the command pipeline hits a Richard hard boundary it pauses the action by
 # setting the Task status to "blocked" and recording a boundary feed item. These
 # blocked command tasks ARE the approval queue the operator actions here:
-# confirm (approve) continues only the approved action, cancel (reject) drops it.
-# Destructive actions are never auto-executed; Richard confirms, cancels, or
-# intervenes.
+# approve re-queues the mission with a recorded, single-mission approval grant
+# and dispatches it to the runtime, so it resumes without a second step; reject
+# cancels it. Only the owner of the mission's workspace can decide.
 
 _BLOCKED_STATES = ("blocked",)
 
@@ -78,13 +82,26 @@ async def _write_feed(db, workspace_id, task_id, severity, title, message):
         logger.warning(f"approval feed write failed: {exc}")
 
 
+async def _owned_block(db, operator: str, task_id: UUID) -> Task:
+    task = (await db.execute(
+        select(Task).join(Workspace, Workspace.id == Task.workspace_id)
+        .where(Task.id == task_id, Workspace.owner_id == UUID(str(operator)))
+    )).scalar_one_or_none()
+    if not task:
+        raise HTTPException(status_code=404, detail="Blocked command not found")
+    if lifecycle.normalise(task.status) not in _BLOCKED_STATES:
+        raise HTTPException(status_code=400, detail=f"Task is not awaiting approval (status={task.status})")
+    return task
+
+
 @router.get("/command-blocks", response_model=List[CommandApprovalItem])
-async def list_command_blocks(db: Session = Depends(get_db)):
-    """List blocked command actions awaiting Richard's confirmation."""
+async def list_command_blocks(operator: CurrentUserId, db: Session = Depends(get_db)):
+    """List the caller's blocked command actions awaiting confirmation."""
     rows = (
         await db.execute(
             select(Task)
-            .where(Task.status.in_(_BLOCKED_STATES))
+            .join(Workspace, Workspace.id == Task.workspace_id)
+            .where(Task.status.in_(_BLOCKED_STATES), Workspace.owner_id == UUID(str(operator)))
             .order_by(Task.created_at.desc())
             .limit(100)
         )
@@ -113,20 +130,19 @@ async def approve_command_block(
     decision: ApprovalDecision = ApprovalDecision(),
     db: Session = Depends(get_db),
 ):
-    """Confirm a blocked command. Records the approval; destructive actions are
-    not auto-run — Richard remains in control and can intervene."""
-    task = (await db.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
-    if not task:
-        raise HTTPException(status_code=404, detail="Blocked command not found")
-    if task.status not in _BLOCKED_STATES:
-        raise HTTPException(status_code=400, detail=f"Task is not awaiting approval (status={task.status})")
-
-    task.status = "approved"
+    """Approve a blocked command. The approval is recorded on the mission as a
+    grant for this mission only, the mission is re-queued, and it is dispatched
+    to the runtime so it resumes automatically."""
+    task = await _owned_block(db, operator, task_id)
+    lifecycle.transition(task, lifecycle.QUEUED, actor=str(operator),
+                         reason=f"approved by operator{': ' + decision.note if decision.note else ''}")
     meta = dict(task.meta_data or {})
     meta.update({"approved_by": operator, "approval_note": decision.note,
-                 "approved_at": datetime.now(timezone.utc).isoformat()})
+                 "approved_at": datetime.now(timezone.utc).isoformat(),
+                 "approval_grant": {"task_id": str(task.id), "granted_by": operator,
+                                    "boundary_type": meta.get("boundary_type"),
+                                    "single_mission": True}})
     task.meta_data = meta
-    task.updated_at = datetime.now(timezone.utc)
 
     await _write_audit(
         db, task.workspace_id, "approval_granted",
@@ -135,9 +151,11 @@ async def approve_command_block(
     )
     await _write_feed(
         db, task.workspace_id, task.id, "success", "Approval granted",
-        f"Operator approved the blocked action. {decision.note or ''}".strip(),
+        f"Operator approved the blocked action; the mission was re-queued and resumes automatically. "
+        f"{decision.note or ''}".strip(),
     )
     await db.commit()
+    await dispatch_mission(task.id, reason="approved")
     return CommandApprovalItem(
         task_id=str(task.id), command=task.description or task.title, status=task.status,
         reason=meta.get("blocked_reason"), boundary_type=meta.get("boundary_type"),
@@ -155,18 +173,13 @@ async def reject_command_block(
     db: Session = Depends(get_db),
 ):
     """Cancel a blocked command. The action is dropped and logged."""
-    task = (await db.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
-    if not task:
-        raise HTTPException(status_code=404, detail="Blocked command not found")
-    if task.status not in _BLOCKED_STATES:
-        raise HTTPException(status_code=400, detail=f"Task is not awaiting approval (status={task.status})")
-
-    task.status = "cancelled"
+    task = await _owned_block(db, operator, task_id)
+    lifecycle.transition(task, lifecycle.CANCELLED, actor=str(operator),
+                         reason=f"rejected by operator{': ' + decision.note if decision.note else ''}")
     meta = dict(task.meta_data or {})
     meta.update({"rejected_by": operator, "rejection_note": decision.note,
                  "rejected_at": datetime.now(timezone.utc).isoformat()})
     task.meta_data = meta
-    task.updated_at = datetime.now(timezone.utc)
 
     await _write_audit(
         db, task.workspace_id, "approval_rejected",
@@ -227,6 +240,7 @@ class ApprovalStats(BaseModel):
 
 @router.get("/list", response_model=List[ApprovalInfo])
 async def list_approvals(
+    operator: CurrentUserId,
     status: Optional[str] = None,
     approval_type: Optional[str] = None,
     user_id: Optional[UUID] = None,
@@ -249,7 +263,7 @@ async def list_approvals(
     Returns:
         List of approval records
     """
-    query = select(Approval)
+    query = select(Approval).where(Approval.user_id == UUID(str(operator)))
 
     if status:
         query = query.where(Approval.status == status)
@@ -296,6 +310,7 @@ async def list_approvals(
 
 @router.get("/stats", response_model=ApprovalStats)
 async def get_approval_stats(
+    operator: CurrentUserId,
     user_id: Optional[UUID] = None,
     db: Session = Depends(get_db)
 ):
@@ -308,9 +323,8 @@ async def get_approval_stats(
     Returns:
         Approval statistics including counts and metrics
     """
-    query = select(Approval)
-    if user_id:
-        query = query.where(Approval.user_id == user_id)
+    # Callers only ever see their own approvals.
+    query = select(Approval).where(Approval.user_id == UUID(str(operator)))
 
     result = await db.execute(query)
     all_approvals = result.scalars().all()
@@ -362,6 +376,7 @@ async def get_approval_stats(
 @router.get("/{approval_id}", response_model=ApprovalInfo)
 async def get_approval(
     approval_id: UUID,
+    operator: CurrentUserId,
     db: Session = Depends(get_db)
 ):
     """
@@ -373,7 +388,8 @@ async def get_approval(
     Returns:
         Approval information
     """
-    query = select(Approval).where(Approval.id == approval_id)
+    query = select(Approval).where(Approval.id == approval_id,
+                                   Approval.user_id == UUID(str(operator)))
     result = await db.execute(query)
     approval = result.scalar_one_or_none()
 

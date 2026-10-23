@@ -41,7 +41,9 @@ celery_app.conf.update(
     },
 
     # Worker settings
-    worker_prefetch_multiplier=4,
+    # Missions are long-running; a worker reserves one at a time so a busy
+    # worker never holds queued missions another worker could run.
+    worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=1000,
     worker_disable_rate_limits=False,
 
@@ -53,6 +55,11 @@ celery_app.conf.update(
     # Beat schedule (for periodic tasks). JARV self-triggers these — no operator
     # command required. Enable/disable is controlled by SCHEDULED_JOBS below.
     beat_schedule={
+        "mission-recovery": {
+            "task": "recover_stale_missions",
+            "schedule": float(getattr(settings, "MISSION_RECOVERY_INTERVAL_SECONDS", 60)),
+            "options": {"expires": 55},
+        },
         "daily-status-loop": {
             "task": "scheduled_status_loop",
             "schedule": float(getattr(settings, "SCHEDULER_STATUS_INTERVAL_SECONDS", 120)),
@@ -70,6 +77,14 @@ SCHEDULED_JOBS = [
         "enabled": True,
         "type": "health/daily-loop",
         "description": "Autonomous read-only system status check (daily operating loop heartbeat).",
+    },
+    {
+        "name": "mission_recovery",
+        "task": "recover_stale_missions",
+        "interval_seconds": float(getattr(settings, "MISSION_RECOVERY_INTERVAL_SECONDS", 60)),
+        "enabled": True,
+        "type": "runtime/recovery",
+        "description": "Re-queue missions whose worker stopped heartbeating; re-dispatch missions no worker picked up.",
     },
     {
         "name": "self_healing_check",

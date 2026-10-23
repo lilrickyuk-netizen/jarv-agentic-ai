@@ -23,6 +23,7 @@ from app.core.state_machine import (
 )
 from app.core.database import get_db
 from app.models.task import Task
+from app.models.workspace import Workspace
 from app.models.operations import AuditLog
 from app.models.company_operations import LiveOperationsFeedItem
 
@@ -635,14 +636,11 @@ async def get_task(
 
 
 # ===== Resume (continue a step-limited / needs_continuation task) =====
-from uuid import uuid4 as _uuid4
-from datetime import timezone as _tz
 from app.core.auth import CurrentUserId
-from app.core.config import settings as _settings
-from app.core.command.tool_runtime import ToolRuntime
-from app.core.command.agent_executor import AgentExecutor
+from app.core.command.continuation import continue_mission
+from app.core.runtime import lifecycle as _lifecycle
 
-_RESUMABLE = ("needs_continuation", "partial", "running")
+_RESUMABLE = (_lifecycle.NEEDS_CONTINUATION, _lifecycle.PARTIAL)
 
 
 @router.post("/{task_id}/resume")
@@ -652,96 +650,22 @@ async def resume_task(
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """
-    Resume a step-limited / needs_continuation task. Continues the SAME task in
-    the SAME workspace (prior work persists on disk) — never restarts the mission,
-    never duplicates the workspace. Refuses blocked/approval-gated tasks.
+    Continue a step-limited (needs_continuation) or partial mission now. The
+    mission runner continues these automatically; this runs the next round
+    immediately. Same task, same workspace; nothing restarts. A running mission
+    is never resumed here: a lost worker is recovered by the runtime.
     """
     task = (await db.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
-    if task.status in ("blocked", "waiting_on_approval"):
-        raise HTTPException(status_code=400, detail=f"Task is {task.status}; clear the boundary first.")
-    if task.status not in _RESUMABLE:
-        raise HTTPException(status_code=400, detail=f"Task status '{task.status}' is not resumable.")
-
-    res = task.result if isinstance(task.result, dict) else {}
-    mission = res.get("mission") or task.description or task.title
-    root = res.get("workspace_path")
-    prior_cont = int(res.get("continuation_count", 0) or 0)
-    new_count = prior_cont + 1
-    max_cont = int(res.get("max_continuations", 4) or 4)
-
-    task.status = "resuming"
-    task.updated_at = datetime.now(_tz.utc)
+    owner = (await db.execute(select(Workspace.owner_id).where(Workspace.id == task.workspace_id))).scalar_one_or_none()
+    if owner is None or str(owner) != str(operator):
+        raise HTTPException(status_code=404, detail="Task not found")
+    status = _lifecycle.normalise(task.status)
+    if status in (_lifecycle.BLOCKED, _lifecycle.WAITING_ON_APPROVAL):
+        raise HTTPException(status_code=400, detail=f"Task is {status}; clear the boundary first.")
+    if status not in _RESUMABLE:
+        raise HTTPException(status_code=400, detail=f"Task status '{status}' is not resumable.")
+    _lifecycle.transition(task, _lifecycle.RUNNING, reason="operator resume", actor=str(operator))
     await db.flush()
-    await db.execute(select(Task).where(Task.id == task_id))  # keep session warm
-
-    db.add(LiveOperationsFeedItem(
-        id=_uuid4(), workspace_id=task.workspace_id, item_type="resume", severity="info",
-        title="Task resume started",
-        message=f"Continuation #{new_count} for task {str(task.id)[:8]} (same workspace, no restart).",
-        related_task_id=task.id, requires_action=False,
-        created_at=datetime.now(_tz.utc), updated_at=datetime.now(_tz.utc)))
-    await db.flush()
-
-    runtime = ToolRuntime(db, task.workspace_id, task.id, operator=operator)
-    executor = AgentExecutor(runtime, getattr(_settings, "DEFAULT_MODEL", "claude-sonnet-4-6"), root)
-    result = await executor.run(mission, steps_per_round=8, max_continuations=max_cont,
-                                start_continuation=prior_cont)
-
-    if result["needs_continuation"]:
-        new_status = "needs_continuation"
-        reason = "Reached the continuation cap again; checkpoint saved. Resume again to continue."
-    elif result["success"]:
-        new_status = "completed"
-        reason = None
-    elif result.get("answer"):
-        new_status = "partial"
-        reason = "Resumed and produced output but could not verify full success."
-    else:
-        new_status = "failed"
-        reason = "Resume produced no verifiable output."
-
-    checkpoint_id = str(_uuid4()) if new_status == "needs_continuation" else res.get("checkpoint_id")
-    new_result = dict(res)
-    new_result.update({
-        "response": result["answer"], "task_status": new_status,
-        "agent_needs_continuation": result["needs_continuation"],
-        "step_limit_reached": result["step_limit_reached"],
-        "continuation_required": result["needs_continuation"],
-        "continuation_count": new_count + result["continuation_count"],
-        "resume_from_step": result["resume_from_step"],
-        "remaining_steps": result["remaining_steps"],
-        "checkpoint_id": checkpoint_id,
-        "final_status_reason": reason,
-        "tool_calls": (res.get("tool_calls") or []) + runtime.calls,
-    })
-    task.status = new_status
-    task.result = new_result
-    task.tokens_used = (task.tokens_used or 0) + int(result.get("tokens", 0))
-    if new_status == "completed":
-        task.completed_at = datetime.now(_tz.utc)
-    elif new_status == "failed":
-        task.failed_at = datetime.now(_tz.utc)
-        task.error_message = reason
-    task.updated_at = datetime.now(_tz.utc)
-
-    db.add(LiveOperationsFeedItem(
-        id=_uuid4(), workspace_id=task.workspace_id, item_type="resume",
-        severity="success" if new_status == "completed" else "warning",
-        title=f"Task resume -> {new_status}",
-        message=(result["answer"] or "")[:300], related_task_id=task.id, requires_action=False,
-        created_at=datetime.now(_tz.utc), updated_at=datetime.now(_tz.utc)))
-    db.add(AuditLog(
-        id=_uuid4(), workspace_id=task.workspace_id, actor_type="operator",
-        action="task_resumed", action_category="resume",
-        description=f"Task {task.id} resumed (continuation #{new_count}) -> {new_status}",
-        target_type="task", target_id=str(task.id), after_state={"status": new_status},
-        success=new_status == "completed",
-        created_at=datetime.now(_tz.utc), updated_at=datetime.now(_tz.utc)))
-    await db.commit()
-
-    return {"task_id": str(task.id), "status": new_status,
-            "continuation_count": new_result["continuation_count"],
-            "checkpoint_id": checkpoint_id, "reason": reason,
-            "output_preview": (result["answer"] or "")[:400]}
+    return await continue_mission(db, task, operator=str(operator))

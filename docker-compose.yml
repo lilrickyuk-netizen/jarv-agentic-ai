@@ -150,6 +150,10 @@ services:
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
       ENVIRONMENT: ${ENVIRONMENT:-development}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Missions run here, so the worker sees the same workspaces as the backend.
+      JARV_PROCESS_ROLE: worker
+      WORKSPACE_HOST_ROOT: ${WORKSPACE_HOST_ROOT:-C:\\Users\\lilri\\OneDrive\\Desktop}
+      WORKSPACE_CONTAINER_ROOT: /host/workspaces
     depends_on:
       postgres:
         condition: service_healthy
@@ -157,6 +161,7 @@ services:
         condition: service_healthy
     volumes:
       - ./apps/backend:/app
+      - ${WORKSPACE_HOST_ROOT:-C:/Users/lilri/OneDrive/Desktop}:/host/workspaces
     networks:
       - jarv-network
     restart: unless-stopped
@@ -180,6 +185,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-jarv}:${POSTGRES_PASSWORD:-jarv_password}@postgres:5432/${POSTGRES_DB:-jarv}
       REDIS_URL: redis://redis:6379/0
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+      JARV_PROCESS_ROLE: worker
       ENVIRONMENT: ${ENVIRONMENT:-development}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     depends_on:

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { CockpitCore } from '@/components/cockpit-core';
 import { VoiceOperator } from '@/components/voice-operator';
 import { apiClient, HealthResponse } from '@/lib/api';
+import { runMission } from '@/lib/missions';
 import { clearTokens, getAccessToken } from '@/lib/auth';
 
 type CockpitState = 'idle' | 'listening' | 'thinking' | 'planning' | 'executing' | 'speaking' | 'approval' | 'completed' | 'failed' | 'recovery';
@@ -157,13 +158,10 @@ export default function CommandCenterPage() {
     setCommandError(null);
     setCommandResult(null);
     try {
-      const response = await apiClient.post<CommandResult>('/api/command/execute', { command: trimmed });
-      if (response.error) setCommandError(response.error);
-      if (response.data) {
-        setCommandResult(response.data);
-        void refresh();
-        return response.data;
-      }
+      const mission = await runMission(trimmed, { onUpdate: setCommandResult });
+      setCommandResult(mission);
+      void refresh();
+      return mission;
     } catch (error) {
       setCommandError(error instanceof Error ? error.message : 'Command could not be sent');
     } finally {
@@ -183,7 +181,7 @@ export default function CommandCenterPage() {
   };
 
   const state = deriveState({ loadingCommand: commandLoading, listening: voiceState === 'listening', result: commandResult, tasks, feed, pendingApprovals: approvalStats?.pending_approvals ?? null, voiceState });
-  const activeTasks = tasks.filter((task) => ['running', 'in_progress', 'executing', 'pending'].includes(task.status));
+  const activeTasks = tasks.filter((task) => ['running', 'queued', 'recovering', 'needs_continuation', 'pending'].includes(task.status));
   const implementedAgents = agents.filter((agent) => agent.is_implemented);
   const activeSwarmRuns = swarmRuns.filter((run) => run.status === 'running');
   const swarmSpend = swarmRuns.reduce((total, run) => total + (Number.isFinite(run.total_cost_usd) ? run.total_cost_usd : 0), 0);

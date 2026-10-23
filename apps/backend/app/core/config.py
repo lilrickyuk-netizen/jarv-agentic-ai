@@ -158,6 +158,15 @@ class Settings(BaseSettings):
     # Self-Healing
     SELF_HEALING_ENABLED: bool = True
 
+    # Mission runtime (Repair 12). Mode: celery | background | sync | deferred.
+    # Empty means celery, or deferred inside the unit-test suite.
+    MISSION_EXECUTION_MODE: str = ""
+    MISSION_HEARTBEAT_SECONDS: float = 15.0
+    MISSION_STALE_SECONDS: float = 120.0
+    MISSION_QUEUE_STALE_SECONDS: float = 600.0
+    MISSION_MAX_RECOVERIES: int = 2
+    MISSION_RECOVERY_INTERVAL_SECONDS: float = 60.0
+
     # Logging and Monitoring
     AUDIT_LOGGING_ENABLED: bool = True
     BOUNDARY_REPORTING_ENABLED: bool = True

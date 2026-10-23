@@ -169,6 +169,7 @@ services:
       ENVIRONMENT: production
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       SENTRY_DSN: ${SENTRY_DSN:-}
+      JARV_PROCESS_ROLE: worker
     depends_on:
       postgres:
         condition: service_healthy
@@ -206,6 +207,7 @@ services:
       ENVIRONMENT: production
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       SENTRY_DSN: ${SENTRY_DSN:-}
+      JARV_PROCESS_ROLE: worker
     depends_on:
       postgres:
         condition: service_healthy

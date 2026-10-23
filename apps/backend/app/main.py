@@ -51,6 +51,16 @@ async def lifespan(app: FastAPI):
     await init_redis()
     logger.info("Redis connection configured")
 
+    # Recover missions interrupted by a restart (workers also run this every minute).
+    if not settings.TESTING:
+        try:
+            from app.core.runtime.missions import MissionRunner
+
+            recovered = await MissionRunner().recover_stale()
+            logger.info(f"Mission recovery at startup: {recovered}")
+        except Exception as exc:  # noqa: BLE001 - startup must not fail on recovery
+            logger.error(f"Mission recovery at startup failed: {exc}", exc_info=True)
+
     # Log feature status
     logger.info(f"Swarm enabled: {settings.SWARM_ENABLED}")
     logger.info(f"Self-evolution enabled: {settings.SELF_EVOLUTION_ENABLED}")

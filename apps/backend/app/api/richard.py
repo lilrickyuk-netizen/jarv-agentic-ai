@@ -25,7 +25,7 @@ from app.core.richard.workflow import RichardBoundaryWorkflow
 from app.core.richard.service import (
     RichardBoundaryService, OK, NOT_FOUND, FORBIDDEN,
 )
-from app.models.boundary import ApprovalWindow, BoundaryApproval, BoundaryReport
+from app.models.boundary import ApprovalWindow, BoundaryApproval, BoundaryReport, SafeCheckpoint
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,39 @@ def _access_to_http(access: str) -> None:
             status_code=403,
             detail="Not authorised for this workspace's boundary case",
         )
+
+
+async def _auto_resume(db: AsyncSession, result: Dict[str, Any], operator: str) -> Dict[str, Any]:
+    """After Richard approves, resume the paused mission without a second step.
+
+    The decision is committed first so the resume (which runs in its own session,
+    usually on a worker) sees it. The resume itself is the idempotent workflow
+    resume, so a repeated approval or a redelivered job cannot run the action twice.
+    """
+    if not result.get("decided") or result.get("status") != "approved":
+        return result
+    from app.core.runtime.dispatcher import dispatch_resume
+
+    approval_id = result.get("approval_id")
+    report_id = result.get("boundary_report_id")
+    query = select(SafeCheckpoint).order_by(SafeCheckpoint.created_at.desc())
+    if approval_id:
+        query = query.where(SafeCheckpoint.approval_id == UUID(str(approval_id)))
+    elif report_id:
+        query = query.where(SafeCheckpoint.boundary_report_id == UUID(str(report_id)))
+    else:
+        return {**result, "auto_resume": {"dispatched": False, "reason": "no approval reference"}}
+    checkpoint = (await db.execute(query)).scalars().first()
+    if checkpoint is None and report_id and approval_id:
+        checkpoint = (await db.execute(
+            select(SafeCheckpoint).where(SafeCheckpoint.boundary_report_id == UUID(str(report_id)))
+            .order_by(SafeCheckpoint.created_at.desc())
+        )).scalars().first()
+    if checkpoint is None:
+        return {**result, "auto_resume": {"dispatched": False, "reason": "no checkpoint to resume"}}
+    await db.commit()
+    dispatched = await dispatch_resume(checkpoint.id, operator, reason="approved")
+    return {**result, "auto_resume": dispatched}
 
 
 def _decision_to_http(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -197,7 +230,7 @@ async def submit_decision(
         raise HTTPException(status_code=403, detail=result["reason"])
     if result.get("blocked") and "not found" in result.get("reason", ""):
         raise HTTPException(status_code=404, detail=result["reason"])
-    return result
+    return await _auto_resume(db, result, str(operator))
 
 
 @router.get("/approval-windows/{approval_id}")
@@ -313,7 +346,7 @@ async def decide_report(
         release_scope=body.release_scope, expiry_seconds=body.expiry_seconds,
         single_use=body.single_use)
     _access_to_http(access)
-    return _decision_to_http(result)
+    return await _auto_resume(db, _decision_to_http(result), str(operator))
 
 
 @router.post("/reports/{report_id}/resume")
