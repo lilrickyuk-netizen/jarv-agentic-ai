@@ -92,3 +92,6 @@ nul
 
 # Test data and assets (development only)
 apps/backend/data/
+
+# Dashboard source lib is code, not a Python build dir
+!apps/dashboard/src/lib/
