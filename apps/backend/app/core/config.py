@@ -116,6 +116,15 @@ class Settings(BaseSettings):
     # Default LLM model used by the command pipeline (Claude is the primary provider).
     DEFAULT_MODEL: str = Field(default="claude-sonnet-4-6")
 
+    # Voicebox is an optional local service; the API remains disabled until
+    # both its URL and a configured speech profile are provided.
+    VOICEBOX_BASE_URL: Optional[str] = None
+    VOICEBOX_PROFILE_ID: Optional[str] = None
+    VOICEBOX_CONNECT_TIMEOUT_SECONDS: float = Field(default=3.0, gt=0, le=30)
+    VOICEBOX_READ_TIMEOUT_SECONDS: float = Field(default=180.0, gt=0, le=600)
+    VOICEBOX_MAX_AUDIO_BYTES: int = Field(default=25 * 1024 * 1024, gt=0, le=100 * 1024 * 1024)
+    WAKEWORD_MODEL_DIR: str = "/data/voice-models/sherpa-kws-gigaspeech"
+
     @validator("APPROVED_FOLDERS", pre=True)
     def parse_folders(cls, v):
         if isinstance(v, str):

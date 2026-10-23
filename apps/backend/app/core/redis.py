@@ -4,6 +4,7 @@ JARV Backend - Redis Connection
 Provides Redis client for caching, session storage, and worker queue.
 """
 import logging
+import os
 from typing import Optional
 from redis.asyncio import Redis, ConnectionPool
 from redis.exceptions import ConnectionError, TimeoutError
@@ -28,7 +29,11 @@ async def init_redis() -> Redis:
     # run without a real Redis server. This branch is gated strictly on
     # settings.TESTING (set only by tests/conftest.py); production and dev are
     # unaffected and continue to use a real Redis connection pool below.
-    if getattr(settings, "TESTING", False):
+    use_test_double = (
+        getattr(settings, "TESTING", False)
+        and os.getenv("JARV_TEST_REAL_REDIS") != "1"
+    )
+    if use_test_double:
         import fakeredis.aioredis as _fakeredis  # dev/test dependency only
 
         class _TestFakeRedis(_fakeredis.FakeRedis):
@@ -60,7 +65,7 @@ async def init_redis() -> Redis:
 
         # Test connection
         await _redis_client.ping()
-        logger.info(f"Redis connected: {settings.REDIS_URL}")
+        logger.info("Redis connection established")
 
         return _redis_client
 

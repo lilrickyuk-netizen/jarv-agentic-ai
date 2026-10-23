@@ -12,6 +12,7 @@ from app.models.workspace import Workspace
 from app.models.agent import Agent
 from app.models.task import Task, task_dependencies
 from app.models.memory import Memory
+from app.models.agent_knowledge import AgentKnowledge
 from app.models.session import AgentSession, CheckpointState
 from app.models.approval import Approval
 from app.models.tool import ToolUse
@@ -106,6 +107,8 @@ from app.models.operations import (
 
 # Content models
 from app.models.content import ContentItem, OnboardingFlow, CommunityItem
+from app.models.integrations import ApiCredential, CalendarEvent, OutboundMessageDraft, WebhookEndpoint
+from app.models.company_crm import CRMContact, CRMDeal
 
 __all__ = [
     # Base
@@ -119,6 +122,7 @@ __all__ = [
     "Task",
     "task_dependencies",
     "Memory",
+    "AgentKnowledge",
     "AgentSession",
     "CheckpointState",
     "Approval",
@@ -191,4 +195,10 @@ __all__ = [
     "ContentItem",
     "OnboardingFlow",
     "CommunityItem",
+    "ApiCredential",
+    "WebhookEndpoint",
+    "CalendarEvent",
+    "OutboundMessageDraft",
+    "CRMContact",
+    "CRMDeal",
 ]

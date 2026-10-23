@@ -17,9 +17,15 @@ from pydantic import BaseModel, Field, EmailStr
 from datetime import datetime
 import logging
 import os
+import json
+from uuid import UUID, uuid4
+from sqlalchemy import select, or_
 
 from app.core.tools import ToolBase, ToolConfig, ToolContext, ToolResult
 from app.core.agents.base import AuthorityLevel
+from app.core.security import redact_secrets
+from app.tools.memory.storage import _memory_scope
+from app.models.integrations import OutboundMessageDraft
 
 logger = logging.getLogger(__name__)
 
@@ -93,36 +99,39 @@ class EmailSendTool(ToolBase):
         total_recipients = len(to) + len(cc) + len(bcc)
 
         try:
-            # Check if email service is configured
-            if not is_email_configured():
-                # LOCAL DRAFT MODE: Save email as draft in database
-                from uuid import uuid4
-                draft_id = str(uuid4())
-
-                # In production: Save to EmailDraft table in database
-                logger.info(f"Email service not configured. Saving draft: {draft_id}")
-                logger.info(f"Draft: To={to}, Subject='{subject}'")
-
-                return self.create_result(
-                    success=True,
-                    result_data={
-                        "message_id": draft_id,
-                        "status": "draft",
-                        "mode": "draft",
-                        "recipients": total_recipients,
-                    },
-                    output_text=f"Email saved as draft (service not configured). Draft ID: {draft_id}",
-                )
-
-            # LIVE MODE: Would send via configured email service
-            # This code path only executes if EMAIL_SERVICE_ENABLED=true
-            logger.warning("Email service enabled but SMTP/API integration not implemented yet")
-
+            if is_email_configured():
+                return self.create_result(success=False,
+                    error_message="Email provider flag is enabled, but no provider adapter is installed; no message was sent.")
+            if not self._has_approval(context):
+                return self.create_result(success=False, requires_approval=True,
+                    error_message="Email draft creation requires an approved execution context.")
+            db, agent_id = await _memory_scope(context)
+            draft = OutboundMessageDraft(
+                id=uuid4(), owner_id=UUID(str(context.user_id)),
+                workspace_id=UUID(str(context.workspace_id)), agent_id=agent_id,
+                channel_type="email", destination=json.dumps({"to": to, "cc": cc, "bcc": bcc}),
+                subject=redact_secrets(subject), body=redact_secrets(body),
+                meta_data={"html": input_data.get("html", False),
+                           "attachment_references": attachments,
+                           "attachments_included": False},
+                status="draft",
+            )
+            db.add(draft)
+            await db.flush()
+            draft_id = str(draft.id)
             return self.create_result(
-                success=False,
-                error_message="Email service enabled but send integration not yet implemented. Use draft mode.",
+                success=True,
+                result_data={
+                    "message_id": draft_id, "status": "draft", "mode": "draft",
+                    "recipients": total_recipients, "sent": False,
+                    "attachments_included": False,
+                    "limitations": ["Email delivery is disabled; this record is only a saved draft."],
+                },
+                output_text=f"Saved email draft {draft_id}; no message was sent.",
             )
 
+        except PermissionError as e:
+            return self.create_result(success=False, error_message=str(e))
         except Exception as e:
             return self.create_result(
                 success=False,
@@ -196,30 +205,31 @@ class EmailReadTool(ToolBase):
         unread_only = input_data["unread_only"]
 
         try:
-            if not is_email_configured():
-                # LOCAL MODE: Return local drafts from database
-                # In production: Query EmailDraft table
-                emails = []
-                logger.info("Email service not configured. Returning local drafts.")
-
-                return self.create_result(
-                    success=True,
-                    result_data={
-                        "emails": emails,
-                        "count": len(emails),
-                        "mode": "local",
-                    },
-                    output_text=f"Retrieved {len(emails)} local draft(s) (service not configured)",
-                )
-
-            # LIVE MODE: Would fetch from configured email service
-            logger.warning("Email service enabled but fetch integration not implemented yet")
-
+            if is_email_configured():
+                return self.create_result(success=False, error_message="Email provider adapter is not installed; mailbox reads are unavailable.")
+            if folder.lower() not in ("draft", "drafts") or unread_only:
+                return self.create_result(success=False, error_message="Only locally saved drafts are available; inbox/unread reads require a provider.")
+            db, agent_id = await _memory_scope(context)
+            rows = (await db.execute(select(OutboundMessageDraft).where(
+                OutboundMessageDraft.owner_id == UUID(str(context.user_id)),
+                OutboundMessageDraft.workspace_id == UUID(str(context.workspace_id)),
+                OutboundMessageDraft.agent_id == agent_id,
+                OutboundMessageDraft.channel_type == "email",
+                OutboundMessageDraft.status == "draft",
+            ).order_by(OutboundMessageDraft.created_at.desc()).limit(limit))).scalars().all()
+            emails = [{
+                "message_id": str(row.id), "from_addr": "local-draft",
+                "subject": row.subject or "", "date": row.created_at.isoformat(),
+                "preview": row.body[:160], "read": True,
+                "has_attachments": bool((row.meta_data or {}).get("attachment_references")),
+            } for row in rows]
             return self.create_result(
-                success=False,
-                error_message="Email service enabled but fetch integration not yet implemented. Use local mode.",
+                success=True, result_data={"emails": emails, "count": len(emails), "mode": "local_drafts"},
+                output_text=f"Retrieved {len(emails)} saved email draft(s); no mailbox was queried.",
             )
 
+        except PermissionError as e:
+            return self.create_result(success=False, error_message=str(e))
         except Exception as e:
             return self.create_result(
                 success=False,
@@ -283,30 +293,38 @@ class EmailSearchTool(ToolBase):
         limit = input_data["limit"]
 
         try:
-            if not is_email_configured():
-                # LOCAL MODE: Search local drafts in database
-                # In production: Query EmailDraft table with search
-                emails = []
-                logger.info(f"Email service not configured. Searching local drafts: {query}")
-
-                return self.create_result(
-                    success=True,
-                    result_data={
-                        "emails": emails,
-                        "count": len(emails),
-                        "mode": "local",
-                    },
-                    output_text=f"Found {len(emails)} matching local draft(s) (service not configured)",
-                )
-
-            # LIVE MODE: Would search via configured email service
-            logger.warning("Email service enabled but search integration not implemented yet")
-
+            if is_email_configured():
+                return self.create_result(success=False, error_message="Email provider adapter is not installed; mailbox search is unavailable.")
+            db, agent_id = await _memory_scope(context)
+            stmt = select(OutboundMessageDraft).where(
+                OutboundMessageDraft.owner_id == UUID(str(context.user_id)),
+                OutboundMessageDraft.workspace_id == UUID(str(context.workspace_id)),
+                OutboundMessageDraft.agent_id == agent_id,
+                OutboundMessageDraft.channel_type == "email",
+                OutboundMessageDraft.status == "draft",
+                or_(OutboundMessageDraft.subject.ilike(f"%{query}%"),
+                    OutboundMessageDraft.body.ilike(f"%{query}%")),
+            )
+            if folder not in (None, "draft", "drafts"):
+                return self.create_result(success=False, error_message="Only locally saved drafts can be searched without a provider.")
+            rows = (await db.execute(stmt.order_by(OutboundMessageDraft.created_at.desc()).limit(limit))).scalars().all()
+            emails = [{
+                "message_id": str(row.id), "from_addr": "local-draft",
+                "subject": row.subject or "", "date": row.created_at.isoformat(),
+                "preview": row.body[:160], "read": True,
+                "has_attachments": bool((row.meta_data or {}).get("attachment_references")),
+            } for row in rows]
+            if input_data.get("from_addr"):
+                emails = [row for row in emails if row["from_addr"] == input_data["from_addr"]]
+            if input_data.get("has_attachments") is not None:
+                emails = [row for row in emails if row["has_attachments"] == input_data["has_attachments"]]
             return self.create_result(
-                success=False,
-                error_message="Email service enabled but search integration not yet implemented. Use local mode.",
+                success=True, result_data={"emails": emails, "count": len(emails), "mode": "local_drafts"},
+                output_text=f"Found {len(emails)} matching saved drafts; no mailbox was queried.",
             )
 
+        except PermissionError as e:
+            return self.create_result(success=False, error_message=str(e))
         except Exception as e:
             return self.create_result(
                 success=False,

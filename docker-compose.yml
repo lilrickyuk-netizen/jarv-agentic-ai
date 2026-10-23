@@ -56,6 +56,9 @@ services:
       # path below. JARV only inspects approved workspaces inside this root.
       WORKSPACE_HOST_ROOT: ${WORKSPACE_HOST_ROOT:-C:\\Users\\lilri\\OneDrive\\Desktop}
       WORKSPACE_CONTAINER_ROOT: /host/workspaces
+      VOICEBOX_BASE_URL: ${VOICEBOX_BASE_URL:-http://voicebox:17493}
+      VOICEBOX_PROFILE_ID: ${VOICEBOX_PROFILE_ID:-}
+      WAKEWORD_MODEL_DIR: /data/voice-models/sherpa-kws-gigaspeech
     ports:
       - "8000:8000"
     depends_on:
@@ -65,6 +68,7 @@ services:
         condition: service_healthy
     volumes:
       - ./apps/backend:/app
+      - voice_models:/data/voice-models
       # Approved workspace root. Mounted read-write so JARV can perform
       # AUTHORITY-GATED, scope-checked file writes inside approved workspaces.
       # Safety is enforced in-app (registered-workspace allowlist + banned/secret
@@ -82,6 +86,7 @@ services:
     container_name: jarv-dashboard
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      JARV_BACKEND_URL: http://backend:8000
       NODE_ENV: production
     ports:
       - "3000:3000"
@@ -98,6 +103,40 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+
+  # Voicebox is reachable only on the private Compose network. Its API has no
+  # authentication, so the dashboard talks to it exclusively through JARV.
+  voicebox:
+    profiles: ["voice"]
+    build:
+      context: ./services/voicebox
+      dockerfile: Dockerfile
+      args:
+        VOICEBOX_REF: 8af7efe62fab8d33e2a5dfbedabaa45f68a5184f
+    container_name: jarv-voicebox
+    restart: unless-stopped
+    expose:
+      - "17493"
+    volumes:
+      - voicebox_data:/app/data
+      - voicebox_models:/home/voicebox/.cache/huggingface
+    environment:
+      LOG_LEVEL: info
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:17493/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+    networks:
+      - jarv-network
 
   # Celery Worker
   worker:
@@ -189,6 +228,12 @@ volumes:
   postgres_data:
     driver: local
   redis_data:
+    driver: local
+  voice_models:
+    driver: local
+  voicebox_data:
+    driver: local
+  voicebox_models:
     driver: local
 
 networks:

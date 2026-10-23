@@ -5,10 +5,17 @@ Manages swarm runs and sub-agent lifecycle.
 """
 from typing import Optional, Dict, Any, List
 from uuid import UUID, uuid4
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 from enum import Enum
 import logging
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.agent import Agent
+from app.models.swarm import SubAgent, SubAgentLog, SubAgentTask, SwarmRun
+from app.models.task import Task
+from app.models.workspace import Workspace
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +89,9 @@ class SwarmManager:
     async def create_swarm_run(
         self,
         swarm: SwarmRunCreate,
+        *,
+        db: AsyncSession,
+        authenticated_user_id: UUID | str,
     ) -> UUID:
         """
         Create swarm run.
@@ -95,6 +105,40 @@ class SwarmManager:
             Swarm run ID
         """
         try:
+            owner_id = UUID(str(authenticated_user_id))
+            workspace = (await db.execute(
+                select(Workspace).where(
+                    Workspace.id == swarm.workspace_id,
+                    Workspace.owner_id == owner_id,
+                    Workspace.is_active.is_(True),
+                )
+            )).scalar_one_or_none()
+            if workspace is None:
+                raise PermissionError("Authenticated user does not own an active workspace")
+            if not workspace.swarm_enabled:
+                raise PermissionError("Swarm execution is disabled for this workspace")
+
+            lead = (await db.execute(
+                select(Agent).where(
+                    Agent.id == swarm.lead_agent_id,
+                    Agent.workspace_id == workspace.id,
+                    Agent.is_active.is_(True),
+                )
+            )).scalar_one_or_none()
+            if lead is None:
+                raise ValueError("Lead agent must be active and belong to the workspace")
+            if swarm.max_sub_agents > workspace.max_subagents:
+                raise ValueError("Requested swarm size exceeds the workspace limit")
+            if swarm.parent_task_id is not None:
+                parent_task = (await db.execute(
+                    select(Task.id).where(
+                        Task.id == swarm.parent_task_id,
+                        Task.workspace_id == workspace.id,
+                    )
+                )).scalar_one_or_none()
+                if parent_task is None:
+                    raise PermissionError("Parent task is outside the swarm workspace")
+
             # Validate swarm limits
             from app.core.swarm.limits import check_swarm_limits
             can_create, reason = await check_swarm_limits(
@@ -105,27 +149,26 @@ class SwarmManager:
             if not can_create:
                 raise ValueError(f"Cannot create swarm: {reason}")
 
-            # In production: Insert into database
-            # from app.models.swarm import SwarmRun as DBSwarmRun
-            # from app.core.database import get_db
-            # async with get_db() as db:
-            #     db_swarm = DBSwarmRun(
-            #         workspace_id=swarm.workspace_id,
-            #         lead_agent_id=swarm.lead_agent_id,
-            #         lead_agent_name=swarm.lead_agent_name,
-            #         parent_task_id=swarm.parent_task_id,
-            #         swarm_purpose=swarm.swarm_purpose,
-            #         status=SwarmStatus.INITIALIZING,
-            #         max_sub_agents=swarm.max_sub_agents,
-            #         timeout_seconds=swarm.timeout_seconds,
-            #         started_at=datetime.utcnow(),
-            #         metadata=swarm.metadata,
-            #     )
-            #     db.add(db_swarm)
-            #     await db.commit()
-            #     swarm_id = db_swarm.id
-
-            swarm_id = uuid4()
+            db_swarm = SwarmRun(
+                workspace_id=workspace.id,
+                parent_agent_id=lead.id,
+                swarm_type="delegated",
+                objective=swarm.swarm_purpose,
+                status=SwarmStatus.INITIALIZING.value,
+                max_subagents=swarm.max_sub_agents,
+                actual_subagents=0,
+                coordination_strategy="parallel",
+                started_at=datetime.now(timezone.utc),
+                meta_data={
+                    **swarm.metadata,
+                    "authenticated_owner_id": str(owner_id),
+                    "parent_task_id": str(swarm.parent_task_id) if swarm.parent_task_id else None,
+                    "timeout_seconds": swarm.timeout_seconds,
+                },
+            )
+            db.add(db_swarm)
+            await db.flush()
+            swarm_id = db_swarm.id
 
             self.logger.info(
                 f"Created swarm run: {swarm.swarm_purpose}",
@@ -155,11 +198,14 @@ class SwarmManager:
         authority_level: int,
         allowed_tools: List[str],
         timeout_seconds: int = 1800,
+        *,
+        db: AsyncSession,
+        authenticated_user_id: UUID | str,
     ) -> UUID:
         """
         Spawn sub-agent for swarm run.
 
-        In production: Create SubAgent record and dispatch to worker.
+        Persist and execute one scoped child through AgentRunner.
 
         Args:
             swarm_run_id: Swarm run ID
@@ -173,30 +219,211 @@ class SwarmManager:
             Sub-agent ID
         """
         try:
-            # In production:
-            # 1. Load swarm run
-            # 2. Verify swarm is active
-            # 3. Check sub-agent count < max_sub_agents
-            # 4. Verify authority_level <= lead_agent_authority
-            # 5. Create SubAgent record
-            # 6. Dispatch to worker queue
-            # 7. Update swarm active_sub_agents count
-            # 8. Return sub-agent ID
+            owner_id = UUID(str(authenticated_user_id))
+            swarm = (await db.execute(
+                select(SwarmRun).where(SwarmRun.id == swarm_run_id)
+            )).scalar_one_or_none()
+            if swarm is None:
+                raise ValueError("Swarm run not found")
+            workspace = (await db.execute(
+                select(Workspace).where(
+                    Workspace.id == swarm.workspace_id,
+                    Workspace.owner_id == owner_id,
+                    Workspace.is_active.is_(True),
+                )
+            )).scalar_one_or_none()
+            if workspace is None:
+                raise PermissionError("Authenticated user does not own the swarm workspace")
+            if swarm.status not in (SwarmStatus.INITIALIZING.value, SwarmStatus.RUNNING.value):
+                raise ValueError("Sub-agents can only be added to an active swarm")
 
-            from app.core.swarm.sub_agent import SubAgentManager
-            sub_agent_manager = SubAgentManager()
+            lead = (await db.execute(
+                select(Agent).where(
+                    Agent.id == swarm.parent_agent_id,
+                    Agent.workspace_id == swarm.workspace_id,
+                    Agent.is_active.is_(True),
+                )
+            )).scalar_one_or_none()
+            if lead is None:
+                raise ValueError("Swarm lead agent is unavailable")
+            if authority_level < 0 or authority_level > lead.authority_level:
+                raise PermissionError("Sub-agent authority exceeds the lead agent")
+            requested_tools = set(allowed_tools)
+            if not requested_tools.issubset(set(lead.allowed_tools or [])):
+                raise PermissionError("Sub-agent tools exceed the lead agent's allowed tools")
 
-            from app.core.swarm.sub_agent import SubAgentCreate
-            sub_agent_data = SubAgentCreate(
-                swarm_run_id=swarm_run_id,
-                agent_template=agent_template,
-                task_description=task_description,
-                authority_level=authority_level,
-                allowed_tools=allowed_tools,
-                timeout_seconds=timeout_seconds,
+            from app.core.agents.registry import get_registry
+
+            agent_registry = get_registry()
+            if not agent_registry.is_implemented(agent_template):
+                raise ValueError("Sub-agent template is not a registered implemented agent")
+            agent_meta = agent_registry.get_metadata(agent_template)
+            if agent_meta is None:
+                raise ValueError("Sub-agent template metadata is unavailable")
+            if authority_level < agent_meta.required_authority_level:
+                raise PermissionError("Sub-agent authority is below the agent's registered minimum")
+            if not requested_tools.issubset(set(agent_meta.default_tools or [])):
+                raise PermissionError("Sub-agent requested tools are not declared by its agent")
+
+            active_count = (await db.execute(
+                select(func.count()).select_from(SubAgent).where(
+                    SubAgent.swarm_run_id == swarm.id,
+                    SubAgent.status.notin_((
+                        SubAgentStatus.COMPLETED.value,
+                        SubAgentStatus.FAILED.value,
+                        SubAgentStatus.TIMED_OUT.value,
+                        SubAgentStatus.DISSOLVED.value,
+                    )),
+                )
+            )).scalar_one()
+            if active_count >= swarm.max_subagents:
+                raise ValueError("Swarm sub-agent capacity has been reached")
+
+            from app.core.security import redact_secrets, redact_text
+            from app.core.agents.runner import AgentRunner
+
+            now = datetime.now(timezone.utc)
+            safe_description = redact_text(task_description)
+
+            child = SubAgent(
+                swarm_run_id=swarm.id,
+                subagent_name=agent_template[:255],
+                subagent_type=agent_template[:50],
+                role="scoped_subagent",
+                specialization=agent_template[:255],
+                model_provider=lead.model_provider,
+                model_name=lead.model_name,
+                system_prompt=safe_description,
+                status=SubAgentStatus.WORKING.value,
+                meta_data={
+                    "parent_agent_id": str(lead.id),
+                    "workspace_scope": "parent_swarm",
+                    "authority_level": int(authority_level),
+                    "allowed_tools": sorted(requested_tools),
+                    "timeout_seconds": int(timeout_seconds),
+                },
             )
+            db.add(child)
+            await db.flush()
 
-            sub_agent_id = await sub_agent_manager.create_sub_agent(sub_agent_data)
+            child_agent = Agent(
+                id=uuid4(),
+                name=agent_template,
+                agent_type=agent_template,
+                workspace_id=workspace.id,
+                is_active=True,
+                is_subagent=True,
+                parent_agent_id=lead.id,
+                config={
+                    "swarm_run_id": str(swarm.id),
+                    "subagent_id": str(child.id),
+                    "workspace_scope": "parent_swarm",
+                },
+                system_prompt=safe_description,
+                model_provider=lead.model_provider,
+                model_name=lead.model_name,
+                authority_level=int(authority_level),
+                allowed_tools=sorted(requested_tools),
+                blocked_tools=[],
+                current_state="working",
+            )
+            db.add(child_agent)
+            await db.flush()
+
+            task_row = Task(
+                id=uuid4(),
+                workspace_id=workspace.id,
+                assigned_agent_id=child_agent.id,
+                title=f"Swarm task for {agent_template}"[:500],
+                description=safe_description,
+                task_type="subagent_task",
+                status="running",
+                priority=5,
+                context={
+                    "swarm_run_id": str(swarm.id),
+                    "subagent_id": str(child.id),
+                    "parent_agent_id": str(lead.id),
+                    "authority_level": int(authority_level),
+                    "allowed_tools": sorted(requested_tools),
+                },
+            )
+            db.add(task_row)
+            child.meta_data = {
+                **(child.meta_data or {}),
+                "agent_id": str(child_agent.id),
+            }
+            child_task = SubAgentTask(
+                subagent_id=child.id,
+                task_description=safe_description,
+                task_type=agent_template,
+                status="in_progress",
+                started_at=now,
+                meta_data={"parent_agent_id": str(lead.id), "task_id": str(task_row.id)},
+            )
+            db.add(child_task)
+            child.meta_data = {**(child.meta_data or {}), "task_id": str(task_row.id)}
+            swarm.actual_subagents = active_count + 1
+            swarm.status = SwarmStatus.RUNNING.value
+            await db.flush()
+
+            execution = await AgentRunner(model=lead.model_name).run_agent(
+                agent_name=agent_template,
+                task=task_description,
+                workspace_id=workspace.id,
+                user_id=owner_id,
+                db=db,
+                agent_id=child_agent.id,
+                task_id=task_row.id,
+                session_id=swarm.session_id,
+                authority_ceiling=int(authority_level),
+                allowed_tools_ceiling=sorted(requested_tools),
+                parent_agent_id=lead.id,
+            )
+            success = bool(execution.get("success") and execution.get("output_text"))
+            completed_at = datetime.now(timezone.utc)
+            outcome = redact_secrets({
+                "agent": agent_template,
+                "success": success,
+                "output_text": execution.get("output_text"),
+                "result_data": execution.get("result_data") or {},
+                "error": execution.get("error"),
+                "tokens": int(execution.get("tokens") or 0),
+            })
+            child.status = (SubAgentStatus.COMPLETED.value if success
+                            else SubAgentStatus.FAILED.value)
+            child.started_at = now
+            child.completed_at = completed_at
+            child.success = success
+            child.tokens_used = int(execution.get("tokens") or 0)
+            child.result = outcome
+            child.meta_data = {**(child.meta_data or {}), "verified_output": success}
+            child_agent.current_state = "completed" if success else "failed"
+            child_agent.last_active_at = completed_at
+            child_agent.total_executions += 1
+            child_agent.successful_executions += int(success)
+            child_agent.failed_executions += int(not success)
+            child_agent.total_tokens_used += int(execution.get("tokens") or 0)
+            task_row.status = "completed" if success else "failed"
+            task_row.completed_at = completed_at
+            task_row.result = {"verified": success, "subagent_id": str(child.id)}
+            task_row.error_message = redact_text(str(execution.get("error") or "")) or None
+            child_task.status = "completed" if success else "failed"
+            child_task.completed_at = completed_at
+            child_task.success = success
+            child_task.result = outcome
+            db.add_all([
+                SubAgentLog(
+                    subagent_id=child.id,
+                    log_level="info" if success else "error",
+                    log_message=redact_text(
+                        f"Child execution {'completed' if success else 'failed'}: "
+                        f"{execution.get('error') or execution.get('output_text') or 'no output'}"),
+                    log_category="execution_result",
+                    context={"parent_agent_id": str(lead.id), "task_id": str(task_row.id)},
+                ),
+            ])
+            await db.flush()
+            sub_agent_id = child.id
 
             self.logger.info(
                 f"Spawned sub-agent: {agent_template}",
@@ -412,9 +639,12 @@ class SwarmManager:
 _swarm_manager = SwarmManager()
 
 
-async def create_swarm_run(swarm: SwarmRunCreate) -> UUID:
+async def create_swarm_run(
+    swarm: SwarmRunCreate, *, db: AsyncSession, authenticated_user_id: UUID | str,
+) -> UUID:
     """Global function to create swarm run"""
-    return await _swarm_manager.create_swarm_run(swarm)
+    return await _swarm_manager.create_swarm_run(
+        swarm, db=db, authenticated_user_id=authenticated_user_id)
 
 
 async def spawn_sub_agent(
@@ -423,6 +653,9 @@ async def spawn_sub_agent(
     task_description: str,
     authority_level: int,
     allowed_tools: List[str],
+    *,
+    db: AsyncSession,
+    authenticated_user_id: UUID | str,
     **kwargs
 ) -> UUID:
     """Global function to spawn sub-agent"""
@@ -432,6 +665,8 @@ async def spawn_sub_agent(
         task_description,
         authority_level,
         allowed_tools,
+        db=db,
+        authenticated_user_id=authenticated_user_id,
         **kwargs
     )
 

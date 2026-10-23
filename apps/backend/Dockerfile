@@ -57,6 +57,7 @@ RUN apt-get update && apt-get install -y \
 
 # Create non-root user for security
 RUN groupadd -r jarv && useradd -r -g jarv jarv
+RUN mkdir -p /data/voice-models && chown -R jarv:jarv /data/voice-models
 
 # Copy installed dependencies and application from builder
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages

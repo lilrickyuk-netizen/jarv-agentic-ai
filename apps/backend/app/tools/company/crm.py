@@ -18,9 +18,14 @@ from typing import Dict, Any, Type, List, Optional
 from pydantic import BaseModel, Field, EmailStr
 import logging
 import os
+from datetime import date
+from uuid import UUID, uuid4
+from sqlalchemy import or_, select
 
 from app.core.tools import ToolBase, ToolConfig, ToolContext, ToolResult
 from app.core.agents.base import AuthorityLevel
+from app.tools.memory.storage import _memory_scope
+from app.models.company_crm import CRMContact, CRMDeal
 
 logger = logging.getLogger(__name__)
 
@@ -84,30 +89,20 @@ class CrmCreateContactTool(ToolBase):
         company = input_data.get("company")
 
         try:
-            # LOCAL DATABASE: Create contact in database
-            from uuid import uuid4
-            contact_id = str(uuid4())
-
-            # In production: Insert into Contact table (from Phase 2)
-            # from app.models.crm import Contact
-            # from app.core.database import get_db
-            # async for session in get_db():
-            #     contact = Contact(
-            #         id=contact_id,
-            #         name=name,
-            #         email=email,
-            #         phone=phone,
-            #         company=company,
-            #         ...
-            #     )
-            #     session.add(contact)
-            #     await session.commit()
+            db, agent_id = await _memory_scope(context)
+            contact = CRMContact(
+                id=uuid4(), owner_id=UUID(str(context.user_id)),
+                workspace_id=UUID(str(context.workspace_id)), agent_id=agent_id,
+                name=name, email=email, phone=phone, company=company,
+                title=input_data.get("title"), notes=input_data.get("notes"), is_active=True,
+            )
+            db.add(contact)
+            await db.flush()
+            contact_id = str(contact.id)
 
             logger.info(f"Created CRM contact in local database: {contact_id}")
 
-            mode = "synced" if is_crm_sync_enabled() else "local"
-            if is_crm_sync_enabled():
-                logger.info(f"CRM sync enabled - would sync contact to external CRM")
+            mode = "local"
 
             return self.create_result(
                 success=True,
@@ -120,6 +115,8 @@ class CrmCreateContactTool(ToolBase):
                 output_text=f"Created contact '{name}' in local CRM database",
             )
 
+        except PermissionError as e:
+            return self.create_result(success=False, error_message=str(e))
         except Exception as e:
             return self.create_result(success=False, error_message=f"Failed to create contact: {str(e)}")
 
@@ -175,12 +172,24 @@ class CrmUpdateContactTool(ToolBase):
         contact_id = input_data["contact_id"]
 
         try:
-            updated_fields = [k for k, v in input_data.items() if k != "contact_id" and v is not None]
-
-            # In production: Update Contact table in database
+            db, agent_id = await _memory_scope(context)
+            contact = (await db.execute(select(CRMContact).where(
+                CRMContact.id == UUID(contact_id),
+                CRMContact.owner_id == UUID(str(context.user_id)),
+                CRMContact.workspace_id == UUID(str(context.workspace_id)),
+                CRMContact.agent_id == agent_id,
+            ))).scalar_one_or_none()
+            if contact is None:
+                return self.create_result(success=False, error_message="Contact not found in this workspace")
+            updated_fields = []
+            for field in ("name", "email", "phone", "company", "title", "notes"):
+                if input_data.get(field) is not None:
+                    setattr(contact, field, input_data[field])
+                    updated_fields.append(field)
+            await db.flush()
             logger.info(f"Updated CRM contact in local database: {contact_id}")
 
-            mode = "synced" if is_crm_sync_enabled() else "local"
+            mode = "local"
 
             return self.create_result(
                 success=True,
@@ -192,6 +201,8 @@ class CrmUpdateContactTool(ToolBase):
                 output_text=f"Updated contact in local CRM database ({len(updated_fields)} fields)",
             )
 
+        except PermissionError as e:
+            return self.create_result(success=False, error_message=str(e))
         except Exception as e:
             return self.create_result(success=False, error_message=f"Failed to update contact: {str(e)}")
 
@@ -253,12 +264,25 @@ class CrmSearchContactsTool(ToolBase):
         limit = input_data["limit"]
 
         try:
-            # In production: Query Contact table with search
-            # SELECT * FROM contacts WHERE name LIKE %query% OR email LIKE %query% OR company LIKE %query%
-            contacts = []
+            db, agent_id = await _memory_scope(context)
+            stmt = select(CRMContact).where(
+                CRMContact.owner_id == UUID(str(context.user_id)),
+                CRMContact.workspace_id == UUID(str(context.workspace_id)),
+                CRMContact.agent_id == agent_id,
+                CRMContact.is_active.is_(True),
+                or_(CRMContact.name.ilike(f"%{query}%"),
+                    CRMContact.email.ilike(f"%{query}%"),
+                    CRMContact.company.ilike(f"%{query}%")),
+            )
+            if input_data.get("company_filter"):
+                stmt = stmt.where(CRMContact.company == input_data["company_filter"])
+            rows = (await db.execute(stmt.order_by(CRMContact.name).limit(limit))).scalars().all()
+            contacts = [{
+                "contact_id": str(row.id), "name": row.name, "email": row.email,
+                "phone": row.phone, "company": row.company, "title": row.title,
+            } for row in rows]
             logger.info(f"Searching CRM contacts in local database: {query}")
-
-            mode = "synced" if is_crm_sync_enabled() else "local"
+            mode = "local"
 
             return self.create_result(
                 success=True,
@@ -270,6 +294,8 @@ class CrmSearchContactsTool(ToolBase):
                 output_text=f"Found {len(contacts)} contact(s) in local CRM database",
             )
 
+        except PermissionError as e:
+            return self.create_result(success=False, error_message=str(e))
         except Exception as e:
             return self.create_result(success=False, error_message=f"Failed to search contacts: {str(e)}")
 
@@ -326,13 +352,31 @@ class CrmCreateDealTool(ToolBase):
         value = input_data.get("value")
 
         try:
-            from uuid import uuid4
-            deal_id = str(uuid4())
-
-            # In production: Insert into Deal table (from Phase 2)
+            db, agent_id = await _memory_scope(context)
+            contact_id = input_data.get("contact_id")
+            if contact_id:
+                contact = (await db.execute(select(CRMContact.id).where(
+                    CRMContact.id == UUID(contact_id),
+                    CRMContact.owner_id == UUID(str(context.user_id)),
+                    CRMContact.workspace_id == UUID(str(context.workspace_id)),
+                    CRMContact.agent_id == agent_id,
+                ))).scalar_one_or_none()
+                if contact is None:
+                    return self.create_result(success=False, error_message="Associated contact is outside this workspace")
+            expected_close = input_data.get("expected_close_date")
+            deal = CRMDeal(
+                id=uuid4(), owner_id=UUID(str(context.user_id)),
+                workspace_id=UUID(str(context.workspace_id)), agent_id=agent_id,
+                contact_id=UUID(contact_id) if contact_id else None,
+                title=title, value=value, stage=input_data.get("stage", "prospecting"),
+                expected_close_date=date.fromisoformat(expected_close) if expected_close else None,
+                notes=input_data.get("notes"), is_active=True,
+            )
+            db.add(deal)
+            await db.flush()
+            deal_id = str(deal.id)
             logger.info(f"Created CRM deal in local database: {deal_id}")
-
-            mode = "synced" if is_crm_sync_enabled() else "local"
+            mode = "local"
 
             return self.create_result(
                 success=True,
@@ -345,6 +389,8 @@ class CrmCreateDealTool(ToolBase):
                 output_text=f"Created deal '{title}' in local CRM database",
             )
 
+        except PermissionError as e:
+            return self.create_result(success=False, error_message=str(e))
         except Exception as e:
             return self.create_result(success=False, error_message=f"Failed to create deal: {str(e)}")
 
@@ -399,12 +445,24 @@ class CrmUpdateDealTool(ToolBase):
         deal_id = input_data["deal_id"]
 
         try:
-            updated_fields = [k for k, v in input_data.items() if k != "deal_id" and v is not None]
-
-            # In production: Update Deal table in database
+            db, agent_id = await _memory_scope(context)
+            deal = (await db.execute(select(CRMDeal).where(
+                CRMDeal.id == UUID(deal_id), CRMDeal.owner_id == UUID(str(context.user_id)),
+                CRMDeal.workspace_id == UUID(str(context.workspace_id)), CRMDeal.agent_id == agent_id,
+            ))).scalar_one_or_none()
+            if deal is None:
+                return self.create_result(success=False, error_message="Deal not found in this workspace")
+            updated_fields = []
+            for field in ("title", "value", "stage", "notes"):
+                if input_data.get(field) is not None:
+                    setattr(deal, field, input_data[field])
+                    updated_fields.append(field)
+            if input_data.get("expected_close_date") is not None:
+                deal.expected_close_date = date.fromisoformat(input_data["expected_close_date"])
+                updated_fields.append("expected_close_date")
+            await db.flush()
             logger.info(f"Updated CRM deal in local database: {deal_id}")
-
-            mode = "synced" if is_crm_sync_enabled() else "local"
+            mode = "local"
 
             return self.create_result(
                 success=True,
@@ -416,5 +474,7 @@ class CrmUpdateDealTool(ToolBase):
                 output_text=f"Updated deal in local CRM database ({len(updated_fields)} fields)",
             )
 
+        except PermissionError as e:
+            return self.create_result(success=False, error_message=str(e))
         except Exception as e:
             return self.create_result(success=False, error_message=f"Failed to update deal: {str(e)}")

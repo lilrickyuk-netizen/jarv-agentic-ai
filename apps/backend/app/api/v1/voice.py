@@ -7,6 +7,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from typing import Optional
 from pydantic import BaseModel
 from uuid import UUID
+from app.core.auth import get_current_user_id
 
 from app.core.voice import (
     VoiceCommandRouter,
@@ -16,7 +17,11 @@ from app.core.voice import (
     StatusType,
 )
 
-router = APIRouter(prefix="/voice", tags=["voice"])
+router = APIRouter(
+    prefix="/voice",
+    tags=["voice"],
+    dependencies=[Depends(get_current_user_id)],
+)
 
 
 # Request/Response Models

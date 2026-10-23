@@ -5,7 +5,7 @@ Incidents, audit logs, infrastructure, backups, deployments, and authority polic
 """
 from typing import Optional, Dict, Any, List
 from datetime import datetime
-from sqlalchemy import String, Boolean, Integer, Float, Text, ForeignKey, JSON, DateTime, Numeric
+from sqlalchemy import String, Boolean, Integer, Float, Text, ForeignKey, JSON, DateTime, Numeric, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from decimal import Decimal
@@ -179,6 +179,24 @@ class AuditLog(Base, UUIDMixin, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<AuditLog(id={self.id}, action={self.action}, actor={self.actor_type})>"
+
+
+@event.listens_for(AuditLog, "before_insert")
+@event.listens_for(AuditLog, "before_update")
+def _redact_audit_log(mapper, connection, target):
+    from app.core.security import redact_secrets
+
+    for field in (
+        "action", "action_category", "actor_type", "description", "target_type",
+        "target_id", "target_description", "error_message", "ip_address", "user_agent",
+    ):
+        value = getattr(target, field, None)
+        if value is not None:
+            setattr(target, field, redact_secrets(value))
+    for field in ("before_state", "after_state", "changes", "meta_data"):
+        value = getattr(target, field, None)
+        if value is not None:
+            setattr(target, field, redact_secrets(value))
 
 
 class InfrastructureResource(Base, UUIDMixin, TimestampMixin):

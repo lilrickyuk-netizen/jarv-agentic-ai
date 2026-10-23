@@ -24,9 +24,15 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 import logging
 import os
+from uuid import UUID, uuid4
+from sqlalchemy import or_, select
+import httpx
 
 from app.core.tools import ToolBase, ToolConfig, ToolContext, ToolResult
 from app.core.agents.base import AuthorityLevel
+from app.core.security import redact_secrets
+from app.tools.memory.storage import _memory_scope
+from app.models.integrations import OutboundMessageDraft
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +40,27 @@ logger = logging.getLogger(__name__)
 def is_slack_configured() -> bool:
     """Check if Slack service is configured"""
     return os.getenv("SLACK_SERVICE_ENABLED", "false").lower() == "true"
+
+
+async def _slack_api_request(method: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Call a Slack Web API method using the configured bot token."""
+    token = os.getenv("SLACK_BOT_TOKEN")
+    if not token:
+        raise RuntimeError("SLACK_BOT_TOKEN is required when Slack service is enabled")
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        response = await client.post(
+            f"https://slack.com/api/{method}",
+            json=payload,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        response.raise_for_status()
+        result = response.json()
+
+    if not isinstance(result, dict) or result.get("ok") is not True:
+        error_code = result.get("error", "invalid_response") if isinstance(result, dict) else "invalid_response"
+        raise RuntimeError(f"Slack API {method} failed: {error_code}")
+    return result
 
 
 # ===== SLACK SEND TOOL =====
@@ -94,51 +121,54 @@ class SlackSendTool(ToolBase):
         thread_ts = input_data.get("thread_ts")
 
         try:
-            if not is_slack_configured():
-                # LOCAL DRAFT MODE: Save message as draft in database
-                from uuid import uuid4
-                draft_id = str(uuid4())
-                timestamp = datetime.utcnow().isoformat()
-
-                # In production: Save to SlackDraft table in database
-                # from app.models.company import SlackDraft
-                # from app.core.database import get_db
-                # async for session in get_db():
-                #     draft = SlackDraft(
-                #         id=draft_id,
-                #         channel=channel,
-                #         text=text,
-                #         thread_ts=thread_ts,
-                #         created_at=datetime.utcnow(),
-                #         status="draft",
-                #     )
-                #     session.add(draft)
-                #     await session.commit()
-
-                logger.info(f"Slack service not configured. Saving draft: {draft_id}")
-                logger.info(f"Draft: Channel={channel}, Text preview='{text[:100]}...'")
-
+            if is_slack_configured():
+                response = await _slack_api_request("chat.postMessage", {
+                    "channel": channel,
+                    "text": text,
+                    **({"thread_ts": thread_ts} if thread_ts else {}),
+                    **({"attachments": input_data["attachments"]} if input_data.get("attachments") else {}),
+                    **({"blocks": input_data["blocks"]} if input_data.get("blocks") else {}),
+                })
                 return self.create_result(
                     success=True,
                     result_data={
-                        "message_id": draft_id,
-                        "channel": channel,
-                        "timestamp": timestamp,
-                        "status": "draft",
-                        "mode": "draft",
+                        "message_id": response.get("ts", ""),
+                        "channel": response.get("channel", channel),
+                        "timestamp": response.get("ts", ""),
+                        "status": "sent", "mode": "live", "sent": True,
                     },
-                    output_text=f"Message saved as draft (service not configured). Draft ID: {draft_id}",
+                    output_text=f"Slack accepted message {response.get('ts', '')} in {response.get('channel', channel)}",
                 )
-
-            # LIVE MODE: Would send via Slack Bot API
-            # This code path only executes if SLACK_SERVICE_ENABLED=true
-            logger.warning("Slack service enabled but API integration not implemented yet")
-
+            if not self._has_approval(context):
+                return self.create_result(success=False, requires_approval=True,
+                    error_message="Slack draft creation requires an explicit approved execution context.")
+            db, agent_id = await _memory_scope(context)
+            draft = OutboundMessageDraft(
+                id=uuid4(), owner_id=UUID(str(context.user_id)),
+                workspace_id=UUID(str(context.workspace_id)), agent_id=agent_id,
+                channel_type="slack", destination=channel,
+                body=redact_secrets(text), thread_reference=thread_ts,
+                meta_data={
+                    "attachments": redact_secrets(input_data.get("attachments") or []),
+                    "blocks": redact_secrets(input_data.get("blocks") or []),
+                },
+                status="draft",
+            )
+            db.add(draft)
+            await db.flush()
+            timestamp = draft.created_at.isoformat()
             return self.create_result(
-                success=False,
-                error_message="Slack service enabled but send integration not yet implemented. Use draft mode.",
+                success=True,
+                result_data={
+                    "message_id": str(draft.id), "channel": channel,
+                    "timestamp": timestamp, "status": "draft", "mode": "draft",
+                    "sent": False, "limitations": ["Slack delivery is disabled; this record is only a saved draft."],
+                },
+                output_text=f"Saved Slack draft {draft.id}; no message was sent.",
             )
 
+        except PermissionError as e:
+            return self.create_result(success=False, error_message=str(e))
         except Exception as e:
             return self.create_result(
                 success=False,
@@ -211,42 +241,49 @@ class SlackReadTool(ToolBase):
         limit = input_data["limit"]
 
         try:
-            if not is_slack_configured():
-                # LOCAL MODE: Return local drafts from database
-                # In production: Query SlackDraft table
-                # from app.models.company import SlackDraft
-                # from app.core.database import get_db
-                # async for session in get_db():
-                #     drafts = await session.execute(
-                #         select(SlackDraft)
-                #         .filter(SlackDraft.channel == channel)
-                #         .order_by(SlackDraft.created_at.desc())
-                #         .limit(limit)
-                #     )
-                #     messages = [...]
-
-                messages = []
-                logger.info(f"Slack service not configured. Returning local drafts for channel: {channel}")
-
+            if is_slack_configured():
+                response = await _slack_api_request("conversations.history", {
+                    "channel": channel,
+                    "limit": limit,
+                    **({"oldest": input_data["oldest"]} if input_data.get("oldest") else {}),
+                    **({"latest": input_data["latest"]} if input_data.get("latest") else {}),
+                })
+                messages = [{
+                    "message_id": item.get("ts", ""),
+                    "user": item.get("user", "unknown"),
+                    "text": item.get("text", ""),
+                    "timestamp": item.get("ts", ""),
+                    "thread_ts": item.get("thread_ts"),
+                    "reactions": [reaction.get("name", "") for reaction in item.get("reactions", [])],
+                } for item in response.get("messages", [])]
                 return self.create_result(
                     success=True,
-                    result_data={
-                        "messages": messages,
-                        "count": len(messages),
-                        "channel": channel,
-                        "mode": "local",
-                    },
-                    output_text=f"Retrieved {len(messages)} local draft(s) (service not configured)",
+                    result_data={"messages": messages, "count": len(messages),
+                                 "channel": response.get("channel", channel), "mode": "live"},
+                    output_text=f"Retrieved {len(messages)} Slack message(s) from {channel}",
                 )
-
-            # LIVE MODE: Would fetch from Slack Bot API
-            logger.warning("Slack service enabled but fetch integration not implemented yet")
-
+            db, agent_id = await _memory_scope(context)
+            rows = (await db.execute(select(OutboundMessageDraft).where(
+                OutboundMessageDraft.owner_id == UUID(str(context.user_id)),
+                OutboundMessageDraft.workspace_id == UUID(str(context.workspace_id)),
+                OutboundMessageDraft.agent_id == agent_id,
+                OutboundMessageDraft.channel_type == "slack",
+                OutboundMessageDraft.destination == channel,
+                OutboundMessageDraft.status == "draft",
+            ).order_by(OutboundMessageDraft.created_at.desc()).limit(limit))).scalars().all()
+            messages = [{
+                "message_id": str(row.id), "user": "local-draft", "text": row.body,
+                "timestamp": row.created_at.isoformat(), "thread_ts": row.thread_reference,
+                "reactions": [],
+            } for row in rows]
             return self.create_result(
-                success=False,
-                error_message="Slack service enabled but fetch integration not yet implemented. Use local mode.",
+                success=True,
+                result_data={"messages": messages, "count": len(messages), "channel": channel, "mode": "local_drafts"},
+                output_text=f"Retrieved {len(messages)} saved draft(s); no Slack channel was queried.",
             )
 
+        except PermissionError as e:
+            return self.create_result(success=False, error_message=str(e))
         except Exception as e:
             return self.create_result(
                 success=False,
@@ -310,43 +347,68 @@ class SlackSearchTool(ToolBase):
         limit = input_data["limit"]
 
         try:
-            if not is_slack_configured():
-                # LOCAL MODE: Search local drafts in database
-                # In production: Query SlackDraft table with search
-                # from app.models.company import SlackDraft
-                # from app.core.database import get_db
-                # async for session in get_db():
-                #     query_filter = SlackDraft.text.ilike(f"%{query}%")
-                #     if channel:
-                #         query_filter &= SlackDraft.channel == channel
-                #     drafts = await session.execute(
-                #         select(SlackDraft)
-                #         .filter(query_filter)
-                #         .limit(limit)
-                #     )
-                #     messages = [...]
-
-                messages = []
-                logger.info(f"Slack service not configured. Searching local drafts: {query}")
-
+            if is_slack_configured():
+                search_query = query
+                if channel:
+                    search_query += f" in:{channel.lstrip('#')}"
+                if input_data.get("from_user"):
+                    search_query += f" from:{input_data['from_user']}"
+                page_size = min(limit, 100)
+                page = 1
+                matches = []
+                total = 0
+                while len(matches) < limit:
+                    response = await _slack_api_request("search.messages", {
+                        "query": search_query,
+                        "count": min(page_size, limit - len(matches)),
+                        "page": page,
+                        "sort": "timestamp" if input_data.get("sort") == "timestamp" else "score",
+                    })
+                    result = response.get("messages", {})
+                    page_matches = result.get("matches", [])
+                    total = result.get("total", len(page_matches))
+                    matches.extend(page_matches)
+                    if not page_matches or len(matches) >= total or len(page_matches) < page_size:
+                        break
+                    page += 1
+                messages = [{
+                    "message_id": item.get("ts", ""),
+                    "user": item.get("user", "unknown"),
+                    "text": item.get("text", ""),
+                    "timestamp": item.get("ts", ""),
+                    "thread_ts": item.get("thread_ts"),
+                    "reactions": [reaction.get("name", "") for reaction in item.get("reactions", [])],
+                } for item in matches[:limit]]
                 return self.create_result(
                     success=True,
-                    result_data={
-                        "messages": messages,
-                        "count": len(messages),
-                        "mode": "local",
-                    },
-                    output_text=f"Found {len(messages)} matching local draft(s) (service not configured)",
+                    result_data={"messages": messages, "count": len(messages), "mode": "live"},
+                    output_text=f"Found {len(messages)} Slack message(s) for the query",
                 )
-
-            # LIVE MODE: Would search via Slack Bot API
-            logger.warning("Slack service enabled but search integration not implemented yet")
-
+            db, agent_id = await _memory_scope(context)
+            stmt = select(OutboundMessageDraft).where(
+                OutboundMessageDraft.owner_id == UUID(str(context.user_id)),
+                OutboundMessageDraft.workspace_id == UUID(str(context.workspace_id)),
+                OutboundMessageDraft.agent_id == agent_id,
+                OutboundMessageDraft.channel_type == "slack",
+                OutboundMessageDraft.status == "draft",
+                OutboundMessageDraft.body.ilike(f"%{query}%"),
+            )
+            if channel:
+                stmt = stmt.where(OutboundMessageDraft.destination == channel)
+            rows = (await db.execute(stmt.order_by(OutboundMessageDraft.created_at.desc()).limit(limit))).scalars().all()
+            messages = [{
+                "message_id": str(row.id), "user": "local-draft", "text": row.body,
+                "timestamp": row.created_at.isoformat(), "thread_ts": row.thread_reference,
+                "reactions": [],
+            } for row in rows]
             return self.create_result(
-                success=False,
-                error_message="Slack service enabled but search integration not yet implemented. Use local mode.",
+                success=True,
+                result_data={"messages": messages, "count": len(messages), "mode": "local_drafts"},
+                output_text=f"Found {len(messages)} saved draft(s); no Slack workspace was queried.",
             )
 
+        except PermissionError as e:
+            return self.create_result(success=False, error_message=str(e))
         except Exception as e:
             return self.create_result(
                 success=False,

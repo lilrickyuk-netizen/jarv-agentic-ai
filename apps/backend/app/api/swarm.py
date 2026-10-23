@@ -6,8 +6,9 @@ REST API for swarm management.
 from typing import Optional, List
 from uuid import UUID
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.swarm.manager import (
     SwarmManager,
@@ -33,6 +34,8 @@ from app.core.swarm.tracking import (
     SwarmCostRecord,
     SwarmMetrics,
 )
+from app.core.auth import CurrentUserId
+from app.core.database import get_db
 
 router = APIRouter(prefix="/api/swarm", tags=["swarm"])
 
@@ -130,18 +133,25 @@ class SetLimitRequest(BaseModel):
 # =============================================================================
 
 @router.post("/runs", response_model=SwarmResponse)
-async def create_swarm_run_endpoint(swarm: SwarmRunCreate):
+async def create_swarm_run_endpoint(
+    swarm: SwarmRunCreate,
+    user_id: CurrentUserId,
+    db: AsyncSession = Depends(get_db),
+):
     """
     Create swarm run.
 
     Initializes a new swarm for parallel execution.
     """
     try:
-        swarm_id = await swarm_manager.create_swarm_run(swarm)
+        swarm_id = await swarm_manager.create_swarm_run(
+            swarm, db=db, authenticated_user_id=user_id)
         return SwarmResponse(
             id=swarm_id,
             message="Swarm run created successfully"
         )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -243,7 +253,12 @@ async def get_swarm_stats_endpoint(workspace_id: UUID):
 # =============================================================================
 
 @router.post("/runs/{swarm_run_id}/sub-agents", response_model=SubAgentResponse)
-async def spawn_sub_agent_endpoint(swarm_run_id: UUID, request: SpawnRequest):
+async def spawn_sub_agent_endpoint(
+    swarm_run_id: UUID,
+    request: SpawnRequest,
+    user_id: CurrentUserId,
+    db: AsyncSession = Depends(get_db),
+):
     """
     Spawn sub-agent.
 
@@ -257,11 +272,17 @@ async def spawn_sub_agent_endpoint(swarm_run_id: UUID, request: SpawnRequest):
             request.authority_level,
             request.allowed_tools,
             request.timeout_seconds,
+            db=db,
+            authenticated_user_id=user_id,
         )
         return SubAgentResponse(
             id=sub_agent_id,
             message="Sub-agent spawned successfully"
         )
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

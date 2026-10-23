@@ -5,7 +5,12 @@ Tools for analyzing dependencies, imports, architecture, and performance.
 """
 from typing import Dict, Any, Type, List, Optional
 from pydantic import BaseModel, Field
+import ast
+import json
 import logging
+from pathlib import Path
+import re
+import tomllib
 
 from app.core.tools import ToolBase, ToolConfig, ToolContext, ToolResult
 from app.core.agents.base import AuthorityLevel
@@ -28,8 +33,8 @@ class Dependency(BaseModel):
     name: str
     current_version: str
     latest_version: Optional[str] = None
-    is_outdated: bool = False
-    vulnerabilities: int = 0
+    is_outdated: Optional[bool] = None
+    vulnerabilities: Optional[int] = None
     license: Optional[str] = None
 
 
@@ -38,10 +43,12 @@ class AnalyzeDependenciesOutput(BaseModel):
     path: str
     total_dependencies: int
     direct_dependencies: int
-    transitive_dependencies: int
-    outdated_count: int
-    vulnerable_count: int
+    transitive_dependencies: Optional[int] = None
+    outdated_count: Optional[int] = None
+    vulnerable_count: Optional[int] = None
     dependencies: List[Dependency]
+    checks_performed: List[str] = Field(default_factory=list)
+    limitations: List[str] = Field(default_factory=list)
 
 
 class AnalyzeDependenciesTool(ToolBase):
@@ -83,29 +90,114 @@ class AnalyzeDependenciesTool(ToolBase):
         check_security = input_data.get("check_security", True)
 
         try:
-            # In production: Parse dependency files and query registries:
-            # - requirements.txt, Pipfile, poetry.lock for Python
-            # - package.json, package-lock.json for Node.js
-            # - Gemfile, Gemfile.lock for Ruby
-            # - Cargo.toml, Cargo.lock for Rust
-            # - go.mod for Go
-
             logger.info(f"Analyzing dependencies: {path}")
+            target = Path(path)
+            if target.is_dir():
+                candidates = [target / name for name in (
+                    "pyproject.toml", "requirements.txt", "package.json", "Cargo.toml")]
+                target = next((candidate for candidate in candidates if candidate.is_file()), None)
+                if target is None:
+                    return self.create_result(
+                        success=False,
+                        error_message="No supported dependency manifest found in the project directory.",
+                    )
+            if target is None or not target.is_file():
+                return self.create_result(success=False, error_message=f"Manifest not found: {path}")
+
+            raw_dependencies = []
+            if target.name == "pyproject.toml":
+                document = tomllib.loads(target.read_text(encoding="utf-8"))
+                project = document.get("project", {})
+                raw_dependencies.extend(project.get("dependencies", []) or [])
+                if include_dev:
+                    optional = project.get("optional-dependencies", {}) or {}
+                    for group in optional.values():
+                        raw_dependencies.extend(group or [])
+                poetry = document.get("tool", {}).get("poetry", {})
+                for name, version in (poetry.get("dependencies", {}) or {}).items():
+                    if name.lower() != "python":
+                        raw_dependencies.append({"name": name, "version": version})
+                if include_dev:
+                    for group in (poetry.get("group", {}) or {}).values():
+                        raw_dependencies.extend(
+                            {"name": name, "version": value}
+                            for name, value in (group.get("dependencies", {}) or {}).items()
+                        )
+            elif target.name == "requirements.txt":
+                raw_dependencies.extend(target.read_text(encoding="utf-8").splitlines())
+            elif target.name == "package.json":
+                manifest = json.loads(target.read_text(encoding="utf-8"))
+                raw_dependencies.extend(
+                    {"name": name, "version": version}
+                    for name, version in (manifest.get("dependencies", {}) or {}).items()
+                )
+                if include_dev:
+                    raw_dependencies.extend(
+                        {"name": name, "version": version}
+                        for name, version in (manifest.get("devDependencies", {}) or {}).items()
+                    )
+            elif target.name == "Cargo.toml":
+                manifest = tomllib.loads(target.read_text(encoding="utf-8"))
+                raw_dependencies.extend(
+                    {"name": name, "version": version}
+                    for name, version in (manifest.get("dependencies", {}) or {}).items()
+                )
+                if include_dev:
+                    raw_dependencies.extend(
+                        {"name": name, "version": version}
+                        for name, version in (manifest.get("dev-dependencies", {}) or {}).items()
+                    )
+            else:
+                return self.create_result(
+                    success=False, error_message=f"Unsupported dependency manifest: {target.name}")
 
             dependencies = []
+            for item in raw_dependencies:
+                if isinstance(item, str):
+                    spec = item.split(";", 1)[0].strip()
+                    if not spec or spec.startswith(("#", "-")):
+                        continue
+                    match = re.match(r"^([A-Za-z0-9_.-]+)\s*(.*)$", spec)
+                    if not match:
+                        continue
+                    name, version = match.groups()
+                else:
+                    name = str(item.get("name", "")).strip()
+                    version_value = item.get("version", "unspecified")
+                    version = (str(version_value.get("version", "unspecified"))
+                               if isinstance(version_value, dict) else str(version_value))
+                if name:
+                    dependencies.append({
+                        "name": name,
+                        "current_version": version.strip() or "unspecified",
+                        "latest_version": None,
+                        "is_outdated": None,
+                        "vulnerabilities": None,
+                        "license": None,
+                    })
+
+            limitations = []
+            if check_outdated:
+                limitations.append("Outdated checks require a package registry; none was queried.")
+            if check_security:
+                limitations.append("Dependency vulnerability checks require an advisory database; none was queried.")
+            limitations.append("Only direct manifest dependencies were parsed; transitive dependencies are not inferred.")
 
             return self.create_result(
                 success=True,
                 result_data={
                     "path": path,
-                    "total_dependencies": 0,
-                    "direct_dependencies": 0,
-                    "transitive_dependencies": 0,
-                    "outdated_count": 0,
-                    "vulnerable_count": 0,
+                    "total_dependencies": len(dependencies),
+                    "direct_dependencies": len(dependencies),
+                    "transitive_dependencies": None,
+                    "outdated_count": None,
+                    "vulnerable_count": None,
                     "dependencies": dependencies,
+                    "checks_performed": ["manifest_parse"],
+                    "limitations": limitations,
                 },
-                output_text=f"Dependencies: 0 total, 0 outdated, 0 vulnerable",
+                output_text=(f"Dependencies: {len(dependencies)} direct entries parsed from {target.name}; "
+                             "registry and vulnerability checks not performed."),
             )
 
         except Exception as e:
@@ -139,8 +231,9 @@ class AnalyzeImportsOutput(BaseModel):
     total_imports: int
     circular_imports: int
     unused_imports: int
-    missing_imports: int
+    missing_imports: Optional[int] = None
     issues: List[ImportIssue]
+    limitations: List[str] = Field(default_factory=list)
 
 
 class AnalyzeImportsTool(ToolBase):
@@ -181,27 +274,125 @@ class AnalyzeImportsTool(ToolBase):
         find_unused = input_data.get("find_unused", True)
 
         try:
-            # In production: Parse import statements and build dependency graph
-            # Use tools like:
-            # - importchecker, vulture for Python
-            # - madge, dependency-cruiser for JavaScript
-            # - rubocop for Ruby
-
             logger.info(f"Analyzing imports: {path}")
+            root = Path(path)
+            if not root.exists():
+                return self.create_result(success=False, error_message=f"Path not found: {path}")
+            source_root = root if root.is_dir() else root.parent
+            files = [root] if root.is_file() else sorted(root.rglob("*.py"))
+            files = [candidate for candidate in files if candidate.suffix == ".py"]
+            if not files:
+                return self.create_result(
+                    success=False,
+                    error_message="Import analysis supports Python source files only; none were found.",
+                )
 
+            module_by_file = {}
+            file_by_module = {}
+            for source_file in files:
+                relative = source_file.relative_to(source_root).with_suffix("")
+                module = ".".join(relative.parts)
+                if module.endswith(".__init__"):
+                    module = module[:-9]
+                module_by_file[source_file] = module
+                file_by_module[module] = source_file
+
+            import_count = 0
             issues = []
+            graph = {module: [] for module in file_by_module}
+            for source_file in files:
+                source = source_file.read_text(encoding="utf-8")
+                tree = ast.parse(source, filename=str(source_file))
+                names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+                current_module = module_by_file[source_file]
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Import):
+                        import_count += 1
+                        for alias in node.names:
+                            bound_name = alias.asname or alias.name.split(".")[0]
+                            target_module = alias.name
+                            if find_unused and bound_name not in names:
+                                issues.append({
+                                    "type": "unused", "file": str(source_file),
+                                    "line": node.lineno, "import_name": bound_name,
+                                    "description": f"Imported name '{bound_name}' is not referenced.",
+                                })
+                            if target_module in file_by_module:
+                                graph[current_module].append((target_module, node.lineno))
+                    elif isinstance(node, ast.ImportFrom):
+                        import_count += 1
+                        target_module = node.module or ""
+                        if node.level:
+                            package_parts = current_module.split(".")[:-node.level]
+                            target_module = ".".join(package_parts + ([target_module] if target_module else []))
+                        for alias in node.names:
+                            bound_name = alias.asname or alias.name
+                            if find_unused and bound_name not in names:
+                                issues.append({
+                                    "type": "unused", "file": str(source_file),
+                                    "line": node.lineno, "import_name": bound_name,
+                                    "description": f"Imported name '{bound_name}' is not referenced.",
+                                })
+                        if target_module in file_by_module:
+                            graph[current_module].append((target_module, node.lineno))
+
+            cycles = set()
+            if find_circular:
+                visited = set()
+                stack = []
+                stack_positions = {}
+
+                def visit(module):
+                    if module in stack_positions:
+                        cycles.add(frozenset(stack[stack_positions[module]:]))
+                        return
+                    if module in visited:
+                        return
+                    stack_positions[module] = len(stack)
+                    stack.append(module)
+                    for dependency, _ in graph[module]:
+                        visit(dependency)
+                    stack.pop()
+                    stack_positions.pop(module, None)
+                    visited.add(module)
+
+                for module in graph:
+                    visit(module)
+
+                for cycle in cycles:
+                    cycle_modules = sorted(cycle)
+                    source_file = file_by_module[cycle_modules[0]]
+                    cycle_edges = [
+                        (module, target, line)
+                        for module in cycle
+                        for target, line in graph[module]
+                        if target in cycle
+                    ]
+                    line = min((item[2] for item in cycle_edges), default=1)
+                    issues.append({
+                        "type": "circular", "file": str(source_file), "line": line,
+                        "import_name": " -> ".join(cycle_modules),
+                        "description": "Local Python modules form a circular import cycle.",
+                    })
+
+            unused_count = sum(issue["type"] == "unused" for issue in issues)
+            limitations = [
+                "External package availability and missing imports were not resolved; no environment imports were attempted."
+            ]
 
             return self.create_result(
                 success=True,
                 result_data={
                     "path": path,
-                    "total_imports": 0,
-                    "circular_imports": 0,
-                    "unused_imports": 0,
-                    "missing_imports": 0,
+                    "total_imports": import_count,
+                    "circular_imports": len(cycles),
+                    "unused_imports": unused_count,
+                    "missing_imports": None,
                     "issues": issues,
+                    "limitations": limitations,
                 },
-                output_text=f"Import analysis: 0 issues found",
+                output_text=(f"Import analysis: {import_count} statements, "
+                             f"{unused_count} unused names, {len(cycles)} local cycles"),
             )
 
         except Exception as e:
@@ -242,7 +433,8 @@ class AnalyzeArchitectureOutput(BaseModel):
     layers: List[ArchitectureLayer]
     violations: List[ArchitectureViolation]
     patterns_detected: List[str]
-    modularity_score: float = Field(..., description="Modularity score (0-100)")
+    modularity_score: Optional[float] = Field(None, description="Only populated when a documented scoring method is available")
+    limitations: List[str] = Field(default_factory=list)
 
 
 class AnalyzeArchitectureTool(ToolBase):
@@ -283,18 +475,47 @@ class AnalyzeArchitectureTool(ToolBase):
         check_patterns = input_data.get("check_patterns", True)
 
         try:
-            # In production: Analyze project structure and dependencies
-            # Use tools like:
-            # - ArchUnit, JDepend for Java
-            # - NDepend for .NET
-            # - dependency-cruiser for JavaScript
-            # Or custom analysis based on directory structure
-
             logger.info(f"Analyzing architecture: {path}")
+            root = Path(path)
+            if not root.exists():
+                return self.create_result(success=False, error_message=f"Path not found: {path}")
+            source_root = root if root.is_dir() else root.parent
+            files = [root] if root.is_file() else sorted(root.rglob("*.py"))
+            files = [candidate for candidate in files if candidate.suffix == ".py"]
+            if not files:
+                return self.create_result(
+                    success=False,
+                    error_message="Architecture inventory supports Python source files only; none were found.",
+                )
 
-            layers = []
+            modules_by_layer: Dict[str, List[str]] = {}
+            dependencies_by_layer: Dict[str, set[str]] = {}
+            for source_file in files:
+                relative = source_file.relative_to(source_root)
+                layer = relative.parts[0] if len(relative.parts) > 1 else "_root"
+                modules_by_layer.setdefault(layer, []).append(str(relative))
+                dependencies_by_layer.setdefault(layer, set())
+                tree = ast.parse(source_file.read_text(encoding="utf-8"), filename=str(source_file))
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Import):
+                        dependencies_by_layer[layer].update(alias.name.split(".")[0] for alias in node.names)
+                    elif isinstance(node, ast.ImportFrom) and node.module:
+                        dependencies_by_layer[layer].add(node.module.split(".")[0])
+            layers = [
+                {"name": layer, "modules": sorted(modules),
+                 "dependencies": sorted(dependencies_by_layer[layer])}
+                for layer, modules in sorted(modules_by_layer.items())
+            ]
             violations = []
             patterns_detected = []
+            limitations = [
+                "This is a source/module inventory only; no architecture rules were supplied to evaluate violations.",
+                "Design-pattern recognition and modularity scoring were not performed.",
+            ]
+            if not check_layers:
+                layers = []
+            if not check_patterns:
+                patterns_detected = []
 
             return self.create_result(
                 success=True,
@@ -303,9 +524,11 @@ class AnalyzeArchitectureTool(ToolBase):
                     "layers": layers,
                     "violations": violations,
                     "patterns_detected": patterns_detected,
-                    "modularity_score": 75.0,
+                    "modularity_score": None,
+                    "limitations": limitations,
                 },
-                output_text=f"Architecture: {len(violations)} violations, modularity score: 75.0",
+                output_text=(f"Architecture inventory: {len(files)} Python modules in "
+                             f"{len(layers)} components; rules and pattern scoring not evaluated."),
             )
 
         except Exception as e:
@@ -343,6 +566,7 @@ class AnalyzePerformanceOutput(BaseModel):
     issues_by_category: Dict[str, int]
     issues: List[PerformanceIssue]
     hotspots: List[str] = Field(..., description="Performance-critical functions")
+    limitations: List[str] = Field(default_factory=list)
 
 
 class AnalyzePerformanceTool(ToolBase):
@@ -383,34 +607,80 @@ class AnalyzePerformanceTool(ToolBase):
         find_hotspots = input_data.get("find_hotspots", True)
 
         try:
-            # In production: Use profilers and static analyzers:
-            # - cProfile, py-spy, memory_profiler for Python
-            # - Chrome DevTools, clinic.js for JavaScript
-            # - valgrind, perf for C/C++
-            # - cargo flamegraph for Rust
-
             logger.info(f"Analyzing performance: {path}, mode={profile_mode}")
+            if profile_mode != "static":
+                return self.create_result(
+                    success=False,
+                    error_message="Runtime profiling is not available; use static mode for source heuristics.",
+                )
+            root = Path(path)
+            if not root.exists():
+                return self.create_result(success=False, error_message=f"Path not found: {path}")
+            files = [root] if root.is_file() else sorted(root.rglob("*.py"))
+            files = [candidate for candidate in files if candidate.suffix == ".py"]
+            if not files:
+                return self.create_result(
+                    success=False,
+                    error_message="Static performance analysis supports Python source only; none were found.",
+                )
+
+            class NestedLoopVisitor(ast.NodeVisitor):
+                def __init__(self, source_file):
+                    self.source_file = str(source_file)
+                    self.function = "<module>"
+                    self.loop_depth = 0
+                    self.issues = []
+
+                def visit_FunctionDef(self, node):
+                    previous = self.function
+                    self.function = node.name
+                    self.generic_visit(node)
+                    self.function = previous
+
+                visit_AsyncFunctionDef = visit_FunctionDef
+
+                def _visit_loop(self, node):
+                    if self.loop_depth >= 1 and find_hotspots:
+                        self.issues.append({
+                            "severity": "warning", "category": "cpu",
+                            "file": self.source_file, "line": node.lineno,
+                            "function": self.function,
+                            "description": "Nested loop increases worst-case iteration work.",
+                            "recommendation": "Check input bounds and consider indexing, batching, or reducing nested iteration.",
+                        })
+                    self.loop_depth += 1
+                    self.generic_visit(node)
+                    self.loop_depth -= 1
+
+                visit_For = _visit_loop
+                visit_AsyncFor = _visit_loop
+                visit_While = _visit_loop
 
             issues = []
-            issues_by_category = {
-                "memory": 0,
-                "cpu": 0,
-                "io": 0,
-                "network": 0,
-            }
-            hotspots = []
+            for source_file in files:
+                tree = ast.parse(source_file.read_text(encoding="utf-8"), filename=str(source_file))
+                visitor = NestedLoopVisitor(source_file)
+                visitor.visit(tree)
+                issues.extend(visitor.issues)
+            issues_by_category = {"memory": 0, "cpu": len(issues), "io": 0, "network": 0}
+            hotspots = [f"{issue['file']}:{issue['line']}:{issue['function']}" for issue in issues]
+            limitations = [
+                "Static nested-loop heuristics only; no runtime profile, input-size measurement, or memory/network analysis was performed."
+            ]
 
             return self.create_result(
                 success=True,
                 result_data={
                     "path": path,
                     "mode": profile_mode,
-                    "total_issues": 0,
+                    "total_issues": len(issues),
                     "issues_by_category": issues_by_category,
                     "issues": issues,
                     "hotspots": hotspots,
+                    "limitations": limitations,
                 },
-                output_text=f"Performance analysis: 0 issues found",
+                output_text=(f"Static performance scan: {len(issues)} nested-loop hotspots "
+                             f"across {len(files)} files; runtime profiling not performed."),
             )
 
         except Exception as e:

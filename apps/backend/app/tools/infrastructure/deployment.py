@@ -77,67 +77,10 @@ class ServiceDeployTool(ToolBase):
         context: ToolContext,
     ) -> ToolResult:
         """Execute service deployment"""
-        try:
-            deployment_name = input_data["deployment_name"]
-            deployment_type = input_data["deployment_type"]
-            environment = input_data["environment"]
-            version = input_data["version"]
-            commit_sha = input_data.get("commit_sha")
-            branch = input_data.get("branch")
-            changes = input_data.get("changes")
-
-            started_at = datetime.utcnow()
-
-            # Create deployment record in database
-            async with AsyncSessionLocal() as db:
-                deployment = DeploymentRecord(
-                    workspace_id=context.workspace_id if context.workspace_id else None,
-                    deployment_name=deployment_name,
-                    deployment_type=deployment_type,
-                    environment=environment,
-                    version=version,
-                    status="in_progress",
-                    success=False,
-                    commit_sha=commit_sha,
-                    branch=branch,
-                    changes=changes,
-                    started_at=started_at,
-                    deployed_by=None,  # Set to None to avoid foreign key constraint
-                    deployed_by_agent_id=context.agent_id if hasattr(context, 'agent_id') else None,
-                    can_rollback=True,  # Allow rollback for testing
-                    rolled_back=False,
-                    deployment_logs=None,
-                )
-                db.add(deployment)
-                await db.commit()
-                await db.refresh(deployment)
-
-                deployment_id = str(deployment.id)
-
-            # In real implementation, would trigger actual deployment process here
-            logger.info(f"Deployment started: {deployment_name} (ID: {deployment_id})")
-
-            result_data = {
-                "deployment_id": deployment_id,
-                "deployment_name": deployment_name,
-                "status": "in_progress",
-                "environment": environment,
-                "version": version,
-                "started_at": started_at.isoformat(),
-            }
-
-            return self.create_result(
-                success=True,
-                result_data=result_data,
-                output_text=f"Deployment '{deployment_name}' to {environment} initiated (ID: {deployment_id})",
-            )
-
-        except Exception as e:
-            logger.error(f"Error deploying service: {str(e)}")
-            return self.create_result(
-                success=False,
-                error_message=f"Failed to deploy service: {str(e)}",
-            )
+        return self.create_result(
+            success=False,
+            error_message="No deployment provider adapter is installed; no deployment record or live change was created.",
+        )
 
 
 # ===== DEPLOYMENT STATUS TOOL =====
@@ -316,85 +259,10 @@ class DeploymentRollbackTool(ToolBase):
         context: ToolContext,
     ) -> ToolResult:
         """Execute deployment rollback"""
-        try:
-            deployment_id = input_data["deployment_id"]
-            reason = input_data["reason"]
-
-            # Fetch deployment from database
-            async with AsyncSessionLocal() as db:
-                result = await db.execute(
-                    select(DeploymentRecord).where(DeploymentRecord.id == deployment_id)
-                )
-                deployment = result.scalar_one_or_none()
-
-                if not deployment:
-                    return self.create_result(
-                        success=False,
-                        error_message=f"Deployment not found: {deployment_id}",
-                    )
-
-                if not deployment.can_rollback:
-                    return self.create_result(
-                        success=False,
-                        error_message=f"Deployment cannot be rolled back: {deployment_id}",
-                    )
-
-                if deployment.rolled_back:
-                    return self.create_result(
-                        success=False,
-                        error_message=f"Deployment has already been rolled back: {deployment_id}",
-                    )
-
-                # Mark original deployment as rolled back
-                deployment.rolled_back = True
-                deployment.rollback_reason = reason
-
-                # Create new deployment record for rollback
-                # In real implementation, would determine previous version
-                previous_version = f"rollback-{deployment.version}"
-
-                rollback_deployment = DeploymentRecord(
-                    workspace_id=context.workspace_id if context.workspace_id else None,
-                    deployment_name=f"{deployment.deployment_name}-rollback",
-                    deployment_type=deployment.deployment_type,
-                    environment=deployment.environment,
-                    version=previous_version,
-                    status="in_progress",
-                    success=False,
-                    started_at=datetime.utcnow(),
-                    deployed_by=None,  # Set to None to avoid foreign key constraint
-                    deployed_by_agent_id=context.agent_id if hasattr(context, 'agent_id') else None,
-                    can_rollback=False,
-                    rolled_back=False,
-                    deployment_logs=None,
-                )
-                db.add(rollback_deployment)
-                await db.commit()
-                await db.refresh(rollback_deployment)
-
-                rollback_deployment_id = str(rollback_deployment.id)
-
-            logger.info(f"Deployment rollback initiated: {deployment_id} -> {rollback_deployment_id}")
-
-            result_data = {
-                "deployment_id": deployment_id,
-                "rollback_deployment_id": rollback_deployment_id,
-                "status": "in_progress",
-                "reason": reason,
-            }
-
-            return self.create_result(
-                success=True,
-                result_data=result_data,
-                output_text=f"Deployment rollback initiated (ID: {rollback_deployment_id})",
-            )
-
-        except Exception as e:
-            logger.error(f"Error rolling back deployment: {str(e)}")
-            return self.create_result(
-                success=False,
-                error_message=f"Failed to rollback deployment: {str(e)}",
-            )
+        return self.create_result(
+            success=False,
+            error_message="No deployment rollback adapter is installed; no rollback or deployment record was created.",
+        )
 
 
 # ===== DEPLOYMENT LOGS TOOL =====

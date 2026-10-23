@@ -126,5 +126,5 @@ async def command_history(
 @router.get("/info")
 async def command_info() -> dict:
     """Expose the active provider/model for display in the command UI (no secrets)."""
-    model = getattr(settings, "DEFAULT_MODEL", None) or "claude-sonnet-4-6"
-    return {"provider": "claude", "model": model}
+    service = CommandService()
+    return {"provider": service.provider_name, "model": service.model}

@@ -81,70 +81,11 @@ class BackupCreateTool(ToolBase):
         context: ToolContext,
     ) -> ToolResult:
         """Execute backup creation"""
-        try:
-            backup_name = input_data["backup_name"]
-            backup_type = input_data["backup_type"]
-            source_type = input_data["source_type"]
-            source_name = input_data["source_name"]
-            source_id = input_data.get("source_id")
-            storage_location = input_data["storage_location"]
-            storage_provider = input_data["storage_provider"]
-            description = input_data.get("description")
-            retention_days = input_data["retention_days"]
-
-            started_at = datetime.utcnow()
-            expires_at = started_at + timedelta(days=retention_days)
-
-            # Create backup record in database
-            async with AsyncSessionLocal() as db:
-                backup = BackupRecord(
-                    workspace_id=context.workspace_id if context.workspace_id else None,
-                    backup_name=backup_name,
-                    backup_type=backup_type,
-                    description=description,
-                    source_type=source_type,
-                    source_id=source_id,
-                    source_name=source_name,
-                    storage_location=storage_location,
-                    storage_provider=storage_provider,
-                    status="in_progress",
-                    success=False,
-                    started_at=started_at,
-                    retention_days=retention_days,
-                    expires_at=expires_at,
-                    is_deleted=False,
-                    is_verified=False,
-                )
-                db.add(backup)
-                await db.commit()
-                await db.refresh(backup)
-
-                backup_id = str(backup.id)
-
-            # In real implementation, would trigger actual backup process here
-            logger.info(f"Backup created: {backup_name} (ID: {backup_id})")
-
-            result_data = {
-                "backup_id": backup_id,
-                "backup_name": backup_name,
-                "status": "in_progress",
-                "storage_location": storage_location,
-                "started_at": started_at.isoformat(),
-                "expires_at": expires_at.isoformat(),
-            }
-
-            return self.create_result(
-                success=True,
-                result_data=result_data,
-                output_text=f"Backup '{backup_name}' created successfully (ID: {backup_id})",
-            )
-
-        except Exception as e:
-            logger.error(f"Error creating backup: {str(e)}")
-            return self.create_result(
-                success=False,
-                error_message=f"Failed to create backup: {str(e)}",
-            )
+        return self.create_result(
+            success=False,
+            error_message=("No storage backup adapter is installed; no backup was created "
+                           "and no BackupRecord was written."),
+        )
 
 
 # ===== BACKUP RESTORE TOOL =====
@@ -202,60 +143,10 @@ class BackupRestoreTool(ToolBase):
         context: ToolContext,
     ) -> ToolResult:
         """Execute backup restore"""
-        try:
-            backup_id = input_data["backup_id"]
-            restore_location = input_data.get("restore_location")
-            overwrite = input_data.get("overwrite", False)
-            verify_before_restore = input_data.get("verify_before_restore", True)
-
-            # Fetch backup record from database
-            async with AsyncSessionLocal() as db:
-                result = await db.execute(
-                    select(BackupRecord).where(BackupRecord.id == backup_id)
-                )
-                backup = result.scalar_one_or_none()
-
-                if not backup:
-                    return self.create_result(
-                        success=False,
-                        error_message=f"Backup not found: {backup_id}",
-                    )
-
-                if backup.is_deleted:
-                    return self.create_result(
-                        success=False,
-                        error_message=f"Backup has been deleted: {backup_id}",
-                    )
-
-                # Use original location if not specified
-                location = restore_location or backup.storage_location
-
-            # In real implementation, would trigger actual restore process here
-            restore_id = str(uuid4())
-            logger.info(f"Restore initiated from backup {backup_id} to {location}")
-
-            result_data = {
-                "restore_id": restore_id,
-                "backup_id": backup_id,
-                "status": "in_progress",
-                "restore_location": location,
-                "overwrite": overwrite,
-                "verified": verify_before_restore,
-                "restored_items": 0,  # Will be updated when restore completes
-            }
-
-            return self.create_result(
-                success=True,
-                result_data=result_data,
-                output_text=f"Restore operation initiated (ID: {restore_id})",
-            )
-
-        except Exception as e:
-            logger.error(f"Error restoring backup: {str(e)}")
-            return self.create_result(
-                success=False,
-                error_message=f"Failed to restore backup: {str(e)}",
-            )
+        return self.create_result(
+            success=False,
+            error_message="No backup restore adapter is installed; no data was restored.",
+        )
 
 
 # ===== BACKUP LIST TOOL =====

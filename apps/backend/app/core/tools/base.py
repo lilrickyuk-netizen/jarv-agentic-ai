@@ -643,23 +643,8 @@ class ToolBase(ABC):
             context: Execution context
         """
         try:
-            from app.core.audit import AuditLogger
-            from app.core.database import get_db
-
-            async for session in get_db():
-                await AuditLogger.log_tool_use(
-                    session=session,
-                    agent_name=f"tool.{self.name}",
-                    tool_name=self.name,
-                    tool_result="started",
-                    user_id=context.user_id,
-                    workspace_id=context.workspace_id,
-                    agent_id=context.agent_id,
-                    task_id=context.task_id,
-                    session_id=context.session_id,
-                    tool_input=input_data,
-                )
-                break
+            await self._write_tool_audit(
+                context, "started", tool_input=input_data)
         except Exception as e:
             # Don't fail execution if audit logging fails
             self.logger.warning(
@@ -680,23 +665,9 @@ class ToolBase(ABC):
             context: Execution context
         """
         try:
-            from app.core.audit import AuditLogger
-            from app.core.database import get_db
-
-            async for session in get_db():
-                await AuditLogger.log_tool_use(
-                    session=session,
-                    agent_name=f"tool.{self.name}",
-                    tool_name=self.name,
-                    tool_result="success" if result.success else "failure",
-                    user_id=context.user_id,
-                    workspace_id=context.workspace_id,
-                    agent_id=context.agent_id,
-                    task_id=context.task_id,
-                    session_id=context.session_id,
-                    tool_output=result.result_data,
-                )
-                break
+            await self._write_tool_audit(
+                context, "success" if result.success else "failure",
+                tool_output=result.result_data)
         except Exception as e:
             # Don't fail execution if audit logging fails
             self.logger.warning(
@@ -717,33 +688,51 @@ class ToolBase(ABC):
             context: Execution context
         """
         try:
-            from app.core.audit import AuditLogger
-            from app.core.database import get_db
-
-            async for session in get_db():
-                await AuditLogger.log_tool_use(
-                    session=session,
-                    agent_name=f"tool.{self.name}",
-                    tool_name=self.name,
-                    tool_result="error",
-                    user_id=context.user_id,
-                    workspace_id=context.workspace_id,
-                    agent_id=context.agent_id,
-                    task_id=context.task_id,
-                    session_id=context.session_id,
-                    tool_output={
-                        "error_message": str(error),
-                        "error_type": type(error).__name__,
-                        "stack_trace": traceback.format_exc(),
-                    },
-                )
-                break
+            await self._write_tool_audit(
+                context, "error", tool_output={
+                    "error_message": str(error),
+                    "error_type": type(error).__name__,
+                    "stack_trace": traceback.format_exc(),
+                })
         except Exception as e:
             # Don't fail execution if audit logging fails
             self.logger.warning(
                 f"Failed to audit tool error: {e}",
                 extra={"tool_name": self.name}
             )
+
+    async def _write_tool_audit(
+        self,
+        context: ToolContext,
+        result: str,
+        tool_input: Optional[Dict[str, Any]] = None,
+        tool_output: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        from app.core.audit import AuditLogger
+
+        async def write(session):
+            await AuditLogger.log_tool_use(
+                session=session,
+                agent_name=f"tool.{self.name}",
+                tool_name=self.name,
+                tool_result=result,
+                user_id=context.user_id,
+                workspace_id=context.workspace_id,
+                agent_id=context.agent_id,
+                task_id=context.task_id,
+                session_id=context.session_id,
+                tool_input=tool_input,
+                tool_output=tool_output,
+            )
+
+        if context.db_session is not None:
+            await write(context.db_session)
+            return
+        from app.core.database import get_db
+
+        async for session in get_db():
+            await write(session)
+            break
 
     def __repr__(self) -> str:
         return (

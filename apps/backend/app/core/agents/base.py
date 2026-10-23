@@ -92,6 +92,10 @@ class AgentContext(BaseModel):
         default_factory=list,
         description="Relevant memories for this execution"
     )
+    knowledge_context: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Retrieved, source-attributed specialist knowledge for this task"
+    )
     workspace_rules: List[Dict[str, Any]] = Field(
         default_factory=list,
         description="Active workspace rules"
@@ -343,6 +347,7 @@ class AgentBase(ABC):
         import time
 
         self._execution_start_time = time.time()
+        knowledge_token = None
 
         # Audit log: Agent execution start
         await self._audit_start(input_data, context)
@@ -364,8 +369,54 @@ class AgentBase(ABC):
             # Validate input
             validated_input = self._validate_input(input_data)
 
+            from app.core.agents.registry import get_registry
+            from app.core.knowledge.context import set_knowledge_context
+            from app.core.knowledge.service import knowledge_service
+
+            if (self.name in get_registry().REQUIRED_AGENTS
+                    and not context.metadata.get("specialist_knowledge_ids")):
+                from app.core.config import settings
+
+                if context.db_session is not None:
+                    knowledge = await knowledge_service.retrieve(
+                        context.db_session, agent_name=self.name,
+                        query=" ".join(str(value) for value in validated_input.values()
+                                       if isinstance(value, (str, list))),
+                        limit=3,
+                    )
+                elif settings.TESTING:
+                    knowledge = []
+                else:
+                    from app.core.database import AsyncSessionLocal
+
+                    async with AsyncSessionLocal() as knowledge_db:
+                        knowledge = await knowledge_service.retrieve(
+                            knowledge_db, agent_name=self.name,
+                            query=" ".join(str(value) for value in validated_input.values()
+                                           if isinstance(value, (str, list))),
+                            limit=3,
+                        )
+                if not knowledge and not settings.TESTING:
+                    raise AgentExecutionError(
+                        message=f"No verified specialist knowledge available for {self.name}",
+                        agent_name=self.name,
+                    )
+                if knowledge:
+                    context.knowledge_context = knowledge
+                    context.metadata["specialist_knowledge_ids"] = [
+                        item["id"] for item in knowledge
+                    ]
+            if context.knowledge_context:
+                knowledge_token = set_knowledge_context(context.knowledge_context)
+
             # Execute agent
             result = await self.run(validated_input, context)
+            result.metadata["specialist_knowledge"] = [{
+                "id": item["id"],
+                "title": item["title"],
+                "source_url": item["source_url"],
+                "version": item["version"],
+            } for item in context.knowledge_context]
 
             # Calculate execution time
             execution_time = time.time() - self._execution_start_time
@@ -412,6 +463,11 @@ class AgentBase(ABC):
             # Audit log: Agent execution error
             await self._audit_error(error, context)
             raise error
+        finally:
+            if knowledge_token is not None:
+                from app.core.knowledge.context import set_knowledge_context
+
+                set_knowledge_context((), reset_token=knowledge_token)
 
     # ===== Validation Methods =====
 
@@ -626,17 +682,33 @@ class AgentBase(ABC):
             context: Execution context
         """
         try:
-            from app.core.audit import audit_agent_start
+            if context.db_session is not None:
+                from app.core.audit import AuditLogger
 
-            await audit_agent_start(
-                agent_name=self.name,
-                user_id=context.user_id,
-                workspace_id=context.workspace_id,
-                agent_id=self.config.agent_id,
-                task_id=context.task_id,
-                session_id=context.session_id,
-                input_data=input_data,
-            )
+                await AuditLogger.log_agent_start(
+                    session=context.db_session,
+                    agent_name=self.name,
+                    user_id=context.user_id,
+                    workspace_id=context.workspace_id,
+                    agent_id=self.config.agent_id,
+                    task_id=context.task_id,
+                    session_id=context.session_id,
+                    parent_agent_id=context.parent_agent_id,
+                    input_data=input_data,
+                )
+            else:
+                from app.core.audit import audit_agent_start
+
+                await audit_agent_start(
+                    agent_name=self.name,
+                    user_id=context.user_id,
+                    workspace_id=context.workspace_id,
+                    agent_id=self.config.agent_id,
+                    task_id=context.task_id,
+                    session_id=context.session_id,
+                    parent_agent_id=context.parent_agent_id,
+                    input_data=input_data,
+                )
         except Exception as e:
             # Don't fail execution if audit logging fails
             self.logger.warning(
@@ -657,21 +729,41 @@ class AgentBase(ABC):
             context: Execution context
         """
         try:
-            from app.core.audit import audit_agent_complete
+            if context.db_session is not None:
+                from app.core.audit import AuditLogger
 
-            await audit_agent_complete(
-                agent_name=self.name,
-                result="success" if result.success else "failure",
-                execution_time=result.execution_time_seconds,
-                tokens_used=result.tokens_used,
-                cost_estimate=result.cost_estimate,
-                user_id=context.user_id,
-                workspace_id=context.workspace_id,
-                agent_id=self.config.agent_id,
-                task_id=context.task_id,
-                session_id=context.session_id,
-                output_data=result.result_data,
-            )
+                await AuditLogger.log_agent_complete(
+                    session=context.db_session,
+                    agent_name=self.name,
+                    result="success" if result.success else "failure",
+                    execution_time=result.execution_time_seconds,
+                    tokens_used=result.tokens_used,
+                    cost_estimate=result.cost_estimate,
+                    user_id=context.user_id,
+                    workspace_id=context.workspace_id,
+                    agent_id=self.config.agent_id,
+                    task_id=context.task_id,
+                    session_id=context.session_id,
+                    parent_agent_id=context.parent_agent_id,
+                    output_data=result.result_data,
+                )
+            else:
+                from app.core.audit import audit_agent_complete
+
+                await audit_agent_complete(
+                    agent_name=self.name,
+                    result="success" if result.success else "failure",
+                    execution_time=result.execution_time_seconds,
+                    tokens_used=result.tokens_used,
+                    cost_estimate=result.cost_estimate,
+                    user_id=context.user_id,
+                    workspace_id=context.workspace_id,
+                    agent_id=self.config.agent_id,
+                    task_id=context.task_id,
+                    session_id=context.session_id,
+                    parent_agent_id=context.parent_agent_id,
+                    output_data=result.result_data,
+                )
         except Exception as e:
             # Don't fail execution if audit logging fails
             self.logger.warning(
@@ -692,19 +784,37 @@ class AgentBase(ABC):
             context: Execution context
         """
         try:
-            from app.core.audit import audit_agent_error
+            if context.db_session is not None:
+                from app.core.audit import AuditLogger
 
-            await audit_agent_error(
-                agent_name=self.name,
-                error_message=str(error),
-                error_type=type(error).__name__,
-                user_id=context.user_id,
-                workspace_id=context.workspace_id,
-                agent_id=self.config.agent_id,
-                task_id=context.task_id,
-                session_id=context.session_id,
-                stack_trace=traceback.format_exc(),
-            )
+                await AuditLogger.log_agent_error(
+                    session=context.db_session,
+                    agent_name=self.name,
+                    error_message=str(error),
+                    error_type=type(error).__name__,
+                    user_id=context.user_id,
+                    workspace_id=context.workspace_id,
+                    agent_id=self.config.agent_id,
+                    task_id=context.task_id,
+                    session_id=context.session_id,
+                    parent_agent_id=context.parent_agent_id,
+                    stack_trace=traceback.format_exc(),
+                )
+            else:
+                from app.core.audit import audit_agent_error
+
+                await audit_agent_error(
+                    agent_name=self.name,
+                    error_message=str(error),
+                    error_type=type(error).__name__,
+                    user_id=context.user_id,
+                    workspace_id=context.workspace_id,
+                    agent_id=self.config.agent_id,
+                    task_id=context.task_id,
+                    session_id=context.session_id,
+                    parent_agent_id=context.parent_agent_id,
+                    stack_trace=traceback.format_exc(),
+                )
         except Exception as e:
             # Don't fail execution if audit logging fails
             self.logger.warning(

@@ -27,6 +27,9 @@ from app.core.agents.registry import get_registry
 from app.core.agents.runner import AgentRunner
 from app.core.agents.specialists.research import ResearchAgent
 from app.core.agents.specialists.qa import QAAgent
+from app.core.knowledge.catalog import specialist_knowledge
+from app.core.knowledge.service import knowledge_service
+from tests.conftest import AsyncTestingSessionLocal
 
 
 def _cfg(level=AuthorityLevel.LEVEL_9_SWARM_CREATION) -> AgentConfig:
@@ -101,13 +104,21 @@ def test_research_uses_real_provider_output(monkeypatch):
 
 @pytest.mark.agent
 @pytest.mark.integration
-def test_research_invokable_via_runner(monkeypatch):
+def test_research_invokable_via_runner(monkeypatch, test_user, test_workspace):
     """Research runs through the real registry/runner path and returns honest,
     non-fabricated output."""
     monkeypatch.setattr(ResearchAgent, "_provider_configured", staticmethod(lambda: False))
 
-    runner = AgentRunner()
-    out = asyncio.run(runner.run_agent("research", "investigate caching options", uuid4()))
+    async def run():
+        async with AsyncTestingSessionLocal() as session:
+            await knowledge_service.ingest(session, specialist_knowledge())
+            await session.commit()
+            return await AgentRunner().run_agent(
+                "research", "investigate caching options", test_workspace.id,
+                user_id=test_user.id, db=session,
+            )
+
+    out = asyncio.run(run())
 
     assert out["success"] is True
     assert out["output_text"]
@@ -183,11 +194,19 @@ def test_qa_no_targets_is_honest():
 
 @pytest.mark.agent
 @pytest.mark.integration
-def test_qa_invokable_via_runner():
+def test_qa_invokable_via_runner(test_user, test_workspace):
     """QA runs through the real registry/runner path and returns honest output
     with no fabricated coverage."""
-    runner = AgentRunner()
-    out = asyncio.run(runner.run_agent("qa", "validate the module", uuid4()))
+    async def run():
+        async with AsyncTestingSessionLocal() as session:
+            await knowledge_service.ingest(session, specialist_knowledge())
+            await session.commit()
+            return await AgentRunner().run_agent(
+                "qa", "validate the module", test_workspace.id,
+                user_id=test_user.id, db=session,
+            )
+
+    out = asyncio.run(run())
 
     assert out["success"] is True  # assessment agent
     assert out["output_text"]
@@ -199,7 +218,9 @@ def test_qa_invokable_via_runner():
 
 @pytest.mark.agent
 @pytest.mark.integration
-def test_orchestrator_delegates_to_real_research_and_qa(monkeypatch):
+def test_orchestrator_delegates_to_real_research_and_qa(
+    monkeypatch, test_user, test_workspace,
+):
     """The repaired orchestrator delegates to the repaired Research and QA
     agents through the real path and gets non-fabricated structured outputs."""
     # Force deterministic fallback plan (research + qa) by disabling the
@@ -208,9 +229,18 @@ def test_orchestrator_delegates_to_real_research_and_qa(monkeypatch):
                         lambda: (_ for _ in ()).throw(RuntimeError("no provider")))
     monkeypatch.setattr(ResearchAgent, "_provider_configured", staticmethod(lambda: False))
 
-    orch = OrchestratorAgent(_cfg())
-    ctx = AgentContext(workspace_id=orch.config.workspace_id)
-    result = asyncio.run(orch.execute({"mission": "Assess the auth module"}, ctx))
+    async def run():
+        async with AsyncTestingSessionLocal() as session:
+            await knowledge_service.ingest(session, specialist_knowledge())
+            await session.commit()
+            orch = OrchestratorAgent(_cfg())
+            ctx = AgentContext(
+                workspace_id=test_workspace.id, user_id=test_user.id,
+                db_session=session,
+            )
+            return await orch.execute({"mission": "Assess the auth module"}, ctx)
+
+    result = asyncio.run(run())
     data = result.result_data
 
     assert data["mission_status"] == "completed"

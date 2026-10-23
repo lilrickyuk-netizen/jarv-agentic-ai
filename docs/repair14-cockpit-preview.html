@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#05070b">
+  <title>JARV | Cockpit Design Preview</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --void: #05070b;
+      --navy: #0b1220;
+      --panel: #111827;
+      --line: rgba(142, 155, 170, .19);
+      --silver: #b8c2cc;
+      --steel: #8e9baa;
+      --blue: #1e3a8a;
+      --cyan: #38bdf8;
+      --white: #e5e7eb;
+      --dim: #758397;
+      --state: #38bdf8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--white);
+      background: var(--void);
+      font: 13px/1.45 "Aptos", "Segoe UI", sans-serif;
+      overflow-x: hidden;
+    }
+    button, input { font: inherit; }
+    button { color: inherit; }
+    .preview-ribbon {
+      position: fixed; z-index: 10; top: 0; right: 0;
+      padding: 7px 20px 7px 14px; color: var(--void);
+      background: var(--cyan); font-size: 10px; font-weight: 800;
+      letter-spacing: 1.3px; text-transform: uppercase;
+      clip-path: polygon(0 0, 100% 0, 100% 100%, 12px 100%);
+    }
+    .app { min-height: 100vh; display: grid; grid-template-columns: 204px minmax(0, 1fr); }
+    aside {
+      min-height: 100vh; padding: 24px 14px 18px;
+      background: #080d15; border-right: 1px solid var(--line);
+      display: flex; flex-direction: column; gap: 25px;
+    }
+    .brand { display: flex; gap: 11px; align-items: center; padding: 0 10px; }
+    .brand-mark {
+      width: 30px; height: 30px; display: grid; place-items: center;
+      border: 1px solid rgba(56,189,248,.5); color: var(--cyan);
+      transform: rotate(45deg); font: 700 12px Georgia, serif;
+    }
+    .brand-mark span { transform: rotate(-45deg); }
+    .brand-name { font: 600 15px Georgia, serif; letter-spacing: 2px; }
+    .brand-sub { color: var(--dim); font-size: 9px; letter-spacing: 1.3px; text-transform: uppercase; }
+    .nav-label { padding: 0 11px; color: #68768a; font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; }
+    nav { display: grid; gap: 4px; }
+    .nav-item {
+      display: flex; align-items: center; gap: 11px; min-height: 38px;
+      padding: 0 11px; border: 1px solid transparent; color: #9ba8b8;
+      text-decoration: none; font-size: 12px;
+    }
+    .nav-item .glyph { width: 17px; color: #728198; text-align: center; font-size: 14px; }
+    .nav-item.active { color: var(--white); background: rgba(30,58,138,.2); border-color: rgba(56,189,248,.19); }
+    .nav-item.active .glyph { color: var(--cyan); }
+    .side-bottom { margin-top: auto; display: grid; gap: 12px; }
+    .profile { display: flex; gap: 10px; align-items: center; padding: 13px 9px 0; border-top: 1px solid var(--line); }
+    .avatar { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid #43516a; border-radius: 50%; color: var(--silver); font-size: 10px; }
+    .profile small { display: block; color: var(--dim); font-size: 10px; }
+    main { min-width: 0; padding: 24px 28px 22px; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; gap: 18px; min-height: 36px; margin-bottom: 24px; }
+    .eyebrow { color: var(--cyan); font-size: 9px; font-weight: 700; letter-spacing: 1.8px; text-transform: uppercase; }
+    h1 { margin: 2px 0 0; font: 500 22px/1.2 Georgia, "Times New Roman", serif; letter-spacing: .2px; }
+    .top-actions { display: flex; align-items: center; gap: 10px; }
+    .connection { display: flex; align-items: center; gap: 7px; color: #aab6c6; font-size: 10px; }
+    .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
+    .quiet-button { min-height: 32px; padding: 0 11px; border: 1px solid var(--line); background: transparent; color: #b6c0ce; cursor: pointer; }
+    .quiet-button:hover, .quiet-button:focus-visible { border-color: var(--cyan); outline: none; }
+    .state-strip { display: flex; align-items: center; gap: 8px; overflow-x: auto; padding: 0 0 14px; margin-bottom: 15px; scrollbar-width: thin; }
+    .state-strip span { flex: 0 0 auto; margin-right: 5px; color: var(--dim); font-size: 9px; letter-spacing: 1.2px; text-transform: uppercase; }
+    .state-button { flex: 0 0 auto; padding: 6px 10px; border: 1px solid var(--line); background: #0a1019; color: #9ba8b8; font-size: 10px; cursor: pointer; }
+    .state-button[aria-pressed="true"] { color: var(--white); border-color: rgba(56,189,248,.65); background: rgba(30,58,138,.35); }
+    .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--line); background: rgba(11,18,32,.72); margin-bottom: 15px; }
+    .metric { padding: 11px 15px; border-right: 1px solid var(--line); }
+    .metric:last-child { border: 0; }
+    .metric-label { color: var(--dim); font-size: 9px; letter-spacing: 1px; text-transform: uppercase; }
+    .metric-value { margin-top: 3px; color: var(--silver); font: 500 17px Georgia, serif; }
+    .metric-value em { color: var(--cyan); font: normal 10px "Aptos", sans-serif; }
+    .workspace { min-height: 500px; display: grid; grid-template-columns: minmax(205px, .83fr) minmax(320px, 1.25fr) minmax(220px, .92fr); border: 1px solid var(--line); background: radial-gradient(ellipse at 50% 46%, rgba(20,45,82,.2), transparent 44%), #080d15; }
+    .column { min-width: 0; padding: 17px 15px; }
+    .column + .column { border-left: 1px solid var(--line); }
+    .section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+    .section-head h2 { margin: 0; color: var(--silver); font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; }
+    .micro { color: var(--dim); font-size: 9px; }
+    .mission-title { margin: 0 0 5px; font: 500 16px/1.3 Georgia, serif; }
+    .mission-copy { margin: 0; color: #8997a9; font-size: 11px; }
+    .progress-label { display: flex; justify-content: space-between; margin: 17px 0 7px; color: #9eabb9; font-size: 10px; }
+    .track { height: 3px; background: #202a39; }
+    .track i { display: block; width: 68%; height: 100%; background: var(--cyan); box-shadow: 0 0 8px rgba(56,189,248,.55); transition: width .35s ease; }
+    .timeline { display: grid; gap: 0; margin: 17px 0 18px; }
+    .event { position: relative; display: grid; grid-template-columns: 17px 1fr; gap: 8px; padding-bottom: 15px; color: #9ba8b8; font-size: 10px; }
+    .event:not(:last-child)::before { position: absolute; content: ""; left: 5px; top: 12px; bottom: 0; width: 1px; background: #263245; }
+    .event-mark { z-index: 1; width: 11px; height: 11px; margin-top: 2px; border: 1px solid #506078; border-radius: 50%; background: #0b1220; }
+    .event.done .event-mark { border-color: var(--cyan); background: var(--cyan); box-shadow: inset 0 0 0 3px #0b1220; }
+    .event.current .event-mark { border-color: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
+    .event strong { display: block; color: #c5ced8; font-weight: 500; }
+    .event small { color: var(--dim); font-size: 9px; }
+    .agent-list { display: grid; gap: 10px; }
+    .agent-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; color: #aab6c5; font-size: 10px; }
+    .agent-name { display: flex; align-items: center; gap: 8px; }
+    .agent-icon { width: 19px; height: 19px; display: grid; place-items: center; border: 1px solid #35445a; color: #aebccd; font-size: 9px; }
+    .status-text { color: var(--cyan); font-size: 9px; }
+    .core-column { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 500px; overflow: hidden; }
+    .core-heading { position: absolute; top: 18px; text-align: center; }
+    .core-heading h2 { margin: 0; font: 500 13px Georgia, serif; letter-spacing: .6px; }
+    .core-heading p { margin: 4px 0 0; color: var(--dim); font-size: 9px; letter-spacing: 1px; text-transform: uppercase; }
+    .core-stage { position: relative; width: min(100%, 360px); aspect-ratio: 1; display: grid; place-items: center; }
+    #core-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .core-label { position: absolute; display: grid; place-items: center; width: 126px; height: 126px; text-align: center; pointer-events: none; }
+    .core-label b { font: 500 12px Georgia, serif; letter-spacing: 2px; }
+    .core-label span { display: block; margin-top: 4px; color: var(--state); font-size: 8px; letter-spacing: 1.4px; text-transform: uppercase; }
+    .core-caption { position: absolute; bottom: 21px; color: #92a0b2; font-size: 10px; text-align: center; }
+    .core-caption strong { display: block; margin-bottom: 3px; color: var(--silver); font-weight: 500; }
+    .telemetry { display: grid; gap: 0; }
+    .telemetry-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 0; border-bottom: 1px solid rgba(142,155,170,.12); color: #91a0b2; font-size: 10px; }
+    .telemetry-row strong { color: #c4cdd7; font-weight: 500; }
+    .telemetry-row .ok { color: var(--cyan); }
+    .mini-bars { display: flex; gap: 3px; align-items: end; height: 22px; }
+    .mini-bars i { width: 3px; height: 20%; background: #3a557b; transition: height .2s ease; }
+    .mini-bars i:nth-child(2n) { height: 55%; }
+    .mini-bars i:nth-child(3n) { height: 75%; }
+    .voice-card { margin-top: 17px; padding: 12px; border: 1px solid rgba(56,189,248,.2); background: rgba(11,18,32,.65); }
+    .voice-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .voice-top strong { font-size: 10px; font-weight: 600; }
+    .wake-pill { padding: 3px 6px; border: 1px solid rgba(56,189,248,.35); color: var(--cyan); font-size: 8px; letter-spacing: .8px; text-transform: uppercase; }
+    .voice-copy { margin: 0; color: #8f9daf; font-size: 10px; }
+    .voice-controls { display: flex; gap: 7px; margin-top: 11px; }
+    .voice-controls button { flex: 1; min-height: 31px; border: 1px solid #334357; background: transparent; color: #c1ccd8; font-size: 9px; cursor: pointer; }
+    .voice-controls button.primary { border-color: var(--cyan); background: rgba(56,189,248,.11); color: var(--white); }
+    .approval { display: none; margin-top: 13px; padding: 11px; border-left: 2px solid var(--cyan); background: rgba(30,58,138,.18); }
+    .approval strong { display: block; margin-bottom: 4px; font-size: 10px; }
+    .approval p { margin: 0; color: #9eacbc; font-size: 9px; }
+    .approval-actions { display: flex; gap: 6px; margin-top: 9px; }
+    .approval-actions button { padding: 5px 8px; border: 1px solid #43536a; background: transparent; color: var(--silver); font-size: 9px; }
+    .commandbar { display: flex; gap: 10px; align-items: center; margin-top: 14px; padding: 9px; border: 1px solid var(--line); background: #0b1220; }
+    .command-symbol { color: var(--cyan); font-size: 16px; }
+    .commandbar input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--white); font-size: 11px; }
+    .commandbar input::placeholder { color: #68768a; }
+    .commandbar button { min-height: 30px; padding: 0 12px; border: 1px solid rgba(56,189,248,.45); background: rgba(30,58,138,.35); color: var(--white); font-size: 10px; cursor: pointer; }
+    .footer-note { display: flex; justify-content: space-between; gap: 12px; margin-top: 10px; color: #647286; font-size: 9px; }
+    .state-failed { --state: #b8c2cc; }
+    .state-completed { --state: #38bdf8; }
+    .state-approval { --state: #b8c2cc; }
+    @media (max-width: 1120px) {
+      .app { grid-template-columns: 68px minmax(0, 1fr); }
+      aside { align-items: center; padding-inline: 8px; }
+      .brand { padding: 0; }
+      .brand-name, .brand-sub, .nav-label, .nav-item .nav-text, .profile-copy { display: none; }
+      .nav-item { justify-content: center; width: 44px; padding: 0; }
+      .nav-item .glyph { font-size: 15px; }
+      .profile { padding-inline: 0; }
+      .workspace { grid-template-columns: minmax(190px, .82fr) minmax(290px, 1.18fr); }
+      .right-column { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 15px; border-left: 0 !important; border-top: 1px solid var(--line); }
+      .right-column .section-head { grid-column: 1 / -1; margin-bottom: -7px; }
+      .voice-card { margin-top: 0; }
+    }
+    @media (max-width: 720px) {
+      .app { display: block; }
+      aside { min-height: 0; height: 58px; padding: 0 12px; flex-direction: row; justify-content: space-between; border-right: 0; border-bottom: 1px solid var(--line); }
+      .brand { flex: 0 0 auto; }
+      nav { display: flex; gap: 3px; }
+      .nav-item { width: 37px; min-height: 37px; }
+      .nav-item:nth-child(n+5) { display: none; }
+      .side-bottom { display: none; }
+      main { padding: 18px 13px 22px; }
+      .topbar { align-items: flex-start; margin-bottom: 16px; }
+      h1 { font-size: 19px; }
+      .top-actions .connection { display: none; }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .metric:nth-child(2) { border-right: 0; }
+      .metric:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+      .workspace { display: flex; flex-direction: column; min-height: 0; }
+      .core-column { min-height: 390px; order: 0; border: 0 !important; }
+      .core-stage { width: min(100%, 330px); }
+      .left-column { order: 1; border: 0 !important; border-top: 1px solid var(--line) !important; }
+      .right-column { order: 2; display: block; border-top: 1px solid var(--line) !important; }
+      .right-column .section-head { margin-bottom: 14px; }
+      .voice-card { margin-top: 16px; }
+      .footer-note { flex-direction: column; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="preview-ribbon">Design preview · sample state</div>
+  <div class="app">
+    <aside aria-label="Main navigation">
+      <div class="brand"><div class="brand-mark"><span>J</span></div><div><div class="brand-name">JARV</div><div class="brand-sub">Operations system</div></div></div>
+      <div class="nav-label">Workspace</div>
+      <nav>
+        <a class="nav-item active" href="#cockpit" aria-current="page"><span class="glyph">◈</span><span class="nav-text">Command center</span></a>
+        <a class="nav-item" href="#missions"><span class="glyph">⌘</span><span class="nav-text">Missions</span></a>
+        <a class="nav-item" href="#agents"><span class="glyph">◎</span><span class="nav-text">Agents</span></a>
+        <a class="nav-item" href="#memory"><span class="glyph">▤</span><span class="nav-text">Knowledge</span></a>
+        <a class="nav-item" href="#approvals"><span class="glyph">◇</span><span class="nav-text">Approvals</span></a>
+        <a class="nav-item" href="#operations"><span class="glyph">⌁</span><span class="nav-text">Operations</span></a>
+      </nav>
+      <div class="side-bottom"><div class="nav-label">Session</div><div class="profile"><div class="avatar">RC</div><div class="profile-copy">Richard Curley<small>Boundary operator</small></div></div></div>
+    </aside>
+    <main id="cockpit">
+      <header class="topbar">
+        <div><div class="eyebrow">JARV / Mission control</div><h1>Command Center</h1></div>
+        <div class="top-actions"><div class="connection"><span class="dot"></span>Preview mode</div><button class="quiet-button" id="motion-toggle" type="button" title="Toggle core motion">Pause motion</button></div>
+      </header>
+      <div class="state-strip" aria-label="Preview operational states">
+        <span>Preview state</span>
+        <button class="state-button" data-state="idle" aria-pressed="true">Idle</button>
+        <button class="state-button" data-state="listening" aria-pressed="false">Listening</button>
+        <button class="state-button" data-state="thinking" aria-pressed="false">Thinking</button>
+        <button class="state-button" data-state="planning" aria-pressed="false">Planning</button>
+        <button class="state-button" data-state="executing" aria-pressed="false">Executing</button>
+        <button class="state-button" data-state="speaking" aria-pressed="false">Speaking</button>
+        <button class="state-button" data-state="approval" aria-pressed="false">Approval</button>
+        <button class="state-button" data-state="completed" aria-pressed="false">Completed</button>
+        <button class="state-button" data-state="failed" aria-pressed="false">Failed</button>
+        <button class="state-button" data-state="recovery" aria-pressed="false">Recovery</button>
+      </div>
+      <section class="metrics" aria-label="Sample operational metrics">
+        <div class="metric"><div class="metric-label">Active mission</div><div class="metric-value">MYCO V3 <em>· sample</em></div></div>
+        <div class="metric"><div class="metric-label">Agents online</div><div class="metric-value">08 <em>/ 31</em></div></div>
+        <div class="metric"><div class="metric-label">Tasks in motion</div><div class="metric-value">12 <em>· sample</em></div></div>
+        <div class="metric"><div class="metric-label">System health</div><div class="metric-value">Nominal <em>· sample</em></div></div>
+      </section>
+      <section class="workspace" aria-label="Cockpit overview">
+        <div class="column left-column">
+          <div class="section-head"><h2>Current mission</h2><span class="micro">SAMPLE</span></div>
+          <h3 class="mission-title" id="mission-title">MYCO V3 acceptance</h3>
+          <p class="mission-copy" id="mission-copy">Verify the operating loop, safeguards, and recovery path.</p>
+          <div class="progress-label"><span id="progress-label">Execution progress</span><span id="progress-value">68%</span></div>
+          <div class="track"><i id="progress-bar"></i></div>
+          <div class="timeline" id="timeline">
+            <div class="event done"><span class="event-mark"></span><div><strong>Workspace analyzed</strong><small>Workspace Manager · complete</small></div></div>
+            <div class="event done"><span class="event-mark"></span><div><strong>Acceptance plan verified</strong><small>Verifier · complete</small></div></div>
+            <div class="event current"><span class="event-mark"></span><div><strong id="timeline-current">Runtime checks underway</strong><small>QA + Infrastructure · active</small></div></div>
+          </div>
+          <div class="section-head"><h2>Agent roster</h2><span class="micro">08 / 31 SAMPLE</span></div>
+          <div class="agent-list">
+            <div class="agent-row"><span class="agent-name"><span class="agent-icon">V</span>Verifier</span><span class="status-text">ACTIVE</span></div>
+            <div class="agent-row"><span class="agent-name"><span class="agent-icon">Q</span>QA Agent</span><span class="status-text">ACTIVE</span></div>
+            <div class="agent-row"><span class="agent-name"><span class="agent-icon">I</span>Infrastructure</span><span class="status-text">STANDBY</span></div>
+          </div>
+        </div>
+        <div class="column core-column">
+          <div class="core-heading"><h2>JARV Intelligence Core</h2><p id="core-subtitle">Operational awareness</p></div>
+          <div class="core-stage"><canvas id="core-canvas" aria-label="Animated three-dimensional intelligence core"></canvas><div class="core-label"><div><b>JARV</b><span id="core-state">System ready</span></div></div></div>
+          <div class="core-caption"><strong id="core-message">Awaiting your mission</strong><span id="core-detail">All systems standing by</span></div>
+        </div>
+        <div class="column right-column">
+          <div class="section-head"><h2>System telemetry</h2><span class="micro">PREVIEW</span></div>
+          <div class="telemetry">
+            <div class="telemetry-row"><span>Orchestrator</span><strong class="ok" id="telemetry-orchestrator">Ready</strong></div>
+            <div class="telemetry-row"><span>Authority checks</span><strong class="ok">Enforced</strong></div>
+            <div class="telemetry-row"><span>Audit trail</span><strong class="ok">Recording</strong></div>
+            <div class="telemetry-row"><span>Voice output</span><strong id="telemetry-voice">Standby</strong></div>
+            <div class="telemetry-row"><span>Audio activity</span><span class="mini-bars" id="audio-bars" aria-label="Illustrative audio activity"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
+          </div>
+          <div class="voice-card">
+            <div class="voice-top"><strong>Hands-free voice</strong><span class="wake-pill">Target · wake phrase</span></div>
+            <p class="voice-copy" id="voice-copy">Final requirement: “Talk to me” activates local phrase detection, then hands-free conversation.</p>
+            <div class="voice-controls"><button id="wake-toggle" type="button" title="Preview wake phrase enabled state">Wake phrase: target</button><button id="interrupt-button" class="primary" type="button" title="Preview interrupting JARV">Interrupt</button></div>
+          </div>
+          <div class="approval" id="approval-panel"><strong>Richard's approval required</strong><p>Live release is held at the approval boundary. Safe verification work can continue.</p><div class="approval-actions"><button type="button" id="approve-preview">Preview approval</button><button type="button" id="keep-paused">Keep paused</button></div></div>
+        </div>
+      </section>
+      <form class="commandbar" id="command-form"><span class="command-symbol" aria-hidden="true">⌁</span><input id="command-input" aria-label="Preview command" placeholder="Enter a mission or ask JARV a question…"><button type="submit">Preview command</button></form>
+      <div class="footer-note"><span>Static design preview. Metrics, agents, and events above are illustrative, not connected to JARV.</span><span>Final voice target: local wake phrase · hands-free ASR · natural spoken response · interruptible playback</span></div>
+    </main>
+  </div>
+  <script>
+    (() => {
+      const states = {
+        idle: { label: 'System ready', subtitle: 'Operational awareness', message: 'Awaiting your mission', detail: 'All systems standing by', progress: 68, orchestrator: 'Ready', voice: 'Standby', current: 'Runtime checks underway', mode: 'idle' },
+        listening: { label: 'Listening', subtitle: 'Wake phrase detected · preview', message: 'I am listening', detail: 'Local phrase detection is a final requirement', progress: 68, orchestrator: 'Ready', voice: 'Listening', current: 'Voice input captured in preview', mode: 'listening' },
+        thinking: { label: 'Thinking', subtitle: 'Task interpretation · preview', message: 'Understanding your request', detail: 'Conversation response is illustrative', progress: 68, orchestrator: 'Routing', voice: 'Standby', current: 'Request being interpreted', mode: 'thinking' },
+        planning: { label: 'Planning', subtitle: 'Plan validation · preview', message: 'Building a safe plan', detail: 'Authority and boundary checks precede action', progress: 72, orchestrator: 'Planning', voice: 'Standby', current: 'Verifier reviewing plan', mode: 'planning' },
+        executing: { label: 'Executing', subtitle: 'Scoped execution · preview', message: 'Work is in motion', detail: 'Actions are logged and authority checked', progress: 81, orchestrator: 'Executing', voice: 'Standby', current: 'QA + Infrastructure running checks', mode: 'executing' },
+        speaking: { label: 'Speaking', subtitle: 'Natural response · preview', message: 'JARV is responding', detail: 'Interrupt controls remain available', progress: 81, orchestrator: 'Responding', voice: 'Speaking', current: 'Voice response playing in preview', mode: 'speaking' },
+        approval: { label: 'Approval', subtitle: 'Hard boundary · preview', message: 'Waiting at a real-world gate', detail: 'Safe parallel work continues where possible', progress: 81, orchestrator: 'Paused at gate', voice: 'Standby', current: 'Live release awaits explicit approval', mode: 'approval' },
+        completed: { label: 'Completed', subtitle: 'Verified result · preview', message: 'Mission checks complete', detail: 'A final report is ready for review', progress: 100, orchestrator: 'Complete', voice: 'Standby', current: 'Acceptance result recorded', mode: 'completed' },
+        failed: { label: 'Failed', subtitle: 'Failure surfaced · preview', message: 'A check needs attention', detail: 'Failure detail and recovery remain visible', progress: 53, orchestrator: 'Needs attention', voice: 'Standby', current: 'Runtime check failed; recovery available', mode: 'failed' },
+        recovery: { label: 'Recovery', subtitle: 'Safe checkpoint · preview', message: 'Resuming from a safe point', detail: 'Mission context and audit trail retained', progress: 61, orchestrator: 'Recovering', voice: 'Standby', current: 'Resume action validating checkpoint', mode: 'recovery' }
+      };
+      const canvas = document.querySelector('#core-canvas');
+      let renderer;
+      let core;
+      let ringGroup;
+      let paused = false;
+      let activeState = 'idle';
+      let wakeTarget = true;
+      let audioBarsTimer;
+      try {
+        renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        renderer.setClearColor(0x000000, 0);
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(34, 1, .1, 100);
+        camera.position.set(0, 0, 8.3);
+        const ambient = new THREE.AmbientLight(0x6583a7, 1.55);
+        const glow = new THREE.PointLight(0x38bdf8, 28, 9);
+        glow.position.set(0, 0, 2.4);
+        scene.add(ambient, glow);
+        core = new THREE.Group();
+        ringGroup = new THREE.Group();
+        scene.add(core, ringGroup);
+        const shell = new THREE.Mesh(new THREE.IcosahedronGeometry(1.08, 3), new THREE.MeshPhysicalMaterial({ color: 0x1e3a8a, metalness: .62, roughness: .22, transparent: true, opacity: .38, emissive: 0x0d3150, emissiveIntensity: .8, wireframe: true }));
+        core.add(shell);
+        const inner = new THREE.Mesh(new THREE.IcosahedronGeometry(.73, 2), new THREE.MeshStandardMaterial({ color: 0x8e9baa, metalness: .74, roughness: .26, emissive: 0x164e72, emissiveIntensity: .75, flatShading: true }));
+        core.add(inner);
+        const nucleus = new THREE.Mesh(new THREE.SphereGeometry(.34, 32, 24), new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: .78 }));
+        core.add(nucleus);
+        for (let i = 0; i < 3; i++) {
+          const ring = new THREE.Mesh(new THREE.TorusGeometry(1.42 + i * .12, .008, 5, 180), new THREE.MeshBasicMaterial({ color: i === 1 ? 0x8e9baa : 0x38bdf8, transparent: true, opacity: i === 1 ? .52 : .72 }));
+          ring.rotation.set(.58 + i * .3, .28 + i * .8, i * .24);
+          ringGroup.add(ring);
+        }
+        const particles = new THREE.BufferGeometry();
+        const positions = [];
+        for (let i = 0; i < 260; i++) {
+          const u = Math.random() * 2 - 1;
+          const angle = Math.random() * Math.PI * 2;
+          const radius = 1.9 + Math.random() * 1.1;
+          const width = Math.sqrt(1 - u * u);
+          positions.push(radius * width * Math.cos(angle), radius * u, radius * width * Math.sin(angle));
+        }
+        particles.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        core.add(new THREE.Points(particles, new THREE.PointsMaterial({ color: 0x8e9baa, size: .018, transparent: true, opacity: .58, sizeAttenuation: true })));
+        const resize = () => {
+          const box = canvas.getBoundingClientRect();
+          if (!box.width || !box.height) return;
+          renderer.setSize(box.width, box.height, false);
+          camera.aspect = box.width / box.height;
+          camera.updateProjectionMatrix();
+        };
+        new ResizeObserver(resize).observe(canvas);
+        resize();
+        const render = (time) => {
+          requestAnimationFrame(render);
+          const t = time * .001;
+          if (!paused) {
+            core.rotation.y = t * (activeState === 'thinking' || activeState === 'planning' ? .27 : .12);
+            core.rotation.x = Math.sin(t * .31) * .08;
+            ringGroup.rotation.y = t * (activeState === 'executing' ? .32 : .15);
+            ringGroup.rotation.x = Math.sin(t * .2) * .12;
+            const pulse = activeState === 'listening' || activeState === 'speaking' ? 1 + Math.sin(t * 4.4) * .04 : 1 + Math.sin(t * 1.5) * .014;
+            core.scale.setScalar(pulse);
+            nucleus.material.opacity = activeState === 'listening' || activeState === 'speaking' ? .55 + (Math.sin(t * 5) + 1) * .19 : .78;
+          }
+          renderer.render(scene, camera);
+        };
+        requestAnimationFrame(render);
+      } catch (error) {
+        canvas.setAttribute('aria-label', 'Three-dimensional preview unavailable; surrounding HUD remains available');
+      }
+      const setState = (name) => {
+        const state = states[name];
+        if (!state) return;
+        activeState = name;
+        document.body.className = `state-${name}`;
+        document.querySelectorAll('.state-button').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.state === name)));
+        document.querySelector('#core-state').textContent = state.label;
+        document.querySelector('#core-subtitle').textContent = state.subtitle;
+        document.querySelector('#core-message').textContent = state.message;
+        document.querySelector('#core-detail').textContent = state.detail;
+        document.querySelector('#progress-label').textContent = name === 'approval' ? 'Safe work progress' : 'Execution progress';
+        document.querySelector('#progress-value').textContent = `${state.progress}%`;
+        document.querySelector('#progress-bar').style.width = `${state.progress}%`;
+        document.querySelector('#telemetry-orchestrator').textContent = state.orchestrator;
+        document.querySelector('#telemetry-voice').textContent = state.voice;
+        document.querySelector('#timeline-current').textContent = state.current;
+        document.querySelector('#approval-panel').style.display = name === 'approval' ? 'block' : 'none';
+        document.querySelector('#interrupt-button').textContent = name === 'speaking' ? 'Stop response' : 'Interrupt';
+        document.querySelector('#interrupt-button').setAttribute('aria-label', name === 'speaking' ? 'Stop response preview' : 'Interrupt JARV preview');
+        if (audioBarsTimer) clearInterval(audioBarsTimer);
+        const bars = [...document.querySelectorAll('#audio-bars i')];
+        bars.forEach((bar) => bar.style.height = '20%');
+        if (name === 'speaking') {
+          audioBarsTimer = setInterval(() => bars.forEach((bar) => bar.style.height = `${18 + Math.random() * 78}%`), 140);
+        }
+      };
+      document.querySelectorAll('.state-button').forEach((button) => button.addEventListener('click', () => setState(button.dataset.state)));
+      document.querySelector('#motion-toggle').addEventListener('click', (event) => {
+        paused = !paused;
+        event.currentTarget.textContent = paused ? 'Resume motion' : 'Pause motion';
+      });
+      document.querySelector('#wake-toggle').addEventListener('click', (event) => {
+        wakeTarget = !wakeTarget;
+        event.currentTarget.textContent = wakeTarget ? 'Wake phrase: target' : 'Wake phrase: off';
+        event.currentTarget.setAttribute('aria-pressed', String(wakeTarget));
+        document.querySelector('#voice-copy').textContent = wakeTarget
+          ? 'Final requirement: “Talk to me” activates local phrase detection, then hands-free conversation.'
+          : 'Preview only: wake phrase off. Final system must provide an explicit, persistent microphone control.';
+      });
+      document.querySelector('#interrupt-button').addEventListener('click', () => setState('listening'));
+      document.querySelector('#approve-preview').addEventListener('click', () => setState('executing'));
+      document.querySelector('#keep-paused').addEventListener('click', () => setState('approval'));
+      document.querySelector('#command-form').addEventListener('submit', (event) => {
+        event.preventDefault();
+        const input = document.querySelector('#command-input');
+        if (input.value.trim()) {
+          document.querySelector('#mission-title').textContent = input.value.trim().slice(0, 48);
+          document.querySelector('#mission-copy').textContent = 'Illustrative preview command. No backend request was sent.';
+          input.value = '';
+          setState('planning');
+        }
+      });
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) paused = true;
+    })();
+  </script>
+</body>
+</html>

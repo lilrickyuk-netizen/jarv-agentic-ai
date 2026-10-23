@@ -131,10 +131,36 @@ BANNED_FOLDERS=/path/to/banking,/path/to/crypto
 
 ```env
 VOICE_ENABLED=false
-STT_PROVIDER=whisper
-TTS_PROVIDER=elevenlabs
-ELEVENLABS_API_KEY=your_key
+VOICEBOX_BASE_URL=http://voicebox:17493
+VOICEBOX_PROFILE_ID=
+VOICEBOX_CONNECT_TIMEOUT_SECONDS=3
+VOICEBOX_READ_TIMEOUT_SECONDS=180
+VOICEBOX_MAX_AUDIO_BYTES=26214400
+WAKEWORD_MODEL_DIR=/data/voice-models/sherpa-kws-gigaspeech
 ```
+
+Voicebox is an optional CPU service in the private Compose network. Start it with
+`docker compose --profile voice up -d --build voicebox`; do not publish its port,
+because the upstream API has no authentication. JARV proxies authenticated
+transcription, speech generation, status, cancellation, and audio requests.
+
+After the backend and Voicebox are healthy, sign in as an administrator and use
+the cockpit's **Set up JARV voice** action to create the persistent Kokoro
+American-male profile. Use **Install wake model** to download and checksum-verify
+the Apache-2.0 English sherpa-onnx model into `WAKEWORD_MODEL_DIR`. Browser
+hands-free operation is opt-in: microphone access is requested explicitly and
+16 kHz audio frames are sent to the self-hosted JARV detector while enabled. Use
+**Update wake phrase** to regenerate and runtime-validate the installed keyword
+file as “Talk to me”; disable hands-free before updating it. The local detector
+and Voicebox Whisper recognizer accept “Talk to me” without a JARV prefix. After
+the phrase, the captured instruction is sent through the normal authenticated
+command/authority pipeline. Voicebox spoken replies can be interrupted by wake
+detection or the explicit interrupt control.
+
+Voicebox CPU inference is supported but can be slow, and the first speech
+generation downloads the selected TTS model. Real microphone accuracy,
+false-trigger rate, generated audio quality, and barge-in behavior still require
+hands-on acceptance on the target browser and hardware.
 
 ### Monitoring and Logging
 

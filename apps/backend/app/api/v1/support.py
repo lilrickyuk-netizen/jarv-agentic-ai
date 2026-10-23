@@ -16,6 +16,8 @@ from app.core.support.knowledge_base import get_knowledge_base
 from app.core.auth import get_current_user
 from app.core.agents.registry import get_registry
 from app.core.agents.base import AgentContext
+from app.core.database import AsyncSessionLocal
+from app.core.knowledge.service import knowledge_service
 
 router = APIRouter(prefix="/support", tags=["support"])
 
@@ -283,6 +285,20 @@ async def draft_reply(
         session_id=uuid.uuid4(),
     )
 
+    query = f"{ticket.subject}\n{ticket.description}"
+    async with AsyncSessionLocal() as knowledge_db:
+        context.knowledge_context = await knowledge_service.retrieve(
+            knowledge_db, agent_name="customer_support", query=query, limit=3,
+        )
+    if not context.knowledge_context:
+        raise HTTPException(
+            status_code=503,
+            detail="Verified customer-support knowledge is unavailable",
+        )
+    context.metadata["specialist_knowledge_ids"] = [
+        item["id"] for item in context.knowledge_context
+    ]
+
     # Generate draft reply
     input_data = {
         "ticket_id": ticket_id,
@@ -291,7 +307,7 @@ async def draft_reply(
         "tone": request.tone,
     }
 
-    result = await agent.run(input_data, context)
+    result = await agent.execute(input_data, context)
 
     if not result.success:
         raise HTTPException(status_code=500, detail=f"Reply generation failed: {result.error_message}")

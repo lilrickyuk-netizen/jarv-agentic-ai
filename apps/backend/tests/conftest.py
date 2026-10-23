@@ -52,13 +52,33 @@ from app.models.user import User
 # Isolation between tests is by clearing all tables (see _clean_db), not by
 # transaction rollback. Test-scoped only; production/dev unchanged.
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", "sqlite:///./test_jarv.db")
-_ASYNC_TEST_URL = TEST_DATABASE_URL.replace("sqlite://", "sqlite+aiosqlite://", 1)
 _SQLITE = "sqlite" in TEST_DATABASE_URL
+
+if _SQLITE:
+    _SYNC_TEST_URL = TEST_DATABASE_URL
+    _ASYNC_TEST_URL = TEST_DATABASE_URL.replace("sqlite://", "sqlite+aiosqlite://", 1)
+else:
+    # The backend's async URL may carry an asyncpg or psycopg driver. The test
+    # harness needs both a synchronous fixture engine and an async API engine,
+    # so derive explicit drivers from the same PostgreSQL test database URL.
+    _POSTGRES_TEST_URL = TEST_DATABASE_URL
+    for _driver in ("postgresql+asyncpg://", "postgresql+psycopg://", "postgresql+psycopg2://"):
+        if _POSTGRES_TEST_URL.startswith(_driver):
+            _POSTGRES_TEST_URL = "postgresql://" + _POSTGRES_TEST_URL[len(_driver):]
+            break
+    if not _POSTGRES_TEST_URL.startswith("postgresql://"):
+        raise ValueError("TEST_DATABASE_URL must use PostgreSQL or SQLite")
+    _SYNC_TEST_URL = _POSTGRES_TEST_URL.replace(
+        "postgresql://", "postgresql+psycopg2://", 1,
+    )
+    _ASYNC_TEST_URL = _POSTGRES_TEST_URL.replace(
+        "postgresql://", "postgresql+asyncpg://", 1,
+    )
 
 # Sync engine: AUTOCOMMIT so each statement commits immediately and every read
 # starts a fresh snapshot (no stale long-lived transaction hiding async writes).
 engine = create_engine(
-    TEST_DATABASE_URL,
+    _SYNC_TEST_URL,
     connect_args={"check_same_thread": False, "timeout": 30} if _SQLITE else {},
     poolclass=StaticPool if _SQLITE else NullPool,
     isolation_level="AUTOCOMMIT",
@@ -122,18 +142,38 @@ def db_session(db_engine) -> Generator[Session, None, None]:
 
 @pytest.fixture(autouse=True)
 def _reset_redis_singleton():
-    """Give each test a fresh in-memory fakeredis instance.
+    """Reset the Redis client and isolate real-Redis acceptance runs.
 
-    init_redis() caches a module-global client; resetting it between tests
-    prevents key state from one test leaking into another. Test-scoped only.
+    Normal test runs use the configured fakeredis test double. When
+    JARV_TEST_REAL_REDIS=1, use the configured real Redis service and flush only
+    its explicitly selected test database before and after each test. The
+    acceptance runner uses Redis database 15, separate from JARV's database 0.
     """
     import app.core.redis as _redis_mod
+    from app.core.config import settings
 
     _redis_mod._redis_client = None
     _redis_mod._redis_pool = None
-    yield
-    _redis_mod._redis_client = None
-    _redis_mod._redis_pool = None
+    real_redis = None
+    if os.getenv("JARV_TEST_REAL_REDIS") == "1":
+        from redis import Redis as SyncRedis
+
+        real_redis = SyncRedis.from_url(
+            str(settings.REDIS_URL),
+            decode_responses=True,
+            socket_connect_timeout=5,
+        )
+        real_redis.flushdb()
+    try:
+        yield
+    finally:
+        if real_redis is not None:
+            try:
+                real_redis.flushdb()
+            finally:
+                real_redis.close()
+        _redis_mod._redis_client = None
+        _redis_mod._redis_pool = None
 
 
 @pytest.fixture

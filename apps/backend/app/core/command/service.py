@@ -58,6 +58,17 @@ _PATH_RE = re.compile(r'([A-Za-z]:[\\/][^\s"\'<>|]+)')
 logger = logging.getLogger(__name__)
 
 
+def _provider_name_for_model(model: str) -> str:
+    normalized = model.lower()
+    if normalized.startswith("claude-"):
+        return "claude"
+    if normalized.startswith("gpt-") or normalized.startswith(("o1", "o3", "o4")):
+        return "openai"
+    if normalized.startswith("gemini-"):
+        return "gemini"
+    return "ollama"
+
+
 # ===== Safety / approval classification =====
 
 # Verbs/phrases that indicate an action requiring a hard-boundary approval.
@@ -172,11 +183,11 @@ class CommandResult:
 
 
 class CommandService:
-    """Runs the live command pipeline against the real orchestrator + Claude."""
+    """Runs the live command pipeline against the configured model provider."""
 
     def __init__(self, model: Optional[str] = None):
-        # Default to the configured Claude model (Claude is the primary provider).
         self.model = model or getattr(settings, "DEFAULT_MODEL", None) or "claude-sonnet-4-6"
+        self.provider_name = _provider_name_for_model(self.model)
 
     async def execute(
         self,
@@ -251,7 +262,7 @@ class CommandService:
             db, ws_id, action="command_received", category="command",
             description=f"Command received from {self.operator}: {command_text[:300]}",
             success=True, target_id=task_id,
-            metadata={"operator": self.operator, "provider": "claude", "model": self.model},
+            metadata={"operator": self.operator, "provider": self.provider_name, "model": self.model},
         )
 
         # 4) Approval gate: do NOT execute, pause the blocked action
@@ -288,7 +299,7 @@ class CommandService:
                     "rephrase the command to inspect/plan only."
                 ),
                 approval_reason=safety.reason,
-                provider="claude",
+                provider=self.provider_name,
                 model=self.model,
                 execution_time=time.time() - start,
             )
@@ -448,7 +459,7 @@ class CommandService:
                 "response": answer,
                 "plan_steps": plan_steps,
                 "selected_agents": selected_agents,
-                "provider": "claude",
+                "provider": self.provider_name,
                 "model": self.model,
                 "tool_calls": runtime.calls,
                 "task_status": status,
@@ -498,7 +509,7 @@ class CommandService:
                 description=f"Command {status} ({self.operator}): {command_text[:300]}",
                 success=_ok, target_id=task_id,
                 error_message=(failure or {}).get("reason") if not _ok else None,
-                metadata={"operator": self.operator, "provider": "claude", "model": self.model,
+                metadata={"operator": self.operator, "provider": self.provider_name, "model": self.model,
                           "selected_agents": selected_agents, "tokens_used": total_tokens,
                           "status": status},
             )
@@ -512,7 +523,7 @@ class CommandService:
                 response_text=answer,
                 plan_steps=plan_steps,
                 selected_agents=selected_agents,
-                provider="claude",
+                provider=self.provider_name,
                 model=self.model,
                 execution_time=time.time() - start,
                 tokens_used=total_tokens,
@@ -548,7 +559,7 @@ class CommandService:
                 status="failed",
                 requires_approval=False,
                 response_text=f"JARV could not complete the command: {exc}",
-                provider="claude",
+                provider=self.provider_name,
                 model=self.model,
                 execution_time=time.time() - start,
                 error=str(exc),
@@ -1410,7 +1421,10 @@ class CommandService:
             # EXECUTE (role-specific via the lead agent; then write the artifact)
             assignment = (f"As the {label} employee for this sandbox project, produce a concise, "
                           f"useful {label} document for the project brief.")
-            run = await agent_runner.run_agent(lead, assignment, runtime.workspace_id)
+            run = await agent_runner.run_agent(
+                lead, assignment, runtime.workspace_id, db=db,
+                task_id=runtime.task_id,
+            )
             body = (run.get("output_text") or "").strip() or f"({label}: no content generated)"
             content = (f"# {label.title()} Output\n\n"
                        f"_Produced by scoped employee (lead: {lead}, authority <= {lead_authority}, "

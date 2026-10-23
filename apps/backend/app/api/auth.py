@@ -231,6 +231,8 @@ async def get_current_user(
 
     # Find user by user_id
     for key in await redis.keys("user:*"):
+        if await redis.type(key) != "hash":
+            continue
         data = await redis.hgetall(key)
         if data.get("user_id") == user_id:
             user_key = key

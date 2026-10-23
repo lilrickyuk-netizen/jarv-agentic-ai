@@ -13,7 +13,7 @@ import time
 from app import __version__
 from app.core.config import settings
 from app.core.logging import setup_logging
-from app.core.database import close_db
+from app.core.database import AsyncSessionLocal, close_db
 from app.core.redis import init_redis, close_redis
 from app.core.errors import (
     JARVException,
@@ -22,7 +22,7 @@ from app.core.errors import (
     validation_exception_handler,
     general_exception_handler,
 )
-from app.api import health, auth, models, agents, tasks, tools, evolution, swarm, workspaces, company, standups, operations_feed, memory, experience, approvals, boundary_reports, checkpoints, assets
+from app.api import health, auth, models, agents, tasks, tools, evolution, swarm, workspaces, company, standups, operations_feed, memory, experience, approvals, boundary_reports, checkpoints, assets, agent_knowledge
 
 # Setup logging first
 setup_logging()
@@ -37,11 +37,19 @@ async def lifespan(app: FastAPI):
     logger.info(f"Environment: {settings.ENVIRONMENT}")
     logger.info(f"Debug mode: {settings.DEBUG}")
     logger.info(f"Log level: {settings.LOG_LEVEL}")
-    logger.info(f"Database: {settings.DATABASE_URL}")
+    logger.info("Database connection configured")
+
+    if not settings.TESTING:
+        from app.core.knowledge.catalog import specialist_knowledge
+        from app.core.knowledge.service import knowledge_service
+
+        async with AsyncSessionLocal() as session:
+            await knowledge_service.ingest(session, specialist_knowledge())
+            await session.commit()
 
     # Initialize Redis
     await init_redis()
-    logger.info(f"Redis: {settings.REDIS_URL}")
+    logger.info("Redis connection configured")
 
     # Log feature status
     logger.info(f"Swarm enabled: {settings.SWARM_ENABLED}")
@@ -164,6 +172,7 @@ app.include_router(checkpoints.router)
 from app.api import richard as richard_api
 app.include_router(richard_api.router)
 app.include_router(assets.router)
+app.include_router(agent_knowledge.router, prefix="/api")
 
 # Import and include workflow router
 from app.api.v1 import workflows
@@ -188,6 +197,9 @@ app.include_router(content_community.router, prefix="/api")
 # Import and include voice command router
 from app.api.v1 import voice
 app.include_router(voice.router, prefix="/api")
+
+from app.api.v1 import voicebox
+app.include_router(voicebox.router, prefix="/api")
 
 # Import and include command execution router (live dashboard command pipeline)
 from app.api import command

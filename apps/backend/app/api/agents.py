@@ -338,7 +338,10 @@ async def run_agent(
                 created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
     db.add(task); await db.flush()
 
-    result = await agent_runner.run_agent(agent_name, body.task, ws_id)
+    result = await agent_runner.run_agent(
+        agent_name, body.task, ws_id, user_id=operator, db=db,
+        task_id=task.id,
+    )
     employees: List[Dict[str, Any]] = []
     if body.spawn_employees and agent_name in LEADS_WITH_EMPLOYEES:
         employees = await agent_runner.spawn_employees(db, agent_name, task.id, ws_id, body.task)

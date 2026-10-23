@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { isAuthenticated } from "@/lib/auth";
 
@@ -10,16 +10,17 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
-    // Check authentication on mount
     if (!isAuthenticated()) {
       router.push("/login");
+    } else {
+      setAuthChecked(true);
     }
   }, [router]);
 
-  // Show loading state while checking auth
-  if (!isAuthenticated()) {
+  if (!authChecked) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
