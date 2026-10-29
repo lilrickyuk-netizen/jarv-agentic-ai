@@ -71,7 +71,9 @@ class DevOpsAgent(AgentBase):
 
     @property
     def default_tools(self) -> list[str]:
-        return ['command_run', 'file_read', 'file_write', 'git_push']
+        from app.core.agents.specialists.tool_mode import tools_for
+
+        return tools_for("devops")
 
     # Static CI/deploy file candidates (workflows enumerated separately).
     _CI_CANDIDATES = [
@@ -96,6 +98,11 @@ class DevOpsAgent(AgentBase):
         context: AgentContext,
     ) -> AgentResult:
         """Real local CI/deploy file detection; honest BLOCKED for real deploys."""
+        if self.tools_enabled(context):
+            from app.core.agents.specialists import tool_mode
+
+            return await tool_mode.run(self, input_data, context)
+
         try:
             operation = input_data.get("operation", "deploy")
             environment = input_data.get("environment", "staging")

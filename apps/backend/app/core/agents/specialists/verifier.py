@@ -77,7 +77,9 @@ class VerifierAgent(AgentBase):
 
     @property
     def default_tools(self) -> list[str]:
-        return ['file_read', 'command_run', 'analyze_code', 'analyze_coverage']
+        from app.core.agents.specialists.tool_mode import tools_for
+
+        return tools_for("verifier")
 
     @staticmethod
     def _looks_like_path(text: str) -> bool:
@@ -93,6 +95,11 @@ class VerifierAgent(AgentBase):
         input_data: Dict[str, Any],
         context: AgentContext,
     ) -> AgentResult:
+        if self.tools_enabled(context):
+            from app.core.agents.specialists import tool_mode
+
+            return await tool_mode.run(self, input_data, context)
+
         try:
             code = (input_data.get("code_to_verify") or "").strip()
             test_files = list(input_data.get("test_files", []) or [])

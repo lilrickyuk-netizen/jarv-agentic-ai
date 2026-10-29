@@ -17,6 +17,15 @@ os.environ.setdefault(
     "jarv-test-secret-key-only-not-for-production-2026",
 )
 
+# Never spend real provider credit from the test suite. Settings also read
+# apps/backend/.env, which on a developer machine holds real keys; environment
+# variables take precedence over that file, so blank every provider key here,
+# before Settings() is created. Tests that exercise providers inject a fake
+# router or set a test key explicitly.
+for _provider_key in ("CLAUDE_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+                      "GEMINI_API_KEY", "GROQ_API_KEY"):
+    os.environ[_provider_key] = ""
+
 import pytest
 from typing import Generator
 from fastapi.testclient import TestClient

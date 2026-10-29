@@ -488,6 +488,52 @@ class AgentBase(ABC):
 
                 set_knowledge_context((), reset_token=knowledge_token)
 
+    # ===== Tool use (Repair 12c) =====
+
+    def tools_enabled(self, context: AgentContext) -> bool:
+        """True when this agent can work through its toolbox: a model provider
+        is configured and the task has a database session and a workspace."""
+        from app.core.agents.specialists._helpers import provider_configured
+        from app.core.config import settings
+
+        if context.db_session is None or context.workspace_id is None:
+            return False
+        # Off by default inside the test suite: a developer's .env may hold a real
+        # provider key, and tests must never spend it. Tests opt in explicitly.
+        enabled = context.metadata.get("tools_enabled", not settings.TESTING)
+        return bool(enabled) and provider_configured()
+
+    async def use_tools(
+        self, context: AgentContext, task: str, *, instructions: str = "", max_steps: int = 12,
+    ) -> Dict[str, Any]:
+        """Work ``task`` through this agent's toolbox (authority-checked, logged,
+        confined to the workspace). See app.core.agents.tool_loop."""
+        from app.core.agents.tool_loop import run_tool_loop
+
+        outcome = await run_tool_loop(self, context, task, instructions=instructions, max_steps=max_steps)
+        self.logger.info(
+            f"{self.name} tool loop: success={outcome['success']} steps={outcome['steps']} "
+            f"tools={outcome['tools_used']} blocked={outcome['blocked']}",
+            extra={"workspace_id": str(context.workspace_id) if context.workspace_id else None},
+        )
+        return outcome
+
+    def result_from_tools(self, outcome: Dict[str, Any], **result_data: Any) -> "AgentResult":
+        """AgentResult for a tool-loop outcome, with the full tool trail attached."""
+        data = {**result_data, "summary": outcome["summary"], "outputs": outcome["outputs"],
+                "tool_calls": outcome["tool_calls"], "blocked_actions": outcome["blocked"],
+                "approval_needed": outcome["approval_needed"], "steps": outcome["steps"],
+                "workspace_root": outcome["workspace_root"]}
+        return self.create_result(
+            success=outcome["success"], result_data=data, output_text=outcome["summary"],
+            error_message=None if outcome["success"] else (
+                "waiting for approval" if outcome["requires_approval"] else "task not completed"),
+            tools_used=outcome["tools_used"],
+            tokens_used={"total_tokens": outcome["tokens"]},
+            iterations_used=outcome["steps"],
+            requires_approval=outcome["requires_approval"],
+        )
+
     # ===== Memory and verified learning (Repair 11) =====
 
     def _learning_enabled(self, context: AgentContext) -> bool:
