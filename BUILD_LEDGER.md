@@ -12355,7 +12355,7 @@ NEXT TASK: REPAIR-12E-3A part 2 (workspace lifecycle, company operations, experi
 
 TASK ID: REPAIR-12E-3B-SWARM
 TASK NAME: Persisted swarm lifecycle, limits, costs, and the 13 swarm tools
-STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+STATUS: COMPLETE (2026-10-29: 510 passed)
 AUDIT FINDINGS THAT DROVE THIS TASK:
 - Only swarm creation and spawning were real. dissolve, pause, resume, cancel, get, list and stats in SwarmManager; every SubAgentManager method; every SwarmTracker method; and all limit storage/lookup only wrote a log line and returned fixed values (the Command Center swarm panel read an always-empty list). Limit checks counted active swarms and sub-agents as 0. None of the 13 design swarm tools existed; the swarm manager agent only reported constant limits.
 FILES CREATED:
@@ -12375,8 +12375,44 @@ COMMANDS RUN:
 TESTS RUN:
 - Owner run 1 (2026-10-29): collection stopped: test_repair12d_ops_tools.py located the repository three directories above the test file, which does not exist inside the test image (tests live at /app/tests). Fix 1: repository-level files located through JARV_REPO_ROOT (the owner's run mounts the repository read-only) or the nearest parent holding docker-compose.yml.
 - Owner run 2: 503 passed, 7 failed. Six were repository-level tests (compose, .gitignore, backup scripts, CI, deployment and security docs) that read ../../ relative to the working directory, which is / inside the image; they now use the same repository locator (tests/repo_paths.py), and the compose check parses the YAML and runs docker compose config only where the Docker CLI exists. One was real: the swarm manager agent passed the swarm id as text to complete_swarm, and the UUID column rejected it; owned_swarm and owned_sub_agent now normalise ids. Fix 2 omitted the new tests/repo_paths.py (fix 3 added it).
-- Owner run 4: 509 passed, 1 failed: the swarm manager's completion audit carried the swarm report, whose metrics held a raw UUID; the JSON column rejected it, the audit logger rolled the session back and the uncommitted swarm went with it. Fix 4: the report's metrics are serialised as JSON, and AuditLog now stores ids, dates and decimals inside its JSON details as text, so no audit entry can fail on them. Re-run pending.
+- Owner run 4: 509 passed, 1 failed: the swarm manager's completion audit carried the swarm report, whose metrics held a raw UUID; the JSON column rejected it, the audit logger rolled the session back and the uncommitted swarm went with it. Fix 4: the report's metrics are serialised as JSON, and AuditLog now stores ids, dates and decimals inside its JSON details as text, so no audit entry can fail on them. Owner run 5: 510 passed, 0 failed.
 - Written: full lifecycle (spawn, pause blocks spawning, resume, follow-up task, status, output, list, stats, complete dissolves and records cost, child agents deactivated); cancel and owner scoping; limits from policy capped at global; logs attached to the parent task; stale sub-agents timed out; tools spawn under a named lead, cost report, cancel needs approval, low authority refused; swarm manager agent runs two tasks as one swarm; API lists only the owner's runs.
-RESULT: Pending owner test run.
+RESULT: Full suite 510 passed on the owner's machine (repository mounted read-only so repository-level checks run against the real files).
 BLOCKERS: None.
 NEXT TASK: REPAIR-12E-3C (workspace lifecycle, company operations, experience, self-evolution persistence).
+
+TASK ID: REPAIR-12E-3C-COMPANY-WORKSPACE-EXPERIENCE
+TASK NAME: Company operating layer, workspace lifecycle and experience record tools, persisted and wired
+STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- app/core/company (operating plan, daily loop, orchestrator, structure) was an in-memory set of managers whose database writes were comments; nothing imported it. None of the 17 design company tools, 11 workspace lifecycle tools or 6 experience tools existed. The company operator agent could only draft unsaved text; the workspace manager only walked a folder.
+- workspace_create took its new workspace's authority level from caller-supplied metadata (default 3), so a caller could create a workspace with more authority than its own.
+- experience_log_success / experience_log_failure wrote lessons without the self-evolution safety guard, redaction, or the workspace column.
+FILES CREATED:
+- apps/backend/app/core/company_ops/__init__.py, service.py (operating plans with versions, daily loops, weekly plans, standups, KPIs with targets and direction, risk register (probability x impact), decision log with reversal, operations feed, next best actions; standups, loops and actions computed from the workspace's real tasks, approvals, incidents, risks, KPIs and plans)
+- apps/backend/app/tools/company/operations.py (the 17 company tools)
+- apps/backend/app/core/workspaces/lifecycle.py (create, import folder / repository (public https only, real git clone) / document pack / live platform (SSRF-guarded check), recorded scans, task plans (given steps, model plan, or from the project's own files and commands), roadmap, launch checklist with verified checks, versioned rules with protected-rule approval, archive, delete (records only, files kept))
+- apps/backend/app/tools/workspace/lifecycle.py (the 11 workspace lifecycle tools; new workspaces capped at the calling workspace's authority; delete_workspace_with_boundary approval-gated)
+- apps/backend/app/tools/experience/records.py (the 6 experience tools through the verified-learning service; linking across workspaces makes a guarded copy, never a shared record)
+- apps/backend/app/tools/_scoped.py (shared base for workspace-scoped database tools)
+- apps/backend/app/api/company_ops.py (authenticated, owner-scoped: overview, next actions, run daily loop, standup, KPI, risk, decision, plan versions)
+- apps/backend/tests/test_repair12e3c_company_workspace_experience.py
+FILES MODIFIED:
+- apps/backend/app/core/agents/specialists/company_operator.py (tool loop over the company tools with a provider; without one runs the requested operation on persisted records; draft-only path kept for runs with no database session)
+- apps/backend/app/core/agents/specialists/workspace_manager.py (lifecycle tools; recorded scan and launch checklist without a provider)
+- apps/backend/app/core/agents/specialists/memory.py, self_evolution.py (experience tools added)
+- apps/backend/app/tools/workspace/management.py (workspace_create authority capped)
+- apps/backend/app/tools/experience/logging.py (safety guard, redaction, workspace column)
+- apps/backend/app/tools/company/__init__.py, apps/backend/app/core/tools/registry.py (registration)
+- apps/backend/app/core/celery.py, apps/backend/app/workers/tasks.py, apps/backend/app/core/config.py (company_daily_loop beat job for company-mode workspaces, COMPANY_LOOP_INTERVAL_HOURS)
+- apps/backend/app/main.py (company-ops router)
+FILES DELETED:
+- apps/backend/app/core/company/ (unused in-memory managers, replaced by app/core/company_ops)
+COMMANDS RUN:
+- python -m py_compile on changed files: passed
+- unit check of the plan item merge (partial updates keep status): passed
+TESTS RUN:
+- None yet. Written: all 34 tools registered, real and gated; plans/versions, weekly plan, KPIs (both directions), risks, decisions with reversal, feed; daily loop and next actions from seeded tasks; company operator agent loop and review; folder import with scan and authority cap, duplicate and outside-root refusals, task plans (project files and given steps), roadmap, checklist; real git clone import, document pack, live platform; protected rule approval, archive refusing running work, delete approval / self-delete refusal / files kept; experience safety guard, extraction from a failed task, task link, cross-workspace copy and refusal; owner-scoped API.
+RESULT: Owner run 1 (2026-10-29): 517 passed, 2 failed. (1) A new rule was created with is_active and priority read from keys the tool always sends (as null), so the insert broke the NOT NULL constraint; defaults now apply when the value is null. The workspace delete also moved to one database DELETE relying on the ON DELETE rules every reference declares, because an ORM cascade would lazily load each task's dependency collections, which an async session cannot do. (2) The experience test read a variable outside the function that defined it. Fix 1 re-run pending.
+BLOCKERS: None.
+NEXT TASK: REPAIR-12E-3D (self-evolution persistence and the 12 self-evolution tools).

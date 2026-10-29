@@ -72,7 +72,9 @@ class MemoryAgent(AgentBase):
 
     @property
     def default_tools(self) -> list[str]:
-        return ['memory_store', 'memory_retrieve', 'memory_search', 'memory_update']
+        return ['memory_store', 'memory_retrieve', 'memory_search', 'memory_update',
+                'create_experience_record', 'list_experience_records', 'summarise_experience', 'extract_lesson',
+                'link_experience_to_workspace', 'link_experience_to_task']
 
     @staticmethod
     def _item_text(item: Any) -> str:

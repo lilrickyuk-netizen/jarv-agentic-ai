@@ -1,15 +1,17 @@
 """
 JARV Backend - WorkspaceManagerAgent
 
-Performs a REAL local workspace scan and reports honestly.
+Manages workspaces through the workspace lifecycle tools
+(app.tools.workspace.lifecycle): create, import (folder, repository, document
+pack, live platform), scan, task plans, roadmap, launch checklist, rules,
+archive and (with Richard's approval) delete.
 
-Workspace lifecycle records (create/update/delete) live in the DB and are not
-written by a standalone agent run, so this agent never claims a workspace was
-created/updated. When a real folder path is supplied (input or
-context.metadata.workspace_path) and exists, it performs a genuine filesystem
-walk: it counts files by extension (capped) and detects stack markers that
-actually exist on disk. When no valid path is available it returns an honest
-limited result. No detection or counts are fabricated.
+- With a model provider and a workspace, it works through those tools.
+- Without a provider but inside a workspace, "scan" records a real scan of the
+  workspace folder and "launch_checklist" re-verifies the launch checklist.
+- Otherwise, when a real folder path is supplied (input or
+  context.metadata.workspace_path), it walks that folder and reports the files
+  and stack markers that actually exist. Nothing is fabricated.
 """
 from typing import Dict, Any, List, Type
 import os
@@ -71,7 +73,12 @@ class WorkspaceManagerAgent(AgentBase):
 
     @property
     def default_tools(self) -> list[str]:
-        return ['workspace_create', 'workspace_update', 'workspace_list']
+        from app.core.tools.base import ToolConfig
+        from app.tools.workspace.lifecycle import WORKSPACE_LIFECYCLE_TOOLS
+
+        return [tool(ToolConfig()).name for tool in WORKSPACE_LIFECYCLE_TOOLS] + [
+            "scan_workspace", "detect_workspace_type", "detect_stack", "detect_commands", "find_missing_files",
+            "workspace_list", "workspace_info"]
 
     # Stack marker filename -> stack label.
     _STACK_MARKERS = {
@@ -138,7 +145,17 @@ class WorkspaceManagerAgent(AgentBase):
         input_data: Dict[str, Any],
         context: AgentContext,
     ) -> AgentResult:
-        """Real workspace folder scan; honest limited result when no valid path."""
+        """Lifecycle work through tools, a recorded scan, or a real folder walk."""
+        goal = (input_data.get("config") or {}).get("goal")
+        if self.tools_enabled(context) and goal:
+            outcome = await self.use_tools(
+                context, f"Operation: {input_data.get('operation')}\nWorkspace: {input_data.get('workspace_name')}\n"
+                         f"Goal: {goal}", instructions=_INSTRUCTIONS, max_steps=16)
+            return self.result_from_tools(outcome, mode="tools")
+        operation = str(input_data.get("operation") or "").lower()
+        if context.db_session is not None and context.workspace_id is not None and \
+                operation in ("scan", "launch_checklist"):
+            return await self._lifecycle(operation, context)
         try:
             operation = input_data.get("operation", "update")
             workspace_name = input_data.get("workspace_name", "")
@@ -235,3 +252,36 @@ class WorkspaceManagerAgent(AgentBase):
                 result_data={},
                 error_message=str(e),
             )
+
+    async def _lifecycle(self, operation: str, context: AgentContext) -> AgentResult:
+        from sqlalchemy import select
+
+        from app.core.workspaces.lifecycle import workspace_lifecycle
+        from app.models.workspace import Workspace
+
+        ws = (await context.db_session.execute(select(Workspace).where(Workspace.id == context.workspace_id))
+              ).scalar_one_or_none()
+        if ws is None:
+            return self.create_result(success=False, result_data={}, error_message="Workspace not found")
+        try:
+            if operation == "scan":
+                scan = await workspace_lifecycle.scan(context.db_session, ws)
+                return self.create_result(
+                    success=scan["status"] == "completed", result_data={"operation": operation, "scan": scan},
+                    output_text=(f"Scan recorded: {', '.join(scan['detected'].get('stack') or []) or 'no stack detected'}; "
+                                 f"{len(scan['missing_files'])} missing file(s)"),
+                    tools_used=["scan_workspace"], error_message=scan.get("reason"))
+            checklist = await workspace_lifecycle.update_launch_checklist(context.db_session, ws, None, True)
+            return self.create_result(
+                success=True, result_data={"operation": operation, "launch_checklist": checklist},
+                output_text=f"Launch checklist {checklist['done']}/{checklist['total']}",
+                tools_used=["update_launch_checklist"])
+        except (LookupError, PermissionError, ValueError) as exc:
+            return self.create_result(success=False, result_data={"operation": operation}, error_message=str(exc))
+
+
+_INSTRUCTIONS = (
+    "You manage this owner's workspaces. Use the lifecycle tools: import folders, repositories, document packs "
+    "and live platforms; scan and detect the project; turn goals into task plans; keep the roadmap and launch "
+    "checklist current; record rule changes (protected rules pause for Richard). Deleting a workspace needs "
+    "Richard's approval and never deletes files. Finish with what changed.")

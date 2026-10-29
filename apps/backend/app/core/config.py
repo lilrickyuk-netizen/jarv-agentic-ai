@@ -193,6 +193,9 @@ class Settings(BaseSettings):
     PROMETHEUS_URL: str = ""
     BACKUP_DIR: str = "/data/backups"
     BACKUP_INTERVAL_HOURS: float = 24.0
+    # Company operating layer: the daily operating loop runs on this interval for
+    # every active workspace with company mode enabled.
+    COMPANY_LOOP_INTERVAL_HOURS: float = 24.0
 
     # Deployments to Richard's VPS over SSH (Repair 12e-2). The private key is
     # the base64 of a dedicated deploy key; the known-hosts line pins the

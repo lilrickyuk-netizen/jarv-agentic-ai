@@ -22,8 +22,21 @@ from app.core.tools import ToolBase, ToolConfig, ToolContext, ToolResult
 from app.core.agents.base import AuthorityLevel
 from app.tools.memory.storage import _memory_scope
 from app.models.self_evolution import ExperienceRecord
+from app.core.safety.evolution_guard import classify_change
+from app.core.security import redact_text
 
 logger = logging.getLogger(__name__)
+
+
+def _guarded(lesson: str, situation: str, action: str, result: str):
+    """Redact secrets and apply the self-evolution safety guard: a lesson that would weaken
+    safety, authority, logging or verification is stored rejected and inactive."""
+    lesson, situation, action, result = (redact_text(lesson), redact_text(situation),
+                                         redact_text(action), redact_text(result))
+    unsafe, matched = classify_change(lesson)
+    extra = {"lesson_status": "rejected", "is_active": False} if unsafe else {"lesson_status": "candidate",
+                                                                              "is_active": True}
+    return lesson, situation, action, result, extra, (f"safety guard: '{matched}'" if unsafe else None)
 
 
 # ===== EXPERIENCE LOG SUCCESS TOOL =====
@@ -93,6 +106,8 @@ class ExperienceLogSuccessTool(ToolBase):
 
         try:
             db, agent_id = await _memory_scope(context)
+            lesson_learned, situation, action_taken, result, guard, rejected = _guarded(
+                lesson_learned, situation, action_taken, result)
             record = ExperienceRecord(
                 id=uuid4(), agent_id=agent_id, session_id=context.session_id,
                 task_id=context.task_id, experience_type=experience_type,
@@ -101,8 +116,9 @@ class ExperienceLogSuccessTool(ToolBase):
                 outcome="success", lesson_learned=lesson_learned,
                 applicable_contexts=applicable_contexts,
                 confidence_score=confidence_score, times_applied=0,
-                success_rate=None, is_validated=False, is_active=True,
-                meta_data={"workspace_id": str(context.workspace_id), "provenance": "caller_reported"},
+                success_rate=None, is_validated=False, workspace_id=context.workspace_id, **guard,
+                meta_data={"workspace_id": str(context.workspace_id), "provenance": "caller_reported",
+                           **({"rejected_reason": rejected} if rejected else {})},
             )
             db.add(record)
             await db.flush()
@@ -196,6 +212,8 @@ class ExperienceLogFailureTool(ToolBase):
 
         try:
             db, agent_id = await _memory_scope(context)
+            lesson_learned, situation, action_taken, result, guard, rejected = _guarded(
+                lesson_learned, situation, action_taken, result)
             record = ExperienceRecord(
                 id=uuid4(), agent_id=agent_id, session_id=context.session_id,
                 task_id=context.task_id, experience_type=experience_type,
@@ -204,8 +222,9 @@ class ExperienceLogFailureTool(ToolBase):
                 outcome="failure", lesson_learned=lesson_learned,
                 applicable_contexts=applicable_contexts,
                 confidence_score=confidence_score, times_applied=0,
-                success_rate=None, is_validated=False, is_active=True,
-                meta_data={"workspace_id": str(context.workspace_id), "provenance": "caller_reported"},
+                success_rate=None, is_validated=False, workspace_id=context.workspace_id, **guard,
+                meta_data={"workspace_id": str(context.workspace_id), "provenance": "caller_reported",
+                           **({"rejected_reason": rejected} if rejected else {})},
             )
             db.add(record)
             await db.flush()

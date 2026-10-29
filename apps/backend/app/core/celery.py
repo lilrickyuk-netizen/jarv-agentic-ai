@@ -70,6 +70,11 @@ celery_app.conf.update(
             "schedule": float(getattr(settings, "BACKUP_INTERVAL_HOURS", 24)) * 3600,
             "options": {"expires": 3600},
         },
+        "company-daily-loop": {
+            "task": "company_daily_loop",
+            "schedule": float(getattr(settings, "COMPANY_LOOP_INTERVAL_HOURS", 24)) * 3600,
+            "options": {"expires": 3600},
+        },
     },
 )
 
@@ -106,6 +111,15 @@ SCHEDULED_JOBS = [
         "enabled": True,
         "type": "operations/backup",
         "description": "Back up JARV's PostgreSQL database (pg_dump), then verify the archive.",
+    },
+    {
+        "name": "company_daily_loop",
+        "task": "company_daily_loop",
+        "interval_seconds": float(getattr(settings, "COMPANY_LOOP_INTERVAL_HOURS", 24)) * 3600,
+        "enabled": True,
+        "type": "company/daily-loop",
+        "description": "Daily operating loop (standup, next actions, KPI snapshot, risk review, plan progress) "
+                       "for every active workspace with company mode enabled.",
     },
     {
         "name": "workspace_maintenance",

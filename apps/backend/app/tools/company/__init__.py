@@ -1,7 +1,8 @@
 """
 JARV Backend - Company Operation Tools
 
-Tools for company operations: email, calendar, CRM, Slack.
+Tools for company operations: email, calendar, CRM, Slack, and the company
+operating layer (plans, loops, standups, KPIs, risks, decisions, feed).
 """
 from app.tools.company.email import EmailSendTool, EmailReadTool, EmailSearchTool
 from app.tools.company.calendar import (
@@ -18,6 +19,7 @@ from app.tools.company.crm import (
     CrmUpdateDealTool,
 )
 from app.tools.company.slack import SlackSendTool, SlackReadTool, SlackSearchTool
+from app.tools.company.operations import COMPANY_TOOLS
 
 __all__ = [
     # Email tools
@@ -39,4 +41,6 @@ __all__ = [
     "SlackSendTool",
     "SlackReadTool",
     "SlackSearchTool",
+    # Company operating layer
+    "COMPANY_TOOLS",
 ]

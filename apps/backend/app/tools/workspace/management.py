@@ -91,6 +91,12 @@ class WorkspaceCreateTool(ToolBase):
             )).scalar_one_or_none() is not None:
                 slug = f"{base_slug[:88]}-{suffix}"
                 suffix += 1
+            # A new workspace never gets more authority than the one creating it
+            # (or the registration default of 2 when created outside a workspace).
+            ceiling = 2
+            if context.workspace_id is not None:
+                ceiling = (await db.execute(select(Workspace.authority_level).where(
+                    Workspace.id == context.workspace_id, Workspace.owner_id == user_id))).scalar_one_or_none() or 2
             workspace = Workspace(
                 id=uuid4(),
                 owner_id=user_id,
@@ -98,7 +104,7 @@ class WorkspaceCreateTool(ToolBase):
                 slug=slug,
                 description=description,
                 workspace_type="project",
-                authority_level=int(context.metadata.get("authority_level", 3)),
+                authority_level=min(int(context.metadata.get("authority_level", 2)), int(ceiling)),
                 config=settings,
                 is_active=True,
             )

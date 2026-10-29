@@ -66,7 +66,8 @@ class SelfEvolutionAgent(AgentBase):
 
     @property
     def default_tools(self) -> list[str]:
-        return ['experience_log_success', 'experience_query_pattern', 'memory_search']
+        return ['experience_log_success', 'experience_query_pattern', 'memory_search',
+                'summarise_experience', 'extract_lesson', 'list_experience_records']
 
     async def run(
         self,

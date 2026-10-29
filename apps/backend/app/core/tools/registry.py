@@ -1016,6 +1016,24 @@ def _register_implemented_tools(registry: ToolRegistry) -> None:
     except ImportError as e:
         logger.warning(f"Swarm tools not available for registration: {e}")
 
+    # Company operating layer, workspace lifecycle and experience record tools
+    # (Repair 12e-3c): persisted, scoped to the calling workspace's owner.
+    try:
+        from app.tools.company.operations import COMPANY_TOOLS
+        from app.tools.experience.records import EXPERIENCE_RECORD_TOOLS
+        from app.tools.workspace.lifecycle import WORKSPACE_LIFECYCLE_TOOLS
+
+        for group, category in ((COMPANY_TOOLS, "company"), (WORKSPACE_LIFECYCLE_TOOLS, "workspace"),
+                                (EXPERIENCE_RECORD_TOOLS, "experience")):
+            for tool in group:
+                registry.register(tool, category=category)
+
+        logger.info(f"Registered {len(COMPANY_TOOLS)} company, {len(WORKSPACE_LIFECYCLE_TOOLS)} workspace lifecycle "
+                    f"and {len(EXPERIENCE_RECORD_TOOLS)} experience tools (real, Repair 12e-3c)")
+
+    except ImportError as e:
+        logger.warning(f"Company/workspace/experience tools not available for registration: {e}")
+
     # Boundary tools (Repair 7): real detection + BoundaryReport persistence.
     try:
         from app.tools.boundary import (

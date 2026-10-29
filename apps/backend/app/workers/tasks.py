@@ -229,3 +229,33 @@ def recover_stale_missions(self: Task) -> dict[str, Any]:
         return {**summary, "sub_agents_timed_out": [str(i) for i in timed_out]}
 
     return asyncio.run(run())
+
+
+@celery_app.task(name="company_daily_loop", bind=True)
+def company_daily_loop(self: Task) -> dict[str, Any]:
+    """Run the daily operating loop for every active workspace with company mode on (Celery beat)."""
+    from app.core.company_ops.service import company_ops
+    from app.core.database import AsyncSessionLocal
+
+    async def run() -> dict[str, Any]:
+        from sqlalchemy import select
+
+        from app.models.workspace import Workspace
+
+        results: dict[str, Any] = {}
+        async with AsyncSessionLocal() as db:
+            ids = (await db.execute(select(Workspace.id).where(
+                Workspace.company_mode_enabled.is_(True), Workspace.is_active.is_(True),
+                Workspace.is_archived.is_(False)))).scalars().all()
+            for ws_id in ids:
+                try:
+                    loop = await company_ops.run_daily_loop(db, ws_id)
+                    await db.commit()
+                    results[str(ws_id)] = loop.summary
+                except Exception as exc:  # noqa: BLE001 - one workspace's failure does not stop the others
+                    await db.rollback()
+                    logger.error(f"Daily loop failed for workspace {ws_id}: {exc}")
+                    results[str(ws_id)] = f"failed: {exc}"
+        return {"workspaces": len(results), "results": results}
+
+    return asyncio.run(run())
