@@ -12383,7 +12383,7 @@ NEXT TASK: REPAIR-12E-3C (workspace lifecycle, company operations, experience, s
 
 TASK ID: REPAIR-12E-3C-COMPANY-WORKSPACE-EXPERIENCE
 TASK NAME: Company operating layer, workspace lifecycle and experience record tools, persisted and wired
-STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+STATUS: COMPLETE (2026-10-29: 519 passed, committed ab2a976)
 AUDIT FINDINGS THAT DROVE THIS TASK:
 - app/core/company (operating plan, daily loop, orchestrator, structure) was an in-memory set of managers whose database writes were comments; nothing imported it. None of the 17 design company tools, 11 workspace lifecycle tools or 6 experience tools existed. The company operator agent could only draft unsaved text; the workspace manager only walked a folder.
 - workspace_create took its new workspace's authority level from caller-supplied metadata (default 3), so a caller could create a workspace with more authority than its own.
@@ -12413,6 +12413,31 @@ COMMANDS RUN:
 - unit check of the plan item merge (partial updates keep status): passed
 TESTS RUN:
 - None yet. Written: all 34 tools registered, real and gated; plans/versions, weekly plan, KPIs (both directions), risks, decisions with reversal, feed; daily loop and next actions from seeded tasks; company operator agent loop and review; folder import with scan and authority cap, duplicate and outside-root refusals, task plans (project files and given steps), roadmap, checklist; real git clone import, document pack, live platform; protected rule approval, archive refusing running work, delete approval / self-delete refusal / files kept; experience safety guard, extraction from a failed task, task link, cross-workspace copy and refusal; owner-scoped API.
-RESULT: Owner run 1 (2026-10-29): 517 passed, 2 failed. (1) A new rule was created with is_active and priority read from keys the tool always sends (as null), so the insert broke the NOT NULL constraint; defaults now apply when the value is null. The workspace delete also moved to one database DELETE relying on the ON DELETE rules every reference declares, because an ORM cascade would lazily load each task's dependency collections, which an async session cannot do. (2) The experience test read a variable outside the function that defined it. Fix 1 re-run pending.
+RESULT: Owner run 1 (2026-10-29): 517 passed, 2 failed. (1) A new rule was created with is_active and priority read from keys the tool always sends (as null), so the insert broke the NOT NULL constraint; defaults now apply when the value is null. The workspace delete also moved to one database DELETE relying on the ON DELETE rules every reference declares, because an ORM cascade would lazily load each task's dependency collections, which an async session cannot do. (2) The experience test read a variable outside the function that defined it. Owner run 2: 519 passed, 0 failed.
 BLOCKERS: None.
 NEXT TASK: REPAIR-12E-3D (self-evolution persistence and the 12 self-evolution tools).
+
+TASK ID: REPAIR-12E-3D-SELF-EVOLUTION
+TASK NAME: Persisted, verified, versioned and reversible self-evolution, and the 12 self-evolution tools
+STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- app/core/evolution/improvements.py, verification.py and versioning.py kept proposals, verifications and versions in process memory (their database steps were comments), so /api/evolution improvements, approvals, applications, versions, snapshots and rollbacks changed nothing and were lost on restart; those endpoints also had no owner scoping. "Apply" and "rollback" did not touch any component. None of the 12 design self-evolution tools existed; the self-evolution agent could only draft text.
+FILES CREATED:
+- apps/backend/app/core/evolution/engine.py (propose with the safety guard; verification stored as VerificationResult: safety guard, target and change validity, no authority/limit increase, no disabling protected rules or blocking safety tools, a real change; protected-rule edits need Richard; apply saves the previous state and writes through each component's own versioning (workspace rule versions, runbook versions, agent strategy versions, tool selection rules, operating plan versions, workspace swarm strategy, workflow notes); rollback newest-first, itself versioned; restore to a point in time; before/after outcome assessment; guidance and tool narrowing for agents)
+- apps/backend/app/tools/evolution/__init__.py (the 12 tools)
+- apps/backend/tests/test_repair12e3d_self_evolution.py
+FILES MODIFIED:
+- apps/backend/app/api/evolution.py (improvements, verification, approval, apply, reject, rollback, monitoring, versions and restore on the engine, all owner-scoped; experience endpoints unchanged)
+- apps/backend/app/core/agents/tool_loop.py, toolbox.py (applied instructions, workflow notes, runbooks, swarm strategy and preferred tools are given to agents below the system and safety rules; tool-selection rules can withhold tools, never add them, and never withhold safety tools)
+- apps/backend/app/core/agents/specialists/self_evolution.py (tool loop over the evolution tools; without a provider records, verifies and (when asked) applies the caller's changes; draft-only path kept for runs without a database session)
+- apps/backend/app/core/evolution/__init__.py, apps/backend/app/core/tools/registry.py
+- apps/backend/app/core/workspaces/lifecycle.py (deactivating a rule now advances its version)
+FILES DELETED:
+- apps/backend/app/core/evolution/improvements.py, verification.py, versioning.py (in-memory, replaced by engine.py)
+COMMANDS RUN:
+- python -m py_compile on changed files: passed
+TESTS RUN:
+- None yet. Written: registration and authority; rule change applied, versioned, no-op refused, rollback out of order refused, newest-first rollbacks restore content then remove the rule; unsafe instructions blocked and unapprovable; protected rule edit paused then applied with Richard's approval; disabling a protected rule, blocking a safety tool and raising swarm parallelism blocked; six component types applied and reaching agents (instructions, workflow note, preferred and withheld tools, runbook, swarm strategy, plan) then restored to a point in time; self-evolution agent applies a safe change and blocks an unsafe one; owner-scoped API through propose, approve, monitor, dashboard, rollback.
+RESULT: Pending owner test run.
+BLOCKERS: None.
+NEXT TASK: REPAIR-12E-4 (business tool groups: support, marketing, content, onboarding, community, partnership, sales, revenue; voice; remaining infrastructure tools).

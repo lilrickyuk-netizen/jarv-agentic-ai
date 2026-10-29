@@ -1,68 +1,25 @@
 """
 JARV Backend - Self-Evolution Layer
 
-Enables JARV to improve itself from experience with safety guards.
+Enables JARV to improve itself from experience with safety guards:
+experience capture (experience.py, backed by the verified-learning service)
+and persisted, verified, reversible changes to workspace rules, runbooks,
+agent instructions, tool selection, operating plans and swarm strategy
+(engine.py).
 """
+from app.core.evolution.engine import EvolutionEngine, evolution_engine
 from app.core.evolution.experience import (
     ExperienceCreate,
-    ExperienceResult,
     ExperienceManager,
+    ExperienceResult,
     LessonExtract,
-)
-from app.core.evolution.improvements import (
-    ImprovementType,
-    ImprovementCreate,
-    ImprovementResult,
-    RiskLevel,
-    ImprovementManager,
-    propose_rule_improvement,
-    propose_runbook_improvement,
-    propose_agent_improvement,
-    propose_tool_improvement,
-    propose_swarm_improvement,
-    propose_plan_improvement,
-)
-from app.core.evolution.verification import (
-    VerificationResult,
-    VerificationManager,
-    verify_improvement,
-    approve_improvement,
-    reject_improvement,
-)
-from app.core.evolution.versioning import (
-    EvolutionVersion,
-    VersionManager,
-    create_version,
-    rollback_version,
 )
 
 __all__ = [
-    # Experience
+    "EvolutionEngine",
+    "evolution_engine",
     "ExperienceCreate",
     "ExperienceResult",
     "ExperienceManager",
     "LessonExtract",
-    # Improvements
-    "ImprovementType",
-    "ImprovementCreate",
-    "ImprovementResult",
-    "RiskLevel",
-    "ImprovementManager",
-    "propose_rule_improvement",
-    "propose_runbook_improvement",
-    "propose_agent_improvement",
-    "propose_tool_improvement",
-    "propose_swarm_improvement",
-    "propose_plan_improvement",
-    # Verification
-    "VerificationResult",
-    "VerificationManager",
-    "verify_improvement",
-    "approve_improvement",
-    "reject_improvement",
-    # Versioning
-    "EvolutionVersion",
-    "VersionManager",
-    "create_version",
-    "rollback_version",
 ]

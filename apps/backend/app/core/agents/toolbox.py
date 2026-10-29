@@ -318,6 +318,11 @@ class AgentToolbox:
     def available(self) -> List[str]:
         return sorted(self._specs)
 
+    def withhold(self, names) -> List[str]:
+        """Remove tools for this run (approved tool-selection rules can only narrow, never add)."""
+        removed = [n for n in names if self._specs.pop(n, None) is not None]
+        return removed
+
     def model_tools(self) -> List[Dict[str, Any]]:
         return [{"name": spec.name, "description": spec.description, "input_schema": spec.input_schema}
                 for spec in self._specs.values()]

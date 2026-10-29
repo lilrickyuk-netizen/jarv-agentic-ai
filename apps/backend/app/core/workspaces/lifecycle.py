@@ -474,6 +474,7 @@ class WorkspaceLifecycle:
                 if row is None:
                     raise LookupError(f"Rule '{item['name']}' does not exist")
                 row.is_active = False
+                row.current_version += 1
                 row.meta_data = {**(row.meta_data or {}), "removed_at": now.isoformat()}
                 action = "deactivated"
             elif row is None:

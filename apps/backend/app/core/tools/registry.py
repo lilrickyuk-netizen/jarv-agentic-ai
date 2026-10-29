@@ -1034,6 +1034,19 @@ def _register_implemented_tools(registry: ToolRegistry) -> None:
     except ImportError as e:
         logger.warning(f"Company/workspace/experience tools not available for registration: {e}")
 
+    # Self-evolution tools (Repair 12e-3d): verified, versioned, reversible changes
+    # that can never weaken safety, authority, logging, verification or limits.
+    try:
+        from app.tools.evolution import EVOLUTION_TOOLS
+
+        for tool in EVOLUTION_TOOLS:
+            registry.register(tool, category="self_evolution")
+
+        logger.info(f"Registered {len(EVOLUTION_TOOLS)} self-evolution tools (real, Repair 12e-3d)")
+
+    except ImportError as e:
+        logger.warning(f"Self-evolution tools not available for registration: {e}")
+
     # Boundary tools (Repair 7): real detection + BoundaryReport persistence.
     try:
         from app.tools.boundary import (

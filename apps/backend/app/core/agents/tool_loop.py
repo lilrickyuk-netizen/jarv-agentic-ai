@@ -79,6 +79,14 @@ async def run_tool_loop(
     from app.core.providers import CompletionRequest, Message, get_router
 
     toolbox = await AgentToolbox(agent, context).prepare()
+    guidance = ""
+    try:
+        from app.core.evolution.engine import evolution_engine
+
+        toolbox.withhold(await evolution_engine.blocked_tools_for(context.db_session, context.workspace_id, agent.name))
+        guidance = await evolution_engine.guidance_for(context.db_session, context.workspace_id, agent.name)
+    except Exception as exc:  # noqa: BLE001 - guidance is advisory; the task runs without it
+        logger.warning(f"self-evolution guidance unavailable for {agent.name}: {exc}")
     tools = toolbox.model_tools() + [FINISH_TOOL]
     system = "\n\n".join(p for p in (
         f"You are JARV's {agent.name.replace('_', ' ')} agent. Role: {agent.role}.",
@@ -87,6 +95,7 @@ async def run_tool_loop(
          else "This workspace has no registered folder, so file and command tools are unavailable."),
         f"Tools available: {', '.join(toolbox.available) or 'none besides finish'}.",
         _RULES,
+        guidance,
         _context_block(),
     ) if p)
 
