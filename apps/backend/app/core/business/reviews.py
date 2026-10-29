@@ -55,6 +55,8 @@ async def check_reviews(db: AsyncSession, workspace_id: UUID, owner: UUID, *, ap
     fetched: List[Dict[str, Any]] = []
     new = 0
     if app_store_id:
+        if not str(app_store_id).isdigit():
+            raise ValueError("The App Store app id is the number in the app's store URL (id123456789)")
         fetched = await fetch_app_store(app_store_id, (country or settings.APP_STORE_COUNTRY or "us").lower())
         existing = {(r.meta_data or {}).get("external_id") for r in (await db.execute(select(CommunityItem).where(
             CommunityItem.workspace_id == workspace_id, CommunityItem.category == "app_store"))).scalars().all()}

@@ -78,6 +78,14 @@ PROVIDER_NAMES = {"pixabay": "Pixabay", "pexels": "Pexels", "unsplash": "Unsplas
                   "isc": "Lucide", "mit": "Heroicons"}
 
 
+def _norm(name: str) -> str:
+    """'CC BY-NC 4.0', 'cc_by_nc_4.0' and 'cc-by-nc-4.0' are the same licence."""
+    return re.sub(r"[\s_]+", "-", name.strip().lower())
+
+
+_ALIAS_KEYS = {_norm(k): v for k, v in ALIASES.items()}
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -85,8 +93,8 @@ def _now() -> datetime:
 def resolve_licence(licence: Optional[str], url: Optional[str] = None) -> Tuple[Optional[str], str]:
     """(licence id, how it was determined)."""
     if licence:
-        key = licence.strip().lower().replace("_", "-")
-        key = ALIASES.get(key, key)
+        key = _norm(licence)
+        key = _ALIAS_KEYS.get(key, key)
         if key in LICENCES:
             return key, "stated"
         return None, f"'{licence}' is not a licence JARV recognises"

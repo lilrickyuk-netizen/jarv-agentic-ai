@@ -12501,10 +12501,7 @@ FILES MODIFIED:
 COMMANDS RUN:
 - python -m py_compile on changed files: passed; nginx/compose/validation/scaling-decision and search-parser unit checks: passed
 TESTS RUN:
-<<<<<<< Updated upstream
-=======
 - Owner run 1 (2026-10-29): 543 passed, 2 failed. (1) A licence written the usual way ("CC BY-NC 4.0") was not recognised, so a non-commercial asset was refused as "unknown licence" instead of "non-commercial"; licence names are now normalised (spaces, underscores, hyphens, case). (2) An invalid App Store id was only rejected inside the feed fetch; check_reviews now rejects it before any request. Fix 1 re-run pending.
->>>>>>> Stashed changes
 - Written: 23 tools registered with categories and authority; agents declare them within authority; recorded revenue metrics, subscriptions/MRR, failed payments, payment events, conversion funnel, the revenue loop's KPIs and findings, experiment baseline, offer and pricing drafts with real numbers; Stripe signature verification (valid, forged, tampered, stale); revenue API and signed webhook recorded once per event, owner scoping; App Store reviews stored once with ratings and themes; analytics fallback; generated nginx and compose validate clean, unsafe configs flagged without echoing secrets; cost estimate from fixed costs and budget; scaling within budget runs, beyond the replica limit or budget pauses for approval, approved scaling runs and is recorded; asset downloads refused for internal hosts, http, unknown and non-commercial licences, executables, folder escape, wrong content type and scripted SVG; Pixabay, CC BY and Google Fonts assets saved with hash and attribution; manifest and credits file; assets API owner scoping; finance, growth and creation agents through their tools.
 RESULT: Pending owner test run.
 BLOCKERS: None. Live Stripe, Plausible and App Store data need Richard's keys/app id; everything runs on recorded data until then.
