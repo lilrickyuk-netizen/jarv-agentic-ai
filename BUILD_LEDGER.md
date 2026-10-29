@@ -12419,7 +12419,7 @@ NEXT TASK: REPAIR-12E-3D (self-evolution persistence and the 12 self-evolution t
 
 TASK ID: REPAIR-12E-3D-SELF-EVOLUTION
 TASK NAME: Persisted, verified, versioned and reversible self-evolution, and the 12 self-evolution tools
-STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+STATUS: COMPLETE (2026-10-29: 525 passed, committed 43f958f)
 AUDIT FINDINGS THAT DROVE THIS TASK:
 - app/core/evolution/improvements.py, verification.py and versioning.py kept proposals, verifications and versions in process memory (their database steps were comments), so /api/evolution improvements, approvals, applications, versions, snapshots and rollbacks changed nothing and were lost on restart; those endpoints also had no owner scoping. "Apply" and "rollback" did not touch any component. None of the 12 design self-evolution tools existed; the self-evolution agent could only draft text.
 FILES CREATED:
@@ -12438,6 +12438,38 @@ COMMANDS RUN:
 - python -m py_compile on changed files: passed
 TESTS RUN:
 - None yet. Written: registration and authority; rule change applied, versioned, no-op refused, rollback out of order refused, newest-first rollbacks restore content then remove the rule; unsafe instructions blocked and unapprovable; protected rule edit paused then applied with Richard's approval; disabling a protected rule, blocking a safety tool and raising swarm parallelism blocked; six component types applied and reaching agents (instructions, workflow note, preferred and withheld tools, runbook, swarm strategy, plan) then restored to a point in time; self-evolution agent applies a safe change and blocks an unsafe one; owner-scoped API through propose, approve, monitor, dashboard, rollback.
-RESULT: Pending owner test run.
+RESULT: Full suite 525 passed on the owner's machine (first run).
 BLOCKERS: None.
 NEXT TASK: REPAIR-12E-4 (business tool groups: support, marketing, content, onboarding, community, partnership, sales, revenue; voice; remaining infrastructure tools).
+
+TASK ID: REPAIR-12E-4A-BUSINESS
+TASK NAME: Grounded business drafting and persisted support, community, partnership, sales and onboarding tools
+STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- None of the 58 design support, marketing, content, onboarding, community, partnership and sales tools existed. The support inbox (app/core/support: tickets, knowledge base, responses) lived in process memory and was lost on restart; /api/support used it without any workspace scoping. The marketing, content, onboarding, community, partnerships and sales agents could only draft unsaved text; the customer support agent read tickets from the in-memory store. No email adapter could send or read mail. The capability map pointed the changelog generator and SMTP adapter at files that did not contain them.
+FILES CREATED:
+- apps/backend/app/core/business/facts.py (workspace facts: README features, git history, API routes and app pages found in the code, commands, live URL, completed work, plan objectives, roadmap, KPIs, FAQ)
+- apps/backend/app/core/business/drafting.py (42 document kinds with fixed outlines; written by the model from the facts only, or assembled from the facts; gaps marked [confirm: ...]; saved as drafts (ContentItem, MarketingCampaign, OnboardingFlow, CommunityItem); optional copy in docs/<group>/; never published)
+- apps/backend/app/core/business/support.py (persisted inbox, rule categorisation and priority, severe bugs escalated to the debugging agent as a task, FAQ-grounded reply drafts, send only by workspace support_reply rule or Richard's approval, versioned FAQ, feedback summary, email inbox sync)
+- apps/backend/app/core/business/mailer.py (SMTP send to one recipient; IMAP read with BODY.PEEK; disabled state with the missing settings named)
+- apps/backend/app/core/business/community.py (community inbox; moderation by the workspace rule plus spam/abuse signals: approve, flag or hide, never delete)
+- apps/backend/app/core/business/pipelines.py (partner shortlist scored against criteria and stack; partner pipeline with an active agreement gated on Richard; CRM deal pipeline and totals)
+- apps/backend/app/core/business/onboarding.py (activation friction from flows, tickets, KPIs and launch items; versioned onboarding copy; versioned knowledge base)
+- apps/backend/app/tools/business/__init__.py (the 58 tools: support 7, marketing 7, content 10, onboarding 9, community 9, partnership 10, sales 6), apps/backend/app/core/agents/specialists/business_mode.py, apps/backend/app/api/business.py
+- apps/backend/tests/test_repair12e4a_business.py
+FILES MODIFIED:
+- apps/backend/app/api/v1/support.py (persisted, authenticated, owner-scoped support API)
+- apps/backend/app/core/agents/specialists/customer_support.py (persisted inbox; tool loop or direct draft)
+- apps/backend/app/core/agents/specialists/marketing.py, content.py, onboarding.py, community.py, partnerships.py, sales.py (business tools; tool loop with a provider, matching tool without)
+- apps/backend/app/tools/_scoped.py (approval-aware gated tools)
+- apps/backend/app/core/tools/registry.py, apps/backend/app/main.py, apps/backend/app/core/command/service.py
+FILES DELETED:
+- apps/backend/app/core/support/ (in-memory tickets, knowledge base and templates)
+COMMANDS RUN:
+- python -m py_compile on changed files: passed; route-pattern unit check: passed
+TESTS RUN:
+- Owner run 1 (2026-10-29): 529 passed, 3 failed: the test counted 59 tools where the design lists 58 (42 drafting kinds + 16 others); and the customer support agent reported a ticket id that does not exist as a failure, which broke the all-agents runner and knowledge checks (they pass a task sentence as the id). It now returns a plain no-ticket result. Fix 1 re-run pending.
+- Written: 58 tools registered; drafts grounded in a real sandbox project (git changelog, curl examples from code routes, README features, setup steps from scripts, pages in the tour, confirm markers, file written to docs/); support escalation, FAQ-grounded draft, unconfigured mail refused, send paused without a rule then sent by rule (SMTP replaced by a recorder); moderation hide/approve, community reply draft, feedback themes; partner shortlist scoring, active agreement gated; deal pipeline and win rate; prospect brief and sales summary from CRM data; activation friction from tickets, onboarding copy and knowledge-base versions; marketing, community and support agents through their tools; owner-scoped business and support APIs.
+RESULT: Pending owner test run.
+BLOCKERS: None.
+NEXT TASK: REPAIR-12E-4B (revenue tools, payment/review/analytics checks, remaining infrastructure tools, asset tools) then REPAIR-12E-4C (voice).

@@ -1047,6 +1047,20 @@ def _register_implemented_tools(registry: ToolRegistry) -> None:
     except ImportError as e:
         logger.warning(f"Self-evolution tools not available for registration: {e}")
 
+    # Business tools (Repair 12e-4a): grounded drafts and persisted support, community,
+    # partnership, sales and onboarding records; nothing is published or sent without a rule
+    # or Richard's approval.
+    try:
+        from app.tools.business import BUSINESS_TOOLS
+
+        for tool in BUSINESS_TOOLS:
+            registry.register(tool, category=tool._category)
+
+        logger.info(f"Registered {len(BUSINESS_TOOLS)} business tools (real, Repair 12e-4a)")
+
+    except ImportError as e:
+        logger.warning(f"Business tools not available for registration: {e}")
+
     # Boundary tools (Repair 7): real detection + BoundaryReport persistence.
     try:
         from app.tools.boundary import (

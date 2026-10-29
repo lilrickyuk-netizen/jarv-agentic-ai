@@ -1,385 +1,173 @@
 """
-JARV Backend - Customer Support API
+JARV Backend - Support API
 
-RESTful API endpoints for support tickets and knowledge base.
+The workspace's support inbox on persisted tickets (app.core.business.support):
+create tickets (including from an inbound email webhook), list and read them,
+recategorise, draft a reply, send it (Richard sending from the dashboard is
+the approval), update the FAQ, summarise feedback, and pull new mail from the
+configured inbox. Every endpoint is authenticated and limited to the caller's
+own workspaces.
 """
-from fastapi import APIRouter, Depends, HTTPException
-from typing import List, Optional
-from pydantic import BaseModel, Field
-from datetime import datetime
-import uuid
+from typing import Any, Dict, List, Optional
+from uuid import UUID
 
-from app.core.support.tickets import (
-    get_ticket_manager, TicketPriority, TicketStatus, TicketCategory
-)
-from app.core.support.knowledge_base import get_knowledge_base
-from app.core.auth import get_current_user
-from app.core.agents.registry import get_registry
-from app.core.agents.base import AgentContext
-from app.core.database import AsyncSessionLocal
-from app.core.knowledge.service import knowledge_service
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.auth import CurrentUserId
+from app.core.business import mailer
+from app.core.business.support import support_service, view
+from app.core.database import get_db
+from app.models.workspace import Workspace
 
 router = APIRouter(prefix="/support", tags=["support"])
 
 
+async def _owned(db: AsyncSession, user_id: str, workspace_id: UUID) -> None:
+    found = (await db.execute(select(Workspace.id).where(Workspace.id == workspace_id,
+                                                         Workspace.owner_id == UUID(str(user_id))))).scalar_one_or_none()
+    if found is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+
+def _http(exc: Exception) -> HTTPException:
+    if isinstance(exc, PermissionError):
+        return HTTPException(status_code=403, detail=str(exc))
+    if isinstance(exc, LookupError):
+        return HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, RuntimeError):
+        return HTTPException(status_code=503, detail=str(exc))
+    return HTTPException(status_code=400, detail=str(exc))
+
+
 class CreateTicketRequest(BaseModel):
-    subject: str
-    description: str
-    priority: TicketPriority = TicketPriority.MEDIUM
-    category: TicketCategory = TicketCategory.QUESTION
-    tags: List[str] = Field(default_factory=list)
+    subject: str = Field(..., min_length=3)
+    description: str = Field(..., min_length=3)
+    customer_email: Optional[str] = None
+    customer_name: Optional[str] = None
+    category: Optional[str] = None
+    priority: Optional[str] = None
 
 
-class AddMessageRequest(BaseModel):
-    content: str
-    is_internal: bool = False
+class CategoriseRequest(BaseModel):
+    category: Optional[str] = None
+    priority: Optional[str] = None
 
 
 class DraftReplyRequest(BaseModel):
-    workspace_id: Optional[str] = None
-    include_kb_search: bool = True
-    tone: str = "professional"
-
-
-class DraftReplyResponse(BaseModel):
-    draft_reply: str
-    confidence_score: float
-    kb_articles_used: List[str]
-    suggested_actions: List[str]
-    escalation_recommended: bool
-    template_fallback_used: bool
-    requires_approval: bool
+    tone: str = "friendly"
 
 
 class SendReplyRequest(BaseModel):
-    reply_content: str
-    is_internal: bool = False
-    approved_by: Optional[str] = None
+    reply_content: Optional[str] = Field(None, description="Send this instead of the last draft")
 
 
-class UpdateTicketRequest(BaseModel):
-    status: Optional[TicketStatus] = None
-    priority: Optional[TicketPriority] = None
-    assigned_to: Optional[str] = None
+class FaqRequest(BaseModel):
+    question: str = Field(..., min_length=5)
+    answer: str = Field(..., min_length=5)
+    faq_id: Optional[str] = None
 
 
-class TicketResponse(BaseModel):
-    ticket_id: str
-    ticket_number: int
-    subject: str
-    status: str
-    priority: str
-    category: str
-    created_at: datetime
-    message_count: int
+@router.post("/{workspace_id}/tickets")
+async def create_ticket(workspace_id: UUID, body: CreateTicketRequest, user_id: CurrentUserId,
+                        db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    await _owned(db, user_id, workspace_id)
+    ticket = await support_service.create_ticket(db, workspace_id, subject=body.subject, description=body.description,
+                                                 customer_email=body.customer_email, customer_name=body.customer_name,
+                                                 category=body.category, priority=body.priority, source="api")
+    await db.commit()
+    return view(ticket)
 
 
-@router.post("/tickets", response_model=TicketResponse)
-async def create_ticket(
-    request: CreateTicketRequest,
-    current_user=Depends(get_current_user),
-):
-    """Create a new support ticket"""
-    manager = get_ticket_manager()
-
-    ticket = manager.create_ticket(
-        subject=request.subject,
-        description=request.description,
-        customer_id=str(current_user.id),
-        customer_email=current_user.email,
-        customer_name=current_user.username,
-        priority=request.priority,
-        category=request.category,
-        tags=request.tags,
-    )
-
-    return TicketResponse(
-        ticket_id=ticket.ticket_id,
-        ticket_number=ticket.ticket_number,
-        subject=ticket.subject,
-        status=ticket.status.value,
-        priority=ticket.priority.value,
-        category=ticket.category.value,
-        created_at=ticket.created_at,
-        message_count=len(ticket.messages),
-    )
+@router.get("/{workspace_id}/tickets")
+async def list_tickets(workspace_id: UUID, user_id: CurrentUserId, status: Optional[str] = None,
+                       category: Optional[str] = None, limit: int = Query(50, ge=1, le=200),
+                       db: AsyncSession = Depends(get_db)) -> List[Dict[str, Any]]:
+    await _owned(db, user_id, workspace_id)
+    return [view(t) for t in await support_service.list(db, workspace_id, status=status, category=category, limit=limit)]
 
 
-@router.get("/tickets", response_model=List[TicketResponse])
-async def list_tickets(
-    status: Optional[TicketStatus] = None,
-    priority: Optional[TicketPriority] = None,
-    current_user=Depends(get_current_user),
-):
-    """List user's tickets"""
-    manager = get_ticket_manager()
-    
-    tickets = manager.search_tickets(
-        customer_id=str(current_user.id),
-        status=status,
-        priority=priority,
-    )
-
-    return [
-        TicketResponse(
-            ticket_id=t.ticket_id,
-            ticket_number=t.ticket_number,
-            subject=t.subject,
-            status=t.status.value,
-            priority=t.priority.value,
-            category=t.category.value,
-            created_at=t.created_at,
-            message_count=len(t.messages),
-        )
-        for t in tickets
-    ]
+@router.get("/{workspace_id}/tickets/{ticket_id}")
+async def get_ticket(workspace_id: UUID, ticket_id: str, user_id: CurrentUserId,
+                     db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    await _owned(db, user_id, workspace_id)
+    try:
+        return view(await support_service._ticket(db, workspace_id, ticket_id))
+    except LookupError as exc:
+        raise _http(exc)
 
 
-@router.get("/tickets/stats")
-async def get_ticket_stats(current_user=Depends(get_current_user)):
-    """Get support system statistics"""
-    manager = get_ticket_manager()
-    return manager.get_stats()
+@router.post("/{workspace_id}/tickets/{ticket_id}/categorise")
+async def categorise(workspace_id: UUID, ticket_id: str, body: CategoriseRequest, user_id: CurrentUserId,
+                     db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    await _owned(db, user_id, workspace_id)
+    try:
+        ticket = await support_service.categorise(db, workspace_id, ticket_id, body.category, body.priority)
+    except (LookupError, ValueError) as exc:
+        raise _http(exc)
+    await db.commit()
+    return view(ticket)
 
 
-@router.get("/kb/articles")
-async def search_articles(
-    query: Optional[str] = None,
-    category: Optional[str] = None,
-):
-    """Search knowledge base articles"""
-    kb = get_knowledge_base()
-    articles = kb.search_articles(query=query, category=category)
-
-    return [
-        {
-            "article_id": a.article_id,
-            "title": a.title,
-            "category": a.category,
-            "tags": a.tags,
-            "view_count": a.view_count,
-        }
-        for a in articles
-    ]
+@router.post("/{workspace_id}/tickets/{ticket_id}/draft-reply")
+async def draft_reply(workspace_id: UUID, ticket_id: str, body: DraftReplyRequest, user_id: CurrentUserId,
+                      db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    await _owned(db, user_id, workspace_id)
+    try:
+        draft = await support_service.draft_reply(db, workspace_id, ticket_id, tone=body.tone)
+    except (LookupError, ValueError) as exc:
+        raise _http(exc)
+    await db.commit()
+    return draft
 
 
-@router.get("/kb/stats")
-async def get_kb_stats():
-    """Get knowledge base statistics"""
-    kb = get_knowledge_base()
-    return kb.get_stats()
+@router.post("/{workspace_id}/tickets/{ticket_id}/reply")
+async def send_reply(workspace_id: UUID, ticket_id: str, body: SendReplyRequest, user_id: CurrentUserId,
+                     db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """Richard sends the reply from the dashboard: that is the approval for this one message."""
+    await _owned(db, user_id, workspace_id)
+    try:
+        sent = await support_service.send_reply(db, workspace_id, ticket_id, approved=True, body=body.reply_content)
+    except (LookupError, PermissionError, RuntimeError, ValueError) as exc:
+        raise _http(exc)
+    await db.commit()
+    return sent
 
 
-@router.get("/tickets/{ticket_id}")
-async def get_ticket(
-    ticket_id: str,
-    current_user=Depends(get_current_user),
-):
-    """Get ticket details"""
-    manager = get_ticket_manager()
-    ticket = manager.get_ticket(ticket_id)
-
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-
-    # Verify user has access to this ticket
-    if ticket.customer_id != str(current_user.id):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    return {
-        "ticket_id": ticket.ticket_id,
-        "ticket_number": ticket.ticket_number,
-        "subject": ticket.subject,
-        "description": ticket.description,
-        "status": ticket.status.value,
-        "priority": ticket.priority.value,
-        "category": ticket.category.value,
-        "created_at": ticket.created_at,
-        "updated_at": ticket.updated_at,
-        "customer_name": ticket.customer_name,
-        "customer_email": ticket.customer_email,
-        "messages": [
-            {
-                "message_id": m.message_id,
-                "content": m.content,
-                "sender": m.sender,
-                "sender_type": m.sender_type,
-                "created_at": m.created_at,
-                "is_internal": m.is_internal,
-            }
-            for m in ticket.messages
-        ],
-    }
+@router.post("/{workspace_id}/faq")
+async def update_faq(workspace_id: UUID, body: FaqRequest, user_id: CurrentUserId,
+                     db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    await _owned(db, user_id, workspace_id)
+    try:
+        row = await support_service.update_faq(db, workspace_id, question=body.question, answer=body.answer,
+                                               faq_id=body.faq_id, author=UUID(str(user_id)))
+    except (LookupError, ValueError) as exc:
+        raise _http(exc)
+    await db.commit()
+    return {"id": str(row.id), "question": row.title, "answer": row.content_body,
+            "version": (row.meta_data or {}).get("version")}
 
 
-@router.put("/tickets/{ticket_id}")
-async def update_ticket(
-    ticket_id: str,
-    request: UpdateTicketRequest,
-    current_user=Depends(get_current_user),
-):
-    """Update ticket status, priority, or assignment"""
-    manager = get_ticket_manager()
-    ticket = manager.get_ticket(ticket_id)
-
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-
-    # Update ticket
-    updated_ticket = manager.update_ticket(
-        ticket_id=ticket_id,
-        status=request.status,
-        priority=request.priority,
-        assigned_to=request.assigned_to,
-    )
-
-    return {
-        "ticket_id": updated_ticket.ticket_id,
-        "ticket_number": updated_ticket.ticket_number,
-        "status": updated_ticket.status.value,
-        "priority": updated_ticket.priority.value,
-        "updated_at": updated_ticket.updated_at,
-    }
+@router.get("/{workspace_id}/feedback")
+async def feedback(workspace_id: UUID, user_id: CurrentUserId, days: int = Query(30, ge=1, le=365),
+                   db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    await _owned(db, user_id, workspace_id)
+    return await support_service.feedback_summary(db, workspace_id, days)
 
 
-@router.post("/tickets/{ticket_id}/draft-reply", response_model=DraftReplyResponse)
-async def draft_reply(
-    ticket_id: str,
-    request: DraftReplyRequest,
-    current_user=Depends(get_current_user),
-):
-    """
-    Generate AI-powered draft reply for a ticket.
-
-    Uses CustomerSupportAgent to generate contextual reply based on:
-    - Ticket details (subject, description, priority, category)
-    - Knowledge base articles (searched automatically)
-    - Customer history (previous tickets)
-    - Workspace context (if provided)
-
-    The reply requires approval before sending if:
-    - Confidence score is low (< 0.7)
-    - Escalation is recommended
-    - Ticket is urgent or critical
-    """
-    manager = get_ticket_manager()
-    ticket = manager.get_ticket(ticket_id)
-
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-
-    # Get CustomerSupportAgent
-    registry = get_registry()
-    agent_class = registry.get("customer_support")
-
-    if not agent_class:
-        raise HTTPException(status_code=500, detail="CustomerSupportAgent not available")
-
-    agent = agent_class()
-
-    # Create agent context
-    context = AgentContext(
-        workspace_id=uuid.uuid4() if not request.workspace_id else uuid.UUID(request.workspace_id),
-        user_id=current_user.id,
-        task_id=uuid.uuid4(),
-        session_id=uuid.uuid4(),
-    )
-
-    query = f"{ticket.subject}\n{ticket.description}"
-    async with AsyncSessionLocal() as knowledge_db:
-        context.knowledge_context = await knowledge_service.retrieve(
-            knowledge_db, agent_name="customer_support", query=query, limit=3,
-        )
-    if not context.knowledge_context:
-        raise HTTPException(
-            status_code=503,
-            detail="Verified customer-support knowledge is unavailable",
-        )
-    context.metadata["specialist_knowledge_ids"] = [
-        item["id"] for item in context.knowledge_context
-    ]
-
-    # Generate draft reply
-    input_data = {
-        "ticket_id": ticket_id,
-        "workspace_id": request.workspace_id,
-        "include_kb_search": request.include_kb_search,
-        "tone": request.tone,
-    }
-
-    result = await agent.execute(input_data, context)
-
-    if not result.success:
-        raise HTTPException(status_code=500, detail=f"Reply generation failed: {result.error_message}")
-
-    # Determine if approval is required
-    requires_approval = (
-        result.result_data.get("confidence_score", 0) < 0.7
-        or result.result_data.get("escalation_recommended", False)
-        or ticket.priority.value in ["urgent", "critical"]
-    )
-
-    return DraftReplyResponse(
-        draft_reply=result.result_data["draft_reply"],
-        confidence_score=result.result_data["confidence_score"],
-        kb_articles_used=result.result_data["kb_articles_used"],
-        suggested_actions=result.result_data["suggested_actions"],
-        escalation_recommended=result.result_data["escalation_recommended"],
-        template_fallback_used=result.result_data["template_fallback_used"],
-        requires_approval=requires_approval,
-    )
+@router.post("/{workspace_id}/inbox/sync")
+async def sync_inbox(workspace_id: UUID, user_id: CurrentUserId, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    await _owned(db, user_id, workspace_id)
+    try:
+        result = await support_service.sync_inbox(db, workspace_id)
+    except RuntimeError as exc:
+        raise _http(exc)
+    await db.commit()
+    return result
 
 
-@router.post("/tickets/{ticket_id}/reply")
-async def send_reply(
-    ticket_id: str,
-    request: SendReplyRequest,
-    current_user=Depends(get_current_user),
-):
-    """
-    Send reply to customer.
-
-    This endpoint requires approval for:
-    - Urgent/critical tickets
-    - Low confidence replies
-    - Tickets flagged for escalation
-
-    The approved_by field must be provided for replies requiring approval.
-    """
-    manager = get_ticket_manager()
-    ticket = manager.get_ticket(ticket_id)
-
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-
-    # Check if approval is required
-    requires_approval = ticket.priority.value in ["urgent", "critical"]
-
-    if requires_approval and not request.approved_by:
-        raise HTTPException(
-            status_code=400,
-            detail="This reply requires approval. Please provide approved_by field.",
-        )
-
-    # Add message to ticket
-    message = manager.add_message(
-        ticket_id=ticket_id,
-        sender=str(current_user.id),
-        sender_type="agent",
-        content=request.reply_content,
-        is_internal=request.is_internal,
-    )
-
-    # Add approval metadata if provided
-    if request.approved_by:
-        # In a real system, this would be stored in message metadata
-        pass
-
-    return {
-        "message_id": message.message_id,
-        "ticket_id": ticket_id,
-        "content": message.content,
-        "created_at": message.created_at,
-        "is_internal": message.is_internal,
-        "approved_by": request.approved_by,
-    }
+@router.get("/email/status")
+async def email_status(user_id: CurrentUserId) -> Dict[str, Any]:
+    return mailer.status()
