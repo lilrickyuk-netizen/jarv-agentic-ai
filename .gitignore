@@ -99,3 +99,6 @@ apps/backend/data/
 
 # Dashboard source lib is code, not a Python build dir
 !apps/dashboard/src/lib/
+
+# Patch files handed over between sessions
+*.patch

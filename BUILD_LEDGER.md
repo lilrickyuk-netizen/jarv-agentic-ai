@@ -12477,7 +12477,7 @@ NEXT TASK: REPAIR-12E-4B (revenue tools, payment/review/analytics checks, remain
 
 TASK ID: REPAIR-12E-4B-REVENUE-INFRA-ASSETS
 TASK NAME: Revenue operations, payment/review/analytics checks, remaining infrastructure tools, licence-checked asset tools
-STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+STATUS: COMPLETE
 AUDIT FINDINGS THAT DROVE THIS TASK:
 - None of the 8 design revenue tools, the payment/review/analytics monitoring checks, 5 of the 18 infrastructure tools (nginx and compose generation, cloud config validation, cost estimate, budget-bounded scaling; the SSL/DNS checks existed under other names) or the 7 asset tools existed. The finance, growth and business agents only wrote advisory text; the creation agent could not fetch an asset. web_search was mapped to fetch_url and check_licence to an allowlist lookup. The assets API listed every user's assets without authentication.
 FILES CREATED:
@@ -12501,8 +12501,35 @@ FILES MODIFIED:
 COMMANDS RUN:
 - python -m py_compile on changed files: passed; nginx/compose/validation/scaling-decision and search-parser unit checks: passed
 TESTS RUN:
-- Owner run 1 (2026-10-29): 543 passed, 2 failed. (1) A licence written the usual way ("CC BY-NC 4.0") was not recognised, so a non-commercial asset was refused as "unknown licence" instead of "non-commercial"; licence names are now normalised (spaces, underscores, hyphens, case). (2) An invalid App Store id was only rejected inside the feed fetch; check_reviews now rejects it before any request. Fix 1 re-run pending.
+- Owner run 1 (2026-10-29): 543 passed, 2 failed. (1) A licence written the usual way ("CC BY-NC 4.0") was not recognised, so a non-commercial asset was refused as "unknown licence" instead of "non-commercial"; licence names are now normalised (spaces, underscores, hyphens, case). (2) An invalid App Store id was only rejected inside the feed fetch; check_reviews now rejects it before any request.
+- Owner run 2 (2026-10-29, Fix 1): 545 passed. Committed as 171ed5b on pre-repair-11.
 - Written: 23 tools registered with categories and authority; agents declare them within authority; recorded revenue metrics, subscriptions/MRR, failed payments, payment events, conversion funnel, the revenue loop's KPIs and findings, experiment baseline, offer and pricing drafts with real numbers; Stripe signature verification (valid, forged, tampered, stale); revenue API and signed webhook recorded once per event, owner scoping; App Store reviews stored once with ratings and themes; analytics fallback; generated nginx and compose validate clean, unsafe configs flagged without echoing secrets; cost estimate from fixed costs and budget; scaling within budget runs, beyond the replica limit or budget pauses for approval, approved scaling runs and is recorded; asset downloads refused for internal hosts, http, unknown and non-commercial licences, executables, folder escape, wrong content type and scripted SVG; Pixabay, CC BY and Google Fonts assets saved with hash and attribution; manifest and credits file; assets API owner scoping; finance, growth and creation agents through their tools.
-RESULT: Pending owner test run.
+RESULT: 545 passed.
 BLOCKERS: None. Live Stripe, Plausible and App Store data need Richard's keys/app id; everything runs on recorded data until then.
 NEXT TASK: REPAIR-12E-4C (voice tools).
+
+TASK ID: REPAIR-12E-4C-VOICE
+TASK NAME: Voice tools (transcribe_voice, speak_response, listen_push_to_talk, wake_word_detect, route_voice_command)
+STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- None of the 5 design voice tools existed (the authority test asserted transcribe_voice was absent). app/core/voice/stt.py, tts.py and wake_word.py were adapters whose every provider raised "integration required"; VoiceCommandRouter ran the orchestrator with no database and no approval gate; /api/voice/push-to-talk always failed and /api/voice/health reported fixed strings. The real pieces were the authenticated Voicebox adapter (/api/voicebox) and the local sherpa-onnx wake spotter. The production compose file passed none of the revenue, infrastructure-money or voice settings to the backend or worker.
+FILES CREATED:
+- apps/backend/app/core/voice/engine.py (speech-to-text on Voicebox or OpenAI; speech on Voicebox with the JARV profile, ElevenLabs or OpenAI; replies stored per owner and pruned; wake phrase over a WAV or raw clip with resampling, on the local spotter; spoken commands: status answered from mission records, "cancel the last mission", everything else a Command Center mission under the deterministic approval gate; approvals never taken by voice)
+- apps/backend/app/tools/voice/__init__.py (the 5 tools), apps/backend/tests/test_repair12e4c_voice.py
+FILES MODIFIED:
+- apps/backend/app/api/v1/voice.py (authenticated, owner-scoped push-to-talk, text command, speak, audio, wake detection, providers and health on the engine)
+- apps/backend/app/core/voice/__init__.py, apps/backend/app/core/config.py (STT/TTS backend choice, ElevenLabs voice, OpenAI models, reply storage; unused Google/Azure keys removed)
+- apps/backend/app/core/tools/registry.py, apps/backend/app/agents/orchestrator.py (transcribe_voice, speak_response)
+- apps/backend/tests/conftest.py (ElevenLabs, Stripe and Plausible keys blanked for tests), apps/backend/tests/test_tool_authority_repair6.py (transcribe_voice is now real)
+- docker-compose.yml, docker-compose.prod.yml (reply storage volume; production backend and worker receive the revenue, infrastructure-money and voice settings)
+- .env.example, apps/backend/.env.example, .env.production.example, .gitignore (*.patch)
+FILES DELETED:
+- apps/backend/app/core/voice/stt.py, tts.py, wake_word.py, router.py (adapters that only raised), apps/backend/test_phase21_voice.py (script for them)
+- repair-12e-4b-revenue-infra-assets.patch, repair-12e-4b-fix1.patch (hand-over files committed by mistake)
+COMMANDS RUN:
+- python -m py_compile on changed files: passed; compose files parsed: passed
+TESTS RUN:
+- Written: 5 tools registered with authority, orchestrator wiring; every step names the missing setting when no backend is set; Voicebox transcription and speech (waits for the generation) with replies readable only by their owner; OpenAI transcription and ElevenLabs speech with provider errors reported without the key; spoken commands: status, queued mission, gated mission paused for approval, approval by voice refused, cancel the last mission; push-to-talk from a workspace file and base64, folder escape refused; wake phrase over an 8 kHz stereo WAV resampled to 16 kHz frames and raw float32; voice API authentication and owner scoping.
+RESULT: Pending owner test run.
+BLOCKERS: None. Live speech needs Voicebox running (local) or an OpenAI/ElevenLabs key; the wake model is installed by an admin from the dashboard.
+NEXT TASK: REPAIR-13 (specialist knowledge).

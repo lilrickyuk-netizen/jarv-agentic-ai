@@ -1082,6 +1082,19 @@ def _register_implemented_tools(registry: ToolRegistry) -> None:
     except ImportError as e:
         logger.warning(f"Revenue, infrastructure and asset tools not available for registration: {e}")
 
+    # Voice tools (Repair 12e-4c): speech in and out on Voicebox or a keyed service, the local
+    # wake-phrase spotter, and spoken commands routed through the Command Center approval gate.
+    try:
+        from app.tools.voice import VOICE_TOOLS
+
+        for tool in VOICE_TOOLS:
+            registry.register(tool, category="voice")
+
+        logger.info(f"Registered {len(VOICE_TOOLS)} voice tools (real, Repair 12e-4c)")
+
+    except ImportError as e:
+        logger.warning(f"Voice tools not available for registration: {e}")
+
     # Boundary tools (Repair 7): real detection + BoundaryReport persistence.
     try:
         from app.tools.boundary import (
