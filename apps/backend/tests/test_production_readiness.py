@@ -4,6 +4,8 @@ Production readiness tests
 import pytest
 import os
 
+from tests.repo_paths import repo_path
+
 
 @pytest.mark.slow
 def test_required_environment_variables_documented():
@@ -149,8 +151,8 @@ def test_rate_limiting_configured():
 def test_backup_scripts_exist():
     """Test backup and restore scripts exist"""
     # Tests run from apps/backend, scripts are at repo root
-    backup_script = os.path.join("..", "..", "scripts", "backup.sh")
-    restore_script = os.path.join("..", "..", "scripts", "restore.sh")
+    backup_script = repo_path("scripts", "backup.sh")
+    restore_script = repo_path("scripts", "restore.sh")
 
     assert os.path.exists(backup_script), "Backup script not found"
     assert os.path.exists(restore_script), "Restore script not found"
@@ -173,8 +175,8 @@ def test_monitoring_configuration_exists():
 def test_ci_cd_pipelines_exist():
     """Test CI/CD pipeline configurations exist"""
     # Tests run from apps/backend, .github is at repo root
-    ci_file = os.path.join("..", "..", ".github", "workflows", "ci.yml")
-    cd_file = os.path.join("..", "..", ".github", "workflows", "cd-production.yml")
+    ci_file = repo_path(".github", "workflows", "ci.yml")
+    cd_file = repo_path(".github", "workflows", "cd-production.yml")
 
     assert os.path.exists(ci_file), "CI pipeline not found"
     assert os.path.exists(cd_file), "CD pipeline not found"
@@ -185,9 +187,9 @@ def test_deployment_documentation_exists():
     """Test deployment documentation is comprehensive"""
     # Tests run from apps/backend, infra is at repo root
     deployment_docs = [
-        os.path.join("..", "..", "infra", "oracle-cloud", "README.md"),
-        os.path.join("..", "..", "infra", "render", "README.md"),
-        os.path.join("..", "..", "infra", "railway", "README.md"),
+        repo_path("infra", "oracle-cloud", "README.md"),
+        repo_path("infra", "render", "README.md"),
+        repo_path("infra", "railway", "README.md"),
     ]
 
     found_docs = 0
@@ -202,7 +204,7 @@ def test_deployment_documentation_exists():
 def test_security_documentation_exists():
     """Test security documentation exists"""
     # Tests run from apps/backend, infra is at repo root
-    security_doc = os.path.join("..", "..", "infra", "security", "README.md")
+    security_doc = repo_path("infra", "security", "README.md")
     assert os.path.exists(security_doc), "Security documentation not found"
 
 

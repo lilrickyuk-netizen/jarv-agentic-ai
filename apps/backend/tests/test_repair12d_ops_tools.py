@@ -36,8 +36,7 @@ from app.tools.ops import (
     RestartServiceTool, RestoreBackupTool, VerifyBackupTool, ListBackupsTool,
 )
 from tests.conftest import AsyncTestingSessionLocal
-
-ROOT = Path(__file__).resolve().parents[3]
+from tests.repo_paths import repo_path
 
 
 def _run(coro):
@@ -389,7 +388,7 @@ def test_backup_create_verify_restore_round_trip(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("compose", ["docker-compose.yml", "docker-compose.prod.yml"])
 def test_docker_proxy_is_restricted_and_internal(compose):
-    data = yaml.safe_load((ROOT / compose).read_text())
+    data = yaml.safe_load(repo_path(compose).read_text())
     proxy = data["services"]["docker-proxy"]
     env = {k: str(v) for k, v in proxy["environment"].items()}
     assert proxy["image"].startswith("tecnativa/docker-socket-proxy:") and not proxy["image"].endswith(":latest")

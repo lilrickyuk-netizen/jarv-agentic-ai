@@ -6,6 +6,7 @@ Manages swarm runs and sub-agent lifecycle.
 from typing import Optional, Dict, Any, List
 from uuid import UUID, uuid4
 from datetime import datetime, timezone
+from decimal import Decimal
 from pydantic import BaseModel, Field
 from enum import Enum
 import logging
@@ -94,9 +95,7 @@ class SwarmManager:
         authenticated_user_id: UUID | str,
     ) -> UUID:
         """
-        Create swarm run.
-
-        In production: Insert into SwarmRun table.
+        Create a swarm run owned by the authenticated user, within the limits.
 
         Args:
             swarm: Swarm creation data
@@ -142,6 +141,7 @@ class SwarmManager:
             # Validate swarm limits
             from app.core.swarm.limits import check_swarm_limits
             can_create, reason = await check_swarm_limits(
+                db,
                 swarm.workspace_id,
                 swarm.max_sub_agents,
             )
@@ -235,7 +235,14 @@ class SwarmManager:
             if workspace is None:
                 raise PermissionError("Authenticated user does not own the swarm workspace")
             if swarm.status not in (SwarmStatus.INITIALIZING.value, SwarmStatus.RUNNING.value):
-                raise ValueError("Sub-agents can only be added to an active swarm")
+                raise ValueError(f"Sub-agents can only be added to an active swarm (this one is {swarm.status})")
+            from app.core.swarm.limits import SwarmLimitManager
+            from app.core.swarm.tracking import SwarmTracker
+
+            limits = await SwarmLimitManager().effective_limits(db, swarm.workspace_id)
+            spent = (await SwarmTracker().calculate_swarm_cost(db, swarm.id))["totals"]["cost"]
+            if spent >= float(limits["max_cost_per_swarm"]):
+                raise ValueError(f"Swarm budget reached: ${spent:.4f} of ${limits['max_cost_per_swarm']:.2f}")
 
             lead = (await db.execute(
                 select(Agent).where(
@@ -279,8 +286,7 @@ class SwarmManager:
             if active_count >= swarm.max_subagents:
                 raise ValueError("Swarm sub-agent capacity has been reached")
 
-            from app.core.security import redact_secrets, redact_text
-            from app.core.agents.runner import AgentRunner
+            from app.core.security import redact_text
 
             now = datetime.now(timezone.utc)
             safe_description = redact_text(task_description)
@@ -366,63 +372,8 @@ class SwarmManager:
             swarm.status = SwarmStatus.RUNNING.value
             await db.flush()
 
-            execution = await AgentRunner(model=lead.model_name).run_agent(
-                agent_name=agent_template,
-                task=task_description,
-                workspace_id=workspace.id,
-                user_id=owner_id,
-                db=db,
-                agent_id=child_agent.id,
-                task_id=task_row.id,
-                session_id=swarm.session_id,
-                authority_ceiling=int(authority_level),
-                allowed_tools_ceiling=sorted(requested_tools),
-                parent_agent_id=lead.id,
-            )
-            success = bool(execution.get("success") and execution.get("output_text"))
-            completed_at = datetime.now(timezone.utc)
-            outcome = redact_secrets({
-                "agent": agent_template,
-                "success": success,
-                "output_text": execution.get("output_text"),
-                "result_data": execution.get("result_data") or {},
-                "error": execution.get("error"),
-                "tokens": int(execution.get("tokens") or 0),
-            })
-            child.status = (SubAgentStatus.COMPLETED.value if success
-                            else SubAgentStatus.FAILED.value)
-            child.started_at = now
-            child.completed_at = completed_at
-            child.success = success
-            child.tokens_used = int(execution.get("tokens") or 0)
-            child.result = outcome
-            child.meta_data = {**(child.meta_data or {}), "verified_output": success}
-            child_agent.current_state = "completed" if success else "failed"
-            child_agent.last_active_at = completed_at
-            child_agent.total_executions += 1
-            child_agent.successful_executions += int(success)
-            child_agent.failed_executions += int(not success)
-            child_agent.total_tokens_used += int(execution.get("tokens") or 0)
-            task_row.status = "completed" if success else "failed"
-            task_row.completed_at = completed_at
-            task_row.result = {"verified": success, "subagent_id": str(child.id)}
-            task_row.error_message = redact_text(str(execution.get("error") or "")) or None
-            child_task.status = "completed" if success else "failed"
-            child_task.completed_at = completed_at
-            child_task.success = success
-            child_task.result = outcome
-            db.add_all([
-                SubAgentLog(
-                    subagent_id=child.id,
-                    log_level="info" if success else "error",
-                    log_message=redact_text(
-                        f"Child execution {'completed' if success else 'failed'}: "
-                        f"{execution.get('error') or execution.get('output_text') or 'no output'}"),
-                    log_category="execution_result",
-                    context={"parent_agent_id": str(lead.id), "task_id": str(task_row.id)},
-                ),
-            ])
-            await db.flush()
+            await _run_child(db, swarm, lead, child, child_agent, task_row, child_task, task_description,
+                             owner_id, int(authority_level), sorted(requested_tools))
             sub_agent_id = child.id
 
             self.logger.info(
@@ -444,195 +395,270 @@ class SwarmManager:
             )
             raise
 
-    async def dissolve_sub_agent(
-        self,
-        sub_agent_id: UUID,
-        reason: str = "completed",
-    ) -> bool:
-        """
-        Dissolve sub-agent.
+    # ----- lifecycle (all owner-scoped) -----------------------------------------------
 
-        In production: Mark sub-agent as dissolved and cleanup.
+    async def owned_swarm(self, db: AsyncSession, swarm_run_id: UUID | str, owner: UUID | str) -> SwarmRun:
+        swarm = (await db.execute(
+            select(SwarmRun).join(Workspace, SwarmRun.workspace_id == Workspace.id)
+            .where(SwarmRun.id == UUID(str(swarm_run_id)), Workspace.owner_id == UUID(str(owner)))
+        )).scalar_one_or_none()
+        if swarm is None:
+            raise LookupError("Swarm run not found")
+        return swarm
 
-        Args:
-            sub_agent_id: Sub-agent ID
-            reason: Dissolution reason
+    async def owned_sub_agent(self, db: AsyncSession, sub_agent_id: UUID | str, owner: UUID | str) -> SubAgent:
+        child = (await db.execute(
+            select(SubAgent).join(SwarmRun, SubAgent.swarm_run_id == SwarmRun.id)
+            .join(Workspace, SwarmRun.workspace_id == Workspace.id)
+            .where(SubAgent.id == UUID(str(sub_agent_id)), Workspace.owner_id == UUID(str(owner)))
+        )).scalar_one_or_none()
+        if child is None:
+            raise LookupError("Sub-agent not found")
+        return child
 
-        Returns:
-            Success status
-        """
+    async def dissolve_sub_agent(self, db: AsyncSession, sub_agent_id: UUID, owner: UUID | str,
+                                 reason: str = "completed") -> SubAgent:
+        """Dissolve one sub-agent: its agent record is deactivated, its outcome kept."""
+        child = await self.owned_sub_agent(db, sub_agent_id, owner)
+        if child.status == SubAgentStatus.DISSOLVED.value:
+            return child
+        now = datetime.now(timezone.utc)
+        previous = child.status
+        child.status = SubAgentStatus.DISSOLVED.value
+        child.completed_at = child.completed_at or now
+        if child.success is None:
+            child.success = False
+            child.error_message = child.error_message or f"dissolved before finishing: {reason}"
+        child.meta_data = {**(child.meta_data or {}), "dissolved_at": now.isoformat(), "dissolve_reason": reason,
+                           "status_before_dissolve": previous}
+        agent_id = (child.meta_data or {}).get("agent_id")
+        if agent_id:
+            agent = (await db.execute(select(Agent).where(Agent.id == UUID(agent_id)))).scalar_one_or_none()
+            if agent is not None:
+                agent.is_active = False
+                agent.current_state = "dissolved"
+        db.add(SubAgentLog(subagent_id=child.id, log_level="info", log_category="dissolve",
+                           log_message=f"Sub-agent dissolved ({reason}); status was {previous}.",
+                           context={"parent_agent_id": (child.meta_data or {}).get("parent_agent_id")}))
+        await db.flush()
+        return child
+
+    async def pause_swarm(self, db: AsyncSession, swarm_run_id: UUID, owner: UUID | str) -> SwarmRun:
+        """No new sub-agents or tasks start while paused; finished work is kept."""
+        swarm = await self.owned_swarm(db, swarm_run_id, owner)
+        if swarm.status not in (SwarmStatus.INITIALIZING.value, SwarmStatus.RUNNING.value):
+            raise ValueError(f"Only an active swarm can be paused (this one is {swarm.status})")
+        swarm.meta_data = {**(swarm.meta_data or {}), "paused_at": datetime.now(timezone.utc).isoformat(),
+                           "status_before_pause": swarm.status}
+        swarm.status = SwarmStatus.PAUSED.value
+        await db.flush()
+        return swarm
+
+    async def resume_swarm(self, db: AsyncSession, swarm_run_id: UUID, owner: UUID | str) -> SwarmRun:
+        swarm = await self.owned_swarm(db, swarm_run_id, owner)
+        if swarm.status != SwarmStatus.PAUSED.value:
+            raise ValueError(f"Only a paused swarm can be resumed (this one is {swarm.status})")
+        swarm.status = (swarm.meta_data or {}).get("status_before_pause") or SwarmStatus.RUNNING.value
+        swarm.meta_data = {**(swarm.meta_data or {}), "resumed_at": datetime.now(timezone.utc).isoformat()}
+        await db.flush()
+        return swarm
+
+    async def cancel_swarm(self, db: AsyncSession, swarm_run_id: UUID, owner: UUID | str, reason: str) -> SwarmRun:
+        """Cancel the swarm, dissolve every unfinished sub-agent, and record the final cost."""
+        from app.core.swarm.tracking import SwarmTracker
+
+        swarm = await self.owned_swarm(db, swarm_run_id, owner)
+        if swarm.status in (SwarmStatus.COMPLETED.value, SwarmStatus.CANCELLED.value, SwarmStatus.FAILED.value):
+            raise ValueError(f"The swarm has already finished ({swarm.status})")
+        for child in (await db.execute(select(SubAgent).where(SubAgent.swarm_run_id == swarm.id))).scalars().all():
+            if child.status not in ("completed", "failed", "timed_out", "dissolved"):
+                await self.dissolve_sub_agent(db, child.id, owner, reason=f"swarm cancelled: {reason}")
+        await self._finish(db, swarm, SwarmStatus.CANCELLED, error=f"cancelled: {reason}")
+        await SwarmTracker().record_final_cost(db, swarm)
+        return swarm
+
+    async def complete_swarm(self, db: AsyncSession, swarm_run_id: UUID, owner: UUID | str) -> SwarmRun:
+        """Close a swarm whose sub-agents have all finished, dissolving them and recording cost."""
+        from app.core.swarm.tracking import SwarmTracker
+
+        swarm = await self.owned_swarm(db, swarm_run_id, owner)
+        children = (await db.execute(select(SubAgent).where(SubAgent.swarm_run_id == swarm.id))).scalars().all()
+        working = [c for c in children if c.status in ("spawning", "idle", "working")]
+        if working:
+            raise ValueError(f"{len(working)} sub-agent(s) are still working")
+        for child in children:
+            if child.status != SubAgentStatus.DISSOLVED.value:
+                await self.dissolve_sub_agent(db, child.id, owner, reason="swarm completed")
+        succeeded = any(c.success for c in children)
+        swarm.result = {"sub_agents": len(children), "succeeded": sum(1 for c in children if c.success)}
+        await self._finish(db, swarm, SwarmStatus.COMPLETED if succeeded else SwarmStatus.FAILED,
+                           error=None if succeeded else "no sub-agent succeeded")
+        await SwarmTracker().record_final_cost(db, swarm)
+        return swarm
+
+    async def _finish(self, db: AsyncSession, swarm: SwarmRun, status: SwarmStatus, error: Optional[str]) -> None:
+        now = datetime.now(timezone.utc)
+        swarm.status = status.value
+        swarm.completed_at = now
+        started = swarm.started_at
+        if started is not None and started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        swarm.duration_seconds = int((now - started).total_seconds()) if started else None
+        swarm.success = status == SwarmStatus.COMPLETED
+        swarm.error_message = error
+        await db.flush()
+
+    async def get_swarm_run(self, db: AsyncSession, swarm_run_id: UUID, owner: UUID | str) -> Optional[SwarmRunResult]:
         try:
-            # In production:
-            # 1. Load sub-agent
-            # 2. Collect final output
-            # 3. Update status to DISSOLVED
-            # 4. Record dissolution reason and timestamp
-            # 5. Decrement swarm active_sub_agents count
-            # 6. Archive logs
-            # 7. Cleanup resources
+            swarm = await self.owned_swarm(db, swarm_run_id, owner)
+        except LookupError:
+            return None
+        return await _result(db, swarm)
 
-            self.logger.info(
-                f"Dissolved sub-agent: {reason}",
-                extra={"sub_agent_id": str(sub_agent_id)}
-            )
+    async def list_swarms(self, db: AsyncSession, owner: UUID | str, workspace_id: Optional[UUID] = None,
+                          status: Optional[str] = None, active_only: bool = False,
+                          limit: int = 50) -> List[SwarmRunResult]:
+        query = (select(SwarmRun).join(Workspace, SwarmRun.workspace_id == Workspace.id)
+                 .where(Workspace.owner_id == UUID(str(owner))))
+        if workspace_id is not None:
+            query = query.where(SwarmRun.workspace_id == workspace_id)
+        if status is not None:
+            query = query.where(SwarmRun.status == status)
+        elif active_only:
+            query = query.where(SwarmRun.status.in_(("initializing", "running", "paused")))
+        rows = (await db.execute(query.order_by(SwarmRun.created_at.desc()).limit(limit))).scalars().all()
+        return [await _result(db, row) for row in rows]
 
-            return True
+    async def list_active_swarms(self, db: AsyncSession, owner: UUID | str,
+                                 workspace_id: Optional[UUID] = None) -> List[SwarmRunResult]:
+        return await self.list_swarms(db, owner, workspace_id, active_only=True)
 
-        except Exception as e:
-            self.logger.error(
-                f"Failed to dissolve sub-agent: {e}",
-                extra={"sub_agent_id": str(sub_agent_id)},
-                exc_info=True
-            )
-            return False
+    async def get_swarm_stats(self, db: AsyncSession, workspace_id: UUID) -> Dict[str, Any]:
+        from app.core.swarm.tracking import SwarmTracker
 
-    async def pause_swarm(
-        self,
-        swarm_run_id: UUID,
-    ) -> bool:
-        """
-        Pause swarm execution.
-
-        In production: Pause all active sub-agents.
-
-        Args:
-            swarm_run_id: Swarm run ID
-
-        Returns:
-            Success status
-        """
-        try:
-            # In production:
-            # 1. Load swarm run
-            # 2. Update status to PAUSED
-            # 3. Send pause signal to all active sub-agents
-            # 4. Wait for sub-agents to acknowledge pause
-            # 5. Record pause timestamp
-
-            self.logger.info(
-                f"Paused swarm",
-                extra={"swarm_run_id": str(swarm_run_id)}
-            )
-
-            return True
-
-        except Exception as e:
-            self.logger.error(
-                f"Failed to pause swarm: {e}",
-                extra={"swarm_run_id": str(swarm_run_id)},
-                exc_info=True
-            )
-            return False
-
-    async def resume_swarm(
-        self,
-        swarm_run_id: UUID,
-    ) -> bool:
-        """
-        Resume paused swarm.
-
-        In production: Resume all paused sub-agents.
-
-        Args:
-            swarm_run_id: Swarm run ID
-
-        Returns:
-            Success status
-        """
-        try:
-            # In production:
-            # 1. Load swarm run
-            # 2. Verify status is PAUSED
-            # 3. Update status to RUNNING
-            # 4. Send resume signal to all paused sub-agents
-            # 5. Record resume timestamp
-
-            self.logger.info(
-                f"Resumed swarm",
-                extra={"swarm_run_id": str(swarm_run_id)}
-            )
-
-            return True
-
-        except Exception as e:
-            self.logger.error(
-                f"Failed to resume swarm: {e}",
-                extra={"swarm_run_id": str(swarm_run_id)},
-                exc_info=True
-            )
-            return False
-
-    async def cancel_swarm(
-        self,
-        swarm_run_id: UUID,
-        reason: str,
-    ) -> bool:
-        """
-        Cancel swarm with boundary enforcement.
-
-        In production: Cancel swarm and dissolve all sub-agents.
-
-        Args:
-            swarm_run_id: Swarm run ID
-            reason: Cancellation reason
-
-        Returns:
-            Success status
-        """
-        try:
-            # In production:
-            # 1. Load swarm run
-            # 2. Update status to CANCELLED
-            # 3. Send cancel signal to all active sub-agents
-            # 4. Dissolve all sub-agents
-            # 5. Record cancellation reason and timestamp
-            # 6. Create boundary violation if needed
-            # 7. Notify lead agent
-
-            self.logger.info(
-                f"Cancelled swarm: {reason}",
-                extra={"swarm_run_id": str(swarm_run_id)}
-            )
-
-            return True
-
-        except Exception as e:
-            self.logger.error(
-                f"Failed to cancel swarm: {e}",
-                extra={"swarm_run_id": str(swarm_run_id)},
-                exc_info=True
-            )
-            return False
-
-    async def get_swarm_run(
-        self,
-        swarm_run_id: UUID,
-    ) -> Optional[SwarmRunResult]:
-        """Get swarm run by ID"""
-        # In production: Query database
-        return None
-
-    async def list_active_swarms(
-        self,
-        workspace_id: Optional[UUID] = None,
-    ) -> List[SwarmRunResult]:
-        """List active swarm runs"""
-        # In production: Query active swarms
-        return []
-
-    async def get_swarm_stats(
-        self,
-        workspace_id: UUID,
-    ) -> Dict[str, Any]:
-        """Get swarm statistics"""
+        swarms = (await db.execute(select(SwarmRun).where(SwarmRun.workspace_id == workspace_id))).scalars().all()
+        children = (await db.execute(select(SubAgent).join(SwarmRun, SubAgent.swarm_run_id == SwarmRun.id)
+                                     .where(SwarmRun.workspace_id == workspace_id))).scalars().all()
+        tracker = SwarmTracker()
+        cost = 0.0
+        for swarm in swarms:
+            cost += (await tracker.calculate_swarm_cost(db, swarm.id))["totals"]["cost"]
         return {
-            "total_swarms": 0,
-            "active_swarms": 0,
-            "total_sub_agents_spawned": 0,
-            "active_sub_agents": 0,
-            "total_tokens_used": 0,
-            "total_cost": 0.0,
+            "total_swarms": len(swarms),
+            "active_swarms": sum(1 for s in swarms if s.status in ("initializing", "running", "paused")),
+            "total_sub_agents_spawned": len(children),
+            "active_sub_agents": sum(1 for c in children if c.status in ("spawning", "idle", "working")),
+            "succeeded_sub_agents": sum(1 for c in children if c.success),
+            "total_tokens_used": sum(int(c.tokens_used or 0) for c in children),
+            "total_cost": round(cost, 6), "cost_estimated": True,
         }
+
+
+async def _active_children(db: AsyncSession, swarm_run_id: UUID) -> int:
+    return int((await db.execute(select(func.count()).select_from(SubAgent).where(
+        SubAgent.swarm_run_id == swarm_run_id,
+        SubAgent.status.notin_(("completed", "failed", "timed_out", "dissolved"))))).scalar_one())
+
+
+async def _result(db: AsyncSession, swarm: SwarmRun) -> SwarmRunResult:
+    from app.core.swarm.tracking import SwarmTracker
+
+    children = (await db.execute(select(SubAgent).where(SubAgent.swarm_run_id == swarm.id))).scalars().all()
+    lead = (await db.execute(select(Agent).where(Agent.id == swarm.parent_agent_id))).scalar_one_or_none()
+    tokens: Dict[str, int] = {}
+    for child in children:
+        tokens[child.model_name] = tokens.get(child.model_name, 0) + int(child.tokens_used or 0)
+    meta = swarm.meta_data or {}
+    parent_task = meta.get("parent_task_id")
+    return SwarmRunResult(
+        id=swarm.id, workspace_id=swarm.workspace_id, lead_agent_id=swarm.parent_agent_id,
+        lead_agent_name=lead.name if lead else "", parent_task_id=UUID(parent_task) if parent_task else None,
+        swarm_purpose=swarm.objective, status=SwarmStatus(swarm.status) if swarm.status in SwarmStatus._value2member_map_
+        else SwarmStatus.RUNNING,
+        max_sub_agents=swarm.max_subagents,
+        active_sub_agents=sum(1 for c in children if c.status in ("spawning", "idle", "working")),
+        completed_sub_agents=sum(1 for c in children if c.success),
+        failed_sub_agents=sum(1 for c in children if c.success is False),
+        total_tasks_completed=int((await db.execute(select(func.count()).select_from(SubAgentTask)
+                                                    .join(SubAgent, SubAgentTask.subagent_id == SubAgent.id)
+                                                    .where(SubAgent.swarm_run_id == swarm.id,
+                                                           SubAgentTask.status == "completed"))).scalar_one()),
+        total_tokens_used=tokens,
+        total_cost=(await SwarmTracker().calculate_swarm_cost(db, swarm.id))["totals"]["cost"],
+        timeout_seconds=int(meta.get("timeout_seconds") or 3600),
+        started_at=swarm.started_at or swarm.created_at, completed_at=swarm.completed_at, metadata=meta)
+
+
+async def _run_child(db: AsyncSession, swarm: SwarmRun, lead: Agent, child: SubAgent, child_agent: Agent,
+                     task_row: Task, child_task: SubAgentTask, task_description: str, owner_id: UUID,
+                     authority_level: int, tools: List[str]) -> bool:
+    """Run one task on a sub-agent through the real AgentRunner, inside the
+    lead's authority and tool ceilings, and record the verified outcome."""
+    from app.core.agents.runner import AgentRunner
+    from app.core.security import redact_secrets, redact_text
+    from app.core.swarm.tracking import estimate_cost
+
+    now = datetime.now(timezone.utc)
+    execution = await AgentRunner(model=lead.model_name).run_agent(
+        agent_name=child.subagent_type,
+        task=task_description,
+        workspace_id=swarm.workspace_id,
+        user_id=owner_id,
+        db=db,
+        agent_id=child_agent.id,
+        task_id=task_row.id,
+        session_id=swarm.session_id,
+        authority_ceiling=authority_level,
+        allowed_tools_ceiling=tools,
+        parent_agent_id=lead.id,
+    )
+    success = bool(execution.get("success") and execution.get("output_text"))
+    completed_at = datetime.now(timezone.utc)
+    tokens = int(execution.get("tokens") or 0)
+    outcome = redact_secrets({
+        "agent": child.subagent_type,
+        "success": success,
+        "output_text": execution.get("output_text"),
+        "result_data": execution.get("result_data") or {},
+        "error": execution.get("error"),
+        "tokens": tokens,
+    })
+    child.status = SubAgentStatus.COMPLETED.value if success else SubAgentStatus.FAILED.value
+    child.started_at = child.started_at or now
+    child.completed_at = completed_at
+    child.success = success
+    child.tokens_used = int(child.tokens_used or 0) + tokens
+    child.api_calls = int(child.api_calls or 0) + 1
+    child.cost = Decimal(str(round(estimate_cost(child.model_name, child.tokens_used), 6)))
+    child.result = outcome
+    child.error_message = None if success else redact_text(str(execution.get("error") or "no output"))[:2000]
+    child.meta_data = {**(child.meta_data or {}), "verified_output": success}
+    child_agent.current_state = "completed" if success else "failed"
+    child_agent.last_active_at = completed_at
+    child_agent.total_executions += 1
+    child_agent.successful_executions += int(success)
+    child_agent.failed_executions += int(not success)
+    child_agent.total_tokens_used += tokens
+    task_row.status = "completed" if success else "failed"
+    task_row.completed_at = completed_at
+    task_row.result = {"verified": success, "subagent_id": str(child.id)}
+    task_row.error_message = redact_text(str(execution.get("error") or "")) or None
+    child_task.status = "completed" if success else "failed"
+    child_task.completed_at = completed_at
+    child_task.success = success
+    child_task.result = outcome
+    child_task.duration_seconds = int((completed_at - (child_task.started_at or now)).total_seconds())
+    db.add(SubAgentLog(
+        subagent_id=child.id,
+        log_level="info" if success else "error",
+        log_message=redact_text(
+            f"Child execution {'completed' if success else 'failed'}: "
+            f"{execution.get('error') or execution.get('output_text') or 'no output'}"),
+        log_category="execution_result",
+        context={"parent_agent_id": str(lead.id), "task_id": str(task_row.id)},
+    ))
+    await db.flush()
+    return success
 
 
 # Global swarm manager
@@ -671,6 +697,7 @@ async def spawn_sub_agent(
     )
 
 
-async def dissolve_sub_agent(sub_agent_id: UUID, reason: str = "completed") -> bool:
-    """Global function to dissolve sub-agent"""
-    return await _swarm_manager.dissolve_sub_agent(sub_agent_id, reason)
+async def dissolve_sub_agent(db: AsyncSession, sub_agent_id: UUID, owner: UUID | str,
+                             reason: str = "completed") -> SubAgent:
+    """Global function to dissolve a sub-agent"""
+    return await _swarm_manager.dissolve_sub_agent(db, sub_agent_id, owner, reason)

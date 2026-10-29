@@ -12332,7 +12332,7 @@ NEXT TASK: REPAIR-12E-3 (company and business agents on real tools and the remai
 
 TASK ID: REPAIR-12E-3A-WORKSPACE-TOOLS
 TASK NAME: The design's file, command, git, memory and project tools, confined and registered under their design names
-STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+STATUS: COMPLETE (2026-10-29: 503 passed)
 AUDIT FINDINGS THAT DROVE THIS TASK:
 - Spec inventory (docs/IMPLEMENTATION_CHECKLIST.md tasks 5.3-5.24): 174 of 206 design tool names were not registered. Agents had no edit, move, copy, folder, delete, metadata, build/test/install helpers, branch, push, memory-link or project-detection tools; several design names were silently aliased to different tools (edit_file -> write_file, check_installed -> check_package_registry, run_tests -> run_command).
 FILES CREATED:
@@ -12349,6 +12349,34 @@ COMMANDS RUN:
 - python -m py_compile on changed files: passed
 TESTS RUN:
 - Written: edit (single, ambiguous, missing, secret refused), folder/copy/move, escape refused; delete pauses then runs with approval and never deletes the root; detection on a real Next.js+Python project; run_tests runs the project's pytest; check_installed; command log; branch creation and invalid names; push pauses for approval; every workspace tool registered under its design name; a registry call runs through the confined toolbox.
-RESULT: First owner run 2026-10-29: 502 passed, 1 failed: git_push_with_boundary passed the text "git push ..." to the shell-command classifier, which hard-blocks git push as a shell command, so the push could never be approved. git is called with an argument list (no shell), so the gate is now the tool's own approval policy. Re-run pending.
+RESULT: Owner runs 2026-10-29: first 502 passed / 1 failed (git_push_with_boundary sent "git push ..." to the shell-command classifier, which hard-blocks it, so a push could never be approved; git runs with an argument list, so the gate is now the tool's approval policy); after the fix 503 passed.
 BLOCKERS: None.
 NEXT TASK: REPAIR-12E-3A part 2 (workspace lifecycle, company operations, experience, self-evolution persistence, swarm tools).
+
+TASK ID: REPAIR-12E-3B-SWARM
+TASK NAME: Persisted swarm lifecycle, limits, costs, and the 13 swarm tools
+STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- Only swarm creation and spawning were real. dissolve, pause, resume, cancel, get, list and stats in SwarmManager; every SubAgentManager method; every SwarmTracker method; and all limit storage/lookup only wrote a log line and returned fixed values (the Command Center swarm panel read an always-empty list). Limit checks counted active swarms and sub-agents as 0. None of the 13 design swarm tools existed; the swarm manager agent only reported constant limits.
+FILES CREATED:
+- apps/backend/app/tools/swarm/__init__.py (spawn_sub_agent, assign_sub_agent_task, check_sub_agent_status, collect_sub_agent_output, dissolve_sub_agent, list_active_sub_agents, set_max_sub_agent_limit, report_swarm_activity, calculate_swarm_token_cost, pause_swarm, resume_swarm, cancel_swarm_with_boundary (approval), attach_sub_agent_log_to_parent_task; workspace- and owner-scoped; a new swarm's lead is the caller or a named specialist capped at the caller's authority; sub-agents cannot create swarms)
+- apps/backend/tests/test_repair12e3b_swarm.py
+FILES MODIFIED:
+- apps/backend/app/core/swarm/manager.py (owner-scoped get/list/stats from the database; real dissolve (agent record deactivated, outcome kept, logged), pause/resume (no new work while paused), cancel (dissolves unfinished sub-agents), complete; per-swarm budget check before each spawn; child execution shared by spawn and follow-up tasks, with token and estimated cost recording)
+- apps/backend/app/core/swarm/sub_agent.py (assign a follow-up task within the spawn-time ceilings; status; collected output; attach logs to the parent task with an audit entry; time out sub-agents whose run died; list/get from the database)
+- apps/backend/app/core/swarm/tracking.py (cost by model and sub-agent from published model prices, metrics, activity report with timeline/issues/recommendations, one SwarmCostRecord per finished swarm, workspace cost history)
+- apps/backend/app/core/swarm/limits.py (global limits from settings, tightened by workspace max_subagents and the workspace SwarmLimitPolicy; real usage counts; policies stored and capped at the global limits; depth fixed at 1)
+- apps/backend/app/api/swarm.py (every endpoint authenticated and owner-scoped; complete and attach-logs endpoints)
+- apps/backend/app/core/agents/specialists/swarm_manager.py (swarm tools; tool loop with a provider; without one, runs the given tasks as one swarm, collects outputs and cost, closes it; otherwise reports real limits and usage)
+- apps/backend/app/core/tools/registry.py, apps/backend/app/core/config.py (SWARM_MAX_* settings), apps/backend/app/workers/tasks.py (stale sub-agent sweep with mission recovery)
+- apps/backend/tests/test_agent_tool_wiring.py, apps/backend/tests/test_tool_authority_repair6.py (expectations written when the swarm manager had no tools and spawn_sub_agent had no implementation)
+COMMANDS RUN:
+- python -m py_compile on changed files: passed
+TESTS RUN:
+- Owner run 1 (2026-10-29): collection stopped: test_repair12d_ops_tools.py located the repository three directories above the test file, which does not exist inside the test image (tests live at /app/tests). Fix 1: repository-level files located through JARV_REPO_ROOT (the owner's run mounts the repository read-only) or the nearest parent holding docker-compose.yml.
+- Owner run 2: 503 passed, 7 failed. Six were repository-level tests (compose, .gitignore, backup scripts, CI, deployment and security docs) that read ../../ relative to the working directory, which is / inside the image; they now use the same repository locator (tests/repo_paths.py), and the compose check parses the YAML and runs docker compose config only where the Docker CLI exists. One was real: the swarm manager agent passed the swarm id as text to complete_swarm, and the UUID column rejected it; owned_swarm and owned_sub_agent now normalise ids. Fix 2 omitted the new tests/repo_paths.py (fix 3 added it).
+- Owner run 4: 509 passed, 1 failed: the swarm manager's completion audit carried the swarm report, whose metrics held a raw UUID; the JSON column rejected it, the audit logger rolled the session back and the uncommitted swarm went with it. Fix 4: the report's metrics are serialised as JSON, and AuditLog now stores ids, dates and decimals inside its JSON details as text, so no audit entry can fail on them. Re-run pending.
+- Written: full lifecycle (spawn, pause blocks spawning, resume, follow-up task, status, output, list, stats, complete dissolves and records cost, child agents deactivated); cancel and owner scoping; limits from policy capped at global; logs attached to the parent task; stale sub-agents timed out; tools spawn under a named lead, cost report, cancel needs approval, low authority refused; swarm manager agent runs two tasks as one swarm; API lists only the owner's runs.
+RESULT: Pending owner test run.
+BLOCKERS: None.
+NEXT TASK: REPAIR-12E-3C (workspace lifecycle, company operations, experience, self-evolution persistence).

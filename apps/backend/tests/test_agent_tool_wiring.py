@@ -59,12 +59,14 @@ def test_every_agent_has_enough_authority_for_its_declared_tools():
     assert failures == []
 
 
-def test_agent_with_empty_catalog_has_no_wildcard_tool_access():
+def test_swarm_manager_gets_only_swarm_tools_and_no_wildcard_access():
+    # Repair 12e-3b: the swarm manager works through the swarm tools only.
     agents = get_agent_registry()
+    tools = get_tool_registry()
     meta = agents.get_metadata("swarm_manager")
 
-    assert meta is not None
-    assert meta.default_tools == []
+    assert meta is not None and meta.default_tools
+    assert {tools.get_metadata(name).category for name in meta.default_tools} == {"swarm"}
 
     agent = meta.agent_class(
         AgentConfig(
@@ -73,7 +75,7 @@ def test_agent_with_empty_catalog_has_no_wildcard_tool_access():
         )
     )
 
-    assert agent.get_allowed_tools() == []
+    assert set(agent.get_allowed_tools()) == set(meta.default_tools)
     assert agent.can_use_tool("file_read") is False
     assert agent.can_use_tool("command_run") is False
 

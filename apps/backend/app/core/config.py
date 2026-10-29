@@ -156,6 +156,11 @@ class Settings(BaseSettings):
     MAX_SUBAGENTS_PER_WORKSPACE: int = 10
     MAX_SUBAGENTS_GLOBAL: int = 50
     SUBAGENT_TIMEOUT: int = 3600
+    # Swarm limits (Repair 12e-3b). A workspace policy can only tighten these.
+    SWARM_MAX_CONCURRENT: int = 5
+    SWARM_MAX_SUBAGENTS_PER_SWARM: int = 10
+    SWARM_MAX_TOTAL_SUBAGENTS: int = 50
+    SWARM_MAX_COST_PER_SWARM: float = 5.0
 
     # Self-Evolution
     SELF_EVOLUTION_ENABLED: bool = True

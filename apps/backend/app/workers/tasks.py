@@ -215,7 +215,17 @@ def backup_database(self: Task) -> dict[str, Any]:
 
 @celery_app.task(name="recover_stale_missions", bind=True)
 def recover_stale_missions(self: Task) -> dict[str, Any]:
-    """Re-queue missions whose worker stopped heartbeating (Celery beat)."""
+    """Re-queue missions whose worker stopped heartbeating, and time out
+    sub-agents whose run stopped without a result (Celery beat)."""
+    from app.core.database import AsyncSessionLocal
     from app.core.runtime.missions import MissionRunner
+    from app.core.swarm.sub_agent import SubAgentManager
 
-    return asyncio.run(MissionRunner().recover_stale())
+    async def run() -> dict[str, Any]:
+        summary = await MissionRunner().recover_stale()
+        async with AsyncSessionLocal() as db:
+            timed_out = await SubAgentManager().time_out_stale(db)
+            await db.commit()
+        return {**summary, "sub_agents_timed_out": [str(i) for i in timed_out]}
+
+    return asyncio.run(run())

@@ -6,9 +6,10 @@ Incidents, audit logs, infrastructure, backups, deployments, and authority polic
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from sqlalchemy import String, Boolean, Integer, Float, Text, ForeignKey, JSON, DateTime, Numeric, event
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 from sqlalchemy.dialects.postgresql import UUID
 from decimal import Decimal
+import json
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
 
@@ -170,6 +171,13 @@ class AuditLog(Base, UUIDMixin, TimestampMixin):
 
     # Metadata
     meta_data: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
+
+    @validates("meta_data", "before_state", "after_state", "changes")
+    def _json_safe(self, _key, value):
+        """Audit details are stored as JSON: ids, dates and decimals inside them are kept as text."""
+        if value is None:
+            return None
+        return json.loads(json.dumps(value, default=str))
 
     # Relationships
     workspace: Mapped[Optional["Workspace"]] = relationship("Workspace")

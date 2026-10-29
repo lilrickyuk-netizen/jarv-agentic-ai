@@ -1003,6 +1003,19 @@ def _register_implemented_tools(registry: ToolRegistry) -> None:
     except ImportError as e:
         logger.warning(f"Workspace runtime tools not available for registration: {e}")
 
+    # Swarm tools (Repair 12e-3b): persisted, owner-scoped swarms whose
+    # sub-agents never exceed their lead's authority or tools.
+    try:
+        from app.tools.swarm import SWARM_TOOLS
+
+        for tool in SWARM_TOOLS:
+            registry.register(tool, category="swarm")
+
+        logger.info(f"Registered {len(SWARM_TOOLS)} swarm tools (real, Repair 12e-3b)")
+
+    except ImportError as e:
+        logger.warning(f"Swarm tools not available for registration: {e}")
+
     # Boundary tools (Repair 7): real detection + BoundaryReport persistence.
     try:
         from app.tools.boundary import (
