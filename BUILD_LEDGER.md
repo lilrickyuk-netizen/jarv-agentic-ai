@@ -16,13 +16,13 @@
 ## LOCKED REPAIR ORDER (2026-10-20)
 - Repair 10 is IN_PROGRESS. The focused tests recorded below verify subsets only; they do not prove all 31 agents are executable, all declared tools are real, or the complete orchestrator/swarm acceptance flow.
 - Repair 11: COMPLETE (2026-10-23, commit f5e92cb). Persistent, workspace-isolated semantic memory and the verified-learning lifecycle; migration verified up/down/up on PostgreSQL+pgvector; full suite 433 passed. See REPAIR-11-MEMORY-LEARNING.
-- Repair 12: IN_PROGRESS. 12a (mission runtime, recovery, automatic resume) COMPLETE 2026-10-23 (444 passed, migration up/down/up verified, dashboard type-check clean). 12b observability COMPLETE 2026-10-29 (REPAIR-12B-OBSERVABILITY); 12c agent toolbox + engineering agents delivered 2026-10-29, awaiting owner test run (REPAIR-12C-AGENT-TOOLS); 12d-12e remaining agents and missing spec tool groups follow. See REPAIR-12A-MISSION-RUNTIME.
+- Repair 12: IN_PROGRESS. 12a (mission runtime, recovery, automatic resume) COMPLETE 2026-10-23 (444 passed, migration up/down/up verified, dashboard type-check clean). 12b observability COMPLETE 2026-10-29 (REPAIR-12B-OBSERVABILITY); 12c agent toolbox + engineering agents COMPLETE 2026-10-29 (460 passed; REPAIR-12C-AGENT-TOOLS); 12d operations agents on real tools delivered 2026-10-29, awaiting owner test run (REPAIR-12D-OPS-AGENTS); 12e company agents and missing spec tool groups follow. See REPAIR-12A-MISSION-RUNTIME.
 - Repair 13: COMPLETE for non-paid knowledge installation, retrieval, authenticated administration, and attributed public-source research. All 31 registered agents passed individual retrieval/task verification. Live paid-LLM generation is DEFERRED to Repair 15 and is not reported as passed.
 - Repair 14: IN_PROGRESS after the user approved the cinematic UI and Voicebox integration direction. Implementation and runtime checks are recorded below; hands-on voice acceptance remains open.
 - Repair 15: production hardening and hands-on end-to-end acceptance.
 - No production readiness or system-completion claim is authorized before the final acceptance flow passes.
 - Earlier entries labeled Repair 11-14 below were created before the locked definitions were supplied. They are reclassified as supporting work and do not complete those locked repairs.
-- Last verified continuation update: 2026-10-23.
+- Last verified continuation update: 2026-10-29.
 
 ## BUILD PROGRESS SUMMARY
 
@@ -12206,7 +12206,7 @@ NEXT TASK: Repair 12c - real tool wiring for the 31 agents.
 
 TASK ID: REPAIR-12C-AGENT-TOOLS
 TASK NAME: Agent toolbox, tool-use loop, and the engineering agents on real tools
-STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+STATUS: COMPLETE (2026-10-29: full suite 460 passed on the owner's machine)
 AUDIT FINDINGS THAT DROVE THIS TASK:
 - No specialist agent ever called a tool: AgentBase.execute_tool existed but had zero callers. The coding agent's own docstring said it "does NOT write or modify any file". The only tool-using loop (AgentExecutor) lived inside the command center with four tools.
 - Registry file tools (file_read, file_write, ...) check only a banned-folder list; any path in the container, including apps/backend/.env, was readable through them. Registry git tools accept any repo_path.
@@ -12226,6 +12226,50 @@ COMMANDS RUN:
 - pytest: not runnable in the authoring environment; to be run on the owner's machine
 TESTS RUN:
 - None yet. Written: authority mapping, declared tools registered and within authority, confinement (outside paths, traversal, another workspace, secret redaction, secret-content search, outside-path and inline-code commands, destructive command, registry path argument, tools not offered), no filesystem tools without a registered folder, coding agent end to end through execute() with a scripted model (read, write, compile, finish), unfinished and blocked tasks not reported as plain success, test-suite key blanking.
-RESULT: Pending owner test run.
+RESULT: Full backend suite 460 passed (owner's machine, PostgreSQL 16 + pgvector, 2026-10-29).
 BLOCKERS: Known residual risk, scheduled for Repair 15: an agent can write a script inside the workspace and run it with an allowed interpreter; that script runs with the backend container's file access. Full isolation requires executing agent commands in a separate runner container that mounts only the workspace and holds no secrets. Until then the command classifier, argument guard, boundary chain, and audit trail apply.
 NEXT TASK: Owner runs the Repair 12c verification commands; then 12d (operations agents and their tools) and 12e (company agents and the missing spec tool groups).
+
+TASK ID: REPAIR-12D-OPS-AGENTS
+TASK NAME: Operations agents (monitoring, self-healing, rollback, infrastructure) on real tools
+STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- The monitoring agent reported every target as "unknown" and the self-healing agent reported every repair as blocked; neither measured or changed anything.
+- Self-healing runbooks raised IntegrationRequiredError for service and worker restarts, and verified "recovery" from CPU percentage.
+- Backup tools (backup_create/restore/verify/list/cleanup) were unregistered and failed by design; nothing backed up JARV's own database.
+- The ops agents declared tools (command_run, git_commit, http_post) unrelated to operations; the spec's monitoring, deployment and infrastructure tool names (check_health, restart_service, create_backup, restore_backup_with_boundary, ...) did not exist.
+- The dashboard Infrastructure page was static text.
+FILES CREATED:
+- apps/backend/app/core/ops/__init__.py
+- apps/backend/app/core/ops/docker_ops.py (Docker Engine API through the restricted proxy only; lists, inspects and reads logs of JARV's own Compose project; secret-redacted logs; restarts only RESTARTABLE services, never postgres/redis/docker-proxy, never its own container, only unhealthy replicas)
+- apps/backend/app/core/ops/backups.py (pg_dump custom format, SHA-256, client/server version check through psql, verify with pg_restore --list, restore only into a new database, retention cleanup keeping the newest verified backups)
+- apps/backend/app/core/ops/health.py (database, Redis and queue, Celery worker ping, stale missions, Prometheus targets; PromQL queries; recent workspace errors including failing runtime and registry tools; PostgreSQL internals)
+- apps/backend/app/core/ops/repair.py (service state, restart-and-wait, worker liveness, stuck-mission recovery used by the runbooks)
+- apps/backend/app/tools/ops/__init__.py (25 registered tools: check_health, check_queue, check_errors, check_database_health, query_metrics, check_uptime (SSRF-guarded), inspect_server, check_disk_space, check_memory_usage, check_cpu_usage, check_env_vars (names only), check_container_status, check_docker_status, check_crashes, check_container_logs, check_service_logs, check_logs, restart_service, restart_container, recover_stuck_missions, create_backup, verify_backup, list_backups, restore_backup_with_boundary (approval), cleanup_backups (approval))
+- apps/backend/app/core/agents/specialists/ops_mode.py (tool loop with a provider; without one, fixed real procedures: monitoring measures; self-healing diagnoses, re-queues stuck missions, restarts crashed services and verifies; rollback reports real state and restorable backups; infrastructure measures and runs backups)
+- apps/backend/app/api/operations.py (authenticated /api/operations: health, server, containers, audited service restart, backups list and audited create+verify)
+- apps/backend/tests/test_repair12d_ops_tools.py
+- docs/OPERATIONS.md
+FILES MODIFIED:
+- apps/backend/app/core/tools/registry.py (operations tools registered)
+- apps/backend/app/tools/infrastructure/backup.py (the historical backup class names now point at the single real implementation)
+- apps/backend/app/core/agents/specialists/{monitoring,self_healing,rollback,infrastructure}.py (operations tools declared; operations mode first; previous honest fallbacks kept for runs without a database session or workspace)
+- apps/backend/app/core/self_healing/runbooks.py (website-down and queue-stuck runbooks detect, restart, recover missions and verify through real checks)
+- apps/backend/app/core/config.py (DOCKER_OPS_URL, PROMETHEUS_URL, BACKUP_DIR, BACKUP_INTERVAL_HOURS, BACKUP_RETENTION_DAYS)
+- apps/backend/app/core/celery.py, apps/backend/app/workers/tasks.py (scheduled, verified database backup)
+- apps/backend/app/main.py (operations router)
+- apps/backend/Dockerfile (PostgreSQL 17 client tools from the PostgreSQL apt repository in build/test and runtime images; /data/backups owned by jarv)
+- docker-compose.yml, docker-compose.prod.yml (docker-proxy tecnativa/docker-socket-proxy:v0.4.2 with CONTAINERS=1, ALLOW_RESTARTS=1, POST=0, read-only socket, internal jarv-ops network shared only with backend and worker; backups volume; DOCKER_OPS_URL, BACKUP_DIR, JARV_API_URL)
+- docker-compose.monitoring.yml (PROMETHEUS_URL for backend and worker)
+- .env.example, .env.production.example, apps/backend/.env.example (backup schedule settings)
+- apps/backend/tests/test_infrastructure_runtime_tools.py (backup assertions moved to the new test file: backups are real now)
+- apps/dashboard/src/app/dashboard/infrastructure/page.tsx (live services, server, database, containers with restart, backups with "Back up now")
+COMMANDS RUN:
+- python -m py_compile on every changed backend file: passed
+- YAML parse of both compose files and the monitoring overlay: passed
+- pytest and tsc: not runnable in the authoring environment; to be run on the owner's machine
+TESTS RUN:
+- None yet. Written: all 25 tools registered and implemented; ops agents declare only registered tools within their authority (monitoring cannot restart); restart below production authority refused; restore always approval-gated; Docker adapter limited to its project, log redaction, data stores and own container never restarted, only the unhealthy replica restarted; server/config tools measure without leaking values; uptime refuses private and metadata addresses; workspace-scoped errors; monitoring agent measures and logs each check; self-healing restarts the crashed worker and verifies, and only reports when repairs are not allowed; infrastructure reports measurements and missing container access honestly; runbooks explain missing container access; real pg_dump/verify/approved restore/tamper detection round trip; compose proxy restrictions and network isolation; operations API authentication, live state, audited restart and refusal.
+RESULT: First owner run 2026-10-29: 477 passed, 2 failed. Fixes: (1) registry tool audit entries are named agent.tool.<name>.tool.<name>; recent_errors and the monitoring test now read that form; (2) pg_dump 17 writes SET transaction_timeout, unknown to PostgreSQL 16, so pg_restore exited non-zero; restore now accepts exactly that class of error (unknown session settings, and only when they are every error reported) and records the ignored settings; any other restore error still fails. Dashboard type-check clean. Re-run pending.
+BLOCKERS: Deployment rollback (returning a service to a previous release) needs recorded releases from the deploy tools; it is part of 12e with deploy_staging and deploy_production_with_boundary. Data rollback (approval-gated restore) works now.
+NEXT TASK: Owner rebuilds the backend images and runs the Repair 12d verification commands; then 12e (company agents, deployment tools, and the missing spec tool groups).

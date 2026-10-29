@@ -36,6 +36,24 @@ services:
     networks:
       - jarv-network
 
+  # Restricted Docker API for JARV's self-healing (Repair 12d). Exposes only
+  # container list/inspect/logs and restart; image, exec, volume, network and
+  # all other write endpoints stay denied (POST=0). Reachable only from the
+  # internal jarv-ops network (backend and worker), never published to the host.
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:v0.4.2
+    container_name: jarv-docker-proxy
+    environment:
+      CONTAINERS: 1
+      ALLOW_RESTARTS: 1
+      POST: 0
+      LOG_LEVEL: warning
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - jarv-ops
+    restart: unless-stopped
+
   # FastAPI Backend
   backend:
     build:
@@ -59,6 +77,9 @@ services:
       VOICEBOX_BASE_URL: ${VOICEBOX_BASE_URL:-http://voicebox:17493}
       VOICEBOX_PROFILE_ID: ${VOICEBOX_PROFILE_ID:-}
       WAKEWORD_MODEL_DIR: /data/voice-models/sherpa-kws-gigaspeech
+      # Operations (Repair 12d): restricted Docker API and database backups.
+      DOCKER_OPS_URL: http://docker-proxy:2375
+      BACKUP_DIR: /data/backups
     ports:
       - "8000:8000"
     depends_on:
@@ -69,6 +90,7 @@ services:
     volumes:
       - ./apps/backend:/app
       - voice_models:/data/voice-models
+      - backups:/data/backups
       # Approved workspace root. Mounted read-write so JARV can perform
       # AUTHORITY-GATED, scope-checked file writes inside approved workspaces.
       # Safety is enforced in-app (registered-workspace allowlist + banned/secret
@@ -82,6 +104,7 @@ services:
         target: /host/workspaces
     networks:
       - jarv-network
+      - jarv-ops
     restart: unless-stopped
 
   # Next.js Dashboard Frontend
@@ -160,6 +183,9 @@ services:
       JARV_PROCESS_ROLE: worker
       WORKSPACE_HOST_ROOT: ${WORKSPACE_HOST_ROOT:-C:\\Users\\lilri\\OneDrive\\Desktop}
       WORKSPACE_CONTAINER_ROOT: /host/workspaces
+      DOCKER_OPS_URL: http://docker-proxy:2375
+      BACKUP_DIR: /data/backups
+      JARV_API_URL: http://backend:8000
     depends_on:
       postgres:
         condition: service_healthy
@@ -167,11 +193,13 @@ services:
         condition: service_healthy
     volumes:
       - ./apps/backend:/app
+      - backups:/data/backups
       - type: bind
         source: ${WORKSPACE_MOUNT_SOURCE:-/mnt/c/Users/lilri/OneDrive/Desktop}
         target: /host/workspaces
     networks:
       - jarv-network
+      - jarv-ops
     restart: unless-stopped
     command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
     # Celery worker liveness: ping the worker over the broker (not HTTP — this
@@ -249,7 +277,13 @@ volumes:
     driver: local
   voicebox_models:
     driver: local
+  backups:
+    driver: local
 
 networks:
   jarv-network:
     driver: bridge
+  # Internal-only network between JARV and the Docker proxy (no outside route).
+  jarv-ops:
+    driver: bridge
+    internal: true

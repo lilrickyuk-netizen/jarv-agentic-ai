@@ -1,16 +1,12 @@
 """
 JARV Backend - SelfHealingAgent
 
-Analyses reported issues and drafts a remediation PLAN.
-
-This agent NEVER fixes or restores a live system. Real healing (restarting
-services, applying fixes, deploying changes) requires the monitoring subsystem
-plus the approved command/deploy pipeline, none of which are wired into
-standalone agent execution. When incident text or files are supplied this agent
-does REAL local analysis (static dangerous-code scan of provided files via the
-shared helpers) and, when an LLM provider is configured, proposes a remediation
-PLAN. Actual healing is reported as blocked. There are no fabricated resolution
-times, no false "applied fix" claims, and no false rollback claims.
+Diagnoses and repairs JARV with the operations tools (Repair 12d): it
+re-queues missions whose worker stopped, restarts crashed or unhealthy JARV
+services (never the data stores), and verifies recovery with a fresh health
+check. See ``ops_mode``. Without a database session or workspace, the
+fallback below does static analysis of provided files and drafts a plan, and
+reports live healing as blocked.
 """
 from typing import Dict, Any, List, Optional, Type
 import logging
@@ -70,13 +66,20 @@ class SelfHealingAgent(AgentBase):
 
     @property
     def default_tools(self) -> list[str]:
-        return ['command_run', 'file_write', 'git_commit', 'analyze_metrics']
+        from app.core.agents.specialists.ops_mode import tools_for
+
+        return tools_for("self_healing")
 
     async def run(
         self,
         input_data: Dict[str, Any],
         context: AgentContext,
     ) -> AgentResult:
+        from app.core.agents.specialists import ops_mode
+
+        live = await ops_mode.run(self, input_data, context)
+        if live is not None:
+            return live
         try:
             issue = (input_data.get("issue_detected") or "").strip()
             system = (input_data.get("affected_system") or "").strip()

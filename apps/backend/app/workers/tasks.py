@@ -162,6 +162,29 @@ def resume_checkpoint_task(self: Task, checkpoint_id: str, user_id: str) -> dict
     return asyncio.run(resume_checkpoint(checkpoint_id, user_id))
 
 
+@celery_app.task(name="backup_database", bind=True)
+def backup_database(self: Task) -> dict[str, Any]:
+    """Scheduled backup of JARV's database, verified straight after (Celery beat)."""
+    from app.core.database import AsyncSessionLocal
+    from app.core.ops.backups import BackupError, create_backup, verify_backup
+
+    async def run() -> dict[str, Any]:
+        async with AsyncSessionLocal() as db:
+            try:
+                record = await create_backup(db, workspace_id=None, reason="scheduled backup",
+                                             retention_days=int(settings.BACKUP_RETENTION_DAYS))
+                verification = await verify_backup(db, record)
+            except BackupError as exc:
+                await db.commit()
+                logger.error(f"Scheduled backup failed: {exc}")
+                return {"success": False, "error": str(exc)}
+            await db.commit()
+            return {"success": verification["verified"], "backup_id": str(record.id),
+                    "file": record.backup_name, "size_bytes": record.backup_size_bytes}
+
+    return asyncio.run(run())
+
+
 @celery_app.task(name="recover_stale_missions", bind=True)
 def recover_stale_missions(self: Task) -> dict[str, Any]:
     """Re-queue missions whose worker stopped heartbeating (Celery beat)."""

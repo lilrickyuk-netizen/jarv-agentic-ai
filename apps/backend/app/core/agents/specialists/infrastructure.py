@@ -1,14 +1,11 @@
 """
 JARV Backend - InfrastructureAgent
 
-Performs a REAL LOCAL infrastructure-file scan and reports honestly.
-
-This agent does NOT provision, scale, migrate, or touch live cloud resources in
-standalone execution, and it never fabricates cost, capacity, performance, or
-downtime numbers. It inspects the local workspace for infrastructure files that
-genuinely exist (Dockerfile, docker-compose, .env.example, nginx configs) and
-reports exactly what it found. Inspecting live servers, cost, SSL, and DNS
-requires real cloud/integration access that is not wired here.
+Works from measurements (Repair 12d): server CPU, memory and disk, containers,
+database internals, configuration presence, and PostgreSQL backups (create,
+verify, list, approval-gated cleanup and restore). See ``ops_mode``. Without a
+database session or workspace, the fallback below scans the workspace for
+infrastructure files and never fabricates cost or capacity numbers.
 """
 from typing import Dict, Any, List, Type
 import os
@@ -69,7 +66,9 @@ class InfrastructureAgent(AgentBase):
 
     @property
     def default_tools(self) -> list[str]:
-        return ['command_run', 'http_post', 'analyze_metrics']
+        from app.core.agents.specialists.ops_mode import tools_for
+
+        return tools_for("infrastructure")
 
     # Candidate infra files (relative); nginx configs handled separately.
     _INFRA_CANDIDATES = [
@@ -97,6 +96,11 @@ class InfrastructureAgent(AgentBase):
         context: AgentContext,
     ) -> AgentResult:
         """Real local infra-file scan; honest limitation for live operations."""
+        from app.core.agents.specialists import ops_mode
+
+        live = await ops_mode.run(self, input_data, context)
+        if live is not None:
+            return live
         try:
             operation = input_data.get("operation", "scale")
             resources = [str(r).strip() for r in (input_data.get("resources") or []) if str(r).strip()]

@@ -15,7 +15,6 @@ from app.models.workspace import Workspace
 from app.tools.infrastructure.monitoring import ResourceMetricsTool
 from app.tools.infrastructure.resources import ResourceHealthCheckTool, ResourceProvisionTool
 from app.tools.infrastructure.cost import CostEstimateTool
-from app.tools.infrastructure.backup import BackupCreateTool, BackupRestoreTool
 from app.tools.infrastructure.deployment import ServiceDeployTool, DeploymentRollbackTool
 from tests.conftest import AsyncTestingSessionLocal
 
@@ -141,20 +140,10 @@ def test_cloud_provision_fails_without_provider_adapter_and_creates_no_resource(
 
 
 @pytest.mark.unit
-def test_backup_and_deployment_mutations_fail_without_adapters():
+def test_deployment_mutations_fail_without_adapters():
+    """Cloud deploy/rollback have no live adapter; they must fail honestly.
+    (Backups are real since Repair 12d and are covered in test_repair12d_ops_tools.)"""
     context = ToolContext(workspace_id=uuid4(), user_id=uuid4(), agent_id=uuid4())
-    backup = asyncio.run(BackupCreateTool(ToolConfig(
-        authority_level=AuthorityLevel.LEVEL_4_SYSTEM_CHANGES)).run({
-            "backup_name": "claimed-backup", "backup_type": "full",
-            "source_type": "database", "source_name": "db",
-            "storage_location": "s3://not-configured", "storage_provider": "s3",
-            "retention_days": 30,
-        }, context))
-    restore = asyncio.run(BackupRestoreTool(ToolConfig(
-        authority_level=AuthorityLevel.LEVEL_7_DEPLOYMENT)).run({
-            "backup_id": str(uuid4()), "overwrite": False,
-            "verify_before_restore": True,
-        }, context))
     deploy = asyncio.run(ServiceDeployTool(ToolConfig(
         authority_level=AuthorityLevel.LEVEL_7_DEPLOYMENT)).run({
             "deployment_name": "release", "deployment_type": "application",
@@ -165,7 +154,7 @@ def test_backup_and_deployment_mutations_fail_without_adapters():
             "deployment_id": str(uuid4()), "reason": "recovery test",
         }, context))
 
-    for result in (backup, restore, deploy, rollback):
+    for result in (deploy, rollback):
         assert result.success is False
         assert "adapter" in result.error_message.lower()
 

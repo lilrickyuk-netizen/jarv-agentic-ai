@@ -65,6 +65,11 @@ celery_app.conf.update(
             "schedule": float(getattr(settings, "SCHEDULER_STATUS_INTERVAL_SECONDS", 120)),
             "options": {"expires": 110},
         },
+        "database-backup": {
+            "task": "backup_database",
+            "schedule": float(getattr(settings, "BACKUP_INTERVAL_HOURS", 24)) * 3600,
+            "options": {"expires": 3600},
+        },
     },
 )
 
@@ -93,6 +98,14 @@ SCHEDULED_JOBS = [
         "enabled": bool(getattr(settings, "SELF_HEALING_ENABLED", True)),
         "type": "self-healing",
         "description": "Self-healing health probe (uses the status loop as its check).",
+    },
+    {
+        "name": "database_backup",
+        "task": "backup_database",
+        "interval_seconds": float(getattr(settings, "BACKUP_INTERVAL_HOURS", 24)) * 3600,
+        "enabled": True,
+        "type": "operations/backup",
+        "description": "Back up JARV's PostgreSQL database (pg_dump), then verify the archive.",
     },
     {
         "name": "workspace_maintenance",

@@ -160,6 +160,8 @@ from app.api import metrics as metrics_api  # noqa: E402
 app.include_router(metrics_api.router)
 from app.api import observability as observability_api  # noqa: E402
 app.include_router(observability_api.router)
+from app.api import operations as operations_api  # noqa: E402
+app.include_router(operations_api.router)
 app.include_router(auth.router)
 app.include_router(models.router, prefix="/api")
 app.include_router(agents.router, prefix="/api")

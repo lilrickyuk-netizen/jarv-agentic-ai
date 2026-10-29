@@ -173,6 +173,14 @@ class Settings(BaseSettings):
     # When empty, only private-network callers are accepted.
     ALERT_WEBHOOK_TOKEN: str = ""
 
+    # Operations (Repair 12d). DOCKER_OPS_URL points at the restricted Docker
+    # socket proxy (never the raw socket); empty disables container operations.
+    DOCKER_OPS_URL: str = ""
+    PROMETHEUS_URL: str = ""
+    BACKUP_DIR: str = "/data/backups"
+    BACKUP_INTERVAL_HOURS: float = 24.0
+    BACKUP_RETENTION_DAYS: int = 30
+
     # Logging and Monitoring
     AUDIT_LOGGING_ENABLED: bool = True
     BOUNDARY_REPORTING_ENABLED: bool = True

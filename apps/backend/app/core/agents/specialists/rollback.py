@@ -1,15 +1,11 @@
 """
 JARV Backend - RollbackAgent
 
-Category C - BLOCKED in standalone execution.
-
-There is no real deployment, version, or release state available to a
-standalone agent: the deployment subsystem and the release/version history that
-a rollback would operate on are NOT wired in here. This agent therefore NEVER
-performs a rollback and NEVER claims a version was restored. It returns an
-honest, structured BLOCKED result describing exactly what a real rollback would
-require, so the orchestrator can route the request to the proper subsystem.
-There are no fabricated version numbers and no false "rollback complete" claims.
+Prepares rollbacks from real state (Repair 12d): service status, workspace
+history, and the verified database backups that can be restored, through an
+approval-gated restore into a new database. It never reports a rollback that
+did not happen. See ``ops_mode``; the fallback below is used without a
+database session or workspace.
 """
 from typing import Dict, Any, List, Type
 import logging
@@ -66,13 +62,20 @@ class RollbackAgent(AgentBase):
 
     @property
     def default_tools(self) -> list[str]:
-        return ['git_revert', 'git_reset', 'command_run']
+        from app.core.agents.specialists.ops_mode import tools_for
+
+        return tools_for("rollback")
 
     async def run(
         self,
         input_data: Dict[str, Any],
         context: AgentContext,
     ) -> AgentResult:
+        from app.core.agents.specialists import ops_mode
+
+        live = await ops_mode.run(self, input_data, context)
+        if live is not None:
+            return live
         try:
             deployment_id = (input_data.get("deployment_id") or "").strip()
             reason = (input_data.get("reason") or "").strip()

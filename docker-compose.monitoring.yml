@@ -121,6 +121,16 @@ services:
       - jarv-network
     restart: unless-stopped
 
+  # With the monitoring stack running, JARV's operations tools (check_health,
+  # query_metrics) read Prometheus directly (Repair 12d).
+  backend:
+    environment:
+      PROMETHEUS_URL: http://prometheus:9090
+
+  worker:
+    environment:
+      PROMETHEUS_URL: http://prometheus:9090
+
 volumes:
   prometheus_data:
   alertmanager_data:

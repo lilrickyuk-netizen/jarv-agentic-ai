@@ -936,11 +936,10 @@ def _register_implemented_tools(registry: ToolRegistry) -> None:
     except ImportError as e:
         logger.warning(f"Analysis tools not available for registration: {e}")
 
-    # Infrastructure tools (Repair 6): register only the REAL, safe, read-only/
-    # compute tools. Mutating/mock infra tools (provision/scale/terminate/deploy/
-    # rollback/backup-create/restore/cleanup) are intentionally NOT registered
-    # because they contain mock/no-op behaviour; they are tracked as missing
-    # real implementations in BUILD_LEDGER.md for a later repair.
+    # Infrastructure tools (Repair 6): the real read-only/compute tools.
+    # Provision/scale/terminate/deploy tools are not registered: they have no
+    # real cloud backend wired. Backups, restarts, and monitoring are the
+    # operations tools registered below (Repair 12d).
     try:
         from app.tools.infrastructure import (
             SSLCheckTool,
@@ -956,6 +955,21 @@ def _register_implemented_tools(registry: ToolRegistry) -> None:
 
     except ImportError as e:
         logger.warning(f"Infrastructure tools not available for registration: {e}")
+
+    # Operations tools (Repair 12d): health, metrics, errors, server, containers
+    # (through the restricted Docker proxy), service restart, stuck-mission
+    # recovery, and PostgreSQL backups. Restore and backup deletion are
+    # approval-gated; data stores are never restarted.
+    try:
+        from app.tools.ops import OPS_TOOLS
+
+        for tool in OPS_TOOLS:
+            registry.register(tool, category="operations")
+
+        logger.info(f"Registered {len(OPS_TOOLS)} operations tools (real, Repair 12d)")
+
+    except ImportError as e:
+        logger.warning(f"Operations tools not available for registration: {e}")
 
     # Boundary tools (Repair 7): real detection + BoundaryReport persistence.
     try:

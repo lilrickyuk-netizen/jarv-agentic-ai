@@ -72,6 +72,24 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # Restricted Docker API for JARV's self-healing (Repair 12d). Exposes only
+  # container list/inspect/logs and restart; image, exec, volume, network and
+  # all other write endpoints stay denied (POST=0). Reachable only from the
+  # internal jarv-ops network (backend and worker), never published to the host.
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:v0.4.2
+    container_name: jarv-docker-proxy-prod
+    environment:
+      CONTAINERS: 1
+      ALLOW_RESTARTS: 1
+      POST: 0
+      LOG_LEVEL: warning
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - jarv-ops
+    restart: always
+
   # FastAPI Backend
   backend:
     build:
@@ -89,13 +107,18 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS}
       MAX_WORKERS: 4
       SENTRY_DSN: ${SENTRY_DSN:-}
+      DOCKER_OPS_URL: http://docker-proxy:2375
+      BACKUP_DIR: /data/backups
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - backups:/data/backups
     networks:
       - jarv-network
+      - jarv-ops
     restart: always
     deploy:
       resources:
@@ -170,13 +193,19 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       SENTRY_DSN: ${SENTRY_DSN:-}
       JARV_PROCESS_ROLE: worker
+      DOCKER_OPS_URL: http://docker-proxy:2375
+      BACKUP_DIR: /data/backups
+      JARV_API_URL: http://backend:8000
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      - backups:/data/backups
     networks:
       - jarv-network
+      - jarv-ops
     restart: always
     command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4 --max-tasks-per-child=100
     deploy:
@@ -311,8 +340,14 @@ volumes:
     driver: local
   nginx_logs:
     driver: local
+  backups:
+    driver: local
 
 networks:
+  # Internal-only network between JARV and the Docker proxy (no outside route).
+  jarv-ops:
+    driver: bridge
+    internal: true
   jarv-network:
     driver: bridge
     ipam:
