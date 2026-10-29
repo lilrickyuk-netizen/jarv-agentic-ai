@@ -216,7 +216,7 @@ services:
     networks:
       - jarv-network
     restart: always
-    command: celery -A app.workers.celery_app beat --loglevel=info
+    command: celery -A app.workers.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
     deploy:
       resources:
         limits:

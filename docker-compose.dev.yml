@@ -36,7 +36,7 @@ services:
   scheduler:
     volumes:
       - ./services/workers:/app
-    command: celery -A workers.celery_app beat --loglevel=debug
+    command: celery -A workers.celery_app beat --loglevel=debug --schedule=/tmp/celerybeat-schedule
 
   # Override local runner for development
   local-runner:

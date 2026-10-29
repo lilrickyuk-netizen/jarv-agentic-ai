@@ -206,7 +206,7 @@ services:
     networks:
       - jarv-network
     restart: unless-stopped
-    command: celery -A app.workers.celery_app beat --loglevel=info
+    command: celery -A app.workers.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule
     # Celery beat liveness: beat does not answer `inspect ping`, so verify the
     # beat process itself is running (not HTTP — the base image probes uvicorn).
     healthcheck:

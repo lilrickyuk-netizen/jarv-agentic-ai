@@ -16,7 +16,7 @@
 ## LOCKED REPAIR ORDER (2026-10-20)
 - Repair 10 is IN_PROGRESS. The focused tests recorded below verify subsets only; they do not prove all 31 agents are executable, all declared tools are real, or the complete orchestrator/swarm acceptance flow.
 - Repair 11: COMPLETE (2026-10-23, commit f5e92cb). Persistent, workspace-isolated semantic memory and the verified-learning lifecycle; migration verified up/down/up on PostgreSQL+pgvector; full suite 433 passed. See REPAIR-11-MEMORY-LEARNING.
-- Repair 12: IN_PROGRESS. 12a (mission runtime, recovery, automatic resume) COMPLETE 2026-10-23 (444 passed, migration up/down/up verified, dashboard type-check clean). 12b observability delivered 2026-10-23, awaiting owner test run (REPAIR-12B-OBSERVABILITY); 12c-12e agent tool wiring follow. See REPAIR-12A-MISSION-RUNTIME.
+- Repair 12: IN_PROGRESS. 12a (mission runtime, recovery, automatic resume) COMPLETE 2026-10-23 (444 passed, migration up/down/up verified, dashboard type-check clean). 12b observability COMPLETE 2026-10-29 (REPAIR-12B-OBSERVABILITY); 12c-12e agent tool wiring follow. See REPAIR-12A-MISSION-RUNTIME.
 - Repair 13: COMPLETE for non-paid knowledge installation, retrieval, authenticated administration, and attributed public-source research. All 31 registered agents passed individual retrieval/task verification. Live paid-LLM generation is DEFERRED to Repair 15 and is not reported as passed.
 - Repair 14: IN_PROGRESS after the user approved the cinematic UI and Voicebox integration direction. Implementation and runtime checks are recorded below; hands-on voice acceptance remains open.
 - Repair 15: production hardening and hands-on end-to-end acceptance.
@@ -12166,7 +12166,7 @@ NEXT TASK: Repair 12b - observability (REPAIR-12B-OBSERVABILITY).
 
 TASK ID: REPAIR-12B-OBSERVABILITY
 TASK NAME: Metrics, monitoring stack, alert intake, and trace context
-STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+STATUS: COMPLETE
 AUDIT FINDINGS THAT DROVE THIS TASK:
 - Prometheus scraped /metrics on the backend, which did not exist, and /metrics/celery on the worker, which runs no HTTP server. The Grafana dashboard and every alert rule therefore had no data.
 - Prometheus, Grafana, Alertmanager, and the postgres/redis/node exporters the configuration targets were not defined in any compose file. Alertmanager had no receiver.
@@ -12192,9 +12192,13 @@ FILES MODIFIED:
 COMMANDS RUN:
 - python -m py_compile on every changed backend file: passed
 - YAML parse of every monitoring and compose file: passed
-- pytest: not runnable in the authoring environment; to be run on the owner's machine
+- Owner run 2026-10-29, fresh pgvector/pgvector:pg16: 452 passed, 0 failed
+- Live stack with docker-compose.monitoring.yml: backend, worker, dashboard, local-runner healthy; Prometheus targets jarv-backend, node, postgres, prometheus, redis all up; jarv_workers_up 1; mission gauges read from the live database
+- Fixes found while bringing the live stack up: dashboard image could not build (Dockerfile copied a public/ directory the repo does not have); .gitignore excluded .dockerignore files, so backend and local-runner images copied apps/backend/.env (API keys) into the image and the dashboard sent node_modules as build context; the workspace bind mount used a C:/ path that Compose under WSL rejects (backend had the same defect, previously worked around with WORKSPACE_HOST_ROOT=/tmp, which broke typed-path translation) - now WORKSPACE_MOUNT_SOURCE (WSL path) is separate from WORKSPACE_HOST_ROOT (typed Windows path); celery beat could not write celerybeat-schedule into the host-mounted code folder (schedule moved to /tmp); .gitignore did not cover .env.production (now every real env file is ignored)
+- The owner's development database was at r13_source_attribution: Repair 11 and 12a migrations had only been verified on disposable test databases. Backed up (pg_dump) and upgraded to r12_mission_runtime on 2026-10-29.
+- Incident 2026-10-29: a real Grafana admin password was entered into the tracked .env.production.example and pushed to the public repository in commit 9a9ede2. Grafana never started with it. The template was blanked and marked template-only; the owner was told to rotate the password anywhere it is reused and to keep real values in the ignored .env.production.
 TESTS RUN:
-- None yet. Written: exposition validity, route-template labels, database-backed mission/approval/stale/queue gauges, metrics token, alert open/de-duplicate/resolve with incidents and feed, webhook auth, log trace context, request-id acceptance.
-RESULT: Pending owner test run.
-BLOCKERS: The monitoring stack pulls public images on first start; it is verified by starting it (see the Repair 12b instructions). Worker and mission metrics are read from shared state, so they are correct regardless of which process did the work; per-worker process metrics (CPU/memory of each worker) are not exported.
-NEXT TASK: Owner runs the Repair 12b verification commands; then 12c agent tool wiring.
+- All passed. Written: exposition validity, route-template labels, database-backed mission/approval/stale/queue gauges, metrics token, alert open/de-duplicate/resolve with incidents and feed, webhook auth, log trace context, request-id acceptance.
+RESULT: Metrics, monitoring stack, alert intake, and trace context verified on the live stack.
+BLOCKERS: None. Notes: the monitoring stack pulls public images on first start; it is verified by starting it (see the Repair 12b instructions). Worker and mission metrics are read from shared state, so they are correct regardless of which process did the work; per-worker process metrics (CPU/memory of each worker) are not exported.
+NEXT TASK: Repair 12c - real tool wiring for the 31 agents.
