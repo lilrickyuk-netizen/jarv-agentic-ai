@@ -4,7 +4,7 @@ JARV Backend - Business tools (Repair 12e-4a)
 Support, marketing, content, onboarding, community, partnership and sales
 tools, all on persisted records in the calling workspace.
 
-- 43 drafting tools (one per document kind in app.core.business.drafting):
+- Drafting tools (one per document kind in app.core.business.drafting):
   grounded in the workspace's real facts, saved as drafts, never published.
 - Support: read_support_messages (local inbox, plus the email inbox when
   configured), create_ticket, categorise_ticket (escalates severe bugs to the
@@ -38,7 +38,7 @@ from app.core.business.support import sentiment, support_service, terms, view as
 from app.tools._scoped import ScopedTool
 
 GROUP_CATEGORY = {"marketing": "marketing", "content": "content", "onboarding": "onboarding",
-                  "community": "community", "partnership": "partnership", "sales": "sales"}
+                  "community": "community", "partnership": "partnership", "sales": "sales", "revenue": "revenue"}
 
 
 class _BusinessTool(ScopedTool):

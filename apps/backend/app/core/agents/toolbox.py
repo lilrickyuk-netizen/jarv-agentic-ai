@@ -68,8 +68,7 @@ ALIASES: Dict[str, str] = {
     "run_safe_readonly_command": "run_command",
     "git_branch": "git_create_branch", "git_push": "git_push_with_boundary",
     "memory_store": "memory_add", "memory_retrieve": "memory_search", "memory": "memory_search",
-    "http_get": "fetch_url", "web_search": "fetch_url", "scan_workspace": "scan_workspace",
-    "check_licence": "asset_licence_check",
+    "http_get": "fetch_url", "scan_workspace": "scan_workspace",
 }
 
 # Registry categories that are reachable only through the confined workspace tools.

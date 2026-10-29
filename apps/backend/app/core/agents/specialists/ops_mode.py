@@ -28,6 +28,8 @@ OBSERVE = ["check_health", "check_queue", "check_errors", "check_logs", "check_c
            "inspect_server", "check_disk_space", "check_memory_usage", "check_cpu_usage"]
 EXTERNAL = ["check_uptime", "ssl_check", "dns_verify"]
 BACKUP_READ = ["list_backups", "verify_backup"]
+INFRA_CONFIG = ["check_ssl_certificate", "check_domain_dns", "generate_nginx_config", "generate_docker_compose",
+                "validate_cloud_config", "estimate_infrastructure_cost", "scale_service_with_budget_boundary"]
 
 
 @dataclass(frozen=True)
@@ -40,11 +42,12 @@ class OpsMode:
 
 MODES: Dict[str, OpsMode] = {
     "monitoring": OpsMode(
-        tools=OBSERVE + EXTERNAL + RECALL + REMEMBER,
+        tools=OBSERVE + EXTERNAL + ["check_payment_events", "check_reviews", "check_analytics"] + RECALL + REMEMBER,
         instructions=(
             "Measure; never assume. Start with check_health and check_container_status, then check_errors "
             "and check_crashes. Probe each URL target with check_uptime (and ssl_check for https). Use "
-            "query_metrics for trends. Do not change anything. In outputs, give one line per target or "
+            "query_metrics for trends; for a live product also check_payment_events, check_reviews and "
+            "check_analytics. Do not change anything. In outputs, give one line per target or "
             "check as 'OK: ...', 'WARN: ...' or 'CRITICAL: ...' with the measured value."),
         brief=lambda d: _lines([("Targets", ", ".join(d.get("targets") or []) or "all JARV services"),
                                 ("Metrics", ", ".join(d.get("metrics") or [])),
@@ -85,11 +88,15 @@ MODES: Dict[str, OpsMode] = {
                "check_container_status", "check_container_logs", "check_database_health", "check_env_vars",
                "restart_container", "create_backup", "list_backups", "verify_backup",
                "restore_backup_with_boundary", "cleanup_backups", "ssl_check", "dns_verify", "cost_estimate"]
+        + INFRA_CONFIG
         + READ + RECALL + REMEMBER,
         instructions=(
             "Work from measurements: server resources, containers, database, configuration (check_env_vars "
             "never shows values). For backups, create then verify. Restores and backup deletion pause for "
-            "Richard's approval. Report numbers exactly as the tools returned them."),
+            "Richard's approval. Check configs with validate_cloud_config; generate nginx and compose files "
+            "when missing; check costs with estimate_infrastructure_cost before scaling, and scale only with "
+            "scale_service_with_budget_boundary, which pauses for Richard beyond the budget or replica limit. "
+            "Report numbers exactly as the tools returned them."),
         brief=lambda d: _lines([("Operation", d.get("operation")),
                                 ("Resources", ", ".join(d.get("resources") or [])),
                                 ("Target capacity", d.get("target_capacity"))]),

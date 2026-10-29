@@ -12444,7 +12444,7 @@ NEXT TASK: REPAIR-12E-4 (business tool groups: support, marketing, content, onbo
 
 TASK ID: REPAIR-12E-4A-BUSINESS
 TASK NAME: Grounded business drafting and persisted support, community, partnership, sales and onboarding tools
-STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+STATUS: COMPLETE
 AUDIT FINDINGS THAT DROVE THIS TASK:
 - None of the 58 design support, marketing, content, onboarding, community, partnership and sales tools existed. The support inbox (app/core/support: tickets, knowledge base, responses) lived in process memory and was lost on restart; /api/support used it without any workspace scoping. The marketing, content, onboarding, community, partnerships and sales agents could only draft unsaved text; the customer support agent read tickets from the in-memory store. No email adapter could send or read mail. The capability map pointed the changelog generator and SMTP adapter at files that did not contain them.
 FILES CREATED:
@@ -12468,8 +12468,41 @@ FILES DELETED:
 COMMANDS RUN:
 - python -m py_compile on changed files: passed; route-pattern unit check: passed
 TESTS RUN:
-- Owner run 1 (2026-10-29): 529 passed, 3 failed: the test counted 59 tools where the design lists 58 (42 drafting kinds + 16 others); and the customer support agent reported a ticket id that does not exist as a failure, which broke the all-agents runner and knowledge checks (they pass a task sentence as the id). It now returns a plain no-ticket result. Fix 1 re-run pending.
+- Owner run 1 (2026-10-29): 529 passed, 3 failed: the test counted 59 tools where the design lists 58 (42 drafting kinds + 16 others); and the customer support agent reported a ticket id that does not exist as a failure, which broke the all-agents runner and knowledge checks (they pass a task sentence as the id). It now returns a plain no-ticket result.
+- Owner run 2 (2026-10-29, Fix 1): 532 passed. Committed as 30ea562 on pre-repair-11.
 - Written: 58 tools registered; drafts grounded in a real sandbox project (git changelog, curl examples from code routes, README features, setup steps from scripts, pages in the tour, confirm markers, file written to docs/); support escalation, FAQ-grounded draft, unconfigured mail refused, send paused without a rule then sent by rule (SMTP replaced by a recorder); moderation hide/approve, community reply draft, feedback themes; partner shortlist scoring, active agreement gated; deal pipeline and win rate; prospect brief and sales summary from CRM data; activation friction from tickets, onboarding copy and knowledge-base versions; marketing, community and support agents through their tools; owner-scoped business and support APIs.
-RESULT: Pending owner test run.
+RESULT: 532 passed.
 BLOCKERS: None.
 NEXT TASK: REPAIR-12E-4B (revenue tools, payment/review/analytics checks, remaining infrastructure tools, asset tools) then REPAIR-12E-4C (voice).
+
+TASK ID: REPAIR-12E-4B-REVENUE-INFRA-ASSETS
+TASK NAME: Revenue operations, payment/review/analytics checks, remaining infrastructure tools, licence-checked asset tools
+STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- None of the 8 design revenue tools, the payment/review/analytics monitoring checks, 5 of the 18 infrastructure tools (nginx and compose generation, cloud config validation, cost estimate, budget-bounded scaling; the SSL/DNS checks existed under other names) or the 7 asset tools existed. The finance, growth and business agents only wrote advisory text; the creation agent could not fetch an asset. web_search was mapped to fetch_url and check_licence to an allowlist lookup. The assets API listed every user's assets without authentication.
+FILES CREATED:
+- apps/backend/app/core/business/revenue.py (Stripe read-only adapter with disabled state; recorded revenue events deduplicated by Stripe event id; revenue, subscriptions/MRR/churn, failed payments, conversion funnel from KPIs, Plausible analytics or traffic KPIs, payment events; the revenue loop records KPIs, findings and next actions and posts to the operations feed; Stripe webhook signature verification)
+- apps/backend/app/core/business/reviews.py (public App Store review feed; reviews stored once as community items; ratings, sentiment, low-rated themes)
+- apps/backend/app/core/infra/__init__.py, apps/backend/app/core/infra/configs.py (nginx and compose generation, compose/Dockerfile/nginx validation, monthly cost estimate against the budget, scaling decision against the budget and replica ceiling)
+- apps/backend/app/core/assets/library.py (licence table and provider inference; https-only, SSRF-guarded, size-capped, type-allowlisted downloads into the workspace; no executables, archives or scripted SVGs; Asset and AssetLicence records with hash, source, author and attribution; ASSETS.json and ASSET-LICENCES.md)
+- apps/backend/app/tools/revenue/__init__.py (10 tools), apps/backend/app/tools/infra_config/__init__.py (7 tools), apps/backend/app/tools/assets_library/__init__.py (6 tools incl. web_search)
+- apps/backend/app/api/revenue.py (owner-scoped metrics, events, loop; signed Stripe webhook)
+- apps/backend/tests/test_repair12e4b_revenue_infra_assets.py
+FILES MODIFIED:
+- apps/backend/app/core/business/drafting.py (create_offer_draft and create_pricing_review grounded in revenue numbers)
+- apps/backend/app/tools/business/__init__.py (revenue drafting group)
+- apps/backend/app/core/deploy/__init__.py (replica count and scale on the deployment server)
+- apps/backend/app/core/internet/__init__.py (web search with result parsing; tool list updated)
+- apps/backend/app/core/config.py, apps/backend/.env.example, .env.production.example (INFRA_*, STRIPE_*, PLAUSIBLE_*, APP_STORE_COUNTRY)
+- apps/backend/app/core/tools/registry.py (registration), apps/backend/app/core/agents/toolbox.py (web_search and check_licence are real tools now)
+- apps/backend/app/core/agents/specialists/business_mode.py, finance.py, growth.py, business.py, creation.py (revenue and asset tools: tool loop with a provider, matching tool without), ops_mode.py (monitoring and infrastructure tools), tool_mode.py (devops infrastructure tools), research.py (web_search)
+- apps/backend/app/api/assets.py (authenticated, owner-scoped; workspace library, licence check, download, source record, manifest)
+- apps/backend/app/main.py, apps/backend/tests/test_repair12e4a_business.py (count excludes the revenue drafts)
+COMMANDS RUN:
+- python -m py_compile on changed files: passed; nginx/compose/validation/scaling-decision and search-parser unit checks: passed
+TESTS RUN:
+- Owner run 1 (2026-10-29): 543 passed, 2 failed. (1) A licence written the usual way ("CC BY-NC 4.0") was not recognised, so a non-commercial asset was refused as "unknown licence" instead of "non-commercial"; licence names are now normalised (spaces, underscores, hyphens, case). (2) An invalid App Store id was only rejected inside the feed fetch; check_reviews now rejects it before any request. Fix 1 re-run pending.
+- Written: 23 tools registered with categories and authority; agents declare them within authority; recorded revenue metrics, subscriptions/MRR, failed payments, payment events, conversion funnel, the revenue loop's KPIs and findings, experiment baseline, offer and pricing drafts with real numbers; Stripe signature verification (valid, forged, tampered, stale); revenue API and signed webhook recorded once per event, owner scoping; App Store reviews stored once with ratings and themes; analytics fallback; generated nginx and compose validate clean, unsafe configs flagged without echoing secrets; cost estimate from fixed costs and budget; scaling within budget runs, beyond the replica limit or budget pauses for approval, approved scaling runs and is recorded; asset downloads refused for internal hosts, http, unknown and non-commercial licences, executables, folder escape, wrong content type and scripted SVG; Pixabay, CC BY and Google Fonts assets saved with hash and attribution; manifest and credits file; assets API owner scoping; finance, growth and creation agents through their tools.
+RESULT: Pending owner test run.
+BLOCKERS: None. Live Stripe, Plausible and App Store data need Richard's keys/app id; everything runs on recorded data until then.
+NEXT TASK: REPAIR-12E-4C (voice tools).

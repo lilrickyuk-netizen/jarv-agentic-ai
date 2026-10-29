@@ -75,13 +75,20 @@ class FinanceAgent(AgentBase):
 
     @property
     def default_tools(self) -> list[str]:
-        return ['analyze_metrics', 'memory_retrieve', 'file_write']
+        from app.core.agents.specialists.business_mode import tools_for
+
+        return list(dict.fromkeys(tools_for("finance") + ['analyze_metrics', 'memory_retrieve', 'file_write']))
 
     async def run(
         self,
         input_data: Dict[str, Any],
         context: AgentContext,
     ) -> AgentResult:
+        from app.core.agents.specialists import business_mode
+
+        live = await business_mode.run(self, input_data, context)
+        if live is not None:
+            return live
         try:
             operation = input_data.get("operation", "reporting")
             time_period = input_data.get("time_period", "")

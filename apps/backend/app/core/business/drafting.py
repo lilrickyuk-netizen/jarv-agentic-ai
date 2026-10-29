@@ -150,6 +150,14 @@ KINDS: Dict[str, DraftKind] = {k.tool: k for k in [
     _k("create_prospect_brief", "sales", "prospect brief", [("prospect", "Prospect"), ("pitch", "Fit"),
                                                             ("features", "Relevant capabilities"), ("cta", "Next step")]),
     _k("create_sales_summary", "sales", "sales summary", [("pipeline", "Pipeline"), ("kpis", "Metrics")]),
+    # revenue (the revenue section is computed from Stripe or recorded revenue at draft time)
+    _k("create_offer_draft", "revenue", "offer", [
+        ("topic", "Offer"), ("audience", "Who it is for"), ("revenue", "Current numbers"), ("features", "What is included"),
+        ("confirm:price, discount and end date", "Terms"), ("cta", "Call to action")]),
+    _k("create_pricing_review", "revenue", "pricing review", [
+        ("revenue", "Revenue and subscriptions"), ("kpis", "Metrics"), ("pipeline", "Deals and partners"),
+        ("topic", "Question under review"), ("confirm:competitor prices with sources", "Market comparison"),
+        ("confirm:the decision and its expected effect", "Recommendation")]),
 ]}
 
 
@@ -157,8 +165,9 @@ def _confirm(what: str) -> str:
     return f"[confirm: {what}]"
 
 
-async def _extra(db: AsyncSession, workspace_id: UUID, inputs: Dict[str, Any]) -> Dict[str, Any]:
-    """Records a draft is about: partner, CRM contact/deal, pipelines."""
+async def _extra(db: AsyncSession, workspace_id: UUID, inputs: Dict[str, Any],
+                 kind: Optional[DraftKind] = None) -> Dict[str, Any]:
+    """Records a draft is about: partner, CRM contact/deal, pipelines, revenue."""
     from app.models.business import PartnershipRecord
     from app.models.company_crm import CRMContact, CRMDeal
 
@@ -185,6 +194,14 @@ async def _extra(db: AsyncSession, workspace_id: UUID, inputs: Dict[str, Any]) -
     partners = (await db.execute(select(PartnershipRecord).where(PartnershipRecord.workspace_id == workspace_id))
                 ).scalars().all()
     deals = (await db.execute(select(CRMDeal).where(CRMDeal.workspace_id == workspace_id))).scalars().all()
+    if kind is not None and kind.group == "revenue":
+        from app.core.business.revenue import revenue_service
+
+        try:
+            out["revenue"] = {"revenue": await revenue_service.revenue(db, workspace_id, 30),
+                              "subscriptions": await revenue_service.subscriptions(db, workspace_id, 30)}
+        except RuntimeError as exc:
+            out["revenue"] = {"error": str(exc)}
     out["pipeline"] = {
         "partners": [{"name": p.partner_name, "status": p.status, "value": float(p.estimated_value or 0)} for p in partners],
         "deals": [{"title": d.title, "stage": d.stage, "value": d.value or 0} for d in deals]}
@@ -284,6 +301,17 @@ def _section(key: str, facts: Facts, inputs: Dict[str, Any], extra: Dict[str, An
         if prospect:
             return ", ".join(f"{k}: {v}" for k, v in prospect.items() if v not in (None, ""))
         return inputs.get("prospect") or _confirm("prospect details")
+    if key == "revenue":
+        data = extra.get("revenue") or {}
+        if data.get("error") or not data:
+            return _confirm(f"revenue numbers ({data.get('error') or 'not available'})")
+        rev, subs = data["revenue"], data["subscriptions"]
+        if rev["source"] == "recorded" and not rev.get("has_data") and not subs.get("has_data"):
+            return _confirm("revenue numbers (none recorded yet; connect Stripe or record sales)")
+        return (f"- Last {rev['period_days']} days ({rev['source']}): gross {rev['gross']:.2f}, refunds "
+                f"{rev['refunds']:.2f}, net {rev['net']:.2f} {rev.get('currency', 'USD')} from {rev['payments']} payment(s)\n"
+                f"- MRR {subs['mrr']:.2f}, {subs['active']} active subscription(s), {subs['new']} new, "
+                f"{subs['cancelled']} cancelled" + (f", churn {subs['churn_rate']:.1%}" if subs.get("churn_rate") is not None else ""))
     if key == "pipeline":
         pipe = extra.get("pipeline") or {}
         lines = [f"- Partner {p['name']}: {p['status']} ({p['value']:g})" for p in pipe.get("partners", [])]
@@ -354,7 +382,7 @@ async def draft(db: AsyncSession, workspace_id: UUID, tool: str, inputs: Dict[st
     if kind is None:
         raise ValueError(f"Unknown draft kind '{tool}'")
     facts = await gather(db, workspace_id)
-    extra = await _extra(db, workspace_id, inputs)
+    extra = await _extra(db, workspace_id, inputs, kind)
     reply = await _model_text(kind, facts, inputs, extra, model)
     if reply and reply.get("text", "").strip():
         body, generated_by = reply["text"].strip(), f"model:{reply.get('provider_used')}"

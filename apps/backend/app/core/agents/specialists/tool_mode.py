@@ -109,7 +109,8 @@ MODES: Dict[str, ToolMode] = {
         tools=READ + ["file_write", "edit_file", "command_run", "run_build", "run_tests", "install_package",
                       "check_installed", "detect_commands", "detect_stack", "git_create_branch",
                       "git_push_with_boundary"] + GIT_READ + ["analyze_dependencies"] + RECALL + REMEMBER
-        + DEPLOY,
+        + DEPLOY + ["validate_cloud_config", "generate_nginx_config", "generate_docker_compose",
+                    "estimate_infrastructure_cost", "scale_service_with_budget_boundary"],
         instructions=(
             "Prepare and run the operation inside the workspace: inspect Dockerfiles, compose files, CI "
             "configuration and scripts; run builds and tests; prepare deployment configuration. To release: "
