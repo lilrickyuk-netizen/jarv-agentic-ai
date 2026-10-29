@@ -221,7 +221,10 @@ class CommandService:
         task = (await db.execute(select(Task).where(Task.id == UUID(submitted.task_id)))).scalar_one()
         lifecycle.transition(task, lifecycle.RUNNING, reason="run in-process", actor=self.operator)
         await db.commit()
-        return await self.run_task(db, task)
+        from app.core.observability.context import mission_context
+
+        with mission_context(task.id):
+            return await self.run_task(db, task)
 
     async def submit(
         self,

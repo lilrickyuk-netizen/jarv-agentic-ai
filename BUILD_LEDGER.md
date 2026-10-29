@@ -16,7 +16,7 @@
 ## LOCKED REPAIR ORDER (2026-10-20)
 - Repair 10 is IN_PROGRESS. The focused tests recorded below verify subsets only; they do not prove all 31 agents are executable, all declared tools are real, or the complete orchestrator/swarm acceptance flow.
 - Repair 11: COMPLETE (2026-10-23, commit f5e92cb). Persistent, workspace-isolated semantic memory and the verified-learning lifecycle; migration verified up/down/up on PostgreSQL+pgvector; full suite 433 passed. See REPAIR-11-MEMORY-LEARNING.
-- Repair 12: IN_PROGRESS. 12a (mission runtime, recovery, automatic resume) delivered 2026-10-23, awaiting owner test run; 12b observability and 12c-12e agent tool wiring follow. See REPAIR-12A-MISSION-RUNTIME.
+- Repair 12: IN_PROGRESS. 12a (mission runtime, recovery, automatic resume) COMPLETE 2026-10-23 (444 passed, migration up/down/up verified, dashboard type-check clean). 12b observability delivered 2026-10-23, awaiting owner test run (REPAIR-12B-OBSERVABILITY); 12c-12e agent tool wiring follow. See REPAIR-12A-MISSION-RUNTIME.
 - Repair 13: COMPLETE for non-paid knowledge installation, retrieval, authenticated administration, and attributed public-source research. All 31 registered agents passed individual retrieval/task verification. Live paid-LLM generation is DEFERRED to Repair 15 and is not reported as passed.
 - Repair 14: IN_PROGRESS after the user approved the cinematic UI and Voicebox integration direction. Implementation and runtime checks are recorded below; hands-on voice acceptance remains open.
 - Repair 15: production hardening and hands-on end-to-end acceptance.
@@ -12118,7 +12118,7 @@ NEXT TASK: Repair 12 - runtime, recovery, observability, and real tool wiring fo
 
 TASK ID: REPAIR-12A-MISSION-RUNTIME
 TASK NAME: Mission runtime, crash recovery, and automatic resume after approval
-STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+STATUS: COMPLETE
 AUDIT FINDINGS THAT DROVE THIS TASK:
 - Every command mission ran inside the HTTP request (POST /command/execute awaited the whole pipeline). Celery workers only ran a test task and a heartbeat loop. A restart mid-mission left the task "running" forever with nothing to resume it.
 - The task state machine existed but only an API helper used it; statuses were assigned directly everywhere, and the enum ("complete") disagreed with the pipeline and dashboard ("completed").
@@ -12153,9 +12153,48 @@ FILES MODIFIED:
 COMMANDS RUN:
 - python -m py_compile on every changed backend file: passed
 - Intent routing of every command used in the tests checked against the real _detect_intent: as intended
-- pytest and dashboard type-check: not runnable in the authoring environment; to be run on the owner's machine
+- pytest and dashboard type-check: not runnable in the authoring environment; run on the owner's machine
+- 2026-10-23 owner run 1, fresh pgvector/pgvector:pg16: migration upgrade -> downgrade r11_memory_learning -> upgrade succeeded; 440 passed, 4 failed (naive/aware datetime subtraction after a worker claim reloads started_at from SQLite; /command/info signature change broke a direct-call test)
+- Fix: timezone-normalised duration; /command/info authenticated at route level with its original response
+- 2026-10-23 owner run 2: 444 passed, 0 failed; dashboard tsc --noEmit clean
 TESTS RUN:
-- None yet. Written: lifecycle, submit/block, exclusive claim, end-to-end run with lease release, recovery (re-queue, repeated-loss failure, legacy abandonment, live mission untouched), recovered mission re-runs, cancellation not claimable and not overwritten, automatic continuation with cap, command API (auth, run, status, history, cancel, owner scoping), approval re-queue with grant and owner scoping, Richard approval auto-resume with idempotent second resume.
+- All passed in owner run 2. Written: lifecycle, submit/block, exclusive claim, end-to-end run with lease release, recovery (re-queue, repeated-loss failure, legacy abandonment, live mission untouched), recovered mission re-runs, cancellation not claimable and not overwritten, automatic continuation with cap, command API (auth, run, status, history, cancel, owner scoping), approval re-queue with grant and owner scoping, Richard approval auto-resume with idempotent second resume.
+RESULT: Mission runtime, recovery, automatic resume, and owner scoping verified.
+BLOCKERS: None for 12a. Note: a recovered mission re-runs its pipeline from the start; its tools are idempotent (full-content writes, classified read/build/test commands, memory de-duplication), and step-limited agent missions continue from their saved step. In celery mode a mission waits in the queue if no worker is running; set MISSION_EXECUTION_MODE=background for a single-process setup.
+NEXT TASK: Repair 12b - observability (REPAIR-12B-OBSERVABILITY).
+
+
+TASK ID: REPAIR-12B-OBSERVABILITY
+TASK NAME: Metrics, monitoring stack, alert intake, and trace context
+STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- Prometheus scraped /metrics on the backend, which did not exist, and /metrics/celery on the worker, which runs no HTTP server. The Grafana dashboard and every alert rule therefore had no data.
+- Prometheus, Grafana, Alertmanager, and the postgres/redis/node exporters the configuration targets were not defined in any compose file. Alertmanager had no receiver.
+- Alert rules referenced metrics nothing exported (celery_task_duration_seconds, pg_stat_statements, quantile-labelled http durations).
+- Request ids were generated after the logging middleware ran, so request log lines never carried them; worker logs had no way to identify the mission.
+- The monitoring README described Loki/Promtail, which were never part of the system.
+FILES CREATED:
+- apps/backend/app/core/observability/__init__.py
+- apps/backend/app/core/observability/context.py (request/mission trace context, log filter, safe incoming request ids)
+- apps/backend/app/core/observability/metrics.py (Prometheus text exposition without new dependencies; HTTP metrics by route template; process metrics; mission, approval, agent, tool, memory, lesson, queue, and worker metrics read from the database and broker, cached 10s)
+- apps/backend/app/api/metrics.py (GET /metrics, optional METRICS_TOKEN)
+- apps/backend/app/api/observability.py (Alertmanager webhook -> incidents + Live Operations Feed; de-duplicated by fingerprint; resolve on clear; ALERT_WEBHOOK_TOKEN or private-network only)
+- docker-compose.monitoring.yml (Prometheus, Alertmanager, Grafana, postgres/redis/node exporters; localhost-only ports; Grafana password required)
+- infra/monitoring/alertmanager.yml, infra/monitoring/grafana/provisioning/{datasources,dashboards}/*.yml, infra/monitoring/secrets/{README.md,.gitignore}
+- apps/backend/tests/test_repair12b_observability.py
+FILES MODIFIED:
+- apps/backend/app/main.py (single tracing + metrics + logging middleware; metrics and alert routers)
+- apps/backend/app/core/logging.py (trace filter on every record; ids in JSON and development formats)
+- apps/backend/app/core/runtime/missions.py, apps/backend/app/core/command/service.py (mission id in log context while a mission runs)
+- apps/backend/app/core/config.py (METRICS_TOKEN, ALERT_WEBHOOK_TOKEN)
+- infra/monitoring/prometheus.yml, infra/monitoring/alerting-rules.yml, infra/monitoring/grafana-dashboard.json (rewritten against exported metrics), infra/monitoring/README.md
+- .env.example, .env.production.example, apps/backend/.env.example
+COMMANDS RUN:
+- python -m py_compile on every changed backend file: passed
+- YAML parse of every monitoring and compose file: passed
+- pytest: not runnable in the authoring environment; to be run on the owner's machine
+TESTS RUN:
+- None yet. Written: exposition validity, route-template labels, database-backed mission/approval/stale/queue gauges, metrics token, alert open/de-duplicate/resolve with incidents and feed, webhook auth, log trace context, request-id acceptance.
 RESULT: Pending owner test run.
-BLOCKERS: A recovered mission re-runs its pipeline from the start; its tools are idempotent (full-content writes, classified read/build/test commands, memory de-duplication), and step-limited agent missions continue from their saved step. In celery mode a mission waits in the queue if no worker is running; set MISSION_EXECUTION_MODE=background for a single-process setup.
-NEXT TASK: Owner runs the Repair 12a verification commands; then 12b observability.
+BLOCKERS: The monitoring stack pulls public images on first start; it is verified by starting it (see the Repair 12b instructions). Worker and mission metrics are read from shared state, so they are correct regardless of which process did the work; per-worker process metrics (CPU/memory of each worker) are not exported.
+NEXT TASK: Owner runs the Repair 12b verification commands; then 12c agent tool wiring.

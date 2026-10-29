@@ -1,128 +1,998 @@
 {
-  "dashboard": {
-    "title": "JARV System Metrics",
-    "tags": ["jarv", "production"],
-    "timezone": "browser",
-    "panels": [
-      {
-        "id": 1,
-        "title": "API Request Rate",
-        "type": "graph",
-        "targets": [
-          {
-            "expr": "rate(http_requests_total[5m])",
-            "legendFormat": "{{method}} {{path}}"
-          }
-        ]
+  "uid": "jarv-overview",
+  "title": "JARV Overview",
+  "tags": [
+    "jarv"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Missions",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
       },
-      {
-        "id": 2,
-        "title": "Response Time (p95)",
-        "type": "graph",
-        "targets": [
-          {
-            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
-            "legendFormat": "95th percentile"
-          }
-        ]
-      },
-      {
-        "id": 3,
-        "title": "Error Rate",
-        "type": "graph",
-        "targets": [
-          {
-            "expr": "rate(http_requests_total{status=~\"5..\"}[5m])",
-            "legendFormat": "5xx errors"
-          },
-          {
-            "expr": "rate(http_requests_total{status=~\"4..\"}[5m])",
-            "legendFormat": "4xx errors"
-          }
-        ]
-      },
-      {
-        "id": 4,
-        "title": "Database Connections",
-        "type": "graph",
-        "targets": [
-          {
-            "expr": "pg_stat_database_numbackends",
-            "legendFormat": "Active connections"
-          }
-        ]
-      },
-      {
-        "id": 5,
-        "title": "CPU Usage",
-        "type": "graph",
-        "targets": [
-          {
-            "expr": "rate(process_cpu_seconds_total[5m]) * 100",
-            "legendFormat": "{{job}}"
-          }
-        ]
-      },
-      {
-        "id": 6,
-        "title": "Memory Usage",
-        "type": "graph",
-        "targets": [
-          {
-            "expr": "process_resident_memory_bytes / 1024 / 1024",
-            "legendFormat": "{{job}} (MB)"
-          }
-        ]
-      },
-      {
-        "id": 7,
-        "title": "Celery Queue Length",
-        "type": "graph",
-        "targets": [
-          {
-            "expr": "celery_queue_length",
-            "legendFormat": "{{queue}}"
-          }
-        ]
-      },
-      {
-        "id": 8,
-        "title": "Celery Task Duration",
-        "type": "graph",
-        "targets": [
-          {
-            "expr": "rate(celery_task_duration_seconds_sum[5m]) / rate(celery_task_duration_seconds_count[5m])",
-            "legendFormat": "{{task}}"
-          }
-        ]
-      },
-      {
-        "id": 9,
-        "title": "Redis Operations",
-        "type": "graph",
-        "targets": [
-          {
-            "expr": "rate(redis_commands_processed_total[5m])",
-            "legendFormat": "Commands/sec"
-          }
-        ]
-      },
-      {
-        "id": 10,
-        "title": "Disk Usage",
-        "type": "gauge",
-        "targets": [
-          {
-            "expr": "(node_filesystem_size_bytes - node_filesystem_avail_bytes) / node_filesystem_size_bytes * 100",
-            "legendFormat": "Disk usage %"
-          }
-        ]
-      }
-    ],
-    "time": {
-      "from": "now-6h",
-      "to": "now"
+      "panels": []
     },
-    "refresh": "30s"
+    {
+      "id": 2,
+      "title": "Workers up",
+      "type": "stat",
+      "description": "Celery workers answering a ping.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jarv_workers_up",
+          "legendFormat": "workers",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Running",
+      "type": "stat",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jarv_missions{status=\"running\"}",
+          "legendFormat": "running",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 4,
+      "title": "Queued",
+      "type": "stat",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jarv_missions{status=\"queued\"}",
+          "legendFormat": "queued",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 5,
+      "title": "Stuck (stale heartbeat)",
+      "type": "stat",
+      "description": "Should return to 0 within 2 minutes via recovery.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jarv_missions_stale",
+          "legendFormat": "stale",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 6,
+      "title": "Waiting for your approval",
+      "type": "stat",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jarv_approvals_waiting",
+          "legendFormat": "waiting",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 7,
+      "title": "Oldest queued mission",
+      "type": "stat",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jarv_mission_queue_oldest_seconds",
+          "legendFormat": "age",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 8,
+      "title": "Missions by status",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jarv_missions",
+          "legendFormat": "{{status}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 9,
+      "title": "Outcomes (last 24h)",
+      "type": "bargauge",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 6,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jarv_mission_outcomes_24h",
+          "legendFormat": "{{status}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 10,
+      "title": "Recoveries (total)",
+      "type": "stat",
+      "description": "Times a mission was re-queued after its worker was lost.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 5,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jarv_mission_recoveries",
+          "legendFormat": "recoveries",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 11,
+      "title": "Tokens used (24h)",
+      "type": "stat",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 9,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jarv_tokens_used_24h",
+          "legendFormat": "tokens",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 12,
+      "title": "Mission duration (24h)",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jarv_mission_duration_seconds{quantile=\"0.5\"}",
+          "legendFormat": "p50",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "jarv_mission_duration_seconds{quantile=\"0.95\"}",
+          "legendFormat": "p95",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 13,
+      "title": "Learned lessons",
+      "type": "bargauge",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 13,
+        "w": 6,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jarv_lessons",
+          "legendFormat": "{{status}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 14,
+      "title": "Memory by category",
+      "type": "bargauge",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 13,
+        "w": 6,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jarv_memories",
+          "legendFormat": "{{category}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 15,
+      "type": "row",
+      "title": "Agents and tools",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 16,
+      "title": "Agent runs (24h)",
+      "type": "bargauge",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (agent) (jarv_agent_runs_24h)",
+          "legendFormat": "{{agent}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 17,
+      "title": "Agent failures (24h)",
+      "type": "bargauge",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 22,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jarv_agent_runs_24h{result=\"failure\"}",
+          "legendFormat": "{{agent}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 18,
+      "title": "Tool calls (24h)",
+      "type": "bargauge",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (tool) (jarv_tool_calls_24h)",
+          "legendFormat": "{{tool}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 19,
+      "title": "Tool failures (24h)",
+      "type": "bargauge",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 32,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jarv_tool_calls_24h{result=\"failure\"}",
+          "legendFormat": "{{tool}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "API",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 21,
+      "title": "Requests per second by route",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 43,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (route) (rate(http_requests_total{job=\"jarv-backend\"}[5m]))",
+          "legendFormat": "{{route}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 22,
+      "title": "p95 latency",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 43,
+        "w": 6,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"jarv-backend\"}[5m])))",
+          "legendFormat": "p95",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 23,
+      "title": "Server error rate",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 43,
+        "w": 6,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(http_requests_total{job=\"jarv-backend\",status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_requests_total{job=\"jarv-backend\"}[5m])), 0.001)",
+          "legendFormat": "5xx",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 24,
+      "type": "row",
+      "title": "Infrastructure",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 51,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 25,
+      "title": "Backend memory",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 52,
+        "w": 6,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "process_resident_memory_bytes{job=\"jarv-backend\"}",
+          "legendFormat": "rss",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 26,
+      "title": "Backend CPU",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 52,
+        "w": 6,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(process_cpu_seconds_total{job=\"jarv-backend\"}[5m])",
+          "legendFormat": "cpu",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 27,
+      "title": "Worker queue length",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 52,
+        "w": 6,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "celery_queue_length",
+          "legendFormat": "{{queue}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 28,
+      "title": "PostgreSQL connections",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 52,
+        "w": 6,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(pg_stat_database_numbackends)",
+          "legendFormat": "connections",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 29,
+      "title": "Redis commands/s",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 60,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(redis_commands_processed_total[5m])",
+          "legendFormat": "commands",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "id": 30,
+      "title": "Disk used",
+      "type": "timeseries",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "jarv-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 60,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(node_filesystem_size_bytes{fstype!~\"tmpfs|overlay\"} - node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay\"}) / node_filesystem_size_bytes{fstype!~\"tmpfs|overlay\"}",
+          "legendFormat": "{{mountpoint}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "jarv-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {}
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
   }
 }

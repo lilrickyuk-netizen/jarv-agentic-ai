@@ -159,6 +159,12 @@ class MissionRunner:
     async def run(self, task_id: UUID | str) -> Dict[str, Any]:
         """Claim and execute one mission. Returns a summary of what happened."""
         task_id = UUID(str(task_id))
+        from app.core.observability.context import mission_context
+
+        with mission_context(task_id):
+            return await self._run(task_id)
+
+    async def _run(self, task_id: UUID) -> Dict[str, Any]:
         async with self.session_factory() as db:
             task = await self.claim(db, task_id)
             if task is None:

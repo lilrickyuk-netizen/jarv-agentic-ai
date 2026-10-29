@@ -1,0 +1,19 @@
+# Alertmanager configuration (Repair 12b): every alert is delivered into JARV,
+# which opens or resolves an incident and posts it to the Live Operations Feed.
+# If ALERT_WEBHOOK_TOKEN is set on the backend, uncomment `authorization` and
+# put the same token in infra/monitoring/secrets/alert_webhook_token.
+route:
+  receiver: jarv
+  group_by: ['alertname']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: jarv
+    webhook_configs:
+      - url: 'http://backend:8000/api/observability/alerts'
+        send_resolved: true
+        # http_config:
+        #   authorization:
+        #     credentials_file: /etc/alertmanager/secrets/alert_webhook_token
