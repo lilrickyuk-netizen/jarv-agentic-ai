@@ -1061,6 +1061,27 @@ def _register_implemented_tools(registry: ToolRegistry) -> None:
     except ImportError as e:
         logger.warning(f"Business tools not available for registration: {e}")
 
+    # Revenue, infrastructure-config and asset tools (Repair 12e-4b): revenue from Stripe
+    # (read-only) or recorded events, reviews and analytics checks, generated nginx/compose
+    # configs, cost estimates, budget-bounded scaling, licence-checked asset downloads.
+    try:
+        from app.tools.assets_library import ASSET_TOOLS
+        from app.tools.infra_config import INFRA_CONFIG_TOOLS
+        from app.tools.revenue import REVENUE_TOOLS
+
+        for tool in REVENUE_TOOLS:
+            registry.register(tool, category="revenue")
+        for tool in INFRA_CONFIG_TOOLS:
+            registry.register(tool, category="infrastructure")
+        for tool in ASSET_TOOLS:
+            registry.register(tool, category=getattr(tool, "_category", "assets"))
+
+        logger.info(f"Registered {len(REVENUE_TOOLS) + len(INFRA_CONFIG_TOOLS) + len(ASSET_TOOLS)} "
+                    "revenue, infrastructure and asset tools (real, Repair 12e-4b)")
+
+    except ImportError as e:
+        logger.warning(f"Revenue, infrastructure and asset tools not available for registration: {e}")
+
     # Boundary tools (Repair 7): real detection + BoundaryReport persistence.
     try:
         from app.tools.boundary import (

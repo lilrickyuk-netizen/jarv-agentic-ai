@@ -86,6 +86,49 @@ async def fetch_url(url: str) -> Dict[str, Any]:
         return {"ok": False, "url": url, "reason": str(exc)}
 
 
+def parse_duckduckgo(html: str, limit: int = 10) -> List[Dict[str, str]]:
+    """Results from DuckDuckGo's HTML endpoint: title, url (redirects unwrapped) and snippet."""
+    import html as html_lib
+    import re
+
+    results: List[Dict[str, str]] = []
+    blocks = re.split(r'<div[^>]+class="[^"]*\bresult\b[^"]*"', html)[1:]
+    for block in blocks:
+        link = re.search(r'<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>(.*?)</a>', block, re.S)
+        if not link:
+            continue
+        href = html_lib.unescape(link.group(1))
+        if "uddg=" in href:
+            href = urllib.parse.unquote(urllib.parse.parse_qs(urllib.parse.urlparse(href).query).get("uddg", [href])[0])
+        if href.startswith("//"):
+            href = "https:" + href
+        if "duckduckgo.com/y.js" in href or not href.startswith("http"):
+            continue
+        snippet = re.search(r'class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</(?:a|div)>', block, re.S)
+        results.append({"title": html_lib.unescape(_strip_html(link.group(2)))[:200], "url": href,
+                        "snippet": html_lib.unescape(_strip_html(snippet.group(1)))[:400] if snippet else ""})
+        if len(results) >= limit:
+            break
+    return results
+
+
+async def web_search(query: str, limit: int = 10) -> Dict[str, Any]:
+    """Public web search (DuckDuckGo HTML results; no account needed). Read-only."""
+    query = (query or "").strip()
+    if not query:
+        return {"ok": False, "reason": "empty query"}
+    try:
+        async with httpx.AsyncClient(timeout=FETCH_TIMEOUT, follow_redirects=True) as c:
+            r = await c.post("https://html.duckduckgo.com/html/", data={"q": query},
+                             headers={"User-Agent": "Mozilla/5.0 (JARV-Research/1.0)"})
+        if r.status_code >= 400:
+            return {"ok": False, "query": query, "reason": f"search returned {r.status_code}"}
+        results = parse_duckduckgo(r.text, limit)
+        return {"ok": True, "query": query, "source": "duckduckgo", "results": results}
+    except httpx.HTTPError as exc:
+        return {"ok": False, "query": query, "reason": f"{type(exc).__name__}: {exc}"}
+
+
 def _extract_title(html: str) -> str:
     import re
     m = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
@@ -168,16 +211,17 @@ def internet_tools() -> List[Dict[str, Any]]:
     auto = "allowed_auto"
     appr = "requires_approval"
     return [
-        {"name": "web_search", "status": "disabled_no_creds",
-         "note": "Set a search API key to enable; fetch_url works for known URLs."},
+        {"name": "web_search", "status": auto, "note": "Public web search (titles, links, snippets)."},
         {"name": "fetch_url", "status": auto, "note": "GET public pages (SSRF-guarded, read-only)."},
         {"name": "fetch_docs_page", "status": auto},
         {"name": "fetch_api_docs", "status": auto},
         {"name": "check_package_registry", "status": auto, "note": "npm/PyPI metadata."},
         {"name": "check_cve_database", "status": auto, "note": "OSV vulnerability query."},
         {"name": "check_external_status_page", "status": auto},
-        {"name": "download_asset_with_licence_check", "status": appr,
-         "note": "Dry-run auto; real download needs approved workspace + licence record."},
+        {"name": "download_asset", "status": auto,
+         "note": "Licence checked first; unknown or non-commercial licences and executables are refused."},
+        {"name": "check_licence", "status": auto},
+        {"name": "save_source_record", "status": auto},
         {"name": "save_web_source_record", "status": auto},
         {"name": "summarise_web_source", "status": auto},
         {"name": "create_research_record", "status": auto},

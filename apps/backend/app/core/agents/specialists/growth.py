@@ -72,13 +72,20 @@ class GrowthAgent(AgentBase):
 
     @property
     def default_tools(self) -> list[str]:
-        return ['http_get', 'http_post', 'memory_retrieve', 'analyze_metrics']
+        from app.core.agents.specialists.business_mode import tools_for
+
+        return list(dict.fromkeys(tools_for("growth") + ['http_get', 'http_post', 'memory_retrieve', 'analyze_metrics']))
 
     async def run(
         self,
         input_data: Dict[str, Any],
         context: AgentContext,
     ) -> AgentResult:
+        from app.core.agents.specialists import business_mode
+
+        live = await business_mode.run(self, input_data, context)
+        if live is not None:
+            return live
         try:
             metric = input_data.get("growth_metric", "acquisition")
             current = input_data.get("current_value", 0.0)

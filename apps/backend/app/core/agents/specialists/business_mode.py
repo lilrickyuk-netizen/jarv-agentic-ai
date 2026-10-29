@@ -25,6 +25,14 @@ COMMON = ["decide_next_best_actions", "summarise_feedback", "create_decision_log
 
 
 def _group(name: str) -> List[str]:
+    if name == "revenue_ops":
+        from app.tools.revenue import REVENUE_TOOLS
+
+        return [t._name for t in REVENUE_TOOLS]
+    if name == "assets":
+        from app.tools.assets_library import ASSET_TOOLS
+
+        return [t._name for t in ASSET_TOOLS]
     from app.tools.business import TOOLS_BY_GROUP
 
     return list(TOOLS_BY_GROUP.get(name, []))
@@ -116,6 +124,61 @@ def _sales(d):
     return tool, {"deal_id": contact.get("deal_id"), "prospect": ", ".join(f"{k}: {v}" for k, v in contact.items())}
 
 
+_NUMBERS = ("Work from measured numbers only: every revenue, subscription, conversion and payment figure comes from "
+            "a tool result, which names its source (Stripe or recorded revenue). Record KPIs with "
+            "update_revenue_operations_loop. Nothing here moves money, changes prices or charges a customer; "
+            "pricing and offers are drafted for Richard, and spending beyond the approved budget is a hard boundary.")
+
+
+def _days(d) -> int:
+    raw = str(d.get("time_period") or d.get("timeframe") or "30").lower().rstrip("d").strip()
+    return max(1, min(365, int(raw))) if raw.isdigit() else 30
+
+
+def _finance(d):
+    op = str(d.get("operation") or "reporting").lower()
+    tool = {"revenue": "check_revenue_metrics", "subscriptions": "check_subscription_metrics",
+            "failed_payments": "check_failed_payments", "payments": "check_payment_events",
+            "conversion": "check_conversion_metrics"}.get(op)
+    if op == "pricing":
+        return "create_pricing_review", {"topic": d.get("category") or "current pricing"}
+    if tool == "check_payment_events":
+        return tool, {}
+    return tool or "update_revenue_operations_loop", {"days": _days(d)}
+
+
+def _growth(d):
+    metric = str(d.get("growth_metric") or "acquisition").lower()
+    tool = {"revenue": "check_revenue_metrics", "mrr": "check_subscription_metrics",
+            "retention": "check_subscription_metrics", "churn": "check_subscription_metrics",
+            "traffic": "check_analytics"}.get(metric, "check_conversion_metrics")
+    return tool, {"days": _days(d)}
+
+
+def _business(d):
+    kind = str(d.get("report_type") or "metrics").lower()
+    if kind in ("pricing", "offer"):
+        return ("create_pricing_review" if kind == "pricing" else "create_offer_draft"), {
+            "topic": ", ".join(d.get("metrics") or []) or kind}
+    tool = {"revenue": "check_revenue_metrics", "subscriptions": "check_subscription_metrics",
+            "conversion": "check_conversion_metrics"}.get(kind, "update_revenue_operations_loop")
+    return tool, {"days": _days(d)}
+
+
+def _creation(d):
+    spec = d.get("specifications") or {}
+    url = spec.get("url") or spec.get("source_url")
+    if url:
+        return "download_asset", {"url": url, "licence": spec.get("licence") or spec.get("license"),
+                                  "author": spec.get("author"), "source_page": spec.get("source_page"),
+                                  "folder": spec.get("folder") or "assets", "filename": spec.get("filename"),
+                                  "commercial": spec.get("commercial", True)}
+    if spec.get("licence") or spec.get("license"):
+        return "check_licence", {"licence": spec.get("licence") or spec.get("license"),
+                                 "commercial": spec.get("commercial", True)}
+    return None, {}
+
+
 MODES: Dict[str, BusinessMode] = {
     "marketing": BusinessMode(("marketing",), ("create_kpi_dashboard",),
                               "Plan and draft marketing from the product's real features and changes. " + _GROUND,
@@ -151,6 +214,33 @@ MODES: Dict[str, BusinessMode] = {
                           lambda d: _lines([("Operation", d.get("operation")), ("Contact", d.get("contact_info")),
                                             ("Deal value", d.get("deal_value")), ("Stage", d.get("stage"))]),
                           _sales),
+    "finance": BusinessMode(("revenue_ops", "revenue"), ("create_kpi_dashboard",),
+                            "Run revenue operations: measure revenue, MRR, churn, failed payments and conversion, "
+                            "record them, and set the next actions. " + _NUMBERS,
+                            lambda d: _lines([("Operation", d.get("operation")), ("Period", d.get("time_period")),
+                                              ("Category", d.get("category"))]),
+                            _finance),
+    "growth": BusinessMode(("revenue_ops", "revenue"), ("create_kpi_dashboard",),
+                           "Find the growth constraint in the funnel and plan experiments against it: measure with "
+                           "check_conversion_metrics and check_analytics, then create_revenue_experiment with a "
+                           "baseline. " + _NUMBERS,
+                           lambda d: _lines([("Metric", d.get("growth_metric")), ("Current", d.get("current_value")),
+                                             ("Target", d.get("target_value")), ("Timeframe", d.get("timeframe"))]),
+                           _growth),
+    "business": BusinessMode(("revenue_ops", "revenue"), ("create_kpi_dashboard",),
+                             "Report on the business from measured numbers and draft pricing reviews and offers "
+                             "grounded in them. " + _NUMBERS,
+                             lambda d: _lines([("Report", d.get("report_type")), ("Period", d.get("time_period")),
+                                               ("Metrics", ", ".join(d.get("metrics") or []))]),
+                             _business),
+    "creation": BusinessMode(("assets",), (),
+                             "Source assets legally: find candidates with web_search, confirm the licence with "
+                             "check_licence, then download_asset with the licence, author and source page. Never "
+                             "use an asset whose licence is unknown or forbids the use. Finish with "
+                             "generate_asset_manifest and update_asset_licence_file.",
+                             lambda d: _lines([("Asset type", d.get("asset_type")), ("Style", d.get("style")),
+                                               ("Specifications", d.get("specifications"))]),
+                             _creation),
 }
 
 
@@ -184,6 +274,8 @@ async def run(agent: Any, input_data: Dict[str, Any], context: Any):
         agent.logger.warning(f"{agent.name}: business tools unavailable: {exc}")
         return None
     tool, args = mode.direct(input_data)
+    if tool is None:
+        return None
     result = await toolbox.call(tool, {k: v for k, v in args.items() if v not in (None, "", [], {})})
     data = result.get("data") or {}
     if agent.name == "community" and tool == "read_community_messages" and result.get("success"):

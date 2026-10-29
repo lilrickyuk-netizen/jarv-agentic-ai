@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
 import os
 import re
@@ -414,6 +415,43 @@ class Deployer:
                 f"-f {shlex.quote(compose_file)} ps --format json", timeout=60)
             services = out.strip() if code == 0 else f"unavailable: {err.strip()[:300]}"
         return {**state, "services": services}
+
+    async def replicas(self, app: str, environment: str, service: str,
+                       compose_file: str = "docker-compose.yml") -> int:
+        """Running containers of one service in the current release (0 when none are reported)."""
+        if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$", service or ""):
+            raise DeployError("Invalid service name.")
+        state = await self.releases(app, environment)
+        if not state["current"]:
+            raise DeployError(f"{app} has no current {environment} release.")
+        d = self.app_dir(app, environment)
+        code, out, _err = await self.shell.run(
+            f"cd {shlex.quote(d + '/current')} && {self.compose} -p {shlex.quote(f'{app}-{environment}')} "
+            f"-f {shlex.quote(compose_file)} ps --format json {shlex.quote(service)}", timeout=60)
+        if code != 0:
+            return 0
+        text = out.strip()
+        if text.startswith("["):
+            try:
+                return len(json.loads(text))
+            except ValueError:
+                return 0
+        return sum(1 for line in text.splitlines() if line.strip().startswith("{"))
+
+    async def scale(self, app: str, environment: str, service: str, replicas: int,
+                    compose_file: str = "docker-compose.yml") -> Dict[str, Any]:
+        """Run ``replicas`` containers of one service in the current release."""
+        if not 0 <= int(replicas) <= 50:
+            raise DeployError("Replicas must be between 0 and 50.")
+        before = await self.replicas(app, environment, service, compose_file)
+        d = self.app_dir(app, environment)
+        log: List[str] = []
+        await self._sh(
+            f"cd {shlex.quote(d + '/current')} && {self.compose} -p {shlex.quote(f'{app}-{environment}')} "
+            f"-f {shlex.quote(compose_file)} up -d --no-recreate --scale {shlex.quote(f'{service}={int(replicas)}')} "
+            f"{shlex.quote(service)}", log, timeout=900)
+        return {"app": app, "environment": environment, "service": service, "previous_replicas": before,
+                "replicas": int(replicas), "log": log}
 
     async def logs(self, app: str, environment: str, lines: int = 200,
                    compose_file: str = "docker-compose.yml") -> str:

@@ -68,7 +68,7 @@ class ResearchAgent(AgentBase):
 
     @property
     def default_tools(self) -> List[str]:
-        return ['http_get', 'http_post', 'file_read', 'memory_search']
+        return ['web_search', 'http_get', 'http_post', 'file_read', 'memory_search']
 
     # ----- provider detection -------------------------------------------------
 

@@ -196,6 +196,21 @@ class Settings(BaseSettings):
     # Company operating layer: the daily operating loop runs on this interval for
     # every active workspace with company mode enabled.
     COMPANY_LOOP_INTERVAL_HOURS: float = 24.0
+    # Infrastructure money: fixed monthly costs as JSON ({"vps": 24, "domain": 1.2}), the
+    # approved monthly budget, the monthly cost of one extra replica, and the replica ceiling.
+    # Scaling beyond the budget or ceiling pauses for Richard.
+    INFRA_FIXED_COSTS: str = ""
+    INFRA_MONTHLY_BUDGET: float = 0.0
+    INFRA_REPLICA_MONTHLY_COST: float = 0.0
+    INFRA_MAX_REPLICAS: int = 5
+    # Revenue and analytics adapters (read-only). Unset = disabled; JARV uses recorded data.
+    STRIPE_SECRET_KEY: Optional[str] = None
+    # Signing secret of the Stripe webhook endpoint (/api/revenue/{workspace}/stripe-webhook).
+    STRIPE_WEBHOOK_SECRET: Optional[str] = None
+    PLAUSIBLE_API_KEY: Optional[str] = None
+    PLAUSIBLE_SITE_ID: Optional[str] = None
+    PLAUSIBLE_URL: str = "https://plausible.io"
+    APP_STORE_COUNTRY: str = "us"
 
     # Deployments to Richard's VPS over SSH (Repair 12e-2). The private key is
     # the base64 of a dedicated deploy key; the known-hosts line pins the
