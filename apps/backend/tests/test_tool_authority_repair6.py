@@ -253,5 +253,8 @@ def test_missing_design_tools_not_faked():
     # These design-named tools have no real implementation in this repo and must
     # not be silently registered with fake behaviour.
     for name in ("spawn_sub_agent", "transcribe_voice", "detect_hard_boundary",
-                 "create_boundary_report", "deploy_production_with_boundary"):
+                 "create_boundary_report"):
         assert not registry.is_implemented(name), f"{name} must not be a fake registered tool"
+    # Implemented for real in Repair 12e-2 (tests/test_repair12e_deploy.py); it must stay approval-gated.
+    assert registry.is_implemented("deploy_production_with_boundary")
+    assert create_tool("deploy_production_with_boundary", _cfg()).requires_approval is True

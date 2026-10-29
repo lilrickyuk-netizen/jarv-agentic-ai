@@ -21,6 +21,8 @@ READ = ["file_list", "file_read", "file_search"]
 GIT_READ = ["git_status", "git_diff", "git_log"]
 RECALL = ["memory_search"]
 REMEMBER = ["memory_store"]  # authority 6; experience is also captured automatically after every run
+DEPLOY = ["check_deploy_target", "deploy_staging", "deploy_production_with_boundary", "deployment_status",
+          "deployment_logs", "rollback"]
 
 
 def _lines(pairs: List[tuple]) -> str:
@@ -99,13 +101,16 @@ MODES: Dict[str, ToolMode] = {
         max_steps=16,
     ),
     "devops": ToolMode(
-        tools=READ + ["file_write", "command_run"] + GIT_READ + ["analyze_dependencies"] + RECALL + REMEMBER,
+        tools=READ + ["file_write", "command_run"] + GIT_READ + ["analyze_dependencies"] + RECALL + REMEMBER
+        + DEPLOY,
         instructions=(
             "Prepare and run the operation inside the workspace: inspect Dockerfiles, compose files, CI "
-            "configuration and scripts; run builds and tests; prepare deployment configuration. Deploys, "
-            "pushes, releases and anything that spends money pause for Richard's approval automatically: "
-            "prepare everything up to that point, attempt the step once so the approval request is created, "
-            "and continue with whatever does not depend on it."),
+            "configuration and scripts; run builds and tests; prepare deployment configuration. To release: "
+            "check_deploy_target, then deploy_staging and confirm it with deployment_status and the health "
+            "result, then deploy_production_with_boundary, which pauses for Richard's approval; attempt it "
+            "once so the approval request is created and continue with whatever does not depend on it. "
+            "Only committed code deploys. If a release misbehaves, use rollback with the reason. Pushes and "
+            "anything that spends money also pause for approval."),
         brief=lambda d: _lines([("Operation", d.get("operation")), ("Environment", d.get("environment")),
                                 ("Configuration", d.get("config"))]),
         max_steps=20,

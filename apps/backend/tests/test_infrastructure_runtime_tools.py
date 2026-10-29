@@ -15,7 +15,6 @@ from app.models.workspace import Workspace
 from app.tools.infrastructure.monitoring import ResourceMetricsTool
 from app.tools.infrastructure.resources import ResourceHealthCheckTool, ResourceProvisionTool
 from app.tools.infrastructure.cost import CostEstimateTool
-from app.tools.infrastructure.deployment import ServiceDeployTool, DeploymentRollbackTool
 from tests.conftest import AsyncTestingSessionLocal
 
 
@@ -137,26 +136,6 @@ def test_cloud_provision_fails_without_provider_adapter_and_creates_no_resource(
     assert result.success is False
     assert "provider adapter" in result.error_message.lower()
     assert resources == []
-
-
-@pytest.mark.unit
-def test_deployment_mutations_fail_without_adapters():
-    """Cloud deploy/rollback have no live adapter; they must fail honestly.
-    (Backups are real since Repair 12d and are covered in test_repair12d_ops_tools.)"""
-    context = ToolContext(workspace_id=uuid4(), user_id=uuid4(), agent_id=uuid4())
-    deploy = asyncio.run(ServiceDeployTool(ToolConfig(
-        authority_level=AuthorityLevel.LEVEL_7_DEPLOYMENT)).run({
-            "deployment_name": "release", "deployment_type": "application",
-            "environment": "staging", "version": "1.0.0",
-        }, context))
-    rollback = asyncio.run(DeploymentRollbackTool(ToolConfig(
-        authority_level=AuthorityLevel.LEVEL_7_DEPLOYMENT)).run({
-            "deployment_id": str(uuid4()), "reason": "recovery test",
-        }, context))
-
-    for result in (deploy, rollback):
-        assert result.success is False
-        assert "adapter" in result.error_message.lower()
 
 
 @pytest.mark.unit

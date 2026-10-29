@@ -12281,7 +12281,7 @@ NEXT TASK: Owner rebuilds the backend images and runs the Repair 12d verificatio
 
 TASK ID: REPAIR-12E-1-PROVIDER-FAILOVER
 TASK NAME: Model routing that never fails a mission for a provider name
-STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+STATUS: COMPLETE (2026-10-29: 491 passed, committed b3d2c53; live router plan sends claude-sonnet-4-6 to gpt-6-luna on OpenAI)
 AUDIT FINDINGS THAT DROVE THIS TASK:
 - Mission ab6c4882 (2026-10-22) failed with "Provider ModelProvider.CLAUDE not configured. Available providers: ollama": agents default to claude-sonnet-4-6 and the router chose a provider only from the model name, with no fallback.
 - Ollama was registered as available whenever OLLAMA_BASE_URL had its default value, with no server behind it.
@@ -12296,7 +12296,36 @@ FILES MODIFIED:
 COMMANDS RUN:
 - python -m py_compile on changed files: passed
 TESTS RUN:
-- None yet. Written: Claude model served by OpenAI when only OpenAI is configured; no-credit Claude fails over and rests; tier mapping (fast/top); malformed requests do not fail over; all-failed error lists each provider's reason; no-provider message names the keys; Ollama only when enabled.
-RESULT: Pending owner test run.
+- 7 tests: Claude model served by OpenAI when only OpenAI is configured; no-credit Claude fails over and rests; tier mapping (fast/top); malformed requests do not fail over; all-failed error lists each provider's reason; no-provider message names the keys; Ollama only when enabled.
+RESULT: Full suite 491 passed on the owner's machine.
 BLOCKERS: None.
 NEXT TASK: REPAIR-12E-2 (deploy tools: deploy_staging, deploy_production_with_boundary, release rollback).
+
+TASK ID: REPAIR-12E-2-DEPLOY
+TASK NAME: Deployment tools: staging, approval-gated production, health-checked rollback (VPS over SSH)
+STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+OWNER DECISION (2026-10-29): deploy target is Richard's own VPS over SSH with Docker Compose; staging and production on the server.
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- service_deploy / deployment_rollback were unregistered and failed by design; nothing could release a workspace project or roll one back, and the rollback agent could only report.
+FILES CREATED:
+- apps/backend/app/core/deploy/__init__.py (git-archive packaging of committed code only; SSH with a pinned host key, BatchMode, key written 0600 to a temporary directory for one command; release layout releases/<id> + shared/.env link + atomic current switch; compose up per environment project; health check from JARV or from the server for loopback URLs; automatic restore of the previous release and removal of the failed one (stopping it when there is nothing to restore); pruning to the newest 5; rollback to the previous or a named release; status and redacted logs; every remote argument shell-quoted; app and environment names validated)
+- apps/backend/app/tools/deploy/__init__.py (check_deploy_target, deploy_staging, deploy_production_with_boundary (approval), rollback, deployment_status, deployment_logs; each deploy and rollback stored as a DeploymentRecord)
+- apps/backend/tests/test_repair12e_deploy.py
+- docs/DEPLOYMENT.md (server setup, deploy key, host key pinning, per-app secrets on the server)
+FILES MODIFIED:
+- apps/backend/app/core/tools/registry.py (deployment tools registered)
+- apps/backend/app/tools/infrastructure/deployment.py (historical names point at the real tools)
+- apps/backend/app/core/config.py (DEPLOY_SSH_HOST/USER/PORT/PRIVATE_KEY/KNOWN_HOSTS, DEPLOY_BASE_DIR, DEPLOY_COMPOSE_COMMAND)
+- apps/backend/app/core/agents/specialists/tool_mode.py (DevOps agent: deploy tools and the staging-then-approved-production procedure)
+- apps/backend/app/core/agents/specialists/ops_mode.py (rollback agent rolls back recorded deployments for real, health-checked; reports state and backups otherwise)
+- apps/backend/Dockerfile (openssh-client and git in build/test and runtime images; DEBIAN_FRONTEND=noninteractive)
+- docker-compose.prod.yml (DEPLOY_* passed to backend and worker)
+- .env.example, .env.production.example, apps/backend/.env.example (deployment settings, blank)
+- apps/backend/tests/test_infrastructure_runtime_tools.py (superseded "deploy fails without adapter" assertion removed)
+COMMANDS RUN:
+- python -m py_compile on changed files: passed
+TESTS RUN:
+- None yet. Written: registration and approval gate; full lifecycle on a real git repository (two deploys, failed build restored, failed health check restored, rollback, status, compose invocations, DeploymentRecords); uncommitted changes and unsafe names refused; production pauses for approval then ships; pruning keeps the newest releases; unconfigured server reported with missing settings; SSH host-key pinning, BatchMode, 0600 key removed after use.
+RESULT: First owner run 2026-10-29: 495 passed, 2 failed, both test expectations: the lifecycle test counted the `compose ps` call made by deployment_status as an `up`; the Repair 6 guard listed deploy_production_with_boundary as a tool that must not exist, written when it had no implementation (now asserted real and approval-gated). Re-run pending.
+BLOCKERS: Live deploys need Richard's VPS and deploy key (docs/DEPLOYMENT.md); everything else runs without them.
+NEXT TASK: REPAIR-12E-3 (company and business agents on real tools and the remaining spec tool groups).

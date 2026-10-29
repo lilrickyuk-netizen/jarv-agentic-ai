@@ -68,13 +68,15 @@ MODES: Dict[str, OpsMode] = {
     ),
     "rollback": OpsMode(
         tools=["check_container_status", "check_service_logs", "check_health", "create_backup"]
-        + BACKUP_READ + ["restore_backup_with_boundary"] + READ + GIT_READ + RECALL,
+        + BACKUP_READ + ["restore_backup_with_boundary", "deployment_status", "deployment_logs", "rollback"]
+        + READ + GIT_READ + RECALL,
         instructions=(
-            "Establish what changed and what state to return to: git_log/git_diff in the workspace, service "
-            "state and logs, and the backups available (list_backups, verify_backup). Take a fresh "
-            "create_backup before any restore. Restoring data uses restore_backup_with_boundary, which restores "
-            "into a new database and pauses for Richard's approval; request it once and report. Never claim a "
-            "rollback that a tool result does not show."),
+            "Establish what changed and what state to return to: deployment_status and deployment_logs for the "
+            "environment, git_log/git_diff in the workspace, and the backups available (list_backups, "
+            "verify_backup). Roll a deployed app back with rollback (previous release by default, health-checked, "
+            "with the reason). Take a fresh create_backup before any data restore; restoring data uses "
+            "restore_backup_with_boundary, which restores into a new database and pauses for Richard's approval. "
+            "Never claim a rollback that a tool result does not show."),
         brief=lambda d: _lines([("Deployment", d.get("deployment_id")), ("Reason", d.get("reason")),
                                 ("Target version", d.get("target_version"))]),
     ),
@@ -280,27 +282,66 @@ async def _heal(toolbox, input_data: Dict[str, Any]):
     return data, text, resolved or not allowed, False
 
 
+async def _deployment_record(toolbox, deployment_id: str):
+    from uuid import UUID
+
+    from sqlalchemy import select
+
+    from app.models.operations import DeploymentRecord
+
+    try:
+        key = UUID(str(deployment_id))
+    except ValueError:
+        return None
+    return (await toolbox.context.db_session.execute(select(DeploymentRecord).where(
+        DeploymentRecord.id == key, DeploymentRecord.workspace_id == toolbox.context.workspace_id))
+    ).scalar_one_or_none()
+
+
 async def _rollback(toolbox, input_data: Dict[str, Any]):
+    """Roll a recorded deployment back to the release before it (or the named
+    target version), health-checked; otherwise report state and restorable backups."""
+    deployment_id = str(input_data.get("deployment_id") or "")
+    reason = str(input_data.get("reason") or "requested rollback")
+    target = str(input_data.get("target_version") or "previous")
+    record = await _deployment_record(toolbox, deployment_id)
+    environment = record.environment if record is not None else (
+        deployment_id if deployment_id in ("staging", "production") else None)
+    data: Dict[str, Any] = {"deployment_id": deployment_id, "reason": reason, "target_version": target,
+                            "blocked": True, "rollback_performed": False, "requirements": [], "limitations": []}
+    if environment is not None:
+        args: Dict[str, Any] = {"environment": environment, "reason": reason if len(reason) >= 5 else f"rollback: {reason}"}
+        if target != "previous":
+            args["to_release"] = target
+        elif record is not None and (record.meta_data or {}).get("previous_release") and record.status == "succeeded":
+            args["to_release"] = record.meta_data["previous_release"]
+        if record is not None and (record.meta_data or {}).get("app"):
+            args["app"] = record.meta_data["app"]
+        result = await _call(toolbox, "rollback", args)
+        outcome = result.get("data") or {}
+        data.update({"blocked": not result.get("success"), "rollback_performed": bool(result.get("success")),
+                     "rolled_back_to": outcome.get("release"), "from_release": outcome.get("previous"),
+                     "health": outcome.get("health"), "rollback_deployment_id": outcome.get("deployment_id")})
+        if result.get("success"):
+            return data, f"Rolled {environment} back to {outcome.get('release')} (health-checked).", True, False
+        data["limitations"].append(str(result.get("error") or result.get("reason")))
     containers = await _call(toolbox, "check_container_status")
     backups = _data(await _call(toolbox, "list_backups")).get("backups", [])
     git_log = await _call(toolbox, "git_log", {"count": 10}) if "git_log" in toolbox.available else {}
-    requirements = [
-        "Rolling back a deployment needs a recorded deployment to return to; JARV's deploy tools record "
-        "them. Code changes in the workspace are reverted by the coding agent on a new commit.",
+    data["requirements"] = [
+        "A deployment rollback needs the deployment id (or 'staging'/'production') of a release JARV made "
+        "with its deploy tools.",
         "Data is rolled back by restoring a verified backup into a new database "
         "(restore_backup_with_boundary), which pauses for Richard's approval.",
     ]
-    data = {
-        "deployment_id": input_data.get("deployment_id", ""), "reason": input_data.get("reason", ""),
-        "target_version": input_data.get("target_version", "previous"), "blocked": True,
-        "rollback_performed": False, "requirements": requirements,
-        "limitations": [] if containers.get("success") else [str(containers.get("error"))],
-        "services": _data(containers).get("containers", []), "backups_available": backups,
-        "recent_commits": (git_log.get("stdout") or git_log.get("output")) if git_log.get("success") else None,
-    }
-    text = (f"Rollback of {data['deployment_id'] or 'the deployment'} not performed automatically: "
-            f"{len(backups)} backup(s) available for an approved data restore; current service state attached.")
-    return data, text, True, False
+    if not containers.get("success"):
+        data["limitations"].append(str(containers.get("error")))
+    data.update({"services": _data(containers).get("containers", []), "backups_available": backups,
+                 "recent_commits": (git_log.get("stdout") or git_log.get("output")) if git_log.get("success") else None})
+    text = (f"Rollback of {deployment_id or 'the deployment'} not performed"
+            + (f": {data['limitations'][0]}" if environment is not None and data["limitations"] else "")
+            + f". {len(backups)} backup(s) available for an approved data restore.")
+    return data, text, environment is None, False
 
 
 async def _infrastructure(toolbox, input_data: Dict[str, Any]):

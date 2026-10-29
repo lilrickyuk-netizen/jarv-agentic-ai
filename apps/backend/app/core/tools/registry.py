@@ -937,9 +937,9 @@ def _register_implemented_tools(registry: ToolRegistry) -> None:
         logger.warning(f"Analysis tools not available for registration: {e}")
 
     # Infrastructure tools (Repair 6): the real read-only/compute tools.
-    # Provision/scale/terminate/deploy tools are not registered: they have no
-    # real cloud backend wired. Backups, restarts, and monitoring are the
-    # operations tools registered below (Repair 12d).
+    # Provision/scale/terminate tools are not registered: they have no real
+    # cloud backend wired. Backups, restarts, and monitoring are the operations
+    # tools (Repair 12d); deployments are the deployment tools (Repair 12e-2).
     try:
         from app.tools.infrastructure import (
             SSLCheckTool,
@@ -970,6 +970,20 @@ def _register_implemented_tools(registry: ToolRegistry) -> None:
 
     except ImportError as e:
         logger.warning(f"Operations tools not available for registration: {e}")
+
+    # Deployment tools (Repair 12e-2): workspace releases to the VPS over SSH,
+    # health-checked, with automatic restore and recorded rollbacks. A
+    # production release always pauses for approval.
+    try:
+        from app.tools.deploy import DEPLOY_TOOLS
+
+        for tool in DEPLOY_TOOLS:
+            registry.register(tool, category="deployment")
+
+        logger.info(f"Registered {len(DEPLOY_TOOLS)} deployment tools (real, Repair 12e-2)")
+
+    except ImportError as e:
+        logger.warning(f"Deployment tools not available for registration: {e}")
 
     # Boundary tools (Repair 7): real detection + BoundaryReport persistence.
     try:

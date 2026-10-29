@@ -188,7 +188,17 @@ class Settings(BaseSettings):
     PROMETHEUS_URL: str = ""
     BACKUP_DIR: str = "/data/backups"
     BACKUP_INTERVAL_HOURS: float = 24.0
-    BACKUP_RETENTION_DAYS: int = 30
+
+    # Deployments to Richard's VPS over SSH (Repair 12e-2). The private key is
+    # the base64 of a dedicated deploy key; the known-hosts line pins the
+    # server's host key. See docs/DEPLOYMENT.md.
+    DEPLOY_SSH_HOST: str = ""
+    DEPLOY_SSH_USER: str = "deploy"
+    DEPLOY_SSH_PORT: int = 22
+    DEPLOY_SSH_PRIVATE_KEY: str = ""
+    DEPLOY_SSH_KNOWN_HOSTS: str = ""
+    DEPLOY_BASE_DIR: str = "/srv/jarv"
+    DEPLOY_COMPOSE_COMMAND: str = "docker compose"
 
     # Logging and Monitoring
     AUDIT_LOGGING_ENABLED: bool = True

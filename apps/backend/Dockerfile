@@ -1,12 +1,16 @@
 # Multi-stage build for optimized production image
 FROM python:3.11-slim AS builder
 
+ENV DEBIAN_FRONTEND=noninteractive
+
 WORKDIR /app
 
 # Install system dependencies for building
 RUN apt-get update && apt-get install -y \
     gcc \
     curl \
+    git \
+    openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 # PostgreSQL 17 client tools from the PostgreSQL project's apt repository.
@@ -52,6 +56,8 @@ CMD ["python", "-m", "pytest"]
 # Production stage
 FROM python:3.11-slim
 
+ENV DEBIAN_FRONTEND=noninteractive
+
 WORKDIR /app
 
 # Install runtime dependencies + the toolchain JARV's autonomous agent loop
@@ -60,6 +66,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     curl \
     git \
+    openssh-client \
     nodejs \
     npm \
     && rm -rf /var/lib/apt/lists/* \

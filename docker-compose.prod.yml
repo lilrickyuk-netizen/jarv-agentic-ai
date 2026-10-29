@@ -109,6 +109,12 @@ services:
       SENTRY_DSN: ${SENTRY_DSN:-}
       DOCKER_OPS_URL: http://docker-proxy:2375
       BACKUP_DIR: /data/backups
+      DEPLOY_SSH_HOST: ${DEPLOY_SSH_HOST:-}
+      DEPLOY_SSH_USER: ${DEPLOY_SSH_USER:-deploy}
+      DEPLOY_SSH_PORT: ${DEPLOY_SSH_PORT:-22}
+      DEPLOY_SSH_PRIVATE_KEY: ${DEPLOY_SSH_PRIVATE_KEY:-}
+      DEPLOY_SSH_KNOWN_HOSTS: ${DEPLOY_SSH_KNOWN_HOSTS:-}
+      DEPLOY_BASE_DIR: ${DEPLOY_BASE_DIR:-/srv/jarv}
     depends_on:
       postgres:
         condition: service_healthy
@@ -195,6 +201,12 @@ services:
       JARV_PROCESS_ROLE: worker
       DOCKER_OPS_URL: http://docker-proxy:2375
       BACKUP_DIR: /data/backups
+      DEPLOY_SSH_HOST: ${DEPLOY_SSH_HOST:-}
+      DEPLOY_SSH_USER: ${DEPLOY_SSH_USER:-deploy}
+      DEPLOY_SSH_PORT: ${DEPLOY_SSH_PORT:-22}
+      DEPLOY_SSH_PRIVATE_KEY: ${DEPLOY_SSH_PRIVATE_KEY:-}
+      DEPLOY_SSH_KNOWN_HOSTS: ${DEPLOY_SSH_KNOWN_HOSTS:-}
+      DEPLOY_BASE_DIR: ${DEPLOY_BASE_DIR:-/srv/jarv}
       JARV_API_URL: http://backend:8000
     depends_on:
       postgres:
