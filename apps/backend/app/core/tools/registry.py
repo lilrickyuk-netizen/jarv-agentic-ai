@@ -985,6 +985,24 @@ def _register_implemented_tools(registry: ToolRegistry) -> None:
     except ImportError as e:
         logger.warning(f"Deployment tools not available for registration: {e}")
 
+    # Workspace tools under the design's names (Repair 12e-3a): the same
+    # folder-confined implementations agents use through their toolbox. A name
+    # that an existing registry tool already uses keeps that tool.
+    try:
+        from app.tools.workspace_runtime import WORKSPACE_RUNTIME_TOOLS
+
+        added = 0
+        for tool in WORKSPACE_RUNTIME_TOOLS:
+            existing = registry.get_metadata(tool(ToolConfig()).name)
+            if existing is None or not existing.is_implemented:
+                registry.register(tool, category="workspace_runtime")
+                added += 1
+
+        logger.info(f"Registered {added} workspace tools under design names (Repair 12e-3a)")
+
+    except ImportError as e:
+        logger.warning(f"Workspace runtime tools not available for registration: {e}")
+
     # Boundary tools (Repair 7): real detection + BoundaryReport persistence.
     try:
         from app.tools.boundary import (

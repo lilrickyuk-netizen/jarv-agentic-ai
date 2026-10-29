@@ -39,12 +39,14 @@ class ToolMode:
 
 MODES: Dict[str, ToolMode] = {
     "coding_agent": ToolMode(
-        tools=READ + ["file_write", "command_run"] + GIT_READ
+        tools=READ + ["file_write", "edit_file", "create_folder", "move_file", "copy_file",
+                      "delete_file_with_boundary", "command_run", "run_build", "run_tests", "check_installed",
+                      "detect_commands", "detect_stack", "git_create_branch"] + GIT_READ
         + ["analyze_code", "analyze_complexity", "analyze_dependencies"] + RECALL,
         instructions=(
             "Implement the change in the workspace. Read the relevant code first and follow the project's "
-            "existing conventions. Write complete files. After writing, verify: compile or type-check what "
-            "you changed and run the project's tests or build if they exist. Fix what fails. Check memory_search "
+            "existing conventions. Use edit_file for targeted changes and write_file for new files. After "
+            "writing, verify with run_build and run_tests (they use the project's own commands). Fix what fails. Check memory_search "
             "for earlier decisions about this code. Your finish outputs list every file you wrote."),
         brief=lambda d: _lines([("Task", d.get("task")), ("Language", d.get("language")),
                                 ("Requirements", d.get("requirements")),
@@ -53,7 +55,8 @@ MODES: Dict[str, ToolMode] = {
         max_steps=24,
     ),
     "debugging_agent": ToolMode(
-        tools=READ + ["file_write", "command_run"] + GIT_READ + ["analyze_code"] + RECALL,
+        tools=READ + ["file_write", "edit_file", "command_run", "run_tests", "run_build", "get_command_log",
+                      "detect_commands"] + GIT_READ + ["analyze_code"] + RECALL,
         instructions=(
             "Find the root cause before changing anything: reproduce the failure with run_command when "
             "possible, read the code on the failing path, and check recent changes with git_diff/git_log. "
@@ -66,8 +69,8 @@ MODES: Dict[str, ToolMode] = {
         max_steps=24,
     ),
     "verifier": ToolMode(
-        tools=READ + ["command_run"] + GIT_READ + ["analyze_code", "analyze_coverage", "analyze_security"]
-        + RECALL,
+        tools=READ + ["command_run", "run_tests", "run_build", "detect_commands"] + GIT_READ
+        + ["analyze_code", "analyze_coverage", "analyze_security"] + RECALL,
         instructions=(
             "Verify independently; do not trust claims. Inspect the code, run the relevant tests and builds, "
             "and check each stated requirement against evidence from a tool result. You must not modify "
@@ -79,7 +82,8 @@ MODES: Dict[str, ToolMode] = {
         max_steps=16,
     ),
     "qa": ToolMode(
-        tools=READ + ["command_run"] + GIT_READ + ["analyze_code", "analyze_coverage"] + RECALL,
+        tools=READ + ["command_run", "run_tests", "run_build", "detect_commands", "find_missing_files"] + GIT_READ
+        + ["analyze_code", "analyze_coverage"] + RECALL,
         instructions=(
             "Plan the checks for this QA type, then run them: compile/type-check, the test suite, the build, "
             "and targeted checks of edge cases you can exercise with commands. Do not modify source files. "
@@ -90,7 +94,8 @@ MODES: Dict[str, ToolMode] = {
         max_steps=16,
     ),
     "documentation": ToolMode(
-        tools=READ + ["file_write"] + GIT_READ + ["analyze_code", "analyze_architecture"] + RECALL,
+        tools=READ + ["file_write", "edit_file", "find_missing_files", "detect_stack", "detect_commands"]
+        + GIT_READ + ["analyze_code", "analyze_architecture"] + RECALL,
         instructions=(
             "Read the code and existing docs before writing. Document what the code actually does: commands, "
             "configuration, endpoints and examples must come from the source you read, not from assumption. "
@@ -101,7 +106,9 @@ MODES: Dict[str, ToolMode] = {
         max_steps=16,
     ),
     "devops": ToolMode(
-        tools=READ + ["file_write", "command_run"] + GIT_READ + ["analyze_dependencies"] + RECALL + REMEMBER
+        tools=READ + ["file_write", "edit_file", "command_run", "run_build", "run_tests", "install_package",
+                      "check_installed", "detect_commands", "detect_stack", "git_create_branch",
+                      "git_push_with_boundary"] + GIT_READ + ["analyze_dependencies"] + RECALL + REMEMBER
         + DEPLOY,
         instructions=(
             "Prepare and run the operation inside the workspace: inspect Dockerfiles, compose files, CI "

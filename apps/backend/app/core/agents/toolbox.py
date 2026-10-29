@@ -60,14 +60,16 @@ _RESULT_CHARS = 8000
 # never exposed directly (they are not workspace-confined); their names map to
 # the confined workspace equivalents.
 ALIASES: Dict[str, str] = {
-    "file_read": "read_file", "file_write": "write_file", "edit_file": "write_file",
+    "file_read": "read_file", "file_write": "write_file", "file_patch": "edit_file",
     "file_list": "list_files", "file_tree": "list_files", "file_search": "search_files",
-    "file_grep": "search_files", "file_metadata": "list_files", "get_file_metadata": "list_files",
-    "command_run": "run_command", "command_timeout": "run_command", "run_build": "run_command",
-    "run_tests": "run_command", "run_safe_readonly_command": "run_command",
+    "file_grep": "search_files", "file_metadata": "get_file_metadata", "file_move": "move_file",
+    "file_copy": "copy_file", "file_delete": "delete_file_with_boundary",
+    "command_run": "run_command", "command_timeout": "run_command",
+    "run_safe_readonly_command": "run_command",
+    "git_branch": "git_create_branch", "git_push": "git_push_with_boundary",
     "memory_store": "memory_add", "memory_retrieve": "memory_search", "memory": "memory_search",
     "http_get": "fetch_url", "web_search": "fetch_url", "scan_workspace": "scan_workspace",
-    "check_licence": "asset_licence_check", "check_installed": "check_package_registry",
+    "check_licence": "asset_licence_check",
 }
 
 # Registry categories that are reachable only through the confined workspace tools.
@@ -162,8 +164,66 @@ WORKSPACE_TOOLS: Dict[str, ToolSpec] = {
                                             ["query", "source"]), "workspace"),
 }
 
+_P = {"path": _PATH_PROP}
+WORKSPACE_TOOLS.update({
+    "edit_file": ToolSpec("edit_file", "Replace exact text in a workspace file (old_text must occur once unless "
+                          "replace_all). Prefer this to rewriting a whole file.",
+                          _schema({"path": _PATH_PROP, "old_text": {"type": "string"}, "new_text": {"type": "string"},
+                                   "replace_all": {"type": "boolean"}}, ["path", "old_text", "new_text"]), "workspace"),
+    "create_folder": ToolSpec("create_folder", "Create a folder (and parents) in the workspace.",
+                              _schema(_P, ["path"]), "workspace"),
+    "move_file": ToolSpec("move_file", "Move or rename a file or folder inside the workspace.",
+                          _schema({"source": _PATH_PROP, "destination": _PATH_PROP, "overwrite": {"type": "boolean"}},
+                                  ["source", "destination"]), "workspace"),
+    "copy_file": ToolSpec("copy_file", "Copy a file or folder inside the workspace.",
+                          _schema({"source": _PATH_PROP, "destination": _PATH_PROP, "overwrite": {"type": "boolean"}},
+                                  ["source", "destination"]), "workspace"),
+    "delete_file_with_boundary": ToolSpec(
+        "delete_file_with_boundary", "Delete a file or folder in the workspace. Pauses for Richard's approval.",
+        _schema({"path": _PATH_PROP, "reason": {"type": "string"}}, ["path", "reason"]), "workspace"),
+    "get_file_metadata": ToolSpec("get_file_metadata", "Size, type and modification time of a workspace path.",
+                                  _schema(_P, ["path"]), "workspace"),
+    "detect_workspace_type": ToolSpec("detect_workspace_type", "What kind of project this is (web app, backend, "
+                                      "mobile, document pack, ...).", _schema(_P), "workspace"),
+    "detect_stack": ToolSpec("detect_stack", "Languages, frameworks, package managers and Docker files in use.",
+                             _schema(_P), "workspace"),
+    "detect_commands": ToolSpec("detect_commands", "The project's real install/build/test/run commands, from its "
+                                "own files.", _schema(_P), "workspace"),
+    "find_missing_files": ToolSpec("find_missing_files", "Files a project of this kind should have but does not "
+                                   "(README, .gitignore, tests, Dockerfile, .env.example ...).", _schema(_P), "workspace"),
+    "run_build": ToolSpec("run_build", "Build the project with its detected build command (or the given one).",
+                          _schema({"path": _PATH_PROP, "command": {"type": "string"}}), "workspace"),
+    "run_tests": ToolSpec("run_tests", "Run the project's tests with its detected test command (or the given one).",
+                          _schema({"path": _PATH_PROP, "command": {"type": "string"}}), "workspace"),
+    "install_package": ToolSpec("install_package", "Install one package into the project with its own package "
+                                "manager (npm/pnpm/yarn or poetry/pip).",
+                                _schema({"name": {"type": "string"}, "ecosystem": {"type": "string", "enum": ["npm", "pypi"]},
+                                         "dev": {"type": "boolean"}, "path": _PATH_PROP}, ["name"]), "workspace"),
+    "check_installed": ToolSpec("check_installed", "Whether a package is declared in the project's manifests and "
+                                "installed, with versions.", _schema({"name": {"type": "string"}, "path": _PATH_PROP},
+                                                                       ["name"]), "workspace"),
+    "get_command_log": ToolSpec("get_command_log", "Recent commands run in this workspace with exit codes and output tails.",
+                                _schema({"limit": {"type": "integer"}}), "workspace"),
+    "git_create_branch": ToolSpec("git_create_branch", "Create a git branch in the workspace and switch to it.",
+                                  _schema({"name": {"type": "string"}, "path": _PATH_PROP, "switch": {"type": "boolean"}},
+                                          ["name"]), "workspace"),
+    "git_push_with_boundary": ToolSpec("git_push_with_boundary", "Push the current branch to a remote. Pauses for "
+                                       "Richard's approval.",
+                                       _schema({"remote": {"type": "string"}, "branch": {"type": "string"},
+                                                "path": _PATH_PROP}), "workspace"),
+    "memory_link_to_workspace": ToolSpec("memory_link_to_workspace", "Adopt a global memory into this workspace.",
+                                         _schema({"memory_id": {"type": "string"}}, ["memory_id"]), "workspace"),
+    "memory_link_to_task": ToolSpec("memory_link_to_task", "Attach a memory to a task in this workspace.",
+                                    _schema({"memory_id": {"type": "string"}, "task_id": {"type": "string"}},
+                                            ["memory_id"]), "workspace"),
+})
+
 _FILESYSTEM_TOOLS = {"list_files", "read_file", "search_files", "scan_workspace", "write_file",
-                     "run_command", "git_status", "git_diff", "git_log"}
+                     "run_command", "git_status", "git_diff", "git_log", "edit_file", "create_folder",
+                     "move_file", "copy_file", "delete_file_with_boundary", "get_file_metadata",
+                     "detect_workspace_type", "detect_stack", "detect_commands", "find_missing_files",
+                     "run_build", "run_tests", "install_package", "check_installed", "git_create_branch",
+                     "git_push_with_boundary"}
 
 
 def _clip(value: Any, limit: int = _RESULT_CHARS) -> str:
@@ -329,7 +389,11 @@ class AgentToolbox:
     # ----- workspace tools ---------------------------------------------------
 
     async def _workspace_call(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        from app.core.agents import workspace_ops
+
         rt = self.runtime
+        if name in workspace_ops.HANDLERS:
+            return await workspace_ops.HANDLERS[name](self, args)
         if name in _FILESYSTEM_TOOLS:
             key = "cwd" if name == "run_command" else "path"
             host, refusal = self._resolve_host(args.get(key))

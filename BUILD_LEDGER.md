@@ -12303,7 +12303,7 @@ NEXT TASK: REPAIR-12E-2 (deploy tools: deploy_staging, deploy_production_with_bo
 
 TASK ID: REPAIR-12E-2-DEPLOY
 TASK NAME: Deployment tools: staging, approval-gated production, health-checked rollback (VPS over SSH)
-STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+STATUS: COMPLETE (2026-10-29: 497 passed; live deploys wait on Richard's VPS setup per docs/DEPLOYMENT.md)
 OWNER DECISION (2026-10-29): deploy target is Richard's own VPS over SSH with Docker Compose; staging and production on the server.
 AUDIT FINDINGS THAT DROVE THIS TASK:
 - service_deploy / deployment_rollback were unregistered and failed by design; nothing could release a workspace project or roll one back, and the rollback agent could only report.
@@ -12326,6 +12326,29 @@ COMMANDS RUN:
 - python -m py_compile on changed files: passed
 TESTS RUN:
 - None yet. Written: registration and approval gate; full lifecycle on a real git repository (two deploys, failed build restored, failed health check restored, rollback, status, compose invocations, DeploymentRecords); uncommitted changes and unsafe names refused; production pauses for approval then ships; pruning keeps the newest releases; unconfigured server reported with missing settings; SSH host-key pinning, BatchMode, 0600 key removed after use.
-RESULT: First owner run 2026-10-29: 495 passed, 2 failed, both test expectations: the lifecycle test counted the `compose ps` call made by deployment_status as an `up`; the Repair 6 guard listed deploy_production_with_boundary as a tool that must not exist, written when it had no implementation (now asserted real and approval-gated). Re-run pending.
+RESULT: Owner runs 2026-10-29: first 495 passed / 2 failed (both test expectations: the lifecycle test counted deployment_status's `compose ps` as an `up`; the Repair 6 guard listed deploy_production_with_boundary as a tool that must not exist, written before it had an implementation, now asserted real and approval-gated); after fix 497 passed.
 BLOCKERS: Live deploys need Richard's VPS and deploy key (docs/DEPLOYMENT.md); everything else runs without them.
 NEXT TASK: REPAIR-12E-3 (company and business agents on real tools and the remaining spec tool groups).
+
+TASK ID: REPAIR-12E-3A-WORKSPACE-TOOLS
+TASK NAME: The design's file, command, git, memory and project tools, confined and registered under their design names
+STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- Spec inventory (docs/IMPLEMENTATION_CHECKLIST.md tasks 5.3-5.24): 174 of 206 design tool names were not registered. Agents had no edit, move, copy, folder, delete, metadata, build/test/install helpers, branch, push, memory-link or project-detection tools; several design names were silently aliased to different tools (edit_file -> write_file, check_installed -> check_package_registry, run_tests -> run_command).
+FILES CREATED:
+- apps/backend/app/core/agents/workspace_ops.py (edit_file exact-text replace with uniqueness check; create_folder; move_file/copy_file with overwrite guard; delete_file_with_boundary (approval; never the workspace root); get_file_metadata; detect_workspace_type/detect_stack/detect_commands/find_missing_files from the project's own manifests; run_build/run_tests using the detected commands; install_package via the project's package manager; check_installed from manifests and node_modules; get_command_log from CommandRun; git_create_branch; git_push_with_boundary (approval); memory_link_to_workspace/task. Secret files never opened, moved or edited; protected locations refused)
+- apps/backend/app/tools/workspace_runtime/__init__.py (every toolbox workspace tool registered under its design name, running through the confined toolbox; names an existing real registry tool already has keep that tool)
+- apps/backend/tests/test_repair12e3a_workspace_tools.py
+FILES MODIFIED:
+- apps/backend/app/core/agents/toolbox.py (new tool specs, confinement for every path argument, dispatch; misleading aliases removed)
+- apps/backend/app/core/command/tool_runtime.py (permission gate accepts an approval carried by the run, so approved gated actions execute; authority entries for the new tools)
+- apps/backend/app/core/safety/permission_policy.py (policies for the new tools; delete and push statically approval-gated)
+- apps/backend/app/core/tools/registry.py (workspace tools registered; design-name placeholders replaced by the real tools)
+- apps/backend/app/core/agents/specialists/tool_mode.py (coding, debugging, verifier, QA, documentation and DevOps agents get the new tools within their authority)
+COMMANDS RUN:
+- python -m py_compile on changed files: passed
+TESTS RUN:
+- Written: edit (single, ambiguous, missing, secret refused), folder/copy/move, escape refused; delete pauses then runs with approval and never deletes the root; detection on a real Next.js+Python project; run_tests runs the project's pytest; check_installed; command log; branch creation and invalid names; push pauses for approval; every workspace tool registered under its design name; a registry call runs through the confined toolbox.
+RESULT: First owner run 2026-10-29: 502 passed, 1 failed: git_push_with_boundary passed the text "git push ..." to the shell-command classifier, which hard-blocks git push as a shell command, so the push could never be approved. git is called with an argument list (no shell), so the gate is now the tool's own approval policy. Re-run pending.
+BLOCKERS: None.
+NEXT TASK: REPAIR-12E-3A part 2 (workspace lifecycle, company operations, experience, self-evolution persistence, swarm tools).
