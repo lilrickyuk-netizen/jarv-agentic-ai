@@ -33,6 +33,9 @@ class ScopedTool(ToolBase):
     _input: Type[BaseModel] = BaseModel
     _authority = AuthorityLevel.LEVEL_2_FILE_OPERATIONS
     _approval = False
+    # Gated tools receive data["_approved"] (Richard's approval in this context); a PermissionError
+    # from them becomes a paused, approvable result instead of a failure.
+    _gated = False
 
     name = property(lambda self: self._name)
     description = property(lambda self: self._description)
@@ -48,8 +51,15 @@ class ScopedTool(ToolBase):
                                       error_message=f"{self._name} needs a workspace and a database session.")
         try:
             data = self._input(**(input_data or {})).model_dump()
+            if self._gated:
+                data["_approved"] = bool(context.approval_granted or self._name in (context.approved_tools or []))
             result, text = await self.act(context.db_session, context, await workspace_owner(context), data)
-        except (LookupError, PermissionError, ValueError) as exc:
+        except PermissionError as exc:
+            if self._gated:
+                return self.create_result(success=False, error_message=str(exc), result_data={
+                    "blocked": True, "requires_approval": True, "reason": str(exc), "tool": self._name})
+            return self.create_result(success=False, error_message=str(exc))
+        except (LookupError, ValueError, RuntimeError) as exc:
             return self.create_result(success=False, error_message=str(exc))
         return self.create_result(success=True, result_data=result, output_text=text)
 

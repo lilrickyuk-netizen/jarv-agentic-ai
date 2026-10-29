@@ -22,7 +22,7 @@ from app.core.errors import (
     validation_exception_handler,
     general_exception_handler,
 )
-from app.api import health, auth, models, agents, tasks, tools, evolution, swarm, workspaces, company, company_ops, standups, operations_feed, memory, experience, approvals, boundary_reports, checkpoints, assets, agent_knowledge
+from app.api import health, auth, models, agents, tasks, tools, evolution, swarm, workspaces, company, company_ops, business, standups, operations_feed, memory, experience, approvals, boundary_reports, checkpoints, assets, agent_knowledge
 
 # Setup logging first
 setup_logging()
@@ -172,6 +172,7 @@ app.include_router(swarm.router)
 app.include_router(workspaces.router, prefix="/api")
 app.include_router(company.router)
 app.include_router(company_ops.router)
+app.include_router(business.router)
 app.include_router(standups.router)
 app.include_router(operations_feed.router)
 app.include_router(memory.router)

@@ -1077,10 +1077,10 @@ class CommandService:
         ("Integrations (email/webhook dry-run)", "app/core/integrations/__init__.py", "class IntegrationRegistry"),
         ("Department detail endpoints", "app/api/agents.py", "department_detail"),
         ("Per-department dashboard page", "app/api/agents.py", "DEPT_SLUGS"),
+        ("Changelog generator tool", "app/core/business/drafting.py", "create_changelog"),
+        ("Email live SMTP send adapter", "app/core/business/mailer.py", "smtplib"),
         # Forward-looking requirements that may be partial/missing -> drive task
         # creation. Targets are NOT this file (avoid self-referential false hits).
-        ("Changelog generator tool", "app/workers/tasks.py", "create_changelog"),
-        ("Email live SMTP send adapter", "app/core/integrations/__init__.py", "smtplib"),
         ("Cloud auto-deploy automation", "app/workers/tasks.py", "auto_deploy"),
     ]
 

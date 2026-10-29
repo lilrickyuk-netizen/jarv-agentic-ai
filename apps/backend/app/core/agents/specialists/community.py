@@ -65,13 +65,20 @@ class CommunityAgent(AgentBase):
 
     @property
     def default_tools(self) -> list[str]:
-        return ['http_get', 'http_post', 'memory_retrieve', 'slack_send']
+        from app.core.agents.specialists.business_mode import tools_for
+
+        return list(dict.fromkeys(tools_for("community") + ['http_get', 'http_post', 'memory_retrieve', 'slack_send']))
 
     async def run(
         self,
         input_data: Dict[str, Any],
         context: AgentContext,
     ) -> AgentResult:
+        from app.core.agents.specialists import business_mode
+
+        live = await business_mode.run(self, input_data, context)
+        if live is not None:
+            return live
         try:
             action = (input_data.get("action") or "post").strip()
             platform = (input_data.get("platform") or "forum").strip()

@@ -64,13 +64,20 @@ class OnboardingAgent(AgentBase):
 
     @property
     def default_tools(self) -> list[str]:
-        return ['file_write', 'memory_retrieve', 'http_post']
+        from app.core.agents.specialists.business_mode import tools_for
+
+        return list(dict.fromkeys(tools_for("onboarding") + ['file_write', 'memory_retrieve', 'http_post']))
 
     async def run(
         self,
         input_data: Dict[str, Any],
         context: AgentContext,
     ) -> AgentResult:
+        from app.core.agents.specialists import business_mode
+
+        live = await business_mode.run(self, input_data, context)
+        if live is not None:
+            return live
         try:
             user_type = (input_data.get("user_type") or "new_user").strip()
             product = helpers.task_text(input_data, "product", "user_type")

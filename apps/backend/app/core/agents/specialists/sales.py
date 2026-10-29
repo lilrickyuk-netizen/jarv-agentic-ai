@@ -71,13 +71,20 @@ class SalesAgent(AgentBase):
 
     @property
     def default_tools(self) -> list[str]:
-        return ['crm_create_contact', 'crm_update_deal', 'email_send', 'file_write']
+        from app.core.agents.specialists.business_mode import tools_for
+
+        return list(dict.fromkeys(tools_for("sales") + ['crm_create_contact', 'crm_update_deal', 'email_send', 'file_write']))
 
     async def run(
         self,
         input_data: Dict[str, Any],
         context: AgentContext,
     ) -> AgentResult:
+        from app.core.agents.specialists import business_mode
+
+        live = await business_mode.run(self, input_data, context)
+        if live is not None:
+            return live
         try:
             operation = input_data.get("operation", "lead")
             deal_value = input_data.get("deal_value", 0.0)
