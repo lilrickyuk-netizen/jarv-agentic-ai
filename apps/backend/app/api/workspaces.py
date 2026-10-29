@@ -12,6 +12,7 @@ from datetime import datetime
 from uuid import UUID
 import logging
 
+from app.core.auth import CurrentUserId
 from app.core.database import get_db
 from app.models.workspace import Workspace
 from app.models.task import Task
@@ -215,6 +216,17 @@ async def get_workspace_stats(db: Session = Depends(get_db)) -> WorkspaceStats:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get workspace stats: {str(e)}"
         )
+
+
+@router.get("/mine", summary="The signed-in operator's workspaces")
+async def my_workspaces(user_id: CurrentUserId, db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
+    """Active, unarchived workspaces owned by the caller (the dashboard's workspace picker)."""
+    rows = (await db.execute(select(Workspace).where(
+        Workspace.owner_id == UUID(str(user_id)), Workspace.is_archived == False)  # noqa: E712
+        .order_by(Workspace.created_at.asc()))).scalars().all()
+    return [{"id": str(ws.id), "name": ws.name, "slug": ws.slug, "type": ws.workspace_type,
+             "is_active": ws.is_active, "company_mode": ws.company_mode_enabled, "company_name": ws.company_name,
+             "has_folder": bool((ws.config or {}).get("root_path"))} for ws in rows]
 
 
 @router.get(

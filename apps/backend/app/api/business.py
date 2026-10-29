@@ -20,7 +20,7 @@ from app.core.auth import CurrentUserId
 from app.core.business import drafting
 from app.core.business.community import community_service, view as community_view
 from app.core.business.onboarding import analyse_activation_friction
-from app.core.business.pipelines import pipeline_service
+from app.core.business.pipelines import deal_view, partner_view, pipeline_service
 from app.core.database import get_db
 from app.models.business import MarketingCampaign
 from app.models.content import CommunityItem, ContentItem, OnboardingFlow
@@ -150,6 +150,80 @@ async def moderate(workspace_id: UUID, item_id: str, user_id: CurrentUserId,
 async def pipeline(workspace_id: UUID, user_id: CurrentUserId, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     await _owned(db, user_id, workspace_id)
     return await pipeline_service.pipeline(db, workspace_id)
+
+
+class DealInput(BaseModel):
+    deal_id: Optional[str] = None
+    title: Optional[str] = None
+    stage: Optional[str] = None
+    value: Optional[float] = Field(None, ge=0)
+    notes: Optional[str] = None
+    expected_close_date: Optional[str] = None
+    contact_name: Optional[str] = None
+    contact_email: Optional[str] = None
+    company: Optional[str] = None
+
+
+@router.post("/{workspace_id}/deals")
+async def update_deal(workspace_id: UUID, body: DealInput, user_id: CurrentUserId,
+                      db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """Create a deal (no deal_id) or move one through the pipeline."""
+    owner = await _owned(db, user_id, workspace_id)
+    if not body.deal_id and not body.title:
+        raise HTTPException(status_code=400, detail="A new deal needs a title")
+    try:
+        deal = await pipeline_service.update_deal(db, workspace_id, owner, **body.model_dump())
+    except (LookupError, ValueError) as exc:
+        raise _http(exc)
+    await db.commit()
+    return deal_view(deal)
+
+
+class Candidate(BaseModel):
+    name: str = Field(..., min_length=2)
+    type: Optional[str] = None
+    notes: Optional[str] = None
+    url: Optional[str] = None
+
+
+class ShortlistInput(BaseModel):
+    partner_type: str = "technology"
+    candidates: List[Candidate] = Field(..., min_length=1)
+    criteria: Dict[str, float] = Field(default_factory=dict)
+
+
+@router.post("/{workspace_id}/partners/shortlist")
+async def shortlist(workspace_id: UUID, body: ShortlistInput, user_id: CurrentUserId,
+                    db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    owner = await _owned(db, user_id, workspace_id)
+    try:
+        rows = await pipeline_service.shortlist(db, workspace_id, candidates=[c.model_dump() for c in body.candidates],
+                                                criteria=body.criteria, partner_type=body.partner_type, owner=owner)
+    except (LookupError, ValueError) as exc:
+        raise _http(exc)
+    await db.commit()
+    return {"partners": [partner_view(r) for r in rows]}
+
+
+class PartnerUpdate(BaseModel):
+    status: Optional[str] = None
+    notes: Optional[str] = None
+    estimated_value: Optional[float] = Field(None, ge=0)
+    contact_name: Optional[str] = None
+    contact_email: Optional[str] = None
+
+
+@router.post("/{workspace_id}/partners/{partner_id}")
+async def update_partner(workspace_id: UUID, partner_id: str, body: PartnerUpdate, user_id: CurrentUserId,
+                         db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """Richard moves a partner along from the dashboard; that is his approval for an agreement becoming active."""
+    await _owned(db, user_id, workspace_id)
+    try:
+        row = await pipeline_service.update_partner(db, workspace_id, partner_id, approved=True, **body.model_dump())
+    except (LookupError, ValueError) as exc:
+        raise _http(exc)
+    await db.commit()
+    return partner_view(row)
 
 
 @router.get("/{workspace_id}/onboarding/friction")

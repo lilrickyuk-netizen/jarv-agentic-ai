@@ -215,6 +215,13 @@ export default function CommandCenterPage() {
           <a className="nav-link" href="/dashboard/live-operations">Live operations</a>
           <a className="nav-link" href="/dashboard/approvals">Approvals</a>
           <a className="nav-link" href="/dashboard/workspaces">Workspaces</a>
+          <span className="nav-label nav-label-spaced">COMPANY</span>
+          <a className="nav-link" href="/dashboard/company-operations">Company</a>
+          <a className="nav-link" href="/dashboard/business">Business</a>
+          <a className="nav-link" href="/dashboard/revenue-operations">Revenue</a>
+          <a className="nav-link" href="/dashboard/support">Support</a>
+          <a className="nav-link" href="/dashboard/marketing">Growth</a>
+          <a className="nav-link" href="/dashboard/infrastructure">Infrastructure</a>
           <div className="nav-footer"><span className={`status-dot ${healthOk ? 'is-live' : ''}`} /><span>{health?.service ?? 'API'}<small>{health?.version ? `v${health.version}` : 'STATUS UNKNOWN'}</small></span></div>
         </nav>
 

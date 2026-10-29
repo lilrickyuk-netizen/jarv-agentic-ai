@@ -10,7 +10,8 @@ restore tool and is not offered here.
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict
+from typing import Any, Dict, Optional
+from uuid import UUID
 
 import psutil
 from fastapi import APIRouter, Depends, HTTPException
@@ -47,6 +48,26 @@ async def server(user: CurrentUserId, db: AsyncSession = Depends(get_db)) -> Dic
         "disks": _disks(),
         "database": await database_health(db),
     }
+
+
+@router.get("/cost")
+async def cost(user: CurrentUserId, workspace_id: Optional[UUID] = None,
+               db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """Monthly infrastructure cost (configured fixed costs, recorded resources, model use) against the budget."""
+    from sqlalchemy import select
+
+    from app.core.infra.configs import estimate_monthly
+    from app.models.workspace import Workspace
+
+    if workspace_id is not None:
+        owned = (await db.execute(select(Workspace.id).where(Workspace.id == workspace_id,
+                                                             Workspace.owner_id == UUID(str(user))))).scalar_one_or_none()
+        if owned is None:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+    try:
+        return await estimate_monthly(db, workspace_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get("/containers")
