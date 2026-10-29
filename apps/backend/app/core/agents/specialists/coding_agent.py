@@ -87,21 +87,20 @@ class CodingAgent(AgentBase):
 
     @property
     def default_tools(self) -> list[str]:
-        return [
-            "file_read",
-            "file_write",
-            "file_search",
-            "git_status",
-            "git_diff",
-            "command_run",
-            "analyze_code",
-        ]
+        from app.core.agents.specialists.tool_mode import tools_for
+
+        return tools_for("coding_agent")
 
     async def run(
         self,
         input_data: Dict[str, Any],
         context: AgentContext,
     ) -> AgentResult:
+        if self.tools_enabled(context):
+            from app.core.agents.specialists import tool_mode
+
+            return await tool_mode.run(self, input_data, context)
+
         try:
             task = task_text(input_data, "task", "requirements")
             language = (input_data.get("language") or "").strip()

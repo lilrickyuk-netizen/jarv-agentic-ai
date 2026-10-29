@@ -16,7 +16,7 @@
 ## LOCKED REPAIR ORDER (2026-10-20)
 - Repair 10 is IN_PROGRESS. The focused tests recorded below verify subsets only; they do not prove all 31 agents are executable, all declared tools are real, or the complete orchestrator/swarm acceptance flow.
 - Repair 11: COMPLETE (2026-10-23, commit f5e92cb). Persistent, workspace-isolated semantic memory and the verified-learning lifecycle; migration verified up/down/up on PostgreSQL+pgvector; full suite 433 passed. See REPAIR-11-MEMORY-LEARNING.
-- Repair 12: IN_PROGRESS. 12a (mission runtime, recovery, automatic resume) COMPLETE 2026-10-23 (444 passed, migration up/down/up verified, dashboard type-check clean). 12b observability COMPLETE 2026-10-29 (REPAIR-12B-OBSERVABILITY); 12c-12e agent tool wiring follow. See REPAIR-12A-MISSION-RUNTIME.
+- Repair 12: IN_PROGRESS. 12a (mission runtime, recovery, automatic resume) COMPLETE 2026-10-23 (444 passed, migration up/down/up verified, dashboard type-check clean). 12b observability COMPLETE 2026-10-29 (REPAIR-12B-OBSERVABILITY); 12c agent toolbox + engineering agents delivered 2026-10-29, awaiting owner test run (REPAIR-12C-AGENT-TOOLS); 12d-12e remaining agents and missing spec tool groups follow. See REPAIR-12A-MISSION-RUNTIME.
 - Repair 13: COMPLETE for non-paid knowledge installation, retrieval, authenticated administration, and attributed public-source research. All 31 registered agents passed individual retrieval/task verification. Live paid-LLM generation is DEFERRED to Repair 15 and is not reported as passed.
 - Repair 14: IN_PROGRESS after the user approved the cinematic UI and Voicebox integration direction. Implementation and runtime checks are recorded below; hands-on voice acceptance remains open.
 - Repair 15: production hardening and hands-on end-to-end acceptance.
@@ -12202,3 +12202,30 @@ TESTS RUN:
 RESULT: Metrics, monitoring stack, alert intake, and trace context verified on the live stack.
 BLOCKERS: None. Notes: the monitoring stack pulls public images on first start; it is verified by starting it (see the Repair 12b instructions). Worker and mission metrics are read from shared state, so they are correct regardless of which process did the work; per-worker process metrics (CPU/memory of each worker) are not exported.
 NEXT TASK: Repair 12c - real tool wiring for the 31 agents.
+
+
+TASK ID: REPAIR-12C-AGENT-TOOLS
+TASK NAME: Agent toolbox, tool-use loop, and the engineering agents on real tools
+STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- No specialist agent ever called a tool: AgentBase.execute_tool existed but had zero callers. The coding agent's own docstring said it "does NOT write or modify any file". The only tool-using loop (AgentExecutor) lived inside the command center with four tools.
+- Registry file tools (file_read, file_write, ...) check only a banned-folder list; any path in the container, including apps/backend/.env, was readable through them. Registry git tools accept any repo_path.
+- run_command fixes the working directory but not its arguments: `cat /app/.env` or inline interpreter code could read outside the workspace.
+- Settings read apps/backend/.env even inside the test container, which on the owner's machine holds a real OpenAI key; any test reaching a model call could spend it.
+FILES CREATED:
+- apps/backend/app/core/agents/toolbox.py (AgentToolbox: workspace-confined runtime tools for files, search, commands, git, memory, web, package/CVE/licence checks; registry tools with path arguments resolved inside the workspace folder; unconfined registry categories and history-rewriting git tools never offered; command argument guard; effective authority = min(agent level mapped to 1-7, workspace level), never 7)
+- apps/backend/app/core/agents/tool_loop.py (model tool-use loop with finish; success only on finish with success and nothing waiting for approval; specialist knowledge, recalled memory and verified lessons in the instructions)
+- apps/backend/app/core/agents/specialists/tool_mode.py (tools, standing instructions, and task briefs for coding, debugging, verifier, QA, documentation, DevOps, security)
+- apps/backend/tests/test_repair12c_agent_tools.py
+FILES MODIFIED:
+- apps/backend/app/core/agents/base.py (tools_enabled, use_tools, result_from_tools)
+- apps/backend/app/core/agents/specialists/{coding_agent,debugging_agent,verifier,qa,documentation,devops,security}.py (tool mode when a provider, database session and workspace are present; local analysis path otherwise; declared tools are registry names within each agent's authority; devops no longer declares git_push)
+- apps/backend/tests/conftest.py (every provider key blanked before settings load: the test suite can never spend real credit)
+COMMANDS RUN:
+- python -m py_compile on every changed backend file: passed
+- pytest: not runnable in the authoring environment; to be run on the owner's machine
+TESTS RUN:
+- None yet. Written: authority mapping, declared tools registered and within authority, confinement (outside paths, traversal, another workspace, secret redaction, secret-content search, outside-path and inline-code commands, destructive command, registry path argument, tools not offered), no filesystem tools without a registered folder, coding agent end to end through execute() with a scripted model (read, write, compile, finish), unfinished and blocked tasks not reported as plain success, test-suite key blanking.
+RESULT: Pending owner test run.
+BLOCKERS: Known residual risk, scheduled for Repair 15: an agent can write a script inside the workspace and run it with an allowed interpreter; that script runs with the backend container's file access. Full isolation requires executing agent commands in a separate runner container that mounts only the workspace and holds no secrets. Until then the command classifier, argument guard, boundary chain, and audit trail apply.
+NEXT TASK: Owner runs the Repair 12c verification commands; then 12d (operations agents and their tools) and 12e (company agents and the missing spec tool groups).

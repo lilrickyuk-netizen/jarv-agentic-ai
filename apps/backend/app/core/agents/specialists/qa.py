@@ -75,7 +75,9 @@ class QAAgent(AgentBase):
 
     @property
     def default_tools(self) -> List[str]:
-        return ['file_read', 'command_run', 'analyze_code']
+        from app.core.agents.specialists.tool_mode import tools_for
+
+        return tools_for("qa")
 
     def _resolve(self, candidate: str, context: AgentContext) -> str:
         """Resolve a target file path against likely roots (no fabrication)."""
@@ -95,6 +97,11 @@ class QAAgent(AgentBase):
         return cwd_p
 
     async def run(self, input_data: Dict[str, Any], context: AgentContext) -> AgentResult:
+        if self.tools_enabled(context):
+            from app.core.agents.specialists import tool_mode
+
+            return await tool_mode.run(self, input_data, context)
+
         try:
             test_type = input_data.get("test_type", "compile")
             target_files = list(input_data.get("target_files", []) or [])

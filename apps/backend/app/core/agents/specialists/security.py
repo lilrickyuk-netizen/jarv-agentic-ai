@@ -76,13 +76,20 @@ class SecurityAgent(AgentBase):
 
     @property
     def default_tools(self) -> list[str]:
-        return ['analyze_security', 'file_read', 'analyze_code']
+        from app.core.agents.specialists.tool_mode import tools_for
+
+        return tools_for("security")
 
     async def run(
         self,
         input_data: Dict[str, Any],
         context: AgentContext,
     ) -> AgentResult:
+        if self.tools_enabled(context):
+            from app.core.agents.specialists import tool_mode
+
+            return await tool_mode.run(self, input_data, context)
+
         try:
             scan_type = (input_data.get("scan_type") or "vulnerability").strip()
             targets = list(input_data.get("targets", []) or [])
