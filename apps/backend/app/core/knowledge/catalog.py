@@ -43,11 +43,6 @@ _SOURCES = {
         "title": "Docker Compose",
         "publisher": "Docker",
     },
-    "kubernetes_deployments": {
-        "url": "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/",
-        "title": "Deployments",
-        "publisher": "Kubernetes",
-    },
     "prometheus_instrumentation": {
         "url": "https://prometheus.io/docs/practices/instrumentation/",
         "title": "Instrumentation",
@@ -98,11 +93,25 @@ _SOURCES = {
         "title": "Contributor Covenant Code of Conduct, version 2.1",
         "publisher": "Contributor Covenant",
     },
-    "unsplash_api": {
-        "url": "https://unsplash.com/documentation",
-        "title": "Unsplash API Documentation",
-        "publisher": "Unsplash",
-       "license": "Unsplash API Terms and Attribution Guidelines",
+    "compose_production": {
+        "url": "https://docs.docker.com/compose/how-tos/production/",
+        "title": "Use Compose in production",
+        "publisher": "Docker",
+    },
+    "release_rollbacks": {
+        "url": "https://cloud.google.com/blog/products/gcp/reliable-releases-and-rollbacks-cre-life-lessons/",
+        "title": "Reliable releases and rollbacks - CRE life lessons",
+        "publisher": "Google Cloud Blog",
+    },
+    "cc_licenses": {
+        "url": "https://creativecommons.org/share-your-work/cclicenses/",
+        "title": "About CC Licenses",
+        "publisher": "Creative Commons",
+    },
+    "plausible_stats": {
+        "url": "https://plausible.io/docs/stats-api",
+        "title": "Plausible Stats API reference",
+        "publisher": "Plausible Analytics",
     },
 }
 
@@ -118,6 +127,7 @@ def _entry(agent_name: str, title: str, content: str, keywords: List[str], sourc
               "url": source_data["url"],
               "source_title": source_data["title"],
               "publisher": source_data["publisher"],
+              "license": source_data.get("license"),
     }
 
 
@@ -143,18 +153,27 @@ SPECIALIST_KNOWLEDGE: List[Dict] = [
     _entry("devops", "Compose service lifecycle",
            "Use the Compose file as the declared service, network, and volume configuration. Validate the resolved configuration, then use Compose lifecycle and status/log commands to operate and inspect the same defined application stack across development, testing, staging, and production.",
            ["devops", "docker", "compose", "services", "deployment"], "compose"),
-    _entry("infrastructure", "Kubernetes deployment control",
-           "A Deployment reconciles actual Pods toward a declared desired state. Keep selectors aligned with template labels and non-overlapping; verify rollout status after template changes. Retain revision history needed for rollback, and treat a stalled rollout as an observed failure rather than success.",
-           ["infrastructure", "kubernetes", "deployment", "rollout", "rollback"], "kubernetes_deployments"),
+    _entry("infrastructure", "Single-server Compose in production",
+           "Keep production differences in a separate Compose file layered over the base file with -f, so the base "
+           "stays the shared definition. In production keep application code inside the image rather than bind "
+           "mounts, set a restart policy, use production environment values such as lower log verbosity, and add "
+           "supporting services such as log collection. Deploy a change by rebuilding the service image and "
+           "recreating only that service with 'up --no-deps -d', so its dependencies are not restarted.",
+           ["infrastructure", "compose", "production", "restart", "deploy", "server"], "compose_production"),
     _entry("monitoring", "Useful Prometheus instrumentation",
            "For request-serving systems, measure request volume, errors, and latency; for background processing, expose queue/progress and last-success signals. Use counters for cumulative events and gauges for values that can decrease. Prefer labels over generated metric names and keep label cardinality bounded.",
            ["monitoring", "prometheus", "metrics", "alerts", "instrumentation"], "prometheus_instrumentation"),
     _entry("self_healing", "Safe incident diagnosis and mitigation",
            "Triage user impact before root-cause work and preserve evidence. Examine system state, logs, and metrics, then test likely causes using controlled, low-risk experiments. Record the change and observed result; do not treat an unverified mitigation as a repair.",
            ["self-healing", "incident", "recovery", "diagnosis", "mitigation"], "sre_troubleshooting"),
-    _entry("rollback", "Deployment rollback verification",
-           "Rollback is available only while the required Deployment revision history is retained. Use the controller's rollout history and status, restore a known prior Pod template, and verify the resulting Deployment is complete and available before reporting recovery.",
-           ["rollback", "deployment", "revision", "recovery", "kubernetes"], "kubernetes_deployments"),
+    _entry("rollback", "Roll back first, then investigate",
+           "Treat every release as possibly faulty and roll back first when it misbehaves; a hurried roll-forward "
+           "fix can fail or expose other untested problems. Rollback is routine, not blame. Keep rollback trusted "
+           "by exercising it while the release is healthy. Schema changes are the main obstacle: ship a "
+           "feature-free release that tolerates the new schema, then change the schema, then ship the features, "
+           "so either release can be rolled back without undoing the schema. Restoring data is a separate, "
+           "heavier operation than rolling back a release.",
+           ["rollback", "release", "deployment", "schema", "recovery", "revert"], "release_rollbacks"),
     _entry("security", "API security review priorities",
            "For every data access using a caller-supplied object ID, verify object-level authorization. Also review authentication, property/function authorization, resource limits, sensitive workflows, SSRF, configuration, endpoint inventory, and trust boundaries for third-party API responses.",
            ["security", "owasp", "api", "authorization", "ssrf"], "owasp_api"),
@@ -185,9 +204,13 @@ SPECIALIST_KNOWLEDGE: List[Dict] = [
     _entry("marketing", "Truthful marketing and endorsement review",
            "Endorsements must reflect the endorser's honest experience and must not make unsupported product claims. Disclose material relationships clearly where the audience sees the endorsement; assess the actual medium and context rather than assuming a profile bio or platform label is sufficient.",
            ["marketing", "endorsement", "disclosure", "claims", "campaign"], "ftc_endorsements"),
-    _entry("growth", "Measurement for growth decisions",
-           "Use the Analytics Data API to query declared dimensions and metrics for an identified property and date range. Interpret results under that property's reporting-identity settings, separate measured counts from hypotheses, and ensure collection respects consent and privacy obligations.",
-           ["growth", "analytics", "measurement", "users", "conversion"], "ga4_data_api"),
+    _entry("growth", "Measuring growth with privacy-friendly analytics",
+           "Query visitors, visits, pageviews, bounce rate and visit duration for an explicit date range; conversion "
+           "rates need goals configured first and are read through the goal dimension. Session metrics cannot be "
+           "combined with event dimensions other than page and hostname, and time buckets follow the site's "
+           "reporting timezone. Keep measured counts separate from hypotheses, and plan each experiment against a "
+           "measured baseline.",
+           ["growth", "analytics", "conversion", "goals", "visitors", "experiment"], "plausible_stats"),
     _entry("customer_support", "Clear customer-facing responses",
            "Write for the specific audience and the task they need to complete. Use plain, direct wording, structure information for scanning, and test whether readers understand it; do not confuse internal terminology with customer understanding.",
            ["support", "customer", "plain language", "response", "understanding"], "plain_language"),
@@ -206,9 +229,13 @@ SPECIALIST_KNOWLEDGE: List[Dict] = [
     _entry("content", "Useful, reliable content planning",
            "Create for an identifiable audience and purpose. Add original information or analysis, substantiate factual claims, make authorship and sourcing clear, and avoid producing material solely to attract search traffic. Evaluate how automation contributed when readers would reasonably care.",
            ["content", "people-first", "quality", "sources", "authorship"], "google_content"),
-    _entry("creation", "Source and attribute creative assets",
-           "Use the documented Unsplash API and only documented fields and endpoints. Follow its current API terms and attribution guidelines, hotlink returned image URLs as required, preserve returned image identifiers, and record photographer/source information with an asset.",
-           ["creation", "assets", "unsplash", "attribution", "licensing"], "unsplash_api"),
+    _entry("creation", "Licensing creative assets",
+           "Creative Commons licences combine elements: BY requires credit to the creator; SA requires adaptations to "
+           "carry the same licence; NC permits only non-commercial use; ND permits no adaptations. A commercial "
+           "product can use BY and BY-SA works (with share-alike obligations for adaptations) and ND works only "
+           "unmodified; NC works are excluded. Record the creator, source and licence of every asset when it is "
+           "obtained, keep the credits current, and do not use an asset whose licence cannot be established.",
+           ["creation", "assets", "licence", "license", "attribution", "creative commons"], "cc_licenses"),
     _entry("legal", "Endorsement compliance review boundaries",
            "Review whether an endorsement reflects truthful experience, whether product claims are substantiated, and whether material connections are disclosed clearly and conspicuously. The FTC guide explains agency guidance and examples, not a legal safe harbor; refer fact-specific legal conclusions to qualified counsel.",
            ["legal", "compliance", "endorsement", "disclosure", "claims"], "ftc_endorsements"),

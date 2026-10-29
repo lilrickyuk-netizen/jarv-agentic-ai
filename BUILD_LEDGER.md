@@ -8,7 +8,7 @@
 
 ## CURRENT STATUS
 - **Current Phase**: REPAIR CONTINUATION (10-15)
-- **Current Task**: REPAIR 12 - runtime, recovery, observability, and real tool wiring for all 31 agents (Repair 11 complete 2026-10-23)
+- **Current Task**: REPAIR 13 refresh, then REPAIR 14 (dashboard on real data, voice interface); Repair 12 complete 2026-10-29
 - **Build Status**: NOT ACCEPTED; Repairs 11-15 remain open under the locked execution order
 - **Build Start Date**: 2026-06-03
 - **Build Completion Date**: 2026-06-03
@@ -16,7 +16,7 @@
 ## LOCKED REPAIR ORDER (2026-10-20)
 - Repair 10 is IN_PROGRESS. The focused tests recorded below verify subsets only; they do not prove all 31 agents are executable, all declared tools are real, or the complete orchestrator/swarm acceptance flow.
 - Repair 11: COMPLETE (2026-10-23, commit f5e92cb). Persistent, workspace-isolated semantic memory and the verified-learning lifecycle; migration verified up/down/up on PostgreSQL+pgvector; full suite 433 passed. See REPAIR-11-MEMORY-LEARNING.
-- Repair 12: IN_PROGRESS. 12a (mission runtime, recovery, automatic resume) COMPLETE 2026-10-23 (444 passed, migration up/down/up verified, dashboard type-check clean). 12b observability COMPLETE 2026-10-29 (REPAIR-12B-OBSERVABILITY); 12c agent toolbox + engineering agents COMPLETE 2026-10-29 (460 passed; REPAIR-12C-AGENT-TOOLS); 12d operations agents on real tools COMPLETE 2026-10-29 (484 passed, verified live; REPAIR-12D-OPS-AGENTS); 12e in progress (REPAIR-12E-1-PROVIDER-FAILOVER first). See REPAIR-12A-MISSION-RUNTIME.
+- Repair 12: COMPLETE (2026-10-29, commit 6286395; full suite 553 passed): 12e-1 provider failover, 12e-2 deployments, 12e-3 swarm/company/workspace/evolution, 12e-4a business, 12e-4b revenue/infrastructure/assets, 12e-4c voice. History: 12a (mission runtime, recovery, automatic resume) COMPLETE 2026-10-23 (444 passed, migration up/down/up verified, dashboard type-check clean). 12b observability COMPLETE 2026-10-29 (REPAIR-12B-OBSERVABILITY); 12c agent toolbox + engineering agents COMPLETE 2026-10-29 (460 passed; REPAIR-12C-AGENT-TOOLS); 12d operations agents on real tools COMPLETE 2026-10-29 (484 passed, verified live; REPAIR-12D-OPS-AGENTS); 12e in progress (REPAIR-12E-1-PROVIDER-FAILOVER first). See REPAIR-12A-MISSION-RUNTIME.
 - Repair 13: COMPLETE for non-paid knowledge installation, retrieval, authenticated administration, and attributed public-source research. All 31 registered agents passed individual retrieval/task verification. Live paid-LLM generation is DEFERRED to Repair 15 and is not reported as passed.
 - Repair 14: IN_PROGRESS after the user approved the cinematic UI and Voicebox integration direction. Implementation and runtime checks are recorded below; hands-on voice acceptance remains open.
 - Repair 15: production hardening and hands-on end-to-end acceptance.
@@ -12510,7 +12510,7 @@ NEXT TASK: REPAIR-12E-4C (voice tools).
 
 TASK ID: REPAIR-12E-4C-VOICE
 TASK NAME: Voice tools (transcribe_voice, speak_response, listen_push_to_talk, wake_word_detect, route_voice_command)
-STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+STATUS: COMPLETE
 AUDIT FINDINGS THAT DROVE THIS TASK:
 - None of the 5 design voice tools existed (the authority test asserted transcribe_voice was absent). app/core/voice/stt.py, tts.py and wake_word.py were adapters whose every provider raised "integration required"; VoiceCommandRouter ran the orchestrator with no database and no approval gate; /api/voice/push-to-talk always failed and /api/voice/health reported fixed strings. The real pieces were the authenticated Voicebox adapter (/api/voicebox) and the local sherpa-onnx wake spotter. The production compose file passed none of the revenue, infrastructure-money or voice settings to the backend or worker.
 FILES CREATED:
@@ -12530,6 +12530,25 @@ COMMANDS RUN:
 - python -m py_compile on changed files: passed; compose files parsed: passed
 TESTS RUN:
 - Written: 5 tools registered with authority, orchestrator wiring; every step names the missing setting when no backend is set; Voicebox transcription and speech (waits for the generation) with replies readable only by their owner; OpenAI transcription and ElevenLabs speech with provider errors reported without the key; spoken commands: status, queued mission, gated mission paused for approval, approval by voice refused, cancel the last mission; push-to-talk from a workspace file and base64, folder escape refused; wake phrase over an 8 kHz stereo WAV resampled to 16 kHz frames and raw float32; voice API authentication and owner scoping.
-RESULT: Pending owner test run.
+RESULT: Owner run 1 (2026-10-29): 553 passed. Committed as 6286395 on pre-repair-11.
 BLOCKERS: None. Live speech needs Voicebox running (local) or an OpenAI/ElevenLabs key; the wake model is installed by an admin from the dashboard.
 NEXT TASK: REPAIR-13 (specialist knowledge).
+
+TASK ID: REPAIR-13-REFRESH
+TASK NAME: Specialist knowledge brought in line with the tools JARV now uses
+STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- Repair 13 (REPAIR-13-NONPAID-KNOWLEDGE-RESEARCH) installed one source-attributed brief per agent. Since Repair 12 four briefs described tools JARV does not use: infrastructure and rollback taught Kubernetes Deployments (JARV runs Docker Compose on Richard's VPS with release directories), growth taught the Google Analytics Data API (JARV reads Plausible or recorded KPIs), and creation taught Unsplash API hotlinking (JARV downloads licence-checked assets with credits). The Plausible adapter used the legacy v1 API (current reference is Stats API v2). The licence table had no no-derivatives licences. The catalogue dropped each source's licence field.
+FILES CREATED:
+- apps/backend/tests/test_repair13_knowledge_refresh.py
+FILES MODIFIED:
+- apps/backend/app/core/knowledge/catalog.py (infrastructure from Docker's "Use Compose in production"; rollback from Google Cloud's "Reliable releases and rollbacks"; growth from Plausible's Stats API reference; creation from Creative Commons "About CC Licenses"; all four pages read on 2026-10-29; unused sources removed; source licence carried through). Installed briefs advance to a new version at the next startup.
+- apps/backend/app/core/business/revenue.py (Plausible Stats API v2: POST /api/v2/query)
+- apps/backend/app/core/assets/library.py, apps/backend/app/tools/assets_library/__init__.py (CC BY-ND and BY-NC-ND; adaptations refused for no-derivatives licences, unmodified use allowed)
+COMMANDS RUN:
+- Source pages fetched and read for the four new briefs; python -m py_compile on changed files: passed; catalogue loads with 31 entries, exactly four briefs changed.
+TESTS RUN:
+- Written: every agent has a brief with an https source; the four briefs carry the new sources; a changed brief becomes a new version, re-ingesting is unchanged, retrieval returns the new version; ND licence rules; Plausible v2 request and parsing.
+RESULT: Pending owner test run.
+BLOCKERS: None.
+NEXT TASK: REPAIR-14 (dashboard pages on real backend data; voice interface acceptance).

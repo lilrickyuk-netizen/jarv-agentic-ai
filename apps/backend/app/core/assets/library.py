@@ -48,6 +48,10 @@ LICENCES: Dict[str, Dict[str, Any]] = {
     "cc-by-sa-3.0": {"name": "CC BY-SA 3.0", "commercial": True, "attribution": True, "share_alike": True},
     "cc-by-nc-4.0": {"name": "CC BY-NC 4.0", "commercial": False, "attribution": True, "share_alike": False},
     "cc-by-nc-sa-4.0": {"name": "CC BY-NC-SA 4.0", "commercial": False, "attribution": True, "share_alike": True},
+    "cc-by-nd-4.0": {"name": "CC BY-ND 4.0", "commercial": True, "attribution": True, "share_alike": False,
+                     "derivatives": False},
+    "cc-by-nc-nd-4.0": {"name": "CC BY-NC-ND 4.0", "commercial": False, "attribution": True, "share_alike": False,
+                        "derivatives": False},
     "mit": {"name": "MIT", "commercial": True, "attribution": True, "share_alike": False},
     "isc": {"name": "ISC", "commercial": True, "attribution": True, "share_alike": False},
     "apache-2.0": {"name": "Apache 2.0", "commercial": True, "attribution": True, "share_alike": False},
@@ -65,7 +69,7 @@ LICENCES: Dict[str, Dict[str, Any]] = {
     "all-rights-reserved": {"name": "All rights reserved", "commercial": False, "attribution": True, "share_alike": False},
 }
 ALIASES = {"cc0": "cc0-1.0", "public domain": "cc0-1.0", "cc-by": "cc-by-4.0", "cc by 4.0": "cc-by-4.0",
-           "cc by": "cc-by-4.0", "cc-by-sa": "cc-by-sa-4.0", "cc by-sa 4.0": "cc-by-sa-4.0", "cc-by-nc": "cc-by-nc-4.0",
+           "cc by": "cc-by-4.0", "cc-by-sa": "cc-by-sa-4.0", "cc by-sa 4.0": "cc-by-sa-4.0", "cc-by-nc": "cc-by-nc-4.0", "cc-by-nd": "cc-by-nd-4.0", "cc-by-nc-nd": "cc-by-nc-nd-4.0",
            "ofl": "ofl-1.1", "sil ofl": "ofl-1.1", "sil open font license": "ofl-1.1", "apache": "apache-2.0",
            "apache 2.0": "apache-2.0", "gpl": "gpl-3.0", "gplv3": "gpl-3.0", "pixabay license": "pixabay",
            "pixabay content license": "pixabay", "pexels license": "pexels", "unsplash license": "unsplash",
@@ -123,13 +127,19 @@ def check_licence(licence: Optional[str], url: Optional[str] = None, *, commerci
         conditions.append("credit the author and licence")
     if terms["share_alike"]:
         conditions.append("derivatives must use the same licence")
+    derivatives = terms.get("derivatives", True)
+    if not derivatives:
+        conditions.append("use unmodified: no adaptations")
     if terms.get("notes"):
         conditions.append(terms["notes"])
-    allowed = (terms["commercial"] or not commercial)
-    reason = None if allowed else f"{terms['name']} does not allow commercial use"
-    return {"allowed": allowed, "licence": lic_id, "name": terms["name"], "determined_by": how,
+    reason = None
+    if commercial and not terms["commercial"]:
+        reason = f"{terms['name']} does not allow commercial use"
+    elif modify and not derivatives:
+        reason = f"{terms['name']} does not allow adaptations; it may only be used unmodified"
+    return {"allowed": reason is None, "licence": lic_id, "name": terms["name"], "determined_by": how,
             "commercial_use": terms["commercial"], "attribution_required": terms["attribution"],
-            "share_alike": terms["share_alike"], "modification_allowed": modify, "conditions": conditions,
+            "share_alike": terms["share_alike"], "modification_allowed": derivatives, "conditions": conditions,
             "reason": reason}
 
 
@@ -195,7 +205,7 @@ def attribution(name: str, author: Optional[str], source: Optional[str], lic_id:
 
 async def download(db: AsyncSession, workspace, url: str, *, folder: str = "assets", filename: Optional[str] = None,
                    licence: Optional[str] = None, author: Optional[str] = None, source_page: Optional[str] = None,
-                   commercial: bool = True, created_by: Optional[UUID] = None) -> Asset:
+                   commercial: bool = True, modify: bool = False, created_by: Optional[UUID] = None) -> Asset:
     from app.core.internet import _ssrf_ok
     from app.core.workspaces import fs_inspector
     from app.core.workspaces.lifecycle import join_host
@@ -214,7 +224,7 @@ async def download(db: AsyncSession, workspace, url: str, *, folder: str = "asse
                               f"{', '.join(sorted(ALLOWED))}); executables and archives are never downloaded")
     if not re.match(r"^[A-Za-z0-9._/-]{1,120}$", folder) or ".." in folder or folder.startswith("/"):
         raise ValueError("folder must be a relative path inside the workspace")
-    verdict = check_licence(licence, url, commercial=commercial)
+    verdict = check_licence(licence, url, commercial=commercial, modify=modify)
     if not verdict["allowed"]:
         raise PermissionError(verdict["reason"])
     data, content_type = await fetch(url)

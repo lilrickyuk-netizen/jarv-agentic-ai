@@ -58,6 +58,7 @@ class _Licence(BaseModel):
     licence: Optional[str] = Field(None, description="Licence id or name, e.g. CC-BY-4.0, OFL, Pixabay License")
     url: Optional[str] = Field(None, description="Asset or page URL (infers the provider's licence)")
     commercial: bool = Field(True, description="Will it be used in a commercial product?")
+    modify: bool = Field(True, description="Will it be edited, cropped or remixed?")
 
 
 class CheckLicenceTool(_AssetTool):
@@ -67,7 +68,8 @@ class CheckLicenceTool(_AssetTool):
     _authority = AuthorityLevel.LEVEL_1_BASIC_TOOLS
 
     async def act(self, db, context, owner, data):
-        verdict = library.check_licence(data.get("licence"), data.get("url"), commercial=data["commercial"])
+        verdict = library.check_licence(data.get("licence"), data.get("url"), commercial=data["commercial"],
+                                        modify=data["modify"])
         text = (f"{verdict['name']}: allowed" + (f" ({'; '.join(verdict['conditions'])})" if verdict["conditions"] else "")
                 if verdict["allowed"] else f"Not allowed: {verdict['reason']}")
         return verdict, text
@@ -81,6 +83,7 @@ class _Download(BaseModel):
     folder: str = Field("assets", description="Folder in the workspace")
     filename: Optional[str] = None
     commercial: bool = True
+    modify: bool = Field(False, description="Will it be adapted? No-derivatives licences then refuse it")
 
 
 class DownloadAssetTool(_AssetTool):
@@ -94,7 +97,7 @@ class DownloadAssetTool(_AssetTool):
         row = await library.download(db, await _workspace(db, context), data["url"], folder=data["folder"],
                                      filename=data.get("filename"), licence=data.get("licence"),
                                      author=data.get("author"), source_page=data.get("source_page"),
-                                     commercial=data["commercial"], created_by=owner)
+                                     commercial=data["commercial"], modify=data["modify"], created_by=owner)
         return library.asset_view(row), f"{row.asset_name} saved to {row.file_path} ({row.license_type})"
 
 
