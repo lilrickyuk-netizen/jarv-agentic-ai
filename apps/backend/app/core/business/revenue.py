@@ -273,22 +273,28 @@ class RevenueService:
     async def analytics(self, db: AsyncSession, workspace_id: UUID, days: int = 30) -> Dict[str, Any]:
         key, site = getattr(settings, "PLAUSIBLE_API_KEY", None), getattr(settings, "PLAUSIBLE_SITE_ID", None)
         if key and site:
+            # Stats API v2: POST /api/v2/query; results carry metrics in the order requested.
             base = getattr(settings, "PLAUSIBLE_URL", "https://plausible.io").rstrip("/")
+            span = [(_now() - timedelta(days=days)).date().isoformat(), _now().date().isoformat()]
+            names = ["visitors", "visits", "pageviews", "bounce_rate", "visit_duration"]
+            headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
             async with httpx.AsyncClient(timeout=20) as client:
-                agg = await client.get(f"{base}/api/v1/stats/aggregate", headers={"Authorization": f"Bearer {key}"},
-                                       params={"site_id": site, "period": "custom",
-                                               "date": f"{(_now() - timedelta(days=days)).date()},{_now().date()}",
-                                               "metrics": "visitors,pageviews,bounce_rate,visit_duration"})
-                pages = await client.get(f"{base}/api/v1/stats/breakdown", headers={"Authorization": f"Bearer {key}"},
-                                         params={"site_id": site, "period": "30d", "property": "event:page", "limit": 10})
+                agg = await client.post(f"{base}/api/v2/query", headers=headers,
+                                        json={"site_id": site, "metrics": names, "date_range": span})
+                pages = await client.post(f"{base}/api/v2/query", headers=headers,
+                                          json={"site_id": site, "metrics": ["visitors", "pageviews"],
+                                                "date_range": span, "dimensions": ["event:page"],
+                                                "order_by": [["visitors", "desc"]],
+                                                "pagination": {"limit": 10, "offset": 0}})
             if agg.status_code >= 400:
                 raise RuntimeError(f"Plausible returned {agg.status_code}: {agg.text[:200]}")
-            results = agg.json().get("results", {})
-            return {"source": "plausible", "visitors": results.get("visitors", {}).get("value"),
-                    "pageviews": results.get("pageviews", {}).get("value"),
-                    "bounce_rate": results.get("bounce_rate", {}).get("value"),
-                    "visit_duration": results.get("visit_duration", {}).get("value"),
-                    "top_pages": pages.json().get("results", []) if pages.status_code < 400 else []}
+            rows = agg.json().get("results") or []
+            values = dict(zip(names, (rows[0].get("metrics") or []) if rows else []))
+            top = []
+            if pages.status_code < 400:
+                top = [{"page": (r.get("dimensions") or [None])[0], "visitors": (r.get("metrics") or [None, None])[0],
+                        "pageviews": (r.get("metrics") or [None, None])[1]} for r in pages.json().get("results") or []]
+            return {"source": "plausible", "period_days": days, **{n: values.get(n) for n in names}, "top_pages": top}
         from app.core.company_ops.service import company_ops
 
         board = await company_ops.kpi_dashboard(db, workspace_id)
