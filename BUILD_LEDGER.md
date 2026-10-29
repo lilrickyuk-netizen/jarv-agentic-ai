@@ -16,7 +16,7 @@
 ## LOCKED REPAIR ORDER (2026-10-20)
 - Repair 10 is IN_PROGRESS. The focused tests recorded below verify subsets only; they do not prove all 31 agents are executable, all declared tools are real, or the complete orchestrator/swarm acceptance flow.
 - Repair 11: COMPLETE (2026-10-23, commit f5e92cb). Persistent, workspace-isolated semantic memory and the verified-learning lifecycle; migration verified up/down/up on PostgreSQL+pgvector; full suite 433 passed. See REPAIR-11-MEMORY-LEARNING.
-- Repair 12: IN_PROGRESS. 12a (mission runtime, recovery, automatic resume) COMPLETE 2026-10-23 (444 passed, migration up/down/up verified, dashboard type-check clean). 12b observability COMPLETE 2026-10-29 (REPAIR-12B-OBSERVABILITY); 12c agent toolbox + engineering agents COMPLETE 2026-10-29 (460 passed; REPAIR-12C-AGENT-TOOLS); 12d operations agents on real tools delivered 2026-10-29, awaiting owner test run (REPAIR-12D-OPS-AGENTS); 12e company agents and missing spec tool groups follow. See REPAIR-12A-MISSION-RUNTIME.
+- Repair 12: IN_PROGRESS. 12a (mission runtime, recovery, automatic resume) COMPLETE 2026-10-23 (444 passed, migration up/down/up verified, dashboard type-check clean). 12b observability COMPLETE 2026-10-29 (REPAIR-12B-OBSERVABILITY); 12c agent toolbox + engineering agents COMPLETE 2026-10-29 (460 passed; REPAIR-12C-AGENT-TOOLS); 12d operations agents on real tools COMPLETE 2026-10-29 (484 passed, verified live; REPAIR-12D-OPS-AGENTS); 12e in progress (REPAIR-12E-1-PROVIDER-FAILOVER first). See REPAIR-12A-MISSION-RUNTIME.
 - Repair 13: COMPLETE for non-paid knowledge installation, retrieval, authenticated administration, and attributed public-source research. All 31 registered agents passed individual retrieval/task verification. Live paid-LLM generation is DEFERRED to Repair 15 and is not reported as passed.
 - Repair 14: IN_PROGRESS after the user approved the cinematic UI and Voicebox integration direction. Implementation and runtime checks are recorded below; hands-on voice acceptance remains open.
 - Repair 15: production hardening and hands-on end-to-end acceptance.
@@ -12232,7 +12232,7 @@ NEXT TASK: Owner runs the Repair 12c verification commands; then 12d (operations
 
 TASK ID: REPAIR-12D-OPS-AGENTS
 TASK NAME: Operations agents (monitoring, self-healing, rollback, infrastructure) on real tools
-STATUS: IN_PROGRESS (verified live; identity and scheduler follow-up awaiting owner test run)
+STATUS: COMPLETE (2026-10-29: 484 passed; live: backups verified, Command Center panels and identity working, scheduler loop live)
 AUDIT FINDINGS THAT DROVE THIS TASK:
 - The monitoring agent reported every target as "unknown" and the self-healing agent reported every repair as blocked; neither measured or changed anything.
 - Self-healing runbooks raised IntegrationRequiredError for service and worker restarts, and verified "recovery" from CPU percentage.
@@ -12278,3 +12278,25 @@ LIVE FINDINGS FIXED IN FOLLOW-UP (2026-10-29):
 - Disk list repeated one disk per bind-mounted file; disks are now folded by device. Worker ping returns on the first reply.
 BLOCKERS: Deployment rollback (returning a service to a previous release) needs recorded releases from the deploy tools; it is part of 12e with deploy_staging and deploy_production_with_boundary. Data rollback (approval-gated restore) works now.
 NEXT TASK: Owner rebuilds the backend images and runs the Repair 12d verification commands; then 12e (company agents, deployment tools, and the missing spec tool groups).
+
+TASK ID: REPAIR-12E-1-PROVIDER-FAILOVER
+TASK NAME: Model routing that never fails a mission for a provider name
+STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- Mission ab6c4882 (2026-10-22) failed with "Provider ModelProvider.CLAUDE not configured. Available providers: ollama": agents default to claude-sonnet-4-6 and the router chose a provider only from the model name, with no fallback.
+- Ollama was registered as available whenever OLLAMA_BASE_URL had its default value, with no server behind it.
+- The router ignored ANTHROPIC_API_KEY although provider_configured() counted it.
+- Owner decision (2026-10-29): Claude remains a supported, preferred provider; OpenAI is used while the Anthropic key has no credit.
+FILES CREATED:
+- apps/backend/tests/test_repair12e_provider_failover.py
+FILES MODIFIED:
+- apps/backend/app/core/providers/router.py (plan: requested model on its own provider when configured, then the same tier on each other configured provider in PROVIDER_ORDER; fails over on authentication, rate limit/quota, missing model, outage, and no-credit billing errors, never on malformed requests; a provider that failed for an account reason rests 10 minutes; substitution logged; clear message naming the keys when nothing is configured; Claude reads CLAUDE_API_KEY or ANTHROPIC_API_KEY; Ollama only with OLLAMA_ENABLED)
+- apps/backend/app/core/config.py (PROVIDER_ORDER, OPENAI_MODEL, OLLAMA_ENABLED, OLLAMA_MODEL)
+- apps/backend/app/core/agents/specialists/_helpers.py (provider_configured counts an enabled Ollama)
+COMMANDS RUN:
+- python -m py_compile on changed files: passed
+TESTS RUN:
+- None yet. Written: Claude model served by OpenAI when only OpenAI is configured; no-credit Claude fails over and rests; tier mapping (fast/top); malformed requests do not fail over; all-failed error lists each provider's reason; no-provider message names the keys; Ollama only when enabled.
+RESULT: Pending owner test run.
+BLOCKERS: None.
+NEXT TASK: REPAIR-12E-2 (deploy tools: deploy_staging, deploy_production_with_boundary, release rollback).

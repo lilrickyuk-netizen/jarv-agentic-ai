@@ -33,7 +33,7 @@ def provider_configured() -> bool:
     for attr in ("CLAUDE_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"):
         if getattr(settings, attr, None):
             return True
-    return False
+    return bool(getattr(settings, "OLLAMA_ENABLED", False))
 
 
 async def llm_complete(

@@ -91,6 +91,15 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
     OLLAMA_BASE_URL: str = "http://localhost:11434"
+    # Ollama counts as a provider only when switched on (a local server must be running).
+    OLLAMA_ENABLED: bool = False
+    OLLAMA_MODEL: str = "llama3.1"
+    # Provider preference and failover order (Repair 12e). When an agent's model
+    # belongs to a provider with no key, or that provider fails for an account
+    # reason (no credit, bad key, rate limit, outage), the same tier of model on
+    # the next configured provider is used.
+    PROVIDER_ORDER: str = "claude,openai,gemini,ollama"
+    OPENAI_MODEL: str = "gpt-6-luna"
 
     @validator("CLAUDE_API_KEY", pre=True)
     def claude_key_from_anthropic(cls, v: Optional[str], values: dict) -> Optional[str]:
