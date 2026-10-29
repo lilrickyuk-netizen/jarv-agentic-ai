@@ -23,7 +23,8 @@ os.environ.setdefault(
 # before Settings() is created. Tests that exercise providers inject a fake
 # router or set a test key explicitly.
 for _provider_key in ("CLAUDE_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
-                      "GEMINI_API_KEY", "GROQ_API_KEY"):
+                      "GEMINI_API_KEY", "GROQ_API_KEY", "ELEVENLABS_API_KEY", "STRIPE_SECRET_KEY",
+                      "PLAUSIBLE_API_KEY"):
     os.environ[_provider_key] = ""
 
 import pytest

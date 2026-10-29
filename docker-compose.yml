@@ -91,6 +91,7 @@ services:
       - ./apps/backend:/app
       - voice_models:/data/voice-models
       - backups:/data/backups
+      - voice_audio:/data/voice-audio
       # Approved workspace root. Mounted read-write so JARV can perform
       # AUTHORITY-GATED, scope-checked file writes inside approved workspaces.
       # Safety is enforced in-app (registered-workspace allowlist + banned/secret
@@ -278,6 +279,8 @@ volumes:
   voicebox_models:
     driver: local
   backups:
+    driver: local
+  voice_audio:
     driver: local
 
 networks:

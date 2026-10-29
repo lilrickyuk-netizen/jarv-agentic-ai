@@ -112,6 +112,8 @@ class OrchestratorAgent(AgentBase):
             "file_read",
             "workspace_info",
             "memory_search",
+            "transcribe_voice",
+            "speak_response",
         ]
 
     async def run(

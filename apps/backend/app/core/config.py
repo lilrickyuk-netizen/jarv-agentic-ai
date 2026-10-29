@@ -261,11 +261,19 @@ class Settings(BaseSettings):
 
     # Voice
     VOICE_ENABLED: bool = False
-    STT_PROVIDER: str = "whisper"
-    TTS_PROVIDER: str = "elevenlabs"
+    # Backends (Repair 12e-4c). auto = Voicebox when VOICEBOX_BASE_URL is set, otherwise the keyed
+    # cloud service. STT: auto, voicebox, openai. TTS: auto, voicebox, elevenlabs, openai.
+    STT_PROVIDER: str = "auto"
+    TTS_PROVIDER: str = "auto"
     ELEVENLABS_API_KEY: Optional[str] = None
-    GOOGLE_CLOUD_API_KEY: Optional[str] = None
-    AZURE_SPEECH_KEY: Optional[str] = None
+    ELEVENLABS_VOICE_ID: Optional[str] = None
+    ELEVENLABS_MODEL_ID: str = "eleven_multilingual_v2"
+    OPENAI_STT_MODEL: str = "whisper-1"
+    OPENAI_TTS_MODEL: str = "tts-1"
+    OPENAI_TTS_VOICE: str = "onyx"
+    # Spoken replies are stored here for their owner and pruned after the retention period.
+    VOICE_AUDIO_DIR: str = "/data/voice-audio"
+    VOICE_AUDIO_RETENTION_HOURS: float = 24.0
 
     # Email
     SMTP_HOST: Optional[str] = None

@@ -1,35 +1,11 @@
 """
-JARV Backend - Voice Command System
+JARV Backend - Voice
 
-Complete voice command system with:
-- Speech-to-Text (STT) for voice input
-- Text-to-Speech (TTS) for voice output
-- Wake word detection for hands-free activation
-- Voice command routing to Orchestrator
-- Spoken status replies for feedback
+- engine: speech-to-text, text-to-speech, wake-phrase detection on a clip,
+  and spoken commands routed through the Command Center (Repair 12e-4c).
+- wake_service: the local sherpa-onnx keyword spotter and its model install.
+- status_replies: short spoken status phrases.
 """
-from .stt import STTAdapter, STTProvider, STTIntegrationRequiredError
-from .tts import TTSAdapter, TTSProvider, TTSIntegrationRequiredError
-from .wake_word import WakeWordDetector, WakeWordProvider, WakeWordIntegrationRequiredError
-from .router import VoiceCommandRouter
 from .status_replies import SpokenStatusReplies, StatusType
 
-__all__ = [
-    # STT
-    "STTAdapter",
-    "STTProvider",
-    "STTIntegrationRequiredError",
-    # TTS
-    "TTSAdapter",
-    "TTSProvider",
-    "TTSIntegrationRequiredError",
-    # Wake Word
-    "WakeWordDetector",
-    "WakeWordProvider",
-    "WakeWordIntegrationRequiredError",
-    # Router
-    "VoiceCommandRouter",
-    # Status Replies
-    "SpokenStatusReplies",
-    "StatusType",
-]
+__all__ = ["SpokenStatusReplies", "StatusType"]

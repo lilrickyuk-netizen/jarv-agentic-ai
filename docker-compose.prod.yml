@@ -115,6 +115,23 @@ services:
       DEPLOY_SSH_PRIVATE_KEY: ${DEPLOY_SSH_PRIVATE_KEY:-}
       DEPLOY_SSH_KNOWN_HOSTS: ${DEPLOY_SSH_KNOWN_HOSTS:-}
       DEPLOY_BASE_DIR: ${DEPLOY_BASE_DIR:-/srv/jarv}
+      # Revenue, infrastructure money and voice (Repairs 12e-4b/4c). Unset keys leave the adapter disabled.
+      INFRA_FIXED_COSTS: ${INFRA_FIXED_COSTS:-}
+      INFRA_MONTHLY_BUDGET: ${INFRA_MONTHLY_BUDGET:-0}
+      INFRA_REPLICA_MONTHLY_COST: ${INFRA_REPLICA_MONTHLY_COST:-0}
+      INFRA_MAX_REPLICAS: ${INFRA_MAX_REPLICAS:-5}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      PLAUSIBLE_API_KEY: ${PLAUSIBLE_API_KEY:-}
+      PLAUSIBLE_SITE_ID: ${PLAUSIBLE_SITE_ID:-}
+      APP_STORE_COUNTRY: ${APP_STORE_COUNTRY:-us}
+      STT_PROVIDER: ${STT_PROVIDER:-auto}
+      TTS_PROVIDER: ${TTS_PROVIDER:-auto}
+      VOICEBOX_BASE_URL: ${VOICEBOX_BASE_URL:-}
+      VOICEBOX_PROFILE_ID: ${VOICEBOX_PROFILE_ID:-}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
+      VOICE_AUDIO_DIR: /data/voice-audio
     depends_on:
       postgres:
         condition: service_healthy
@@ -122,6 +139,7 @@ services:
         condition: service_healthy
     volumes:
       - backups:/data/backups
+      - voice_audio:/data/voice-audio
     networks:
       - jarv-network
       - jarv-ops
@@ -207,6 +225,23 @@ services:
       DEPLOY_SSH_PRIVATE_KEY: ${DEPLOY_SSH_PRIVATE_KEY:-}
       DEPLOY_SSH_KNOWN_HOSTS: ${DEPLOY_SSH_KNOWN_HOSTS:-}
       DEPLOY_BASE_DIR: ${DEPLOY_BASE_DIR:-/srv/jarv}
+      # Revenue, infrastructure money and voice (Repairs 12e-4b/4c). Unset keys leave the adapter disabled.
+      INFRA_FIXED_COSTS: ${INFRA_FIXED_COSTS:-}
+      INFRA_MONTHLY_BUDGET: ${INFRA_MONTHLY_BUDGET:-0}
+      INFRA_REPLICA_MONTHLY_COST: ${INFRA_REPLICA_MONTHLY_COST:-0}
+      INFRA_MAX_REPLICAS: ${INFRA_MAX_REPLICAS:-5}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      PLAUSIBLE_API_KEY: ${PLAUSIBLE_API_KEY:-}
+      PLAUSIBLE_SITE_ID: ${PLAUSIBLE_SITE_ID:-}
+      APP_STORE_COUNTRY: ${APP_STORE_COUNTRY:-us}
+      STT_PROVIDER: ${STT_PROVIDER:-auto}
+      TTS_PROVIDER: ${TTS_PROVIDER:-auto}
+      VOICEBOX_BASE_URL: ${VOICEBOX_BASE_URL:-}
+      VOICEBOX_PROFILE_ID: ${VOICEBOX_PROFILE_ID:-}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
+      VOICE_AUDIO_DIR: /data/voice-audio
       JARV_API_URL: http://backend:8000
     depends_on:
       postgres:
@@ -215,6 +250,7 @@ services:
         condition: service_healthy
     volumes:
       - backups:/data/backups
+      - voice_audio:/data/voice-audio
     networks:
       - jarv-network
       - jarv-ops
@@ -353,6 +389,8 @@ volumes:
   nginx_logs:
     driver: local
   backups:
+    driver: local
+  voice_audio:
     driver: local
 
 networks:
