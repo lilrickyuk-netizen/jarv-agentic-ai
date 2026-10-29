@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 # Global Redis client
 _redis_client: Optional[Redis] = None
 _redis_pool: Optional[ConnectionPool] = None
+_redis_loop = None
 
 
 async def init_redis() -> Redis:
@@ -78,9 +79,22 @@ async def init_redis() -> Redis:
 
 
 async def get_redis() -> Redis:
-    """Get Redis client instance"""
+    """Get the Redis client for the running event loop.
+
+    The API runs one event loop for its whole life. Celery tasks run each job in
+    a fresh ``asyncio.run`` loop, and a pooled connection opened on a finished
+    loop cannot be used on the next one, so a client made on another loop is
+    replaced (the test double is loop-independent and kept)."""
+    global _redis_client, _redis_pool, _redis_loop
+    import asyncio
+
+    loop = asyncio.get_running_loop()
+    if _redis_client is not None and _redis_pool is not None and _redis_loop is not loop:
+        _redis_client, _redis_pool = None, None
     if _redis_client is None:
-        return await init_redis()
+        client = await init_redis()
+        _redis_loop = loop
+        return client
     return _redis_client
 
 

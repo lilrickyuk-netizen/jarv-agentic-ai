@@ -320,7 +320,7 @@ async def create_workspace(
 
         # Owner: use a real seeded user (operators authenticate via the Redis
         # user store; workspaces are owned by the first persisted user).
-        owner_id = (await db.execute(select(User.id).limit(1))).scalar_one_or_none()
+        owner_id = (await db.execute(select(User.id).order_by(User.created_at.asc()).limit(1))).scalar_one_or_none()
         if owner_id is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

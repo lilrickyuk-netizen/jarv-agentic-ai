@@ -735,7 +735,7 @@ class CommandService:
 
     async def _first_user_id(self, db: AsyncSession) -> UUID:
         """Return a real user id to own workspaces (operators auth via Redis)."""
-        result = await db.execute(select(User.id).limit(1))
+        result = await db.execute(select(User.id).order_by(User.created_at.asc()).limit(1))
         uid = result.scalar_one_or_none()
         if uid:
             return uid

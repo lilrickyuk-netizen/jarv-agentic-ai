@@ -216,22 +216,25 @@ class InspectServerTool(_OpsTool):
 
 
 def _disks() -> List[Dict[str, Any]]:
-    disks = []
-    for part in psutil.disk_partitions(all=False):
+    """One entry per filesystem. Inside a container the root is an overlay that
+    psutil does not list, and single files (/etc/hosts, ...) are bind-mounted
+    from the same disk; both are folded so each disk appears once."""
+    candidates = ["/"] + [p.mountpoint for p in psutil.disk_partitions(all=False)] + ["/data/backups"]
+    disks: List[Dict[str, Any]] = []
+    seen = set()
+    for mount in candidates:
+        if not os.path.isdir(mount):
+            continue
         try:
-            usage = psutil.disk_usage(part.mountpoint)
+            device = os.stat(mount).st_dev
+            usage = psutil.disk_usage(mount)
         except OSError:
             continue
-        disks.append({"mount": part.mountpoint, "percent": usage.percent,
+        if device in seen:
+            continue
+        seen.add(device)
+        disks.append({"mount": mount, "percent": usage.percent,
                       "free_gb": round(usage.free / 1e9, 2), "total_gb": round(usage.total / 1e9, 2)})
-    # Inside a container the root filesystem is an overlay, which psutil does not
-    # list as a physical partition; always report the root and the backups volume.
-    listed = {d["mount"] for d in disks}
-    for mount in ("/", "/data/backups"):
-        if mount not in listed and os.path.isdir(mount):
-            usage = psutil.disk_usage(mount)
-            disks.append({"mount": mount, "percent": usage.percent,
-                          "free_gb": round(usage.free / 1e9, 2), "total_gb": round(usage.total / 1e9, 2)})
     return disks
 
 

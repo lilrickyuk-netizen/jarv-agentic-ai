@@ -323,7 +323,7 @@ async def run_agent(
 
     ws_id = (await db.execute(select(Workspace.id).limit(1))).scalar_one_or_none()
     if ws_id is None:
-        owner = (await db.execute(select(User.id).limit(1))).scalar_one_or_none()
+        owner = (await db.execute(select(User.id).order_by(User.created_at.asc()).limit(1))).scalar_one_or_none()
         ws = Workspace(id=uuid4(), name="Command Center", slug=f"cc-{uuid4().hex[:6]}",
                        description="default", owner_id=owner, workspace_type="general",
                        is_active=True, authority_level=5, config={},

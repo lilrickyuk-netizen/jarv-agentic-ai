@@ -75,62 +75,90 @@ def health_check_task(self: Task) -> dict[str, Any]:
 
 
 async def _run_scheduled_loop(job_name: str, description: str) -> dict[str, Any]:
-    """
-    Autonomous, operator-free loop run. Creates a real Task and writes audit +
-    operations-feed entries so the dashboard shows JARV self-triggering work.
-    Read-only: gathers DB counts; never modifies files.
+    """Autonomous health check and repair, run by Celery beat (no operator command).
+
+    Each run measures JARV (database, Redis, workers, missions, Prometheus, and
+    container state through the Docker proxy) and records one audit entry.
+    The operations feed gets an entry only when the overall state changes, so a
+    healthy system does not flood it. With SELF_HEALING_ENABLED, a restartable
+    JARV service that is down or unhealthy on two consecutive runs is restarted
+    (never the data stores, never this worker itself) and the restart is
+    recorded in the feed and the audit log.
     """
     from datetime import datetime, timezone
     from uuid import uuid4
-    from sqlalchemy import func, select
+    from sqlalchemy import select
 
     from app.core.database import AsyncSessionLocal
-    from app.models.task import Task as TaskModel
-    from app.models.user import User
-    from app.models.workspace import Workspace
-    from app.models.agent import Agent
-    from app.models.operations import AuditLog
+    from app.core.ops import docker_ops
+    from app.core.ops.health import service_health
+    from app.core.redis import get_redis
     from app.models.company_operations import LiveOperationsFeedItem
+    from app.models.operations import AuditLog
+    from app.models.workspace import Workspace
 
+    now = datetime.now(timezone.utc)
+    redis = await get_redis()
     async with AsyncSessionLocal() as db:
-        ws_id = (await db.execute(select(Workspace.id).limit(1))).scalar_one_or_none()
-        if ws_id is None:
-            owner = (await db.execute(select(User.id).limit(1))).scalar_one_or_none()
-            ws = Workspace(id=uuid4(), name="Command Center", slug=f"cc-{uuid4().hex[:6]}",
-                           description="Default", owner_id=owner, workspace_type="general",
-                           is_active=True, authority_level=5, config={},
-                           created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
-            db.add(ws); await db.flush(); ws_id = ws.id
+        health = await service_health(db)
+        containers: list = []
+        broken: list = []
+        ops = docker_ops.get_docker_ops()
+        if ops.available:
+            try:
+                containers = await ops.containers()
+                broken = [c.service for c in containers if c.state != "running" or c.health == "unhealthy"]
+            except docker_ops.OpsUnavailable as exc:
+                health["failing"].append("containers")
+                health["checks"]["containers"] = {"ok": False, "error": str(exc)}
+        repairs: list = []
+        if settings.SELF_HEALING_ENABLED and ops.available:
+            for service in sorted({c.service for c in containers}):
+                key = f"selfheal:strikes:{service}"
+                if service not in broken:
+                    await redis.delete(key)
+                    continue
+                strikes = int(await redis.incr(key))
+                await redis.expire(key, 3600)
+                if strikes < 2 or service in docker_ops.NEVER_RESTART or service not in docker_ops.RESTARTABLE:
+                    continue
+                try:
+                    result = await ops.restart(service)
+                    repairs.append({"service": service, "restarted": result["containers"]})
+                    await redis.delete(key)
+                except (docker_ops.OpsRefused, docker_ops.OpsUnavailable) as exc:
+                    repairs.append({"service": service, "error": str(exc)})
 
-        agents = (await db.execute(select(func.count(Agent.id)))).scalar() or 0
-        tasks = (await db.execute(select(func.count(TaskModel.id)))).scalar() or 0
-        summary = f"Scheduled '{job_name}': DB connected, {agents} agents, {tasks} tasks."
+        failing = sorted(set(health["failing"]) | {f"service:{s}" for s in broken})
+        state = "healthy" if not failing else "degraded: " + ", ".join(failing)
+        summary = f"Scheduled '{job_name}': {state}."
+        if repairs:
+            summary += " Repairs: " + "; ".join(
+                f"{r['service']} {'restarted' if 'restarted' in r else 'not restarted (' + r['error'] + ')'}"
+                for r in repairs)
 
-        t = TaskModel(
-            id=uuid4(), workspace_id=ws_id,
-            title=f"[scheduled] {job_name}", description=description,
-            task_type="scheduled", status="completed", priority=5,
-            context={"source": "scheduler", "job": job_name},
-            meta_data={"channel": "scheduler", "autonomous": True},
-            result={"response": summary, "selected_agents": ["monitoring"],
-                    "provider": "system", "model": "scheduler", "tool_calls": []},
-            started_at=datetime.now(timezone.utc), completed_at=datetime.now(timezone.utc),
-            execution_duration_seconds=0, tokens_used=0,
-            created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
-        )
-        db.add(t)
-        db.add(LiveOperationsFeedItem(
-            id=uuid4(), workspace_id=ws_id, item_type="scheduled", severity="info",
-            title=f"Scheduled run: {job_name}", message=summary, related_task_id=t.id,
-            requires_action=False,
-            created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc)))
+        ws_id = (await db.execute(select(Workspace.id).order_by(Workspace.created_at.asc()).limit(1))
+                 ).scalar_one_or_none()
+        previous = await redis.get(f"scheduler:last_state:{job_name}")
+        if ws_id is not None and (previous != state or repairs):
+            db.add(LiveOperationsFeedItem(
+                id=uuid4(), workspace_id=ws_id, item_type="self_healing" if repairs else "health",
+                severity="warning" if failing else "info",
+                title=("Self-healing restarted a service" if repairs else
+                       ("JARV health degraded" if failing else "JARV health restored" if previous else
+                        "JARV health check")),
+                message=summary, requires_action=bool(failing and not repairs),
+                created_at=now, updated_at=now))
+        await redis.set(f"scheduler:last_state:{job_name}", state)
         db.add(AuditLog(
             id=uuid4(), workspace_id=ws_id, actor_type="scheduler",
             action="scheduled_run", action_category="scheduler", description=summary,
-            target_type="task", target_id=str(t.id), after_state={"job": job_name},
-            success=True, created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc)))
+            target_type="scheduled_job", target_id=job_name,
+            after_state={"job": job_name, "state": state, "failing": failing, "repairs": repairs,
+                         "description": description},
+            success=not failing or bool(repairs), created_at=now, updated_at=now))
         await db.commit()
-        return {"job": job_name, "task_id": str(t.id), "summary": summary}
+        return {"job": job_name, "state": state, "failing": failing, "repairs": repairs, "summary": summary}
 
 
 @celery_app.task(name="scheduled_status_loop", bind=True)
@@ -138,7 +166,7 @@ def scheduled_status_loop(self: Task) -> dict[str, Any]:
     """Daily operating / heartbeat loop — runs autonomously via Celery Beat."""
     return asyncio.run(_run_scheduled_loop(
         "daily_status_check",
-        "Autonomous read-only system status check (no operator command)."))
+        "Autonomous health check and self-healing of JARV's own services (no operator command)."))
 
 
 # ===== Mission runtime (Repair 12) =====

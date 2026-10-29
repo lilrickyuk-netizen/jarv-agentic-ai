@@ -57,7 +57,8 @@ async def _workers() -> Dict[str, Any]:
         return {"workers": None, "note": "not pinged in test mode"}
     from app.core.celery import celery_app
 
-    replies = await asyncio.wait_for(asyncio.to_thread(celery_app.control.ping, timeout=1.5), timeout=5)
+    # limit=1: return as soon as one worker answers instead of waiting out the timeout.
+    replies = await asyncio.wait_for(asyncio.to_thread(celery_app.control.ping, timeout=2.0, limit=1), timeout=5)
     names = sorted(name for reply in (replies or []) for name in reply)
     if not names:
         raise RuntimeError("no Celery worker answered a ping")
