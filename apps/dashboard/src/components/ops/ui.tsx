@@ -148,11 +148,12 @@ export function Button({ children, onClick, disabled, kind = 'primary', type = '
   );
 }
 
-export function Field({ label, children }: { label: string; children: ReactNode }) {
+export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <label className="block text-sm">
       <span className="block text-xs font-medium text-muted-foreground mb-1">{label}</span>
       {children}
+      {hint && <span className="block text-[11px] text-muted-foreground mt-1">{hint}</span>}
     </label>
   );
 }

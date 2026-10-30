@@ -121,7 +121,7 @@ function Board({ workspaceId }: { workspaceId: string }) {
               </div>
             )}
             <form onSubmit={addKpi} className="grid grid-cols-2 md:grid-cols-5 gap-3 border-t pt-4 mt-4" aria-label="Record KPI">
-              <Field label="KPI"><input required minLength={2} className={inputClass} value={name} onChange={(e) => setName(e.target.value)} placeholder="signups" /></Field>
+              <Field label="KPI" hint="For example: signups"><input required minLength={2} className={inputClass} value={name} onChange={(e) => setName(e.target.value)} /></Field>
               <Field label="Value"><input required type="number" step="any" className={inputClass} value={value} onChange={(e) => setValue(e.target.value)} /></Field>
               <Field label="Target"><input type="number" step="any" className={inputClass} value={target} onChange={(e) => setTarget(e.target.value)} /></Field>
               <Field label="Unit"><input className={inputClass} value={unit} onChange={(e) => setUnit(e.target.value)} /></Field>

@@ -80,9 +80,8 @@ function PartnersPanel({ workspaceId }: { workspaceId: string }) {
               </select>
             </Field>
             <div className="md:col-span-3">
-              <Field label="Candidates, one per line: name | url | notes">
-                <textarea className={`${inputClass} min-h-[84px]`} value={candidates} onChange={(e) => setCandidates(e.target.value)}
-                  placeholder="Acme Payments | https://acme.example | Stripe alternative used by makers" />
+              <Field label="Candidates, one per line: name | url | notes" hint="For example: Acme Payments | https://acme.example | Stripe alternative used by makers">
+                <textarea className={`${inputClass} min-h-[84px]`} value={candidates} onChange={(e) => setCandidates(e.target.value)} />
               </Field>
             </div>
           </div>

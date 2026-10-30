@@ -78,9 +78,8 @@ function TicketDetail({ workspaceId, ticket, onChange }: { workspaceId: string; 
           ))}
         </ul>
       )}
-      <Field label="Reply">
-        <textarea className={`${inputClass} min-h-[160px]`} value={reply} onChange={(e) => setReply(e.target.value)}
-          placeholder="Draft a reply, edit it, then send" />
+      <Field label="Reply" hint="Draft a reply, edit it, then send">
+        <textarea className={`${inputClass} min-h-[160px]`} value={reply} onChange={(e) => setReply(e.target.value)} />
       </Field>
       {ticket.last_draft && (
         <p className="text-xs text-muted-foreground mt-1">

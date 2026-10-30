@@ -73,14 +73,14 @@ export function DraftsPanel({ workspaceId, group, title, hint }: {
               {options.map((k) => <option key={k.kind} value={k.kind}>{k.label}</option>)}
             </select>
           </Field>
-          <Field label="Brief (topic, goal or announcement)">
-            <input className={inputClass} value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="e.g. Dark mode is live" />
+          <Field label="Brief (topic, goal or announcement)" hint="For example: Dark mode is live">
+            <input className={inputClass} value={topic} onChange={(e) => setTopic(e.target.value)} />
           </Field>
-          <Field label="Audience">
-            <input className={inputClass} value={audience} onChange={(e) => setAudience(e.target.value)} placeholder="e.g. new makers" />
+          <Field label="Audience" hint="For example: new makers">
+            <input className={inputClass} value={audience} onChange={(e) => setAudience(e.target.value)} />
           </Field>
-          <Field label="Tone">
-            <input className={inputClass} value={tone} onChange={(e) => setTone(e.target.value)} placeholder="friendly, technical…" />
+          <Field label="Tone" hint="For example: friendly, technical">
+            <input className={inputClass} value={tone} onChange={(e) => setTone(e.target.value)} />
           </Field>
           <div className="md:col-span-4 flex flex-wrap items-center gap-4">
             <Button type="submit" disabled={action.busy || !chosen}>{action.busy ? 'Writing…' : 'Write draft'}</Button>

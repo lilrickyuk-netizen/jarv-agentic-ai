@@ -82,7 +82,7 @@ describe('Sales', () => {
     mockResponses[`/api/business/${WS}/drafts`] = { drafts: [] };
     const Page = (await import('@/app/dashboard/sales/page')).default;
     render(<Page />);
-    fireEvent.change(await screen.findByPlaceholderText('e.g. Dark mode is live'), { target: { value: 'Annual plan launch' } });
+    fireEvent.change(await screen.findByLabelText(/Brief \(topic, goal or announcement\)/), { target: { value: 'Annual plan launch' } });
     fireEvent.click(screen.getByRole('button', { name: 'Write draft' }));
     await waitFor(() => expect(mockPosts.map((p) => p.path)).toContain(`/api/business/${WS}/drafts/create_sales_script`));
     expect(screen.queryByRole('option', { name: 'Post' })).not.toBeInTheDocument();
