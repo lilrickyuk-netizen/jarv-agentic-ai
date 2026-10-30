@@ -204,3 +204,49 @@ def test_every_registered_tool_is_a_valid_openai_function():
         arrays_have_items(tool["function"]["parameters"])
         checked += 1
     assert checked > 100
+
+
+@pytest.mark.asyncio
+async def test_the_same_agent_turns_work_on_claude():
+    """Missions run on Claude or OpenAI (with failover between them): the same agent conversation is sent
+    in Claude's shape, with names Claude accepts, and the reply comes back with JARV's own tool names."""
+    import json
+    import re
+
+    import httpx
+
+    from app.core.providers.claude import ClaudeProvider
+
+    sent = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, json={
+            "id": "msg_1", "type": "message", "role": "assistant", "stop_reason": "tool_use",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+            "content": [{"type": "tool_use", "id": "toolu_2", "name": "boundary__detect", "input": {"action": "x"}}]})
+
+    provider = ClaudeProvider(api_key="unit-test-key")
+    await provider.client.aclose()
+    provider.client = httpx.AsyncClient(base_url=provider.API_BASE, transport=httpx.MockTransport(answer))
+    try:
+        response = await provider.complete(CompletionRequest(
+            model="claude-sonnet-4-6", max_tokens=64, system="You are JARV's coding agent.",
+            messages=[Message(role="user", content="TASK:\nCheck the release."),
+                      Message(role="assistant", content=[{"type": "tool_use", "id": "toolu_1",
+                                                          "name": "boundary.detect", "input": {"action": "x"}}]),
+                      Message(role="user", content=[{"type": "tool_result", "tool_use_id": "toolu_1",
+                                                     "content": "no boundary"}])],
+            tools=[{"name": "boundary.detect", "description": "Detect hard boundaries.",
+                    "input_schema": {"type": "object", "properties": {"action": {"type": "string"}}}},
+                   {"type": "function", "function": {"name": "read_file", "description": "Read a file.",
+                                                     "parameters": {"type": "object", "properties": {}}}}]))
+    finally:
+        await provider.client.aclose()
+
+    payload = sent[0]
+    assert [t["name"] for t in payload["tools"]] == ["boundary__detect", "read_file"]
+    assert all(re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", t["name"]) and "input_schema" in t for t in payload["tools"])
+    assert payload["messages"][1]["content"][0]["name"] == "boundary__detect"
+    assert payload["messages"][2]["content"][0]["type"] == "tool_result"
+    assert response.tool_calls[0]["function"]["name"] == "boundary.detect"
