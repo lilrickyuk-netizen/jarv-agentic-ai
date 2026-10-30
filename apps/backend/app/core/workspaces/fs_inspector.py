@@ -24,6 +24,7 @@ scans return a structured "not accessible" result instead of raising.
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Dict, List, Optional
@@ -437,6 +438,9 @@ SAFE_COMMAND_PREFIXES = (
     "git status", "git log", "git branch", "git diff", "git remote",
     "python --version", "python3 --version", "node --version", "npm --version",
     "npm ls", "npm list", "pip list", "pip --version", "echo", "whoami", "date",
+    "pnpm --version", "pnpm ls", "pnpm list", "npx --version", "uv --version", "uv python list",
+    "uv tree", "uv tool list", "git --version", "git show", "git rev-parse",
+    "yarn --version", "jq --version", "rg --version", "gcc --version", "make --version",
 )
 # Build / test commands — allowed at Level 3 (build & test) inside an approved
 # workspace. These compile/test a project (JARV's core job) but do not delete,
@@ -453,7 +457,18 @@ BUILD_TEST_PREFIXES = (
     "python -m py_compile", "python3 -m py_compile",
     "python -m compileall", "python3 -m compileall",
     "python", "python3", "node", "node --check", "grep", "rg",
+    "pnpm lint", "pnpm typecheck", "pnpm exec", "pnpm -r", "pnpm --filter", "uv run",
+    # Local version control inside the workspace folder (never push, reset or clean).
+    "git init", "git add",
 )
+# Commands that change the folder they run in: they only run with a workspace folder as their
+# working directory, never in JARV's own directory.
+WORKSPACE_ONLY_PREFIXES = ("git init", "git add", "git commit")
+# git commit with one plain double-quoted message. The message is checked for shell syntax, not
+# for the destructive-command words above, so "Add platform docs" is a valid message.
+# git add with plain paths only ("dd " inside "git add ." is not the dd command).
+_GIT_ADD_RE = re.compile(r"^git add(?: (?:-a|--all|[\w./@-]+))+$")
+_GIT_COMMIT_RE = re.compile(r'^git commit(?: -a)? -m "([^"`$\\;&|<>\n]{1,500})"$')
 
 # Trusted project package-manager install commands (project-local). Allowed to
 # run automatically INSIDE an approved workspace (PackageInstallPolicy:
@@ -463,7 +478,11 @@ INSTALL_PREFIXES = (
     "pnpm install", "pnpm i", "pnpm add", "yarn", "yarn install", "yarn add",
     "pip install", "pip3 install", "python -m pip install", "python3 -m pip install",
     "poetry install", "poetry add", "poetry lock", "uv pip install", "uv sync",
-    "uv add", "pipenv install", "go get", "go mod download", "go mod tidy",
+    "uv add", "uv lock", "uv venv",
+    # Tools and language versions JARV adds to its own tool home from the official registries
+    # (PyPI, npm, python-build-standalone): never system-wide, never with sudo.
+    "uv tool install", "uv tool upgrade", "uv python install", "uvx", "uv tool run",
+    "pnpm dlx", "npx", "yarn dlx", "pipenv install", "go get", "go mod download", "go mod tidy",
     "composer install", "composer require", "gradle", "./gradlew", "mvn install",
     "mvn package", "bundle install",
 )
@@ -504,6 +523,8 @@ def classify_command(command: str) -> str:
     # Privilege / global / pipe-to-shell always block (even for package managers).
     if _is_hard_blocked(c):
         return "dangerous"
+    if _GIT_COMMIT_RE.match(c) or _GIT_ADD_RE.match(c):
+        return "build"
     # Trusted local installs (checked before generic dangerous tokens).
     for pre in INSTALL_PREFIXES:
         if c == pre or c.startswith(pre + " "):
@@ -518,6 +539,13 @@ def classify_command(command: str) -> str:
         if c == pre or c.startswith(pre + " "):
             return "build"
     return "risky"
+
+
+def needs_workspace(command: str) -> bool:
+    """True when the command may only run with a workspace folder as its working directory."""
+    c = " ".join((command or "").strip().lower().split())
+    return classify_command(command) == "install" or any(
+        c == pre or c.startswith(pre + " ") for pre in WORKSPACE_ONLY_PREFIXES)
 
 
 def _safe_size(p: Path) -> Optional[int]:

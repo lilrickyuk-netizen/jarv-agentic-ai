@@ -191,6 +191,7 @@ services:
     volumes:
       - backups:/data/backups
       - voice_audio:/data/voice-audio
+      - tool_home:/home/jarv
     networks:
       - jarv-network
       - jarv-ops
@@ -330,6 +331,7 @@ services:
     volumes:
       - backups:/data/backups
       - voice_audio:/data/voice-audio
+      - tool_home:/home/jarv
     networks:
       - jarv-network
       - jarv-ops
@@ -472,6 +474,8 @@ volumes:
   backups:
     driver: local
   voice_audio:
+    driver: local
+  tool_home:
     driver: local
 
 networks:

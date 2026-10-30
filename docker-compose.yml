@@ -114,6 +114,8 @@ services:
       - voice_models:/data/voice-models
       - backups:/data/backups
       - voice_audio:/data/voice-audio
+      # JARV's tool home: tools, language versions and package caches it installs persist here.
+      - tool_home:/home/jarv
       # Approved workspace root. Mounted read-write so JARV can perform
       # AUTHORITY-GATED, scope-checked file writes inside approved workspaces.
       # Safety is enforced in-app (registered-workspace allowlist + banned/secret
@@ -219,6 +221,7 @@ services:
     volumes:
       - ./apps/backend:/app
       - backups:/data/backups
+      - tool_home:/home/jarv
       - type: bind
         source: ${WORKSPACE_MOUNT_SOURCE:-/mnt/c/Users/lilri/OneDrive/Desktop}
         target: /host/workspaces
@@ -307,6 +310,8 @@ volumes:
   backups:
     driver: local
   voice_audio:
+    driver: local
+  tool_home:
     driver: local
 
 networks:

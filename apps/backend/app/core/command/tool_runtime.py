@@ -557,14 +557,15 @@ class ToolRuntime:
                                                 dangerous=True)
             return denied
 
+        if fs_inspector.needs_workspace(command) and not cwd:
+            what = "Package install" if cls == "install" else "This command"
+            await self._record("run_command", {"command": command}, False,
+                               "blocked: must run inside an approved workspace")
+            await self._persist_command_run(command, cwd_host, None, "", "blocked", False,
+                                            dangerous=True)
+            return {"success": False, "blocked": True, "classification": cls,
+                    "reason": f"{what} blocked: not inside an approved workspace."}
         if cls == "install":
-            if not cwd:
-                await self._record("run_command", {"command": command}, False,
-                                   "blocked: install must run inside an approved workspace")
-                await self._persist_command_run(command, cwd_host, None, "", "blocked", False,
-                                                dangerous=True)
-                return {"success": False, "blocked": True, "classification": cls,
-                        "reason": "Package install blocked: not inside an approved workspace."}
             timeout = max(timeout, 420)  # installs can take minutes
 
         # safe/build/install: execute with timeout, capture stdout/stderr/exit code.
