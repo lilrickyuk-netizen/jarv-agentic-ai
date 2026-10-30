@@ -218,6 +218,16 @@ def client(db_session: Session) -> Generator[TestClient, None, None]:
 
 
 @pytest.fixture
+def signed_in(test_user):
+    """Sign the API in as test_user (who owns test_workspace) for the duration of a test."""
+    from app.core.auth import get_current_user_id
+
+    app.dependency_overrides[get_current_user_id] = lambda: str(test_user.id)
+    yield test_user
+    app.dependency_overrides.pop(get_current_user_id, None)
+
+
+@pytest.fixture
 def auth_headers():
     """Create authentication headers for testing"""
     return {"Authorization": "Bearer test_token"}

@@ -9,6 +9,7 @@ from typing import Any, Dict, List
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
+from app.core.auth import get_current_user_id
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,10 +23,10 @@ from app.models.workspace import Workspace
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/tools/internet", tags=["internet"])
-research_router = APIRouter(prefix="/research", tags=["research"])
+router = APIRouter(prefix="/tools/internet", tags=["internet"], dependencies=[Depends(get_current_user_id)])
+research_router = APIRouter(prefix="/research", tags=["research"], dependencies=[Depends(get_current_user_id)])
 # Distinct prefix to avoid colliding with the existing /api/assets/{asset_id} route.
-assets_lic_router = APIRouter(prefix="/asset-licences", tags=["assets-licences"])
+assets_lic_router = APIRouter(prefix="/asset-licences", tags=["assets-licences"], dependencies=[Depends(get_current_user_id)])
 
 
 @router.get("/list")

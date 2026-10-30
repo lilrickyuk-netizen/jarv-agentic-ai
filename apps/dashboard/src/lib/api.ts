@@ -24,12 +24,7 @@ export interface ReadyChecks {
 export interface VersionResponse {
   service: string;
   version: string;
-  environment: string;
-  python_version: string;
-  platform: string;
   timestamp: string;
-  features: Record<string, boolean>;
-  configuration: Record<string, string | number | boolean>;
 }
 
 class ApiClient {

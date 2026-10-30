@@ -7,6 +7,9 @@ from sqlalchemy.orm import Session
 from app.models.workspace import Workspace
 from app.models.user import User
 
+# Every API route requires sign-in (Repair 15a); these tests run as test_user, the owner of test_workspace.
+pytestmark = pytest.mark.usefixtures("signed_in")
+
 
 @pytest.mark.api
 @pytest.mark.integration
@@ -156,10 +159,20 @@ def test_delete_workspace(client: TestClient, db_session: Session, test_user: Us
     db_session.commit()
     workspace_id = workspace.id
 
-    # Delete it
-    response = client.delete(f"/api/workspaces/{workspace_id}")
-    assert response.status_code == 204
+    # A plain delete archives (reversible); nothing is removed
+    archived = client.delete(f"/api/workspaces/{workspace_id}")
+    assert archived.status_code == 200 and archived.json()["archived"] is True
+    db_session.expire_all()
+    kept = db_session.query(Workspace).filter(Workspace.id == workspace_id).first()
+    assert kept is not None and kept.is_archived is True
+
+    # Permanent deletion must be confirmed with the workspace's slug
+    unconfirmed = client.delete(f"/api/workspaces/{workspace_id}", params={"permanent": "true"})
+    assert unconfirmed.status_code == 400 and "confirm=to-delete" in unconfirmed.json()["detail"]
+    response = client.delete(f"/api/workspaces/{workspace_id}", params={"permanent": "true", "confirm": "to-delete"})
+    assert response.status_code == 200 and response.json()["deleted"] is True
 
     # Verify deleted
+    db_session.expire_all()
     deleted = db_session.query(Workspace).filter(Workspace.id == workspace_id).first()
     assert deleted is None

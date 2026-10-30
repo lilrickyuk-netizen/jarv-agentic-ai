@@ -6,6 +6,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 from uuid import uuid4
 
+# Every API route requires sign-in (Repair 15a); these tests run as test_user, the owner of test_workspace.
+pytestmark = pytest.mark.usefixtures("signed_in")
+
 
 @pytest.mark.regression
 @pytest.mark.api
@@ -191,11 +194,14 @@ def test_cascading_delete_regression(client: TestClient, db_session: Session, te
     workspace_id = workspace.id
     agent_id = agent.id
 
-    # Delete workspace
-    response = client.delete(f"/api/workspaces/{workspace_id}")
-
-    # Should handle deletion (either cascade or reject)
-    assert response.status_code in [204, 400], "Should handle deletion with children"
+    # A plain delete archives and keeps the children; a confirmed permanent delete cascades
+    archived = client.delete(f"/api/workspaces/{workspace_id}")
+    assert archived.status_code == 200 and archived.json()["archived"] is True
+    db_session.expire_all()
+    assert db_session.query(Agent).filter(Agent.id == agent_id).first() is not None
+    response = client.delete(f"/api/workspaces/{workspace_id}",
+                             params={"permanent": "true", "confirm": "delete-test-ws"})
+    assert response.status_code == 200, "Should handle deletion with children"
 
 
 @pytest.mark.regression

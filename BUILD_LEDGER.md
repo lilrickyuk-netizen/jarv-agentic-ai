@@ -8,7 +8,7 @@
 
 ## CURRENT STATUS
 - **Current Phase**: REPAIR CONTINUATION (10-15)
-- **Current Task**: REPAIR 14 (dashboard on real data, voice interface); Repair 12 complete 2026-10-29; Repair 13 complete 2026-10-30
+- **Current Task**: REPAIR 15 (hardening and final acceptance); Repair 12 complete 2026-10-29; Repairs 13 and 14 complete 2026-10-30
 - **Build Status**: NOT ACCEPTED; Repairs 11-15 remain open under the locked execution order
 - **Build Start Date**: 2026-06-03
 - **Build Completion Date**: 2026-06-03
@@ -12633,7 +12633,7 @@ NEXT TASK: REPAIR-14C (voice interface acceptance).
 
 TASK ID: REPAIR-14C-VOICE-ACCEPTANCE
 TASK NAME: Voice interface acceptance: the dashboard voice panel on the voice engine
-STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+STATUS: COMPLETE
 AUDIT FINDINGS THAT DROVE THIS TASK:
 - The dashboard voice panel worked only with Voicebox: push-to-talk and hands-free were disabled unless Voicebox was connected, although the voice engine (12e-4c) transcribes with OpenAI and speaks with ElevenLabs or OpenAI.
 - The panel sent what it heard to /api/command/execute, bypassing the voice router, so spoken approvals were not refused and voice missions were not marked as voice.
@@ -12651,6 +12651,34 @@ COMMANDS RUN:
 - python -m py_compile on changed backend files: passed; the router's phrase handling checked offline against approval, cancel, status and question phrasings.
 TESTS RUN:
 - Written: wake phrase and address removal; seven approval phrasings refused with no mission; wake, status, cancel and "confirm whether" questions; end to end with cloud speech only (heard, mission without the wake phrase marked voice, spoken reply served to its owner and refused to others, spoken approval refused and spoken, transcribe finds the wake phrase, mission followable). Dashboard: push-to-talk through the configured service, reply played, mission followed and its result spoken; spoken approval refusal shown with no mission; setup shown and controls disabled with no speech service; spoken summaries.
-RESULT: Pending owner test run.
+RESULT: Owner test runs: backend in Docker against PostgreSQL 16 + pgvector, 597 passed; dashboard in node:20, tsc --noEmit clean and jest 20 of 20 passed. Committed 7c1d6a5 on pre-repair-11. Repair 14 complete.
 BLOCKERS: None.
 NEXT TASK: REPAIR-15 (hardening: tools that only refuse, legacy in-memory business and content APIs, routers without authentication, legacy root scripts, final multi-agent acceptance).
+
+---
+
+TASK ID: REPAIR-15A-ACCESS-CONTROL
+TASK NAME: Every API route requires sign-in; every record is scoped to its owner
+STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- About 75 routes answered without sign-in, among them listing every workspace, creating one, changing its authority level and permanently deleting a workspace with all its data (a hard boundary), the audit trail, tasks and mission detail, boundary reports, checkpoints, the live operations feed (including marking and archiving items), standups, company roles, department task, feed and memory views, the scheduler, the tool and model registries, and POST /api/models/test, which calls a real provider.
+- Signed-in routes on those routers read every operator's records: no owner filter.
+- POST /api/agents/{name}/run ran the agent in whichever workspace was first in the database, whoever owned it; workspace creation assigned the first user in the database as owner.
+- GET /version and GET / exposed the environment, Python version, platform, feature switches and limits publicly; /ready returned database error text.
+FILES CREATED:
+- apps/backend/app/core/scoping.py (owned workspaces, sessions and agents as SQL; visible(model, user) for any model by its workspace, session, agent, user or owner link; require_workspace: 404 for another operator's workspace)
+- apps/backend/tests/test_repair15a_access_control.py
+FILES MODIFIED:
+- apps/backend/app/api/workspaces.py (sign-in on every route; list, stats, get, update and delete limited to the owner; the creator owns a new workspace; DELETE archives, reversibly; permanent deletion needs permanent=true and confirm=<slug> and is audit-logged; awaited rollbacks)
+- apps/backend/app/api/tasks.py, agents.py (router-level sign-in; tasks, mission detail and department views limited to the owner's workspaces; agent runs in the operator's chosen or own workspace), audit.py (the operator's entries and ownerless system events), boundary_reports.py, checkpoints.py, operations_feed.py, standups.py, company.py (sign-in and owner scoping), models.py, tools.py, scheduler.py, internet.py (router-level sign-in), health.py and app/main.py (public version and root show the service and version only; readiness reports error types only)
+- apps/backend/tests/conftest.py (signed_in fixture), test_api_agents.py, test_api_tasks.py, test_api_workspaces.py, test_regression.py, test_security_api.py, test_smoke.py (run signed in; delete archives then deletes with the slug; anonymous callers refused), test_health.py (public version carries nothing private)
+- apps/dashboard/src/lib/api.ts (VersionResponse matches the public version)
+- apps/backend/app/api/company.py (fix found by the first owner run: RoleInfo.department is optional like the column, so a role without a department no longer breaks the roles list with a 500)
+COMMANDS RUN:
+- First owner test run: 599 passed, 1 failed (company roles list returned 500 for a role with no department); fixed.
+- Static route audit over app/api: the only routes without sign-in are login, refresh, health, readiness, version, root, metrics (METRICS_TOKEN), alerts (ALERT_WEBHOOK_TOKEN) and the Stripe webhook (signature); the wake socket uses a one-time ticket. python -m py_compile on changed files: passed.
+TESTS RUN:
+- Written: the app's whole route table walked, every non-public route refuses an anonymous caller; two operators seeded, each sees only their own workspaces, tasks, feed, roles and audit entries, and cannot read, rename or delete the other's workspace or read their mission; a new workspace belongs to its creator; delete archives, a wrong slug is refused, restore works, a confirmed permanent delete removes it and is audited.
+RESULT: Pending owner test run.
+BLOCKERS: None.
+NEXT TASK: REPAIR-15B (tools that only refuse; legacy in-memory business and content APIs; legacy root scripts), then final acceptance.

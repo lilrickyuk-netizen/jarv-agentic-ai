@@ -5,6 +5,9 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+# Every API route requires sign-in (Repair 15a); these tests run as test_user, the owner of test_workspace.
+pytestmark = pytest.mark.usefixtures("signed_in")
+
 
 @pytest.mark.smoke
 def test_application_starts(client: TestClient):

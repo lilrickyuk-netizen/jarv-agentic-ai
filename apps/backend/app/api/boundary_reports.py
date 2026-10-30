@@ -11,7 +11,9 @@ from pydantic import BaseModel
 from uuid import UUID
 from datetime import datetime
 
+from app.core.auth import CurrentUserId
 from app.core.database import get_db
+from app.core.scoping import visible
 from app.models.boundary import BoundaryReport
 
 router = APIRouter(prefix="/api/boundary-reports", tags=["boundary-reports"])
@@ -51,7 +53,7 @@ class BoundaryReportStats(BaseModel):
 
 
 @router.get("/list", response_model=List[BoundaryReportInfo])
-async def list_boundary_reports(
+async def list_boundary_reports(user_id: CurrentUserId,
     severity: Optional[str] = None,
     report_type: Optional[str] = None,
     was_blocked: Optional[bool] = None,
@@ -62,7 +64,7 @@ async def list_boundary_reports(
     """
     List boundary reports with optional filtering.
     """
-    query = select(BoundaryReport)
+    query = select(BoundaryReport).where(visible(BoundaryReport, user_id))
 
     if severity:
         query = query.where(BoundaryReport.severity == severity)
@@ -105,11 +107,11 @@ async def list_boundary_reports(
 
 
 @router.get("/stats", response_model=BoundaryReportStats)
-async def get_boundary_report_stats(db: Session = Depends(get_db)):
+async def get_boundary_report_stats(user_id: CurrentUserId, db: Session = Depends(get_db)):
     """
     Get aggregated statistics for boundary reports.
     """
-    result = await db.execute(select(BoundaryReport))
+    result = await db.execute(select(BoundaryReport).where(visible(BoundaryReport, user_id)))
     all_reports = result.scalars().all()
 
     total_reports = len(all_reports)

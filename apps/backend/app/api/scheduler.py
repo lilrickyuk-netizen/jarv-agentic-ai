@@ -9,6 +9,7 @@ import logging
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends
+from app.core.auth import get_current_user_id
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +18,7 @@ from app.models.operations import AuditLog
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/scheduler", tags=["scheduler"])
+router = APIRouter(prefix="/scheduler", tags=["scheduler"], dependencies=[Depends(get_current_user_id)])
 
 
 @router.get("/status")

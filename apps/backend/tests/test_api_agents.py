@@ -7,6 +7,9 @@ from sqlalchemy.orm import Session
 from app.models.agent import Agent
 from app.models.workspace import Workspace
 
+# Every API route requires sign-in (Repair 15a); these tests run as test_user, the owner of test_workspace.
+pytestmark = pytest.mark.usefixtures("signed_in")
+
 
 @pytest.mark.api
 @pytest.mark.integration
