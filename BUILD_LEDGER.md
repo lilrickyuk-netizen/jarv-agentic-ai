@@ -8,7 +8,7 @@
 
 ## CURRENT STATUS
 - **Current Phase**: REPAIR CONTINUATION (10-15)
-- **Current Task**: None. Agents write requested files themselves and read long files completely (PostgreSQL suite 645 passed, 1 skipped)
+- **Current Task**: FIX-MISSION-WORKSPACE-ROOT (a file path named in a mission became its workspace root)
 - **Build Status**: NOT ACCEPTED; Repairs 11-15 remain open under the locked execution order
 - **Build Start Date**: 2026-06-03
 - **Build Completion Date**: 2026-06-03
@@ -12883,3 +12883,19 @@ TESTS RUN: PostgreSQL suite (owner run): 645 passed, 1 skipped.
 RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: Richard rebuilds and asks JARV to redo the MYCO architecture and Phase 0-1 tasks from the whole design.
+
+---
+
+TASK ID: FIX-MISSION-WORKSPACE-ROOT
+TASK NAME: A mission works in its own workspace's folder
+STATUS: IN_PROGRESS
+PROBLEM: Richard's mission "...move the other tasks to a new docs/planning/later-phases.md" ran with workspace root "/planning/later-phases.md" and every read and write was refused as out of scope. The command service took any path in the request as the workspace root, and its absolute-path pattern matched the tail of the relative path docs/planning/later-phases.md. With no path in the request it fell back to the most recently created workspace of any operator.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/backend/app/core/command/service.py (the mission's own workspace folder is the root, so named paths are files inside it; an absolute path in the request is used only when the mission has no workspace folder; the fallback is the operator's own most recent workspace, never another operator's; the absolute-path pattern no longer matches inside a relative path)
+- apps/backend/tests/test_voice_live_and_mission_session.py (mission workspace wins over a named relative path; a named absolute folder is used without a workspace; the fallback is the operator's own workspace and a stranger gets none)
+COMMANDS RUN: Path pattern checked on four requests (relative path: no match; absolute sandbox paths: matched). python -m py_compile on the changed files: passed.
+TESTS RUN: Awaiting Richard's PostgreSQL suite.
+RESULT: Awaiting test results.
+BLOCKERS: None.
+NEXT TASK: Richard reruns the MYCO architecture and Phase 0-1 mission.
