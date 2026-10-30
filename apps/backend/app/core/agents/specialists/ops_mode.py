@@ -30,6 +30,9 @@ EXTERNAL = ["check_uptime", "ssl_check", "dns_verify"]
 BACKUP_READ = ["list_backups", "verify_backup"]
 INFRA_CONFIG = ["check_ssl_certificate", "check_domain_dns", "generate_nginx_config", "generate_docker_compose",
                 "validate_cloud_config", "estimate_infrastructure_cost", "scale_service_with_budget_boundary"]
+# Resources JARV manages: services on the deployment server and external resources tracked for cost.
+# resource_terminate stays with Richard (it is on the toolbox's agent blocklist).
+RESOURCES = ["resource_status", "resource_health_check", "resource_provision", "resource_scale"]
 
 
 @dataclass(frozen=True)
@@ -88,7 +91,7 @@ MODES: Dict[str, OpsMode] = {
                "check_container_status", "check_container_logs", "check_database_health", "check_env_vars",
                "restart_container", "create_backup", "list_backups", "verify_backup",
                "restore_backup_with_boundary", "cleanup_backups", "ssl_check", "dns_verify", "cost_estimate"]
-        + INFRA_CONFIG
+        + INFRA_CONFIG + RESOURCES
         + READ + RECALL + REMEMBER,
         instructions=(
             "Work from measurements: server resources, containers, database, configuration (check_env_vars "
@@ -96,6 +99,8 @@ MODES: Dict[str, OpsMode] = {
             "Richard's approval. Check configs with validate_cloud_config; generate nginx and compose files "
             "when missing; check costs with estimate_infrastructure_cost before scaling, and scale only with "
             "scale_service_with_budget_boundary, which pauses for Richard beyond the budget or replica limit. "
+            "Keep the resource register current: resource_provision starts a service on the server or records "
+            "an external resource with its monthly cost, resource_health_check counts its running replicas. "
             "Report numbers exactly as the tools returned them."),
         brief=lambda d: _lines([("Operation", d.get("operation")),
                                 ("Resources", ", ".join(d.get("resources") or [])),

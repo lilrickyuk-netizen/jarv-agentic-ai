@@ -482,7 +482,7 @@ class CommandService:
                 total_tokens = 0
             elif intent == "delegate":
                 answer, plan_steps, selected_agents, result_extra = (
-                    await self._handle_delegate(db, runtime, command_text)
+                    await self._handle_delegate(db, runtime, command_text, user_id, system_context)
                 )
                 total_tokens = 0
             elif intent == "remember_memory":
@@ -509,15 +509,17 @@ class CommandService:
                 total_tokens = 0
             else:
                 # 5a) Real orchestrator + Claude planning
-                plan = await self._run_orchestrator(command_text, ws_id, user_id, system_context)
+                plan = await self._run_orchestrator(command_text, ws_id, user_id, system_context, db=db,
+                                                    task_id=task.id)
                 plan_steps = plan["steps"]
                 selected_agents = plan["agents"]
                 total_tokens = plan.get("tokens", 0)
+                result_extra["orchestration"] = plan["outcome"]
 
-                # 5b) Live execution: Claude produces the real answer using the real
-                #     system context and the orchestrator's plan.
+                # 5b) The report: grounded in the real context, the plan and what each
+                #     delegated agent actually did (completed, failed or paused).
                 answer, answer_tokens = await self._run_answer(
-                    command_text, system_context, plan_steps, selected_agents
+                    command_text, system_context, plan_steps, selected_agents, plan["outcome"]
                 )
                 total_tokens += answer_tokens
 
@@ -906,6 +908,22 @@ class CommandService:
         se = extra.get("self_evolution")
         if isinstance(se, dict) and se.get("verdict") == "blocked":
             return "blocked", {"reason": "Self-evolution change blocked by safety guard."}
+
+        # 1b) Orchestrated missions: a step paused at a hard boundary means the mission waits
+        #     for Richard (safe steps already ran); every delegated step failing is a failure.
+        orch = extra.get("orchestration")
+        if isinstance(orch, dict):
+            if orch.get("boundaries"):
+                return "waiting_on_approval", {
+                    "reason": f"{len(orch['boundaries'])} step(s) reached a hard boundary; the rest ran.",
+                    "next": "Approve or reject on the Approvals page; JARV resumes from the checkpoint."}
+            if orch.get("attempted") and not orch.get("completed"):
+                return fail("Every delegated step failed.",
+                            errors=[r for r in orch.get("task_results", []) if r.get("status") == "failed"][:5],
+                            next="Inspect the agents' results and re-run.")
+            if orch.get("failed"):
+                return ("partial", {"reason": f"{orch['failed']} of {orch['attempted']} delegated step(s) failed.",
+                                    "next": "Re-run the failed steps."})
 
         # 2) QA verification failure.
         v = extra.get("verification")
@@ -2080,95 +2098,66 @@ class CommandService:
         return answer, steps, agents, {"notification": res}
 
     async def _handle_delegate(
-        self, db: AsyncSession, runtime: ToolRuntime, command_text: str
+        self, db: AsyncSession, runtime: ToolRuntime, command_text: str, user_id: Optional[UUID],
+        system_context: Dict[str, Any],
     ) -> tuple[str, List[str], List[str], Dict[str, Any]]:
-        """Run a real researcher -> qa-tester -> verifier chain with recorded handoffs."""
-        steps = [
-            "Orchestrator: assign subtasks to researcher, qa-tester, verifier.",
-            "Researcher: inspect docs and hand off the referenced file list.",
-            "QA-tester: verify each referenced file exists; hand off the results.",
-            "Verifier: produce the final pass/fail from QA's output.",
-        ]
-        agents = self._validate_agents(["orchestrator", "research", "qa", "verifier"])
-        host_path = await self._resolve_ws_root(db, command_text)
-        if not host_path:
-            return ("No approved workspace to run the delegation chain on. Register one first.",
-                    steps, agents, {"delegate_error": "no_workspace"})
+        """Multi-agent delegation: the orchestrator plans and each step runs on its registered specialist.
 
-        chain: List[Dict[str, Any]] = []
+        Every handoff is recorded as a child task carrying that agent's real result, an operations
+        feed entry and a delegation memory. A step that reaches a hard boundary pauses (boundary
+        report, checkpoint, approval request) while independent steps continue.
+        """
+        if runtime.workspace_id is None:
+            return ("Delegation needs a workspace. Choose or register one first.", [], ["orchestrator"],
+                    {"delegate_error": "no_workspace"})
+        plan = await self._run_orchestrator(command_text, runtime.workspace_id, user_id, system_context, db=db,
+                                            task_id=runtime.task_id)
+        outcome = plan["outcome"]
         parent_id = runtime.task_id
-
-        async def child(agent: str, description: str) -> UUID:
-            t = Task(id=uuid4(), workspace_id=runtime.workspace_id,
-                     title=f"[{agent}] {description}"[:500], description=description,
-                     task_type="subtask", status="running", priority=5,
-                     context={"parent_task_id": str(parent_id), "agent": agent},
-                     meta_data={"delegated": True},
-                     started_at=datetime.now(timezone.utc),
-                     created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
-            db.add(t)
+        chain: List[Dict[str, Any]] = []
+        for r in outcome["task_results"]:
+            agent = r.get("resolved_agent") or r.get("assigned_agent") or "unassigned"
+            status = r.get("status") or "unknown"
+            step = next((d for i, d in enumerate(plan["steps"]) if i + 1 == r.get("task_id")), None)
+            child = Task(id=uuid4(), workspace_id=runtime.workspace_id,
+                         title=f"[{agent}] {step or command_text}"[:500], description=step or command_text,
+                         task_type="subtask",
+                         status={"completed": "completed", "failed": "failed"}.get(status, "waiting_on_approval"
+                                                                                     if "richard" in status
+                                                                                     or "approval" in status
+                                                                                     else "pending"),
+                         priority=5, context={"parent_task_id": str(parent_id), "agent": agent,
+                                              "plan_task_id": r.get("task_id")},
+                         meta_data={"delegated": True},
+                         result={"agent": agent, "status": status, "output": r.get("output_preview"),
+                                 **({"boundary_report_id": r.get("boundary_report_id")}
+                                    if r.get("boundary_report_id") else {})},
+                         started_at=datetime.now(timezone.utc),
+                         completed_at=datetime.now(timezone.utc) if status in ("completed", "failed") else None,
+                         created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+            db.add(child)
             await db.flush()
-            return t.id
-
-        async def finish(child_id: UUID, agent: str, output: Dict[str, Any], summary: str) -> None:
-            res = await db.execute(select(Task).where(Task.id == child_id))
-            ct = res.scalar_one_or_none()
-            if ct:
-                ct.status = "completed"
-                ct.completed_at = datetime.now(timezone.utc)
-                ct.result = {"agent": agent, "output": output, "summary": summary}
-                ct.updated_at = datetime.now(timezone.utc)
+            summary = (f"{status}: {r.get('output_preview')}" if r.get("output_preview")
+                       else f"{status}" + (f" ({r.get('boundary_type')})" if r.get("boundary_type") else ""))
             await self._feed(db, runtime.workspace_id, parent_id, item_type="delegation",
-                             severity="info", title=f"Handoff: {agent}", message=summary)
-            await memory_service.add(db, content=f"[delegation:{agent}] {summary}",
+                             severity="warning" if status not in ("completed",) else "info",
+                             title=f"Handoff: {agent}", message=summary[:500])
+            await memory_service.add(db, content=f"[delegation:{agent}] {summary[:400]}",
                                      memory_type="delegation", workspace_id=runtime.workspace_id,
                                      task_id=parent_id, importance=0.55)
-            chain.append({"agent": agent, "child_task_id": str(child_id),
-                          "output": output, "summary": summary})
-
-        # 1) Researcher inspects docs (real scan via tool).
-        c1 = await child("researcher", f"Inspect docs in {host_path}")
-        scan = await runtime.scan_workspace(host_path)
-        docs = (scan.get("data") or {}).get("doc_files", []) if scan.get("success") else []
-        referenced = (scan.get("data") or {}).get("top_level_files", []) + docs
-        await finish(c1, "researcher", {"referenced_files": referenced},
-                     f"found {len(referenced)} referenced file(s)")
-
-        # 2) QA-tester verifies the researcher's files exist (consumes handoff).
-        c2 = await child("qa-tester", "Verify researcher's referenced files exist")
-        sep = "\\" if "\\" in host_path else "/"
-        base = host_path.rstrip("\\/")
-        checks = []
-        for rel in referenced:
-            full = base + sep + rel.replace("/", sep)
-            chk = fs_inspector.path_exists(full)
-            checks.append({"file": rel, "exists": bool(chk.accessible and chk.exists)})
-        verified = sum(1 for c in checks if c["exists"])
-        await finish(c2, "qa-tester", {"checks": checks, "verified": verified, "total": len(checks)},
-                     f"verified {verified}/{len(checks)} files exist")
-
-        # 3) Verifier produces the final pass/fail from QA's output.
-        c3 = await child("verifier", "Produce final pass/fail from QA results")
-        passed = len(checks) > 0 and verified == len(checks)
-        await finish(c3, "verifier", {"passed": passed, "verified": verified, "total": len(checks)},
-                     f"final verdict: {'PASS' if passed else 'FAIL'}")
-
-        lines = "\n".join(
-            f"  {i+1}. **{h['agent']}** → {h['summary']} (task `{h['child_task_id'][:8]}`)"
-            for i, h in enumerate(chain)
-        )
-        answer = (
-            f"**Multi-agent delegation chain complete** on `{host_path}`.\n\n"
-            f"{lines}\n\n"
-            f"**Final result:** {'PASS' if passed else 'FAIL'} "
-            f"({verified}/{len(checks)} files verified). Each handoff is a child task "
-            f"with its output stored and logged to the operations feed and memory."
-        )
-        return answer, steps, agents, {
-            "delegation": chain,
-            "parent_task_id": str(parent_id),
-            "final_passed": passed,
-        }
+            chain.append({"agent": agent, "child_task_id": str(child.id), "status": status,
+                          "summary": summary[:300]})
+        passed = bool(chain) and outcome["completed"] == len(chain)
+        lines = "\n".join(f"  {i + 1}. **{h['agent']}** → {h['summary']} (task `{h['child_task_id'][:8]}`)"
+                          for i, h in enumerate(chain)) or "  (the orchestrator produced no steps)"
+        waiting = len(outcome["boundaries"])
+        answer = (f"**Multi-agent delegation** ({len(chain)} step(s), {outcome['completed']} completed, "
+                  f"{outcome['failed']} failed{f', {waiting} waiting for your approval' if waiting else ''}).\n\n"
+                  f"{lines}\n\nEach handoff is a child task with the agent's result, logged to the operations "
+                  f"feed and memory.")
+        return answer, plan["steps"], plan["agents"] or outcome["agents_used"], {
+            "delegation": chain, "parent_task_id": str(parent_id), "final_passed": passed,
+            "orchestration": outcome}
 
     async def _handle_remember(
         self, runtime: ToolRuntime, command_text: str
@@ -2464,8 +2453,17 @@ class CommandService:
         workspace_id: UUID,
         user_id: Optional[UUID],
         system_context: Dict[str, Any],
+        *,
+        db: Optional[AsyncSession] = None,
+        task_id: Optional[UUID] = None,
     ) -> Dict[str, Any]:
-        """Run the real Orchestrator (Claude planning) and return plan + agents."""
+        """Run the real Orchestrator: plan, then delegate each step to its specialist.
+
+        With the mission's database session the delegated agents work through their
+        own toolboxes (authority-checked, logged, confined to the workspace) and a step
+        that reaches a hard boundary is paused with a persisted boundary report,
+        checkpoint and approval request while independent steps continue.
+        """
         config = AgentConfig(
             agent_id=uuid4(),
             workspace_id=workspace_id,
@@ -2477,6 +2475,8 @@ class CommandService:
         context = AgentContext(
             workspace_id=workspace_id,
             user_id=user_id,
+            task_id=task_id,
+            db_session=db,
             metadata={"source": "command_center", "system_context": system_context},
         )
         result = await orchestrator.execute(
@@ -2501,11 +2501,24 @@ class CommandService:
             agents = validated or agents
         except Exception:  # noqa: BLE001
             pass
+        data = result.result_data or {}
+        outcome = {
+            "completed": int(data.get("completed_tasks") or 0),
+            "failed": int(data.get("failed_tasks") or 0),
+            "agents_used": list(data.get("agents_used") or []),
+            "task_results": list(data.get("task_results") or []),
+            "boundaries": [{k: b.get(k) for k in ("task_id", "boundary_type", "boundary_report_id", "approval_id",
+                                                   "checkpoint_id") if isinstance(b, dict)}
+                           for b in (data.get("boundaries") or [])],
+            "session_id": data.get("session_id"),
+        }
+        outcome["attempted"] = outcome["completed"] + outcome["failed"]
         return {
             "steps": steps,
             "agents": agents,
             "summary": result.output_text or "",
             "tokens": (result.tokens_used or {}).get("total_tokens", 0),
+            "outcome": outcome,
         }
 
     async def _run_answer(
@@ -2514,8 +2527,9 @@ class CommandService:
         system_context: Dict[str, Any],
         plan_steps: List[str],
         selected_agents: List[str],
+        outcome: Optional[Dict[str, Any]] = None,
     ) -> tuple[str, int]:
-        """Produce the final user-facing answer with Claude over real context."""
+        """Produce the final user-facing answer with Claude over real context and real results."""
         router = get_router()
         system_prompt = (
             "You are JARV, a private autonomous multi-agent AI operations system. "
@@ -2533,6 +2547,13 @@ class CommandService:
             f"EXECUTION PLAN (from the orchestrator, Claude-generated):\n"
             f"- Selected agents: {', '.join(selected_agents) or 'orchestrator'}\n"
             + "\n".join(f"- Step {i+1}: {s}" for i, s in enumerate(plan_steps))
+            + (("\n\nWHAT THE AGENTS ACTUALLY DID (report these results; never claim work that is not here):\n"
+                + "\n".join(f"- {r.get('resolved_agent') or r.get('assigned_agent')}: {r.get('status')}"
+                             + (f" - {r.get('output_preview')}" if r.get('output_preview') else "")
+                             for r in (outcome or {}).get("task_results", []))
+                + ("\nPaused for Richard's approval: " + ", ".join(
+                    str(b.get("boundary_type")) for b in outcome["boundaries"]) if outcome.get("boundaries") else ""))
+               if outcome and outcome.get("task_results") else "")
             + "\n\nProvide the response now."
         )
         request = CompletionRequest(

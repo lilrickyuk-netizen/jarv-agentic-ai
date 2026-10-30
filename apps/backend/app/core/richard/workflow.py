@@ -88,7 +88,7 @@ def coerce_user_id(value: Any) -> Optional[UUID]:
     """Coerce an authenticated identity to a stable UUID.
 
     Operators may authenticate with a username-derived subject (e.g.
-    "admin_richard") rather than a UUID; mirror app.core.auth.get_current_user so
+    "admin_richard") rather than a UUID; use the same uuid5 coercion as get_current_user_id so
     the same operator always maps to the same UUID. Returns None for empty input.
     """
     if value is None or value == "":
@@ -1093,9 +1093,13 @@ class RichardBoundaryWorkflow:
     # ------------------------------------------------------------------ #
 
     async def list_pending_decisions(self, *, workspace_id: Optional[UUID] = None,
-                                     limit: int = 100) -> List[Dict[str, Any]]:
-        """List pending Richard decisions (pending BoundaryApprovals)."""
+                                     limit: int = 100, owner: Optional[UUID] = None) -> List[Dict[str, Any]]:
+        """List pending Richard decisions (pending BoundaryApprovals), only the owner's when given."""
         q = select(BoundaryApproval).where(BoundaryApproval.status == "pending")
+        if owner is not None:
+            from app.core.scoping import visible
+
+            q = q.where(visible(BoundaryApproval, owner))
         # Repair 9: filter on the real workspace_id column (was JSON inspection).
         if workspace_id is not None:
             q = q.where(BoundaryApproval.workspace_id == workspace_id)

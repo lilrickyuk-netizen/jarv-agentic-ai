@@ -91,10 +91,10 @@ class AnalyzeStyleTool(ToolBase):
                     success=False,
                     error_message=f"Style guide '{style_guide}' is not supported; only pep8 is implemented.",
                 )
-            if fix:
+            if fix and int(self.config.authority_level) < int(AuthorityLevel.LEVEL_2_FILE_OPERATIONS):
                 return self.create_result(
                     success=False,
-                    error_message="Automatic style fixes are not implemented; source files were not modified.",
+                    error_message="Fixing style edits files, which needs file authority (level 2); nothing was changed.",
                 )
             root = Path(path)
             if not root.exists():
@@ -126,6 +126,19 @@ class AnalyzeStyleTool(ToolBase):
                             "message": f"Line too long ({len(line)} > 79 characters).",
                             "severity": "warning",
                         })
+            fixed_count = 0
+            if fix:
+                # Trailing whitespace (W291/W293) is removed; long lines (E501) need a person or a
+                # formatter, so they stay reported.
+                fixable = {issue["file"] for issue in violations if issue["code"] in ("W291", "W293")}
+                for name in fixable:
+                    source = Path(name)
+                    text = source.read_text(encoding="utf-8")
+                    cleaned = "\n".join(line.rstrip(" \t") for line in text.split("\n"))
+                    if cleaned != text:
+                        source.write_text(cleaned, encoding="utf-8")
+                fixed_count = sum(1 for issue in violations if issue["code"] in ("W291", "W293"))
+                violations = [issue for issue in violations if issue["code"] not in ("W291", "W293")]
             by_severity = {"error": 0, "warning": 0, "info": 0}
             for issue in violations:
                 by_severity[issue["severity"]] += 1
@@ -138,9 +151,11 @@ class AnalyzeStyleTool(ToolBase):
                     "total_violations": len(violations),
                     "violations_by_severity": by_severity,
                     "violations": violations,
-                    "fixed_count": 0,
+                    "fixed_count": fixed_count,
                 },
-                output_text=f"PEP 8 subset check complete: {len(violations)} violations across {len(files)} files",
+                output_text=(f"PEP 8 subset check complete: {len(violations)} violations across {len(files)} files"
+                             + (f"; removed trailing whitespace on {fixed_count} line(s)" if fixed_count else "")),
+                files_affected=sorted({str(f) for f in files}) if fixed_count else [],
             )
 
         except Exception as e:

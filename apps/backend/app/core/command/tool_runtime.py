@@ -255,7 +255,7 @@ class ToolRuntime:
         """Resolve the runtime's user to a REAL users row (get-or-create).
 
         The operator string is the authenticated identity from the API layer;
-        coercion mirrors app.core.auth.get_current_user so the same operator
+        coercion matches the operator identity mapping in app.core.auth so the same operator
         always maps to the same UUID. The row is real (FKs must hold).
         """
         from app.core.richard.workflow import coerce_user_id

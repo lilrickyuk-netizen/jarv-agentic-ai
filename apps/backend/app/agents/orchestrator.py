@@ -758,9 +758,7 @@ class OrchestratorAgent(AgentBase):
         # Call LLM
         response = await router.complete(completion_request)
 
-        # Parse LLM response into task plan
-        # For now, parse structured output from LLM
-        # In production, use structured output or JSON mode
+        # Parse the model's JSON plan (tolerant of fences and prose; falls back to a simple plan).
         task_plan = self._parse_llm_response(response.content, mission, constraints)
 
         return task_plan

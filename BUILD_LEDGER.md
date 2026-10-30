@@ -12687,7 +12687,7 @@ NEXT TASK: REPAIR-15B (tools that only refuse; legacy in-memory business and con
 
 TASK ID: REPAIR-15B-REAL-TOOLS-AND-LEGACY-REMOVAL
 TASK NAME: Tools that only refused now work; legacy in-memory APIs, fake workflows and stale reports removed
-STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+STATUS: COMPLETE
 AUDIT FINDINGS THAT DROVE THIS TASK:
 - /api/v1 business_ops: GET /api/business/metrics/summary returned hard-coded figures (5 campaigns, 125,000 monthly revenue); workflow status always "in_progress"; workflows ran in a random workspace when none was given. It shared the /api/business prefix with the real business API.
 - /api/v1 content_community: in-memory workflows, no persistence. /api/v1 assets: assets held in a Python dictionary ("in-memory storage for demo"), lost on restart, sharing /api/assets with the real owner-scoped asset API. /api/v1 workflows: the coding loop "checked the build" with a random simulation.
@@ -12714,6 +12714,46 @@ COMMANDS RUN:
 - References to every removed module and route checked across app, tests, scripts, dashboard, Makefile and CI: none remained. python -m py_compile on changed files: passed.
 TESTS RUN:
 - Written: removed routes answer 404; resources on the deployment-server stand-in (cloud provider refused with no record, production start waits for approval, staging start within budget, external record, scale within budget, health counted, scale over budget waits, stop waits for approval, data deletion refused, stop keeps data, external ended); calendar feed is valid iCalendar (escaping, folding, reminders, attendees); feed link stable, owner-only, served without sign-in on the secret link, forged link refused, rotation retires the old link; Slack search with a bot token uses channel history and asks for a user token otherwise; nothing reaches Slack without a token.
-RESULT: Pending owner test run.
+RESULT: Owner test run: 605 passed in Docker against PostgreSQL 16 + pgvector. Committed on pre-repair-11.
 BLOCKERS: None.
 NEXT TASK: REPAIR-15C (nginx CORS; final multi-agent acceptance; runbook refresh), then merge to master.
+
+---
+
+TASK ID: REPAIR-15C-HARDENING-AND-FINAL-ACCEPTANCE
+TASK NAME: Production hardening, real multi-agent delegation, final acceptance test, runbook
+STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- infra/nginx/conf.d/jarv.conf sent every /api path to FastAPI, including the dashboard's own /api/backend proxy and /api/health, so behind production nginx every dashboard call would have failed; it reflected any Origin with credentials and answered preflights itself; uploads were capped at 10 MB (voice clips are allowed 25 MB).
+- docker-compose.prod.yml passed CORS_ORIGINS, which the backend never reads (ALLOWED_ORIGINS), and ALLOWED_ORIGINS could not be given as the documented comma list.
+- Nothing ran database migrations: a fresh server would start on an empty database and upgrades would never apply migrations.
+- The production Redis requires a password but its health check pinged without one; REDIS_PASSWORD was missing from the production example.
+- Command Center missions ran the orchestrator without a database session, so the specialists it delegated to could not use their tools and boundary records could not be saved; delegation results were discarded and the report was written from the plan alone. The "delegate" path was staged (fixed file checks labelled as researcher, QA and verifier, never calling the agents).
+- /api/richard/pending, /api/richard/boundary-reports/{id} and /api/richard/approval-windows/{id} were not owner-scoped.
+- The resource tools made real in 15B were never registered, so no agent could use them.
+- 25 modules (about 9,500 lines) that faked their work were unused by anything: the approval, authority and resume packages, safety detector/reporter/boundaries (an always-pass rate limit), workspace manager/rules/scanner/templates ("In production: query database"), self-healing monitoring/workflows, Richard guidance, an example agent, four code-generation scripts, deployment aliases. Found by an import-reachability analysis from the app, workers, Alembic, scripts and tests.
+- file_watch and file_patch reported success without doing anything; analyze_style refused to fix; the local runner did not stream new log lines; README said installation instructions "will be added" and linked eleven documents that do not exist; the runbook described an Oracle Cloud setup from June.
+FILES CREATED:
+- apps/backend/tests/test_repair15c_final_acceptance.py (end to end through the API: a multi-agent mission is planned and delegated; the coding agent edits the workspace and the verifier compiles it through their own toolboxes; the production step pauses at a hard boundary while the safe steps complete; every handoff is a child task, feed entry and memory; Richard approves and JARV resumes from the checkpoint; another operator sees none of it)
+- apps/backend/tests/test_repair15c_hardening.py
+- docs/RUNBOOK.md (running locally and on the VPS, first sign-in, upgrades, using JARV, health, tests, troubleshooting including the WSL service error)
+FILES MODIFIED:
+- infra/nginx/conf.d/jarv.conf, infra/nginx/nginx.conf (dashboard proxy and health to the dashboard; backend for webhooks, calendar feeds and the wake socket; no nginx CORS; 30 MB uploads; WebSocket upgrade map with upstream keepalive)
+- docker-compose.prod.yml, docker-compose.yml (migrate service before backend, worker and scheduler; Redis health check authenticates; ALLOWED_ORIGINS), .env.production.example (REDIS_PASSWORD)
+- apps/backend/app/core/config.py (ALLOWED_ORIGINS as a comma list or JSON), apps/dashboard/src/app/api/backend/[...path]/route.ts (forwards the public host and scheme)
+- apps/backend/app/core/command/service.py (the orchestrator runs with the mission's session so delegated agents use their tools and boundaries persist; delegation outcome kept and reported; a step at a hard boundary makes the mission wait for approval, all steps failing fails it, some failing makes it partial; the delegate path runs the real orchestrator and records each agent's real result)
+- apps/backend/app/api/richard.py, app/core/richard/workflow.py (owner scoping), app/core/tools/registry.py and app/core/agents/specialists/ops_mode.py (resource tools registered and offered to the infrastructure agent; resource_terminate stays with Richard)
+- apps/backend/app/tools/file/advanced.py (file_watch polls for a real change; file_patch applies unified diffs with context checks and dry runs), app/tools/analysis/quality.py (fix removes trailing whitespace with file authority), app/tools/analysis/code.py, app/tools/command/terminal.py, app/agents/orchestrator.py, app/core/auth.py (unused get_current_user removed), services/local-runner/runner/tasks.py (log streaming follows the task)
+- apps/backend/app/core/safety/__init__.py, app/core/richard/__init__.py, app/core/self_healing/__init__.py, app/core/workspaces/__init__.py, app/tools/infrastructure/__init__.py
+- apps/dashboard/src/app/dashboard/settings/page.tsx (calendar subscription links), apps/dashboard/__tests__/ops-pages.test.tsx
+- README.md (getting started and real documentation links)
+FILES REMOVED:
+- apps/backend/app/core/approval/, app/core/authority/, app/core/resume/, app/core/safety/{boundaries,detector,reporter}.py, app/core/workspaces/{manager,rules,scanner,templates}.py, app/core/self_healing/{monitoring,workflows}.py, app/core/richard/guidance.py, app/core/agents/example_agent.py, app/core/agents/verify_all_agents.py, app/core/agents/specialists/{enhance_agents,generate_agents,verify_agents}.py, app/tools/infrastructure/deployment.py
+- FINAL_RUNBOOK.md moved to docs/history/
+COMMANDS RUN:
+- Import-reachability analysis over app/ from every entry point: no unused modules remain (app/models/tool.py is a migrated table). Every app.* import across app, tests, scripts and Alembic resolves. Compose files parsed as YAML: migrate gates backend, worker and scheduler in both. python -m py_compile on changed files: passed.
+TESTS RUN:
+- Written: final acceptance (above); nginx routing and no CORS; compose migrations and Redis health; ALLOWED_ORIGINS parsing; file watch sees a real change; file patch applies, dry-runs and refuses stale hunks; style fix needs file authority and removes trailing whitespace; resource tools registered and offered to the infrastructure agent; legacy modules gone; Richard reads limited to the owner. Dashboard: calendar links in Settings.
+RESULT: Pending owner test run.
+BLOCKERS: None.
+NEXT TASK: Final acceptance review, then merge pre-repair-11 to master.

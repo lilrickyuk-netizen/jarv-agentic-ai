@@ -146,14 +146,8 @@ class AnalyzeCodeTool(ToolBase):
             blank_lines = 0
             issues = []
 
-            # In production: Use static analysis tools like:
-            # - pylint, flake8, mypy for Python
-            # - eslint, tsc for TypeScript
-            # - rubocop for Ruby
-            # - clippy for Rust
-            # Or integrate with SonarQube, CodeClimate, etc.
-
-            # Simple file counting for now
+            # Line metrics: files, total, code, comment and blank lines. Linting and type checks are
+            # the quality tools (analyze_style, analyze_types) and the agents' run_command.
             path_obj = Path(path)
             if path_obj.is_file():
                 total_files = 1

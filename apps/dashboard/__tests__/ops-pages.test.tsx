@@ -159,5 +159,12 @@ describe('Settings', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send test webhook' }));
     expect(await screen.findByText('webhook accepted the notification (HTTP 200)')).toBeInTheDocument();
     expect(mockPosts[1]).toEqual(expect.objectContaining({ path: '/api/integrations/notify', body: expect.objectContaining({ target: 'webhook', dry_run: false }) }));
+
+    mockResponses[`/api/calendar/${WS}/feed`] = { url: `https://jarv.example.com/api/calendar/feed/${WS}/abc.ics`,
+      webcal_url: `webcal://jarv.example.com/api/calendar/feed/${WS}/abc.ics`, how_to_add: ['Google Calendar: From URL.'],
+      note: 'Anyone with this link can see the calendar.' };
+    fireEvent.click(screen.getByRole('button', { name: 'Get link' }));
+    expect(await screen.findByText(`https://jarv.example.com/api/calendar/feed/${WS}/abc.ics`)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'New link' })).toBeInTheDocument();
   });
 });

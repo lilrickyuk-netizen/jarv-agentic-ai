@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import CurrentUserId
+from app.core.scoping import as_uuid, visible
 from app.core.database import get_db
 from app.core.richard.workflow import RichardBoundaryWorkflow
 from app.core.richard.service import (
@@ -173,7 +174,7 @@ async def list_pending_decisions(
 ) -> List[Dict[str, Any]]:
     """List pending Richard decisions (paused hard boundaries awaiting a decision)."""
     wf = RichardBoundaryWorkflow(db)
-    return await wf.list_pending_decisions(workspace_id=workspace_id)
+    return await wf.list_pending_decisions(workspace_id=workspace_id, owner=as_uuid(operator))
 
 
 @router.get("/boundary-reports/{report_id}")
@@ -184,7 +185,7 @@ async def get_boundary_report(
 ) -> Dict[str, Any]:
     """Read a persisted BoundaryReport."""
     row = (await db.execute(
-        select(BoundaryReport).where(BoundaryReport.id == report_id)
+        select(BoundaryReport).where(BoundaryReport.id == report_id, visible(BoundaryReport, operator))
     )).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Boundary report not found")
@@ -241,7 +242,7 @@ async def get_approval_window(
 ) -> Dict[str, Any]:
     """Read the ApprovalWindow opened for an approval (its exact scope)."""
     approval = (await db.execute(
-        select(BoundaryApproval).where(BoundaryApproval.id == approval_id)
+        select(BoundaryApproval).where(BoundaryApproval.id == approval_id, visible(BoundaryApproval, operator))
     )).scalar_one_or_none()
     if approval is None:
         raise HTTPException(status_code=404, detail="Approval not found")
