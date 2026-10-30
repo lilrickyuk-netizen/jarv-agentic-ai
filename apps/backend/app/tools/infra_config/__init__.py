@@ -172,41 +172,50 @@ class ScaleServiceWithBudgetBoundaryTool(_InfraTool):
     _gated = True
 
     async def act(self, db, context, owner, data):
-        from app.core.deploy import DeployError
-        from app.tools import deploy as deploy_tools
+        return await scale_service(db, context, data, approved=bool(data["_approved"]))
 
-        if data["environment"] not in ("staging", "production"):
-            raise ValueError("environment is staging or production")
-        try:
-            project = await deploy_tools._project(db, context, data, data["environment"])
-            deployer = deploy_tools._deployer()
-            current = await deployer.replicas(project["app"], data["environment"], data["service"],
-                                              project["compose_file"])
-        except DeployError as exc:
-            raise ValueError(str(exc)) from None
-        costs = await configs.estimate_monthly(db, context.workspace_id)
-        decision = configs.scaling_decision(costs["monthly_total"], current, data["replicas"])
-        if decision["needs_approval"] and not data["_approved"]:
-            raise PermissionError("Scaling needs Richard's approval: " + "; ".join(decision["reasons"]))
-        try:
-            result = await deployer.scale(project["app"], data["environment"], data["service"], data["replicas"],
+
+async def scale_service(db, context, data, *, approved: bool, record_name: str = "scale"):
+    """Scale one service of the workspace's deployed app; beyond the budget or replica limit it needs approval.
+
+    Shared by scale_service_with_budget_boundary and the resource tools. PermissionError means Richard's
+    approval is needed; ValueError means the request cannot be carried out.
+    """
+    from app.core.deploy import DeployError
+    from app.tools import deploy as deploy_tools
+
+    if data["environment"] not in ("staging", "production"):
+        raise ValueError("environment is staging or production")
+    try:
+        project = await deploy_tools._project(db, context, data, data["environment"])
+        deployer = deploy_tools._deployer()
+        current = await deployer.replicas(project["app"], data["environment"], data["service"],
                                           project["compose_file"])
-        except DeployError as exc:
-            raise ValueError(str(exc)) from None
-        from app.models.operations import DeploymentRecord
+    except DeployError as exc:
+        raise ValueError(str(exc)) from None
+    costs = await configs.estimate_monthly(db, context.workspace_id)
+    decision = configs.scaling_decision(costs["monthly_total"], current, data["replicas"])
+    if decision["needs_approval"] and not approved:
+        raise PermissionError("Scaling needs Richard's approval: " + "; ".join(decision["reasons"]))
+    try:
+        result = await deployer.scale(project["app"], data["environment"], data["service"], data["replicas"],
+                                      project["compose_file"])
+    except DeployError as exc:
+        raise ValueError(str(exc)) from None
+    from app.models.operations import DeploymentRecord
 
-        now = datetime.now(timezone.utc)
-        db.add(DeploymentRecord(
-            id=uuid4(), workspace_id=context.workspace_id, deployment_name=f"scale {data['service']}"[:255],
-            deployment_type="scale", environment=data["environment"], version=f"{current}->{data['replicas']}",
-            status="succeeded", success=True, started_at=now, completed_at=now, duration_seconds=0,
-            deployment_logs="\n\n".join(result["log"])[-20000:], can_rollback=True, rolled_back=False,
-            meta_data={"service": data["service"], "previous_replicas": current, "replicas": data["replicas"],
-                       "cost": decision, "approved_by": "richard" if decision["needs_approval"] else "budget"},
-            created_at=now, updated_at=now))
-        await db.flush()
-        return {**{k: v for k, v in result.items() if k != "log"}, "cost": decision}, (
-            f"{data['service']} scaled {current} -> {data['replicas']} in {data['environment']}")
+    now = datetime.now(timezone.utc)
+    db.add(DeploymentRecord(
+        id=uuid4(), workspace_id=context.workspace_id, deployment_name=f"{record_name} {data['service']}"[:255],
+        deployment_type=record_name, environment=data["environment"], version=f"{current}->{data['replicas']}",
+        status="succeeded", success=True, started_at=now, completed_at=now, duration_seconds=0,
+        deployment_logs="\n\n".join(result["log"])[-20000:], can_rollback=True, rolled_back=False,
+        meta_data={"service": data["service"], "previous_replicas": current, "replicas": data["replicas"],
+                   "cost": decision, "approved_by": "richard" if decision["needs_approval"] else "budget"},
+        created_at=now, updated_at=now))
+    await db.flush()
+    return {**{k: v for k, v in result.items() if k != "log"}, "cost": decision}, (
+        f"{data['service']} scaled {current} -> {data['replicas']} in {data['environment']}")
 
 
 INFRA_CONFIG_TOOLS = [

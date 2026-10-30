@@ -4,13 +4,12 @@ JARV Backend - Slack Tools
 Real Slack operations with local draft mode when unconfigured.
 
 SETUP INSTRUCTIONS:
-- Set SLACK_SERVICE_ENABLED=true in environment
-- Configure Slack Bot credentials:
-  - SLACK_BOT_TOKEN: Bot User OAuth Token (starts with xoxb-)
-  - SLACK_WORKSPACE_ID: Slack Workspace ID
-  - SLACK_DEFAULT_CHANNEL: Default channel ID for messages
+- SLACK_BOT_TOKEN: Bot User OAuth Token (starts with xoxb-). Setting it switches Slack on.
+- SLACK_USER_TOKEN (optional, starts with xoxp-): Slack only allows message search with a user
+  token. Without it, slack_search searches the recent history of a named channel with the bot.
 
-When unconfigured, messages are saved as local drafts in database.
+Sending always waits for Richard's approval. Without a bot token, messages are saved as local
+drafts in the database and nothing is sent. The Settings page checks the token (auth.test).
 
 Slack Bot Setup:
 1. Go to https://api.slack.com/apps
@@ -23,7 +22,6 @@ from typing import Dict, Any, Type, List, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
 import logging
-import os
 from uuid import UUID, uuid4
 from sqlalchemy import or_, select
 import httpx
@@ -37,16 +35,22 @@ from app.models.integrations import OutboundMessageDraft
 logger = logging.getLogger(__name__)
 
 
+def _token(name: str) -> Optional[str]:
+    from app.core.ops.connections import value
+
+    return value(name)
+
+
 def is_slack_configured() -> bool:
-    """Check if Slack service is configured"""
-    return os.getenv("SLACK_SERVICE_ENABLED", "false").lower() == "true"
+    """Slack is on when a bot token is set."""
+    return bool(_token("SLACK_BOT_TOKEN"))
 
 
-async def _slack_api_request(method: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Call a Slack Web API method using the configured bot token."""
-    token = os.getenv("SLACK_BOT_TOKEN")
+async def _slack_api_request(method: str, payload: Dict[str, Any], *, token: Optional[str] = None) -> Dict[str, Any]:
+    """Call a Slack Web API method with the bot token (or the given token)."""
+    token = token or _token("SLACK_BOT_TOKEN")
     if not token:
-        raise RuntimeError("SLACK_BOT_TOKEN is required when Slack service is enabled")
+        raise RuntimeError("Set SLACK_BOT_TOKEN to use Slack")
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.post(
@@ -124,7 +128,7 @@ class SlackSendTool(ToolBase):
             if is_slack_configured():
                 response = await _slack_api_request("chat.postMessage", {
                     "channel": channel,
-                    "text": text,
+                    "text": redact_secrets(text),
                     **({"thread_ts": thread_ts} if thread_ts else {}),
                     **({"attachments": input_data["attachments"]} if input_data.get("attachments") else {}),
                     **({"blocks": input_data["blocks"]} if input_data.get("blocks") else {}),
@@ -162,7 +166,8 @@ class SlackSendTool(ToolBase):
                 result_data={
                     "message_id": str(draft.id), "channel": channel,
                     "timestamp": timestamp, "status": "draft", "mode": "draft",
-                    "sent": False, "limitations": ["Slack delivery is disabled; this record is only a saved draft."],
+                    "sent": False, "setup": "Set SLACK_BOT_TOKEN to send to Slack.",
+                    "limitations": ["Slack is not set up; this record is only a saved draft."],
                 },
                 output_text=f"Saved Slack draft {draft.id}; no message was sent.",
             )
@@ -347,6 +352,29 @@ class SlackSearchTool(ToolBase):
         limit = input_data["limit"]
 
         try:
+            user_token = _token("SLACK_USER_TOKEN")
+            if is_slack_configured() and not user_token:
+                if not channel:
+                    return self.create_result(success=False, error_message=(
+                        "Slack only allows workspace-wide search with a user token: set SLACK_USER_TOKEN, or name a "
+                        "channel to search its recent history."))
+                response = await _slack_api_request("conversations.history", {"channel": channel.lstrip("#"),
+                                                                              "limit": 200})
+                needle = query.lower()
+                found = [item for item in response.get("messages", [])
+                         if needle in (item.get("text") or "").lower()
+                         and (not input_data.get("from_user") or item.get("user") == input_data["from_user"])]
+                messages = [{
+                    "message_id": item.get("ts", ""), "user": item.get("user", "unknown"),
+                    "text": item.get("text", ""), "timestamp": item.get("ts", ""),
+                    "thread_ts": item.get("thread_ts"),
+                    "reactions": [reaction.get("name", "") for reaction in item.get("reactions", [])],
+                } for item in found[:limit]]
+                return self.create_result(
+                    success=True,
+                    result_data={"messages": messages, "count": len(messages), "mode": "live_channel_history"},
+                    output_text=f"Found {len(messages)} message(s) in the last 200 of {channel}",
+                )
             if is_slack_configured():
                 search_query = query
                 if channel:
@@ -363,7 +391,7 @@ class SlackSearchTool(ToolBase):
                         "count": min(page_size, limit - len(matches)),
                         "page": page,
                         "sort": "timestamp" if input_data.get("sort") == "timestamp" else "score",
-                    })
+                    }, token=user_token)
                     result = response.get("messages", {})
                     page_matches = result.get("matches", [])
                     total = result.get("total", len(page_matches))
