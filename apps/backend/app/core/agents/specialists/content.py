@@ -65,13 +65,20 @@ class ContentAgent(AgentBase):
 
     @property
     def default_tools(self) -> list[str]:
-        return ['file_write', 'http_get', 'memory_retrieve']
+        from app.core.agents.specialists.business_mode import tools_for
+
+        return list(dict.fromkeys(tools_for("content") + ['file_write', 'http_get', 'memory_retrieve']))
 
     async def run(
         self,
         input_data: Dict[str, Any],
         context: AgentContext,
     ) -> AgentResult:
+        from app.core.agents.specialists import business_mode
+
+        live = await business_mode.run(self, input_data, context)
+        if live is not None:
+            return live
         try:
             content_type = (input_data.get("content_type") or "blog").strip()
             topic = helpers.task_text(input_data, "topic", "content_type")

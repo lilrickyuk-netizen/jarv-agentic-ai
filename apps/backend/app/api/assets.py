@@ -1,18 +1,27 @@
 """
 JARV Backend - Assets API
 
-RESTful API endpoints for digital asset management.
+Authenticated, owner-scoped endpoints for the Assets page: the assets in the
+user's workspaces and their statistics, a workspace's asset library with
+licences and attributions, licence checks, licence-checked downloads into the
+workspace, and the manifest and licence files (app.core.assets.library).
 """
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
-from sqlalchemy import select
-from typing import List, Optional
-from pydantic import BaseModel
-from uuid import UUID
-from datetime import datetime
+from __future__ import annotations
 
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.assets import library
+from app.core.auth import CurrentUserId
 from app.core.database import get_db
 from app.models.assets import Asset
+from app.models.workspace import Workspace
 
 router = APIRouter(prefix="/api/assets", tags=["assets"])
 
@@ -34,78 +43,134 @@ class AssetInfo(BaseModel):
     tags: List[str]
     created_at: str
 
-    class Config:
-        from_attributes = True
-
 
 class AssetStats(BaseModel):
     total_assets: int
     active_assets: int
     by_type: dict[str, int]
+    by_licence: dict[str, int]
     total_downloads: int
     total_views: int
 
 
+def _owned_ids(user_id: str):
+    return select(Workspace.id).where(Workspace.owner_id == UUID(str(user_id)))
+
+
+async def _workspace(db: AsyncSession, user_id: str, workspace_id: UUID) -> Workspace:
+    ws = (await db.execute(select(Workspace).where(Workspace.id == workspace_id,
+                                                   Workspace.owner_id == UUID(str(user_id))))).scalar_one_or_none()
+    if ws is None:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    return ws
+
+
 @router.get("/list", response_model=List[AssetInfo])
-async def list_assets(
-    asset_type: Optional[str] = None,
-    is_active: Optional[bool] = True,
-    limit: int = 50,
-    db: Session = Depends(get_db)
-):
-    """List assets with optional filtering."""
-    query = select(Asset)
+async def list_assets(user_id: CurrentUserId, asset_type: Optional[str] = None, is_active: Optional[bool] = True,
+                      limit: int = 50, db: AsyncSession = Depends(get_db)):
+    """Assets in the user's workspaces, newest first."""
+    query = select(Asset).where(Asset.workspace_id.in_(_owned_ids(user_id)))
     if asset_type:
         query = query.where(Asset.asset_type == asset_type)
     if is_active is not None:
         query = query.where(Asset.is_active == is_active)
-    query = query.order_by(Asset.created_at.desc()).limit(limit)
-
-    result = await db.execute(query)
-    assets = result.scalars().all()
-
-    return [
-        AssetInfo(
-            id=str(asset.id),
-            workspace_id=str(asset.workspace_id),
-            asset_name=asset.asset_name,
-            asset_type=asset.asset_type,
-            category=asset.category,
-            description=asset.description,
-            file_size=asset.file_size,
-            mime_type=asset.mime_type,
-            is_active=asset.is_active,
-            is_public=asset.is_public,
-            license_type=asset.license_type,
-            download_count=asset.download_count,
-            view_count=asset.view_count,
-            tags=asset.tags or [],
-            created_at=asset.created_at.isoformat() if asset.created_at else datetime.now().isoformat(),
-        )
-        for asset in assets
-    ]
+    rows = (await db.execute(query.order_by(Asset.created_at.desc()).limit(max(1, min(limit, 500))))).scalars().all()
+    return [AssetInfo(
+        id=str(a.id), workspace_id=str(a.workspace_id), asset_name=a.asset_name, asset_type=a.asset_type,
+        category=a.category, description=a.description, file_size=a.file_size, mime_type=a.mime_type,
+        is_active=bool(a.is_active), is_public=bool(a.is_public), license_type=a.license_type,
+        download_count=a.download_count or 0, view_count=a.view_count or 0, tags=a.tags or [],
+        created_at=(a.created_at or datetime.now(timezone.utc)).isoformat()) for a in rows]
 
 
 @router.get("/stats", response_model=AssetStats)
-async def get_asset_stats(db: Session = Depends(get_db)):
-    """Get aggregated statistics for assets."""
-    result = await db.execute(select(Asset))
-    all_assets = result.scalars().all()
+async def get_asset_stats(user_id: CurrentUserId, db: AsyncSession = Depends(get_db)):
+    """Statistics over the assets in the user's workspaces."""
+    rows = (await db.execute(select(Asset).where(Asset.workspace_id.in_(_owned_ids(user_id))))).scalars().all()
+    by_type: Dict[str, int] = {}
+    by_licence: Dict[str, int] = {}
+    for a in rows:
+        by_type[a.asset_type] = by_type.get(a.asset_type, 0) + 1
+        key = a.license_type or "unknown"
+        by_licence[key] = by_licence.get(key, 0) + 1
+    return AssetStats(total_assets=len(rows), active_assets=sum(1 for a in rows if a.is_active), by_type=by_type,
+                      by_licence=by_licence, total_downloads=sum(a.download_count or 0 for a in rows),
+                      total_views=sum(a.view_count or 0 for a in rows))
 
-    total_assets = len(all_assets)
-    active_assets = sum(1 for a in all_assets if a.is_active)
 
-    by_type: dict[str, int] = {}
-    for asset in all_assets:
-        by_type[asset.asset_type] = by_type.get(asset.asset_type, 0) + 1
+@router.get("/{workspace_id}/library")
+async def workspace_library(workspace_id: UUID, user_id: CurrentUserId,
+                            db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    await _workspace(db, user_id, workspace_id)
+    return {"assets": [library.asset_view(a) for a in await library.list_assets(db, workspace_id)]}
 
-    total_downloads = sum(a.download_count for a in all_assets)
-    total_views = sum(a.view_count for a in all_assets)
 
-    return AssetStats(
-        total_assets=total_assets,
-        active_assets=active_assets,
-        by_type=by_type,
-        total_downloads=total_downloads,
-        total_views=total_views,
-    )
+class LicenceCheck(BaseModel):
+    licence: Optional[str] = None
+    url: Optional[str] = None
+    commercial: bool = True
+
+
+@router.post("/licence-check")
+async def licence_check(body: LicenceCheck, user_id: CurrentUserId) -> Dict[str, Any]:
+    return library.check_licence(body.licence, body.url, commercial=body.commercial)
+
+
+class Download(BaseModel):
+    url: str
+    licence: Optional[str] = None
+    author: Optional[str] = None
+    source_page: Optional[str] = None
+    folder: str = "assets"
+    filename: Optional[str] = None
+    commercial: bool = True
+
+
+@router.post("/{workspace_id}/download")
+async def download(workspace_id: UUID, body: Download, user_id: CurrentUserId,
+                   db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    ws = await _workspace(db, user_id, workspace_id)
+    try:
+        row = await library.download(db, ws, body.url, folder=body.folder, filename=body.filename,
+                                     licence=body.licence, author=body.author, source_page=body.source_page,
+                                     commercial=body.commercial, created_by=UUID(str(user_id)))
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except (ValueError, LookupError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    await db.commit()
+    return library.asset_view(row)
+
+
+class SourceRecord(BaseModel):
+    source_page: Optional[str] = None
+    author: Optional[str] = None
+    licence: Optional[str] = Field(None, description="Corrected licence id or name")
+
+
+@router.post("/{workspace_id}/assets/{asset_id}/source")
+async def save_source(workspace_id: UUID, asset_id: UUID, body: SourceRecord, user_id: CurrentUserId,
+                      db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    await _workspace(db, user_id, workspace_id)
+    try:
+        row = await library.save_source(db, workspace_id, asset_id, source_page=body.source_page, author=body.author,
+                                        licence=body.licence)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    await db.commit()
+    return library.asset_view(row)
+
+
+@router.post("/{workspace_id}/manifest")
+async def manifest(workspace_id: UUID, user_id: CurrentUserId, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    ws = await _workspace(db, user_id, workspace_id)
+    try:
+        result = {"manifest": await library.write_manifest(db, ws), "licences": await library.write_licence_file(db, ws)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    await db.commit()
+    return result

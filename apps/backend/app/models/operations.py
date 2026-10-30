@@ -5,10 +5,11 @@ Incidents, audit logs, infrastructure, backups, deployments, and authority polic
 """
 from typing import Optional, Dict, Any, List
 from datetime import datetime
-from sqlalchemy import String, Boolean, Integer, Float, Text, ForeignKey, JSON, DateTime, Numeric
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import String, Boolean, Integer, Float, Text, ForeignKey, JSON, DateTime, Numeric, event
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 from sqlalchemy.dialects.postgresql import UUID
 from decimal import Decimal
+import json
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
 
@@ -171,6 +172,13 @@ class AuditLog(Base, UUIDMixin, TimestampMixin):
     # Metadata
     meta_data: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
 
+    @validates("meta_data", "before_state", "after_state", "changes")
+    def _json_safe(self, _key, value):
+        """Audit details are stored as JSON: ids, dates and decimals inside them are kept as text."""
+        if value is None:
+            return None
+        return json.loads(json.dumps(value, default=str))
+
     # Relationships
     workspace: Mapped[Optional["Workspace"]] = relationship("Workspace")
     user: Mapped[Optional["User"]] = relationship("User")
@@ -179,6 +187,24 @@ class AuditLog(Base, UUIDMixin, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<AuditLog(id={self.id}, action={self.action}, actor={self.actor_type})>"
+
+
+@event.listens_for(AuditLog, "before_insert")
+@event.listens_for(AuditLog, "before_update")
+def _redact_audit_log(mapper, connection, target):
+    from app.core.security import redact_secrets
+
+    for field in (
+        "action", "action_category", "actor_type", "description", "target_type",
+        "target_id", "target_description", "error_message", "ip_address", "user_agent",
+    ):
+        value = getattr(target, field, None)
+        if value is not None:
+            setattr(target, field, redact_secrets(value))
+    for field in ("before_state", "after_state", "changes", "meta_data"):
+        value = getattr(target, field, None)
+        if value is not None:
+            setattr(target, field, redact_secrets(value))
 
 
 class InfrastructureResource(Base, UUIDMixin, TimestampMixin):

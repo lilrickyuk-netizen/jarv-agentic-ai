@@ -253,7 +253,8 @@ class ToolRegistry:
             "analyze_style", "analyze_types", "analyze_imports", "analyze_architecture"
         ],
         "infrastructure": [
-            "ssl_check", "dns_verify", "resource_metrics", "cost_estimate"
+            "ssl_check", "dns_verify", "resource_metrics", "cost_estimate", "resource_provision",
+            "resource_scale", "resource_health_check", "resource_status", "resource_terminate"
         ],
         "boundary": [
             "boundary.detect", "boundary.report.create", "boundary.report.get",
@@ -936,26 +937,183 @@ def _register_implemented_tools(registry: ToolRegistry) -> None:
     except ImportError as e:
         logger.warning(f"Analysis tools not available for registration: {e}")
 
-    # Infrastructure tools (Repair 6): register only the REAL, safe, read-only/
-    # compute tools. Mutating/mock infra tools (provision/scale/terminate/deploy/
-    # rollback/backup-create/restore/cleanup) are intentionally NOT registered
-    # because they contain mock/no-op behaviour; they are tracked as missing
-    # real implementations in BUILD_LEDGER.md for a later repair.
+    # Infrastructure tools (Repair 6): the real read-only/compute tools.
+    # Resource tools (Repair 15b): services on the deployment server under the budget
+    # rules, external resources tracked for cost. Backups, restarts and monitoring are
+    # the operations tools (Repair 12d); deployments are the deployment tools (12e-2).
     try:
         from app.tools.infrastructure import (
             SSLCheckTool,
             DNSVerifyTool,
             ResourceMetricsTool,
             CostEstimateTool,
+            ResourceProvisionTool,
+            ResourceScaleTool,
+            ResourceHealthCheckTool,
+            ResourceStatusTool,
+            ResourceTerminateTool,
         )
 
-        for tool in [SSLCheckTool, DNSVerifyTool, ResourceMetricsTool, CostEstimateTool]:
+        infrastructure = [SSLCheckTool, DNSVerifyTool, ResourceMetricsTool, CostEstimateTool, ResourceProvisionTool,
+                          ResourceScaleTool, ResourceHealthCheckTool, ResourceStatusTool, ResourceTerminateTool]
+        for tool in infrastructure:
             registry.register(tool, category="infrastructure")
 
-        logger.info("Registered 4 infrastructure tools (real, read-only/compute)")
+        logger.info(f"Registered {len(infrastructure)} infrastructure tools")
 
     except ImportError as e:
         logger.warning(f"Infrastructure tools not available for registration: {e}")
+
+    # Operations tools (Repair 12d): health, metrics, errors, server, containers
+    # (through the restricted Docker proxy), service restart, stuck-mission
+    # recovery, and PostgreSQL backups. Restore and backup deletion are
+    # approval-gated; data stores are never restarted.
+    try:
+        from app.tools.ops import OPS_TOOLS
+
+        for tool in OPS_TOOLS:
+            registry.register(tool, category="operations")
+
+        logger.info(f"Registered {len(OPS_TOOLS)} operations tools (real, Repair 12d)")
+
+    except ImportError as e:
+        logger.warning(f"Operations tools not available for registration: {e}")
+
+    # Deployment tools (Repair 12e-2): workspace releases to the VPS over SSH,
+    # health-checked, with automatic restore and recorded rollbacks. A
+    # production release always pauses for approval.
+    try:
+        from app.tools.deploy import DEPLOY_TOOLS
+
+        for tool in DEPLOY_TOOLS:
+            registry.register(tool, category="deployment")
+
+        logger.info(f"Registered {len(DEPLOY_TOOLS)} deployment tools (real, Repair 12e-2)")
+
+    except ImportError as e:
+        logger.warning(f"Deployment tools not available for registration: {e}")
+
+    # Workspace tools under the design's names (Repair 12e-3a): the same
+    # folder-confined implementations agents use through their toolbox. A name
+    # that an existing registry tool already uses keeps that tool.
+    try:
+        from app.tools.workspace_runtime import WORKSPACE_RUNTIME_TOOLS
+
+        added = 0
+        for tool in WORKSPACE_RUNTIME_TOOLS:
+            existing = registry.get_metadata(tool(ToolConfig()).name)
+            if existing is None or not existing.is_implemented:
+                registry.register(tool, category="workspace_runtime")
+                added += 1
+
+        logger.info(f"Registered {added} workspace tools under design names (Repair 12e-3a)")
+
+    except ImportError as e:
+        logger.warning(f"Workspace runtime tools not available for registration: {e}")
+
+    # Swarm tools (Repair 12e-3b): persisted, owner-scoped swarms whose
+    # sub-agents never exceed their lead's authority or tools.
+    try:
+        from app.tools.swarm import SWARM_TOOLS
+
+        for tool in SWARM_TOOLS:
+            registry.register(tool, category="swarm")
+
+        logger.info(f"Registered {len(SWARM_TOOLS)} swarm tools (real, Repair 12e-3b)")
+
+    except ImportError as e:
+        logger.warning(f"Swarm tools not available for registration: {e}")
+
+    # Company operating layer, workspace lifecycle and experience record tools
+    # (Repair 12e-3c): persisted, scoped to the calling workspace's owner.
+    try:
+        from app.tools.company.operations import COMPANY_TOOLS
+        from app.tools.experience.records import EXPERIENCE_RECORD_TOOLS
+        from app.tools.workspace.lifecycle import WORKSPACE_LIFECYCLE_TOOLS
+
+        for group, category in ((COMPANY_TOOLS, "company"), (WORKSPACE_LIFECYCLE_TOOLS, "workspace"),
+                                (EXPERIENCE_RECORD_TOOLS, "experience")):
+            for tool in group:
+                registry.register(tool, category=category)
+
+        logger.info(f"Registered {len(COMPANY_TOOLS)} company, {len(WORKSPACE_LIFECYCLE_TOOLS)} workspace lifecycle "
+                    f"and {len(EXPERIENCE_RECORD_TOOLS)} experience tools (real, Repair 12e-3c)")
+
+    except ImportError as e:
+        logger.warning(f"Company/workspace/experience tools not available for registration: {e}")
+
+    # Self-evolution tools (Repair 12e-3d): verified, versioned, reversible changes
+    # that can never weaken safety, authority, logging, verification or limits.
+    try:
+        from app.tools.evolution import EVOLUTION_TOOLS
+
+        for tool in EVOLUTION_TOOLS:
+            registry.register(tool, category="self_evolution")
+
+        logger.info(f"Registered {len(EVOLUTION_TOOLS)} self-evolution tools (real, Repair 12e-3d)")
+
+    except ImportError as e:
+        logger.warning(f"Self-evolution tools not available for registration: {e}")
+
+    # Business tools (Repair 12e-4a): grounded drafts and persisted support, community,
+    # partnership, sales and onboarding records; nothing is published or sent without a rule
+    # or Richard's approval.
+    try:
+        from app.tools.business import BUSINESS_TOOLS
+
+        for tool in BUSINESS_TOOLS:
+            registry.register(tool, category=tool._category)
+
+        logger.info(f"Registered {len(BUSINESS_TOOLS)} business tools (real, Repair 12e-4a)")
+
+    except ImportError as e:
+        logger.warning(f"Business tools not available for registration: {e}")
+
+    # Revenue, infrastructure-config and asset tools (Repair 12e-4b): revenue from Stripe
+    # (read-only) or recorded events, reviews and analytics checks, generated nginx/compose
+    # configs, cost estimates, budget-bounded scaling, licence-checked asset downloads.
+    try:
+        from app.tools.assets_library import ASSET_TOOLS
+        from app.tools.infra_config import INFRA_CONFIG_TOOLS
+        from app.tools.revenue import REVENUE_TOOLS
+
+        for tool in REVENUE_TOOLS:
+            registry.register(tool, category="revenue")
+        for tool in INFRA_CONFIG_TOOLS:
+            registry.register(tool, category="infrastructure")
+        for tool in ASSET_TOOLS:
+            registry.register(tool, category=getattr(tool, "_category", "assets"))
+
+        logger.info(f"Registered {len(REVENUE_TOOLS) + len(INFRA_CONFIG_TOOLS) + len(ASSET_TOOLS)} "
+                    "revenue, infrastructure and asset tools (real, Repair 12e-4b)")
+
+    except ImportError as e:
+        logger.warning(f"Revenue, infrastructure and asset tools not available for registration: {e}")
+
+    # Voice tools (Repair 12e-4c): speech in and out on Voicebox or a keyed service, the local
+    # wake-phrase spotter, and spoken commands routed through the Command Center approval gate.
+    try:
+        from app.tools.voice import VOICE_TOOLS
+
+        for tool in VOICE_TOOLS:
+            registry.register(tool, category="voice")
+
+        logger.info(f"Registered {len(VOICE_TOOLS)} voice tools (real, Repair 12e-4c)")
+
+    except ImportError as e:
+        logger.warning(f"Voice tools not available for registration: {e}")
+
+    # Specialist knowledge lookup (Repair 13): every agent can consult its field's library.
+    try:
+        from app.tools.knowledge import KNOWLEDGE_TOOLS
+
+        for tool in KNOWLEDGE_TOOLS:
+            registry.register(tool, category="knowledge")
+
+        logger.info(f"Registered {len(KNOWLEDGE_TOOLS)} knowledge tool (real, Repair 13)")
+
+    except ImportError as e:
+        logger.warning(f"Knowledge tools not available for registration: {e}")
 
     # Boundary tools (Repair 7): real detection + BoundaryReport persistence.
     try:

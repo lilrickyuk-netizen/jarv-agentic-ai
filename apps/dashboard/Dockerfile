@@ -19,8 +19,9 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED 1
 ENV NODE_ENV production
 
-# Build the application
-RUN npm run build
+# Build the application. Next.js serves optional static files from public/;
+# create it so the runner stage can copy it whether or not the repo has one.
+RUN mkdir -p public && npm run build
 
 # Production image, copy all the files and run next
 FROM base AS runner

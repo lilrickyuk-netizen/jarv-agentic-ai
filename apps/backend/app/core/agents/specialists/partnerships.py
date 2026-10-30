@@ -64,13 +64,20 @@ class PartnershipsAgent(AgentBase):
 
     @property
     def default_tools(self) -> list[str]:
-        return ['crm_create_contact', 'email_send', 'file_write', 'memory_retrieve']
+        from app.core.agents.specialists.business_mode import tools_for
+
+        return list(dict.fromkeys(tools_for("partnerships") + ['crm_create_contact', 'email_send', 'file_write', 'memory_retrieve']))
 
     async def run(
         self,
         input_data: Dict[str, Any],
         context: AgentContext,
     ) -> AgentResult:
+        from app.core.agents.specialists import business_mode
+
+        live = await business_mode.run(self, input_data, context)
+        if live is not None:
+            return live
         try:
             operation = (input_data.get("operation") or "identify").strip()
             partner_type = helpers.task_text(input_data, "partner_type", "operation")

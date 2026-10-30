@@ -194,9 +194,18 @@ class TaskManager:
         for log in self.tasks[task_id].get("logs", []):
             yield json.dumps(log)
 
-        # Stream new logs (placeholder - in production would use pub/sub)
-        # For now just indicate end of stream
-        yield json.dumps({"status": "streaming_complete"})
+        # Then follow the task: new log lines as they arrive, until it finishes.
+        sent = len(self.tasks[task_id].get("logs", []))
+        while self.tasks.get(task_id, {}).get("status") in ("pending", "running", "queued"):
+            await asyncio.sleep(0.5)
+            logs = self.tasks.get(task_id, {}).get("logs", [])
+            for log in logs[sent:]:
+                yield json.dumps(log)
+            sent = len(logs)
+        for log in self.tasks.get(task_id, {}).get("logs", [])[sent:]:
+            yield json.dumps(log)
+        yield json.dumps({"status": "streaming_complete",
+                          "task_status": self.tasks.get(task_id, {}).get("status")})
 
     async def list_tasks(
         self,

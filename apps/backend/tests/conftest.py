@@ -17,6 +17,21 @@ os.environ.setdefault(
     "jarv-test-secret-key-only-not-for-production-2026",
 )
 
+# Never spend real provider credit or reach a real account (mail, GitHub, image
+# libraries) from the test suite. Settings also read
+# apps/backend/.env, which on a developer machine holds real keys; environment
+# variables take precedence over that file, so blank every provider key here,
+# before Settings() is created. Tests that exercise providers inject a fake
+# router or set a test key explicitly.
+for _provider_key in ("CLAUDE_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+                      "GEMINI_API_KEY", "GROQ_API_KEY", "ELEVENLABS_API_KEY", "STRIPE_SECRET_KEY",
+                      "PLAUSIBLE_API_KEY", "GITHUB_TOKEN", "UNSPLASH_ACCESS_KEY", "PEXELS_API_KEY",
+                      "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM", "IMAP_HOST", "IMAP_USER",
+                      "IMAP_PASSWORD", "EMAIL_SMTP_HOST", "EMAIL_SMTP_USER", "EMAIL_SMTP_PASSWORD", "EMAIL_FROM",
+                      "EMAIL_IMAP_HOST", "EMAIL_IMAP_USER", "EMAIL_IMAP_PASSWORD", "NOTIFY_EMAIL", "NOTIFY_WEBHOOK_URL",
+                      "SLACK_BOT_TOKEN", "SLACK_USER_TOKEN"):
+    os.environ[_provider_key] = ""
+
 import pytest
 from typing import Generator
 from fastapi.testclient import TestClient
@@ -52,13 +67,33 @@ from app.models.user import User
 # Isolation between tests is by clearing all tables (see _clean_db), not by
 # transaction rollback. Test-scoped only; production/dev unchanged.
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", "sqlite:///./test_jarv.db")
-_ASYNC_TEST_URL = TEST_DATABASE_URL.replace("sqlite://", "sqlite+aiosqlite://", 1)
 _SQLITE = "sqlite" in TEST_DATABASE_URL
+
+if _SQLITE:
+    _SYNC_TEST_URL = TEST_DATABASE_URL
+    _ASYNC_TEST_URL = TEST_DATABASE_URL.replace("sqlite://", "sqlite+aiosqlite://", 1)
+else:
+    # The backend's async URL may carry an asyncpg or psycopg driver. The test
+    # harness needs both a synchronous fixture engine and an async API engine,
+    # so derive explicit drivers from the same PostgreSQL test database URL.
+    _POSTGRES_TEST_URL = TEST_DATABASE_URL
+    for _driver in ("postgresql+asyncpg://", "postgresql+psycopg://", "postgresql+psycopg2://"):
+        if _POSTGRES_TEST_URL.startswith(_driver):
+            _POSTGRES_TEST_URL = "postgresql://" + _POSTGRES_TEST_URL[len(_driver):]
+            break
+    if not _POSTGRES_TEST_URL.startswith("postgresql://"):
+        raise ValueError("TEST_DATABASE_URL must use PostgreSQL or SQLite")
+    _SYNC_TEST_URL = _POSTGRES_TEST_URL.replace(
+        "postgresql://", "postgresql+psycopg2://", 1,
+    )
+    _ASYNC_TEST_URL = _POSTGRES_TEST_URL.replace(
+        "postgresql://", "postgresql+asyncpg://", 1,
+    )
 
 # Sync engine: AUTOCOMMIT so each statement commits immediately and every read
 # starts a fresh snapshot (no stale long-lived transaction hiding async writes).
 engine = create_engine(
-    TEST_DATABASE_URL,
+    _SYNC_TEST_URL,
     connect_args={"check_same_thread": False, "timeout": 30} if _SQLITE else {},
     poolclass=StaticPool if _SQLITE else NullPool,
     isolation_level="AUTOCOMMIT",
@@ -122,18 +157,38 @@ def db_session(db_engine) -> Generator[Session, None, None]:
 
 @pytest.fixture(autouse=True)
 def _reset_redis_singleton():
-    """Give each test a fresh in-memory fakeredis instance.
+    """Reset the Redis client and isolate real-Redis acceptance runs.
 
-    init_redis() caches a module-global client; resetting it between tests
-    prevents key state from one test leaking into another. Test-scoped only.
+    Normal test runs use the configured fakeredis test double. When
+    JARV_TEST_REAL_REDIS=1, use the configured real Redis service and flush only
+    its explicitly selected test database before and after each test. The
+    acceptance runner uses Redis database 15, separate from JARV's database 0.
     """
     import app.core.redis as _redis_mod
+    from app.core.config import settings
 
     _redis_mod._redis_client = None
     _redis_mod._redis_pool = None
-    yield
-    _redis_mod._redis_client = None
-    _redis_mod._redis_pool = None
+    real_redis = None
+    if os.getenv("JARV_TEST_REAL_REDIS") == "1":
+        from redis import Redis as SyncRedis
+
+        real_redis = SyncRedis.from_url(
+            str(settings.REDIS_URL),
+            decode_responses=True,
+            socket_connect_timeout=5,
+        )
+        real_redis.flushdb()
+    try:
+        yield
+    finally:
+        if real_redis is not None:
+            try:
+                real_redis.flushdb()
+            finally:
+                real_redis.close()
+        _redis_mod._redis_client = None
+        _redis_mod._redis_pool = None
 
 
 @pytest.fixture
@@ -161,6 +216,16 @@ def client(db_session: Session) -> Generator[TestClient, None, None]:
         yield test_client
 
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def signed_in(test_user):
+    """Sign the API in as test_user (who owns test_workspace) for the duration of a test."""
+    from app.core.auth import get_current_user_id
+
+    app.dependency_overrides[get_current_user_id] = lambda: str(test_user.id)
+    yield test_user
+    app.dependency_overrides.pop(get_current_user_id, None)
 
 
 @pytest.fixture

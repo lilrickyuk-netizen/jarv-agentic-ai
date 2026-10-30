@@ -5,7 +5,7 @@ Endpoints for discovering and managing JARV agents.
 """
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
-from uuid import uuid4
+from uuid import UUID, uuid4
 from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -14,7 +14,8 @@ import logging
 
 from app.core.agents import get_registry, AgentMetadata
 from app.core.agents.runner import agent_runner, LEADS_WITH_EMPLOYEES
-from app.core.auth import CurrentUserId
+from app.core.auth import CurrentUserId, get_current_user_id
+from app.core.scoping import as_uuid, owned_workspaces, require_workspace
 from app.core.database import get_db
 from app.core.jarv_memory import memory_service
 from app.models.task import Task
@@ -25,12 +26,13 @@ from app.models.operations import AuditLog
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/agents", tags=["agents"])
+router = APIRouter(prefix="/agents", tags=["agents"], dependencies=[Depends(get_current_user_id)])
 
 
 class AgentRunRequest(BaseModel):
     task: str = Field(..., min_length=1, max_length=4000)
     spawn_employees: bool = False
+    workspace_id: Optional[UUID] = None
 
 
 class AgentInfo(BaseModel):
@@ -321,11 +323,15 @@ async def run_agent(
     if not reg.is_implemented(agent_name):
         raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not implemented")
 
-    ws_id = (await db.execute(select(Workspace.id).limit(1))).scalar_one_or_none()
+    # The operator's chosen workspace, else their first one, else a Command Center workspace they own.
+    ws_id = await require_workspace(db, operator, body.workspace_id)
     if ws_id is None:
-        owner = (await db.execute(select(User.id).limit(1))).scalar_one_or_none()
+        ws_id = (await db.execute(select(Workspace.id).where(Workspace.owner_id == as_uuid(operator),
+                                                             Workspace.is_archived == False)  # noqa: E712
+                                  .order_by(Workspace.created_at.asc()).limit(1))).scalar_one_or_none()
+    if ws_id is None:
         ws = Workspace(id=uuid4(), name="Command Center", slug=f"cc-{uuid4().hex[:6]}",
-                       description="default", owner_id=owner, workspace_type="general",
+                       description="default", owner_id=as_uuid(operator), workspace_type="general",
                        is_active=True, authority_level=5, config={},
                        created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
         db.add(ws); await db.flush(); ws_id = ws.id
@@ -338,7 +344,10 @@ async def run_agent(
                 created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
     db.add(task); await db.flush()
 
-    result = await agent_runner.run_agent(agent_name, body.task, ws_id)
+    result = await agent_runner.run_agent(
+        agent_name, body.task, ws_id, user_id=operator, db=db,
+        task_id=task.id,
+    )
     employees: List[Dict[str, Any]] = []
     if body.spawn_employees and agent_name in LEADS_WITH_EMPLOYEES:
         employees = await agent_runner.spawn_employees(db, agent_name, task.id, ws_id, body.task)
@@ -510,10 +519,11 @@ def _is_member_task(t: Task, members: List[str]) -> bool:
 
 
 @router.get("/departments/{slug}/tasks")
-async def department_tasks(slug: str, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+async def department_tasks(slug: str, user_id: CurrentUserId, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     name = _dept_from_slug(slug)
     members = _dept_members(name)
-    rows = (await db.execute(select(Task).order_by(Task.created_at.desc()).limit(300))).scalars().all()
+    rows = (await db.execute(select(Task).where(Task.workspace_id.in_(owned_workspaces(user_id)))
+                             .order_by(Task.created_at.desc()).limit(300))).scalars().all()
     mine = [t for t in rows if _is_member_task(t, members)]
     counts = {"completed": 0, "partial": 0, "failed": 0, "blocked": 0,
               "waiting_on_approval": 0, "running": 0, "pending": 0}
@@ -539,15 +549,17 @@ async def department_tools(slug: str) -> Dict[str, Any]:
 
 
 @router.get("/departments/{slug}/operations")
-async def department_operations(slug: str, db: AsyncSession = Depends(get_db)) -> List[Dict[str, Any]]:
+async def department_operations(slug: str, user_id: CurrentUserId, db: AsyncSession = Depends(get_db)) -> List[Dict[str, Any]]:
     name = _dept_from_slug(slug)
     members = _dept_members(name)
-    task_rows = (await db.execute(select(Task).order_by(Task.created_at.desc()).limit(300))).scalars().all()
+    task_rows = (await db.execute(select(Task).where(Task.workspace_id.in_(owned_workspaces(user_id)))
+                                  .order_by(Task.created_at.desc()).limit(300))).scalars().all()
     ids = {t.id for t in task_rows if _is_member_task(t, members)}
     if not ids:
         return []
     feed = (await db.execute(
-        select(LiveOperationsFeedItem).order_by(LiveOperationsFeedItem.created_at.desc()).limit(200)
+        select(LiveOperationsFeedItem).where(LiveOperationsFeedItem.workspace_id.in_(owned_workspaces(user_id)))
+        .order_by(LiveOperationsFeedItem.created_at.desc()).limit(200)
     )).scalars().all()
     out = [{"item_type": f.item_type, "severity": f.severity, "title": f.title,
             "message": (f.message or "")[:200],
@@ -557,11 +569,14 @@ async def department_operations(slug: str, db: AsyncSession = Depends(get_db)) -
 
 
 @router.get("/departments/{slug}/memory")
-async def department_memory(slug: str, db: AsyncSession = Depends(get_db)) -> List[Dict[str, Any]]:
+async def department_memory(slug: str, user_id: CurrentUserId, db: AsyncSession = Depends(get_db)) -> List[Dict[str, Any]]:
     from app.models.memory import Memory
     name = _dept_from_slug(slug)
     members = set(_dept_members(name))
-    rows = (await db.execute(select(Memory).order_by(Memory.created_at.desc()).limit(200))).scalars().all()
+    # The operator's workspace memories and JARV's global memory (no workspace).
+    rows = (await db.execute(select(Memory).where(
+        Memory.workspace_id.in_(owned_workspaces(user_id)) | Memory.workspace_id.is_(None))
+        .order_by(Memory.created_at.desc()).limit(200))).scalars().all()
     out = []
     for m in rows:
         meta = m.meta_data if isinstance(m.meta_data, dict) else {}
@@ -574,11 +589,12 @@ async def department_memory(slug: str, db: AsyncSession = Depends(get_db)) -> Li
 
 
 @router.get("/departments/{slug}/experience")
-async def department_experience(slug: str, db: AsyncSession = Depends(get_db)) -> List[Dict[str, Any]]:
+async def department_experience(slug: str, user_id: CurrentUserId, db: AsyncSession = Depends(get_db)) -> List[Dict[str, Any]]:
     from app.models.memory import Memory
     name = _dept_from_slug(slug)
     rows = (await db.execute(
-        select(Memory).where(Memory.memory_type.in_(["experience", "incident"]))
+        select(Memory).where(Memory.memory_type.in_(["experience", "incident"]),
+                             Memory.workspace_id.in_(owned_workspaces(user_id)) | Memory.workspace_id.is_(None))
         .order_by(Memory.created_at.desc()).limit(25))).scalars().all()
     return [{"type": m.memory_type, "content": m.content[:200],
              "created_at": m.created_at.isoformat() if m.created_at else None} for m in rows]

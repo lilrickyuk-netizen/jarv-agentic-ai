@@ -6,6 +6,7 @@ from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.pool import NullPool
 import logging
+import os
 
 from app.core.config import settings
 
@@ -18,14 +19,22 @@ database_url = str(settings.DATABASE_URL).replace(
     "postgresql://", "postgresql+asyncpg://"
 )
 
-engine = create_async_engine(
-    database_url,
-    echo=settings.DEBUG,
-    pool_pre_ping=True,
-    pool_size=settings.DATABASE_POOL_SIZE,
-    max_overflow=10,
-    pool_recycle=3600,
-)
+# Celery workers run each job in a fresh event loop (asyncio.run). Pooled asyncpg
+# connections are bound to the loop that opened them, so a pool would fail on a
+# worker's second job. Worker processes therefore open a connection per use.
+IS_WORKER_PROCESS = os.getenv("JARV_PROCESS_ROLE", "").lower() == "worker"
+
+if IS_WORKER_PROCESS:
+    engine = create_async_engine(database_url, echo=settings.DEBUG, poolclass=NullPool)
+else:
+    engine = create_async_engine(
+        database_url,
+        echo=settings.DEBUG,
+        pool_pre_ping=True,
+        pool_size=settings.DATABASE_POOL_SIZE,
+        max_overflow=10,
+        pool_recycle=3600,
+    )
 
 # Create async session factory
 AsyncSessionLocal = async_sessionmaker(

@@ -1,36 +1,43 @@
 """
-JARV Backend - Swarm Tracking
+JARV Backend - Swarm tracking
 
-Tracks swarm costs, metrics, and activity reporting.
+Metrics, costs, and activity reports computed from the persisted swarm rows
+(SwarmRun, SubAgent, SubAgentTask, SubAgentLog). When a swarm finishes, its
+totals are recorded once as a SwarmCostRecord.
+
+Costs are estimates: the runner reports total tokens per sub-agent, so a
+model's cost is tokens x the mean of its published input and output price.
 """
-from typing import Optional, Dict, Any, List
-from uuid import UUID, uuid4
-from datetime import datetime
-from pydantic import BaseModel, Field
+from __future__ import annotations
+
 import logging
+from datetime import datetime, timezone
+from decimal import Decimal
+from typing import Any, Dict, List, Optional
+from uuid import UUID, uuid4
+
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.swarm import SubAgent, SubAgentLog, SubAgentTask, SwarmCostRecord as CostRow, SwarmRun
 
 logger = logging.getLogger(__name__)
 
 
 class SwarmCostRecord(BaseModel):
-    """Swarm cost record"""
     id: UUID
     swarm_run_id: UUID
-    workspace_id: UUID
-    sub_agent_id: Optional[UUID]
-    operation_type: str  # spawn, execute, dissolve
-    tokens_input: int
-    tokens_output: int
-    tokens_total: int
-    cost_input: float
-    cost_output: float
-    cost_total: float
-    model_used: str
-    timestamp: datetime
+    model_costs: Dict[str, float]
+    total_cost: float
+    currency: str
+    total_tokens: int
+    total_api_calls: int
+    total_subagents: int
+    created_at: Optional[datetime]
 
 
 class SwarmMetrics(BaseModel):
-    """Swarm metrics"""
     swarm_run_id: UUID
     total_sub_agents: int
     active_sub_agents: int
@@ -45,283 +52,165 @@ class SwarmMetrics(BaseModel):
     success_rate: float
 
 
+def price_per_million(model: str) -> float:
+    """Mean of the model's published input/output price per million tokens (0 when unknown)."""
+    from app.core.providers.claude import ClaudeProvider
+    from app.core.providers.gemini import GeminiProvider
+    from app.core.providers.openai import OpenAIProvider
+
+    for catalog in (ClaudeProvider.MODELS, OpenAIProvider.MODELS, GeminiProvider.MODELS):
+        if model in catalog:
+            entry = catalog[model]
+            return (float(entry["input_cost"]) + float(entry["output_cost"])) / 2
+    return 0.0
+
+
+def estimate_cost(model: str, tokens: int) -> float:
+    return round(int(tokens or 0) * price_per_million(model) / 1_000_000, 6)
+
+
+async def _children(db: AsyncSession, swarm_run_id: UUID) -> List[SubAgent]:
+    return list((await db.execute(select(SubAgent).where(SubAgent.swarm_run_id == swarm_run_id)
+                                  .order_by(SubAgent.created_at))).scalars().all())
+
+
 class SwarmTracker:
-    """
-    Tracks swarm costs and metrics.
+    async def calculate_swarm_cost(self, db: AsyncSession, swarm_run_id: UUID) -> Dict[str, Any]:
+        by_model: Dict[str, Dict[str, float]] = {}
+        by_child: Dict[str, Dict[str, Any]] = {}
+        for child in await _children(db, swarm_run_id):
+            cost = float(child.cost or 0) or estimate_cost(child.model_name, child.tokens_used)
+            entry = by_model.setdefault(child.model_name, {"tokens": 0, "cost": 0.0})
+            entry["tokens"] += int(child.tokens_used or 0)
+            entry["cost"] = round(entry["cost"] + cost, 6)
+            by_child[str(child.id)] = {"agent": child.subagent_name, "status": child.status,
+                                       "tokens": int(child.tokens_used or 0), "cost": round(cost, 6)}
+        return {"swarm_run_id": str(swarm_run_id), "by_model": by_model, "by_sub_agent": by_child,
+                "totals": {"tokens": sum(m["tokens"] for m in by_model.values()),
+                           "cost": round(sum(m["cost"] for m in by_model.values()), 6)},
+                "currency": "USD", "estimated": True}
 
-    Records token usage, costs, and performance metrics.
-    """
+    async def get_swarm_metrics(self, db: AsyncSession, swarm_run_id: UUID) -> SwarmMetrics:
+        children = await _children(db, swarm_run_id)
+        tasks = list((await db.execute(select(SubAgentTask).join(SubAgent, SubAgentTask.subagent_id == SubAgent.id)
+                                       .where(SubAgent.swarm_run_id == swarm_run_id))).scalars().all())
+        finished = [t for t in tasks if t.completed_at and t.started_at]
+        durations = [(t.completed_at - t.started_at).total_seconds() for t in finished]
+        done = sum(1 for c in children if c.status == "completed" or (c.status == "dissolved" and c.success))
+        failed = sum(1 for c in children if c.status in ("failed", "timed_out") or (c.status == "dissolved" and c.success is False))
+        tokens: Dict[str, int] = {}
+        for child in children:
+            tokens[child.model_name] = tokens.get(child.model_name, 0) + int(child.tokens_used or 0)
+        cost = (await self.calculate_swarm_cost(db, swarm_run_id))["totals"]["cost"]
+        judged = done + failed
+        return SwarmMetrics(
+            swarm_run_id=swarm_run_id, total_sub_agents=len(children),
+            active_sub_agents=sum(1 for c in children if c.status in ("spawning", "idle", "working")),
+            completed_sub_agents=done, failed_sub_agents=failed, total_tasks=len(tasks),
+            completed_tasks=sum(1 for t in tasks if t.status == "completed"),
+            failed_tasks=sum(1 for t in tasks if t.status == "failed"), total_tokens=tokens, total_cost=cost,
+            avg_task_duration_seconds=round(sum(durations) / len(durations), 2) if durations else 0.0,
+            success_rate=round(done / judged, 3) if judged else 0.0)
 
-    def __init__(self):
-        """Initialize swarm tracker"""
-        self.logger = logging.getLogger("swarm.tracking")
-
-    async def record_cost(
-        self,
-        swarm_run_id: UUID,
-        workspace_id: UUID,
-        sub_agent_id: Optional[UUID],
-        operation_type: str,
-        tokens_input: int,
-        tokens_output: int,
-        model_used: str,
-        cost_per_1k_input: float = 0.003,
-        cost_per_1k_output: float = 0.015,
-    ) -> UUID:
-        """
-        Record swarm cost.
-
-        In production: Insert into SwarmCostRecord table.
-
-        Args:
-            swarm_run_id: Swarm run ID
-            workspace_id: Workspace ID
-            sub_agent_id: Sub-agent ID if applicable
-            operation_type: Type of operation
-            tokens_input: Input tokens
-            tokens_output: Output tokens
-            model_used: Model name
-            cost_per_1k_input: Cost per 1k input tokens
-            cost_per_1k_output: Cost per 1k output tokens
-
-        Returns:
-            Cost record ID
-        """
-        try:
-            tokens_total = tokens_input + tokens_output
-            cost_input = (tokens_input / 1000) * cost_per_1k_input
-            cost_output = (tokens_output / 1000) * cost_per_1k_output
-            cost_total = cost_input + cost_output
-
-            # In production: Insert into database
-            # from app.models.swarm import SwarmCostRecord as DBCostRecord
-            # from app.core.database import get_db
-            # async with get_db() as db:
-            #     db_cost = DBCostRecord(
-            #         swarm_run_id=swarm_run_id,
-            #         workspace_id=workspace_id,
-            #         sub_agent_id=sub_agent_id,
-            #         operation_type=operation_type,
-            #         tokens_input=tokens_input,
-            #         tokens_output=tokens_output,
-            #         tokens_total=tokens_total,
-            #         cost_input=cost_input,
-            #         cost_output=cost_output,
-            #         cost_total=cost_total,
-            #         model_used=model_used,
-            #         timestamp=datetime.utcnow(),
-            #     )
-            #     db.add(db_cost)
-            #     await db.commit()
-            #     cost_id = db_cost.id
-
-            cost_id = uuid4()
-
-            self.logger.info(
-                f"Recorded swarm cost: ${cost_total:.4f}",
-                extra={
-                    "cost_id": str(cost_id),
-                    "swarm_run_id": str(swarm_run_id),
-                    "tokens": tokens_total,
-                }
-            )
-
-            return cost_id
-
-        except Exception as e:
-            self.logger.error(
-                f"Failed to record cost: {e}",
-                extra={"swarm_run_id": str(swarm_run_id)},
-                exc_info=True
-            )
-            raise
-
-    async def calculate_swarm_cost(
-        self,
-        swarm_run_id: UUID,
-    ) -> Dict[str, Any]:
-        """
-        Calculate total swarm cost.
-
-        In production: Aggregate from SwarmCostRecord.
-
-        Args:
-            swarm_run_id: Swarm run ID
-
-        Returns:
-            Cost breakdown
-        """
-        try:
-            # In production:
-            # 1. Query all cost records for swarm
-            # 2. Aggregate by operation type
-            # 3. Calculate totals
-            # 4. Return breakdown
-
-            cost_breakdown = {
-                "swarm_run_id": str(swarm_run_id),
-                "by_operation": {
-                    "spawn": {"tokens": 0, "cost": 0.0},
-                    "execute": {"tokens": 0, "cost": 0.0},
-                    "dissolve": {"tokens": 0, "cost": 0.0},
-                },
-                "by_sub_agent": {},
-                "totals": {
-                    "tokens_input": 0,
-                    "tokens_output": 0,
-                    "tokens_total": 0,
-                    "cost": 0.0,
-                },
-            }
-
-            return cost_breakdown
-
-        except Exception as e:
-            self.logger.error(
-                f"Failed to calculate cost: {e}",
-                extra={"swarm_run_id": str(swarm_run_id)},
-                exc_info=True
-            )
-            raise
-
-    async def get_swarm_metrics(
-        self,
-        swarm_run_id: UUID,
-    ) -> SwarmMetrics:
-        """
-        Get swarm metrics.
-
-        In production: Calculate from swarm and sub-agent data.
-
-        Args:
-            swarm_run_id: Swarm run ID
-
-        Returns:
-            Swarm metrics
-        """
-        try:
-            # In production:
-            # 1. Load swarm run
-            # 2. Query sub-agents
-            # 3. Query tasks
-            # 4. Calculate metrics
-            # 5. Return SwarmMetrics
-
-            metrics = SwarmMetrics(
-                swarm_run_id=swarm_run_id,
-                total_sub_agents=0,
-                active_sub_agents=0,
-                completed_sub_agents=0,
-                failed_sub_agents=0,
-                total_tasks=0,
-                completed_tasks=0,
-                failed_tasks=0,
-                total_tokens={},
-                total_cost=0.0,
-                avg_task_duration_seconds=0.0,
-                success_rate=0.0,
-            )
-
-            return metrics
-
-        except Exception as e:
-            self.logger.error(
-                f"Failed to get metrics: {e}",
-                extra={"swarm_run_id": str(swarm_run_id)},
-                exc_info=True
-            )
-            raise
-
-    async def report_swarm_activity(
-        self,
-        swarm_run_id: UUID,
-    ) -> Dict[str, Any]:
-        """
-        Generate swarm activity report.
-
-        In production: Comprehensive activity summary.
-
-        Args:
-            swarm_run_id: Swarm run ID
-
-        Returns:
-            Activity report
-        """
-        try:
-            # In production:
-            # 1. Get swarm metrics
-            # 2. Get cost breakdown
-            # 3. List sub-agents with status
-            # 4. List completed tasks
-            # 5. Identify issues/blockers
-            # 6. Calculate efficiency metrics
-            # 7. Return comprehensive report
-
-            metrics = await self.get_swarm_metrics(swarm_run_id)
-            costs = await self.calculate_swarm_cost(swarm_run_id)
-
-            report = {
-                "swarm_run_id": str(swarm_run_id),
-                "metrics": metrics.dict(),
-                "costs": costs,
-                "timeline": [],
-                "sub_agents": [],
-                "issues": [],
-                "recommendations": [],
-                "generated_at": datetime.utcnow().isoformat(),
-            }
-
-            return report
-
-        except Exception as e:
-            self.logger.error(
-                f"Failed to generate activity report: {e}",
-                extra={"swarm_run_id": str(swarm_run_id)},
-                exc_info=True
-            )
-            raise
-
-    async def list_cost_records(
-        self,
-        swarm_run_id: Optional[UUID] = None,
-        workspace_id: Optional[UUID] = None,
-        limit: int = 100,
-    ) -> List[SwarmCostRecord]:
-        """List cost records"""
-        # In production: Query database
-        return []
-
-    async def get_workspace_swarm_costs(
-        self,
-        workspace_id: UUID,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> Dict[str, Any]:
-        """Get workspace swarm costs over time"""
+    async def report_swarm_activity(self, db: AsyncSession, swarm_run_id: UUID) -> Dict[str, Any]:
+        swarm = (await db.execute(select(SwarmRun).where(SwarmRun.id == swarm_run_id))).scalar_one_or_none()
+        if swarm is None:
+            raise ValueError("Swarm run not found")
+        children = await _children(db, swarm_run_id)
+        logs = list((await db.execute(select(SubAgentLog).join(SubAgent, SubAgentLog.subagent_id == SubAgent.id)
+                                      .where(SubAgent.swarm_run_id == swarm_run_id)
+                                      .order_by(SubAgentLog.logged_at))).scalars().all())
+        metrics = await self.get_swarm_metrics(db, swarm_run_id)
+        issues = [f"{c.subagent_name}: {c.error_message or (c.result or {}).get('error') or 'failed'}"
+                  for c in children if c.status in ("failed", "timed_out")]
+        recommendations = []
+        if issues:
+            recommendations.append("Review the failed sub-agents' errors before re-running their tasks.")
+        if metrics.active_sub_agents == 0 and swarm.status in ("running", "initializing"):
+            recommendations.append("All sub-agents have finished; complete or dissolve the swarm.")
         return {
-            "workspace_id": str(workspace_id),
-            "period": {
-                "start": start_date.isoformat() if start_date else None,
-                "end": end_date.isoformat() if end_date else None,
-            },
-            "total_swarms": 0,
-            "total_sub_agents": 0,
-            "total_tokens": 0,
-            "total_cost": 0.0,
-            "avg_cost_per_swarm": 0.0,
-            "by_date": [],
-        }
+            "swarm_run_id": str(swarm_run_id), "objective": swarm.objective, "status": swarm.status,
+            "metrics": metrics.model_dump(mode="json"), "costs": await self.calculate_swarm_cost(db, swarm_run_id),
+            "sub_agents": [{"id": str(c.id), "agent": c.subagent_name, "status": c.status, "success": c.success,
+                            "tokens": c.tokens_used,
+                            "summary": str((c.result or {}).get("output_text") or "")[:300]} for c in children],
+            "timeline": [{"at": l.logged_at.isoformat() if l.logged_at else None, "level": l.log_level,
+                          "category": l.log_category, "message": l.log_message[:500]} for l in logs],
+            "issues": issues, "recommendations": recommendations,
+            "generated_at": datetime.now(timezone.utc).isoformat()}
+
+    async def record_final_cost(self, db: AsyncSession, swarm: SwarmRun) -> CostRow:
+        """One SwarmCostRecord per finished swarm (idempotent), with totals copied to the run."""
+        existing = (await db.execute(select(CostRow).where(CostRow.swarm_run_id == swarm.id))).scalar_one_or_none()
+        costs = await self.calculate_swarm_cost(db, swarm.id)
+        children = await _children(db, swarm.id)
+        now = datetime.now(timezone.utc)
+        model_costs = {model: round(v["cost"], 6) for model, v in costs["by_model"].items()}
+        total = Decimal(str(round(costs["totals"]["cost"], 4)))
+        if existing is None:
+            existing = CostRow(id=uuid4(), swarm_run_id=swarm.id, model_costs=model_costs, total_cost=total,
+                               currency="USD", total_tokens=costs["totals"]["tokens"],
+                               total_api_calls=sum(int(c.api_calls or 0) for c in children),
+                               total_subagents=len(children), meta_data={"estimated": True},
+                               created_at=now, updated_at=now)
+            db.add(existing)
+        else:
+            existing.model_costs, existing.total_cost = model_costs, total
+            existing.total_tokens, existing.total_subagents = costs["totals"]["tokens"], len(children)
+            existing.updated_at = now
+        swarm.total_tokens_used = costs["totals"]["tokens"]
+        swarm.total_cost = total
+        await db.flush()
+        return existing
+
+    async def list_cost_records(self, db: AsyncSession, workspace_ids: List[UUID], swarm_run_id: Optional[UUID] = None,
+                                limit: int = 100) -> List[SwarmCostRecord]:
+        query = select(CostRow).join(SwarmRun, CostRow.swarm_run_id == SwarmRun.id).where(
+            SwarmRun.workspace_id.in_(workspace_ids))
+        if swarm_run_id is not None:
+            query = query.where(CostRow.swarm_run_id == swarm_run_id)
+        rows = (await db.execute(query.order_by(CostRow.created_at.desc()).limit(limit))).scalars().all()
+        return [SwarmCostRecord(id=r.id, swarm_run_id=r.swarm_run_id,
+                                model_costs={k: float(v) for k, v in (r.model_costs or {}).items()},
+                                total_cost=float(r.total_cost or 0), currency=r.currency, total_tokens=r.total_tokens,
+                                total_api_calls=r.total_api_calls, total_subagents=r.total_subagents,
+                                created_at=r.created_at) for r in rows]
+
+    async def get_workspace_swarm_costs(self, db: AsyncSession, workspace_id: UUID,
+                                        start: Optional[datetime] = None,
+                                        end: Optional[datetime] = None) -> Dict[str, Any]:
+        query = select(SwarmRun).where(SwarmRun.workspace_id == workspace_id)
+        if start is not None:
+            query = query.where(SwarmRun.created_at >= start)
+        if end is not None:
+            query = query.where(SwarmRun.created_at <= end)
+        swarms = list((await db.execute(query)).scalars().all())
+        by_date: Dict[str, Dict[str, float]] = {}
+        totals = {"tokens": 0, "cost": 0.0, "sub_agents": 0}
+        for swarm in swarms:
+            costs = await self.calculate_swarm_cost(db, swarm.id)
+            day = (swarm.created_at or datetime.now(timezone.utc)).date().isoformat()
+            bucket = by_date.setdefault(day, {"tokens": 0, "cost": 0.0, "swarms": 0})
+            bucket["tokens"] += costs["totals"]["tokens"]
+            bucket["cost"] = round(bucket["cost"] + costs["totals"]["cost"], 6)
+            bucket["swarms"] += 1
+            totals["tokens"] += costs["totals"]["tokens"]
+            totals["cost"] = round(totals["cost"] + costs["totals"]["cost"], 6)
+            totals["sub_agents"] += len(costs["by_sub_agent"])
+        return {"workspace_id": str(workspace_id),
+                "period": {"start": start.isoformat() if start else None, "end": end.isoformat() if end else None},
+                "total_swarms": len(swarms), "total_sub_agents": totals["sub_agents"],
+                "total_tokens": totals["tokens"], "total_cost": totals["cost"],
+                "avg_cost_per_swarm": round(totals["cost"] / len(swarms), 6) if swarms else 0.0,
+                "by_date": [{"date": d, **v} for d, v in sorted(by_date.items())], "estimated": True}
 
 
-# Global tracker
 _swarm_tracker = SwarmTracker()
 
 
-async def calculate_swarm_cost(swarm_run_id: UUID) -> Dict[str, Any]:
-    """Global function to calculate cost"""
-    return await _swarm_tracker.calculate_swarm_cost(swarm_run_id)
+async def calculate_swarm_cost(db: AsyncSession, swarm_run_id: UUID) -> Dict[str, Any]:
+    return await _swarm_tracker.calculate_swarm_cost(db, swarm_run_id)
 
 
-async def get_swarm_metrics(swarm_run_id: UUID) -> SwarmMetrics:
-    """Global function to get metrics"""
-    return await _swarm_tracker.get_swarm_metrics(swarm_run_id)
+async def get_swarm_metrics(db: AsyncSession, swarm_run_id: UUID) -> SwarmMetrics:
+    return await _swarm_tracker.get_swarm_metrics(db, swarm_run_id)

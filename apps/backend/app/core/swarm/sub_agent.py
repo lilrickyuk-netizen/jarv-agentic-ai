@@ -1,29 +1,40 @@
 """
-JARV Backend - Sub-Agent Manager
+JARV Backend - Sub-agents
 
-Manages individual sub-agents and their tasks.
+Follow-up work for sub-agents a swarm has already spawned, all persisted and
+owner-scoped: assign another task (run through the real AgentRunner inside
+the same authority and tool ceilings the sub-agent was spawned with), status,
+collected output, attaching a sub-agent's log to its parent task, and timing
+out sub-agents whose run stopped without finishing.
 """
-from typing import Optional, Dict, Any, List
-from uuid import UUID, uuid4
-from datetime import datetime
-from pydantic import BaseModel, Field
-from enum import Enum
+from __future__ import annotations
+
 import logging
+from datetime import datetime, timedelta, timezone
+from enum import Enum
+from typing import Any, Dict, List, Optional
+from uuid import UUID, uuid4
+
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.agent import Agent
+from app.models.operations import AuditLog
+from app.models.swarm import SubAgent, SubAgentLog, SubAgentTask, SwarmRun
+from app.models.task import Task
 
 logger = logging.getLogger(__name__)
 
 
 class TaskStatus(str, Enum):
-    """Sub-agent task status"""
     PENDING = "pending"
-    ASSIGNED = "assigned"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
     FAILED = "failed"
 
 
 class SubAgentCreate(BaseModel):
-    """Schema for creating sub-agent"""
     swarm_run_id: UUID
     agent_template: str
     task_description: str
@@ -34,12 +45,11 @@ class SubAgentCreate(BaseModel):
 
 
 class SubAgentResult(BaseModel):
-    """Sub-agent result"""
     id: UUID
     swarm_run_id: UUID
     agent_template: str
     task_description: str
-    status: str  # SubAgentStatus
+    status: str
     authority_level: int
     allowed_tools: List[str]
     assigned_tasks: List[UUID]
@@ -55,7 +65,6 @@ class SubAgentResult(BaseModel):
 
 
 class SubAgentTaskCreate(BaseModel):
-    """Schema for creating sub-agent task"""
     sub_agent_id: UUID
     task_title: str
     task_description: str
@@ -64,7 +73,6 @@ class SubAgentTaskCreate(BaseModel):
 
 
 class SubAgentTaskResult(BaseModel):
-    """Sub-agent task result"""
     id: UUID
     sub_agent_id: UUID
     swarm_run_id: UUID
@@ -83,314 +91,191 @@ class SubAgentTaskResult(BaseModel):
     created_at: datetime
 
 
+async def _tasks(db: AsyncSession, child_id: UUID) -> List[SubAgentTask]:
+    return list((await db.execute(select(SubAgentTask).where(SubAgentTask.subagent_id == child_id)
+                                  .order_by(SubAgentTask.created_at))).scalars().all())
+
+
+async def to_result(db: AsyncSession, child: SubAgent) -> SubAgentResult:
+    tasks = await _tasks(db, child.id)
+    meta = child.meta_data or {}
+    dissolved = meta.get("dissolved_at")
+    return SubAgentResult(
+        id=child.id, swarm_run_id=child.swarm_run_id, agent_template=child.subagent_type,
+        task_description=child.system_prompt or "", status=child.status,
+        authority_level=int(meta.get("authority_level") or 0), allowed_tools=list(meta.get("allowed_tools") or []),
+        assigned_tasks=[t.id for t in tasks], completed_tasks=sum(1 for t in tasks if t.status == "completed"),
+        failed_tasks=sum(1 for t in tasks if t.status == "failed"),
+        tokens_used={child.model_name: int(child.tokens_used or 0)}, cost_estimate=float(child.cost or 0),
+        output=child.result, timeout_seconds=int(meta.get("timeout_seconds") or 1800),
+        spawned_at=child.created_at or child.started_at or datetime.now(timezone.utc),
+        dissolved_at=datetime.fromisoformat(dissolved) if dissolved else None, metadata=meta)
+
+
 class SubAgentManager:
-    """
-    Manages sub-agents and their tasks.
-
-    Handles sub-agent creation, task assignment, and output collection.
-    """
-
     def __init__(self):
-        """Initialize sub-agent manager"""
-        self.logger = logging.getLogger("swarm.sub_agent")
+        from app.core.swarm.manager import SwarmManager
 
-    async def create_sub_agent(
-        self,
-        sub_agent: SubAgentCreate,
-    ) -> UUID:
-        """
-        Create sub-agent.
+        self.swarms = SwarmManager()
 
-        In production: Insert into SubAgent table and dispatch.
+    async def assign_task(self, db: AsyncSession, task: SubAgentTaskCreate, owner: UUID | str) -> UUID:
+        """Run another task on an existing sub-agent, within its spawn-time ceilings."""
+        from app.core.security import redact_text
+        from app.core.swarm.manager import _run_child
 
-        Args:
-            sub_agent: Sub-agent creation data
+        child = await self.swarms.owned_sub_agent(db, task.sub_agent_id, owner)
+        if child.status in ("dissolved", "timed_out"):
+            raise ValueError(f"The sub-agent is {child.status}; spawn a new one")
+        if child.status in ("working", "spawning"):
+            raise ValueError("The sub-agent is still working on its current task")
+        swarm = (await db.execute(select(SwarmRun).where(SwarmRun.id == child.swarm_run_id))).scalar_one()
+        if swarm.status not in ("initializing", "running"):
+            raise ValueError(f"The swarm is {swarm.status}; no new tasks start")
+        meta = child.meta_data or {}
+        lead = (await db.execute(select(Agent).where(Agent.id == swarm.parent_agent_id))).scalar_one()
+        agent = (await db.execute(select(Agent).where(Agent.id == UUID(meta["agent_id"])))).scalar_one()
+        if not agent.is_active:
+            raise ValueError("The sub-agent's agent record is inactive")
+        now = datetime.now(timezone.utc)
+        description = f"{task.task_title}\n\n{task.task_description}".strip()
+        row = Task(id=uuid4(), workspace_id=swarm.workspace_id, assigned_agent_id=agent.id,
+                   title=f"Swarm task: {task.task_title}"[:500], description=redact_text(description),
+                   task_type="subagent_task", status="running", priority=5,
+                   context={"swarm_run_id": str(swarm.id), "subagent_id": str(child.id),
+                            "parent_agent_id": str(lead.id), "authority_level": meta.get("authority_level"),
+                            "allowed_tools": meta.get("allowed_tools"), "input": task.input_data})
+        db.add(row)
+        child_task = SubAgentTask(subagent_id=child.id, task_description=redact_text(description),
+                                  task_type=child.subagent_type, status="in_progress", started_at=now,
+                                  meta_data={"parent_agent_id": str(lead.id), "task_id": str(row.id),
+                                             "title": task.task_title, "input": task.input_data})
+        db.add(child_task)
+        child.status = "working"
+        await db.flush()
+        await _run_child(db, swarm, lead, child, agent, row, child_task, description, UUID(str(owner)),
+                         int(meta.get("authority_level") or 0), list(meta.get("allowed_tools") or []))
+        return child_task.id
 
-        Returns:
-            Sub-agent ID
-        """
+    async def get_status(self, db: AsyncSession, sub_agent_id: UUID, owner: UUID | str) -> Dict[str, Any]:
+        child = await self.swarms.owned_sub_agent(db, sub_agent_id, owner)
+        tasks = await _tasks(db, child.id)
+        current = next((t for t in reversed(tasks) if t.status == "in_progress"), None)
+        started = child.started_at or child.created_at
+        if started is not None and started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        end = child.completed_at or datetime.now(timezone.utc)
+        if end.tzinfo is None:
+            end = end.replace(tzinfo=timezone.utc)
+        return {"sub_agent_id": str(child.id), "agent": child.subagent_type, "status": child.status,
+                "success": child.success, "assigned_tasks": len(tasks),
+                "completed_tasks": sum(1 for t in tasks if t.status == "completed"),
+                "failed_tasks": sum(1 for t in tasks if t.status == "failed"),
+                "current_task": str(current.id) if current else None,
+                "tokens_used": int(child.tokens_used or 0), "cost_estimate": float(child.cost or 0),
+                "uptime_seconds": int((end - started).total_seconds()) if started else 0,
+                "error": child.error_message}
+
+    async def collect_output(self, db: AsyncSession, sub_agent_id: UUID, owner: UUID | str) -> Dict[str, Any]:
+        child = await self.swarms.owned_sub_agent(db, sub_agent_id, owner)
+        tasks = await _tasks(db, child.id)
+        outputs = [{"task_id": str(t.id), "status": t.status, "success": t.success,
+                    "output_text": (t.result or {}).get("output_text"), "result_data": (t.result or {}).get("result_data"),
+                    "error": (t.result or {}).get("error"),
+                    "completed_at": t.completed_at.isoformat() if t.completed_at else None} for t in tasks]
+        done = [o for o in outputs if o["success"]]
+        return {"sub_agent_id": str(child.id), "agent": child.subagent_type, "status": child.status,
+                "completed_tasks": [o["task_id"] for o in done], "outputs": outputs,
+                "summary": "\n\n".join(str(o["output_text"]) for o in done if o["output_text"])[:20000],
+                "total_tokens": int(child.tokens_used or 0), "total_cost": float(child.cost or 0)}
+
+    async def attach_logs_to_parent_task(self, db: AsyncSession, sub_agent_id: UUID, owner: UUID | str,
+                                         parent_task_id: UUID) -> Dict[str, Any]:
+        """Copy the sub-agent's log into its parent task's record and the audit trail."""
+        child = await self.swarms.owned_sub_agent(db, sub_agent_id, owner)
+        swarm = (await db.execute(select(SwarmRun).where(SwarmRun.id == child.swarm_run_id))).scalar_one()
+        parent = (await db.execute(select(Task).where(Task.id == parent_task_id,
+                                                      Task.workspace_id == swarm.workspace_id))).scalar_one_or_none()
+        if parent is None:
+            raise LookupError("Parent task not found in the swarm's workspace")
+        logs = (await db.execute(select(SubAgentLog).where(SubAgentLog.subagent_id == child.id)
+                                 .order_by(SubAgentLog.logged_at))).scalars().all()
+        entries = [{"at": l.logged_at.isoformat() if l.logged_at else None, "level": l.log_level,
+                    "category": l.log_category, "message": l.log_message[:2000]} for l in logs]
+        context = dict(parent.context or {})
+        attached = dict(context.get("subagent_logs") or {})
+        attached[str(child.id)] = {"agent": child.subagent_type, "status": child.status, "entries": entries}
+        context["subagent_logs"] = attached
+        parent.context = context
+        now = datetime.now(timezone.utc)
+        db.add(AuditLog(id=uuid4(), workspace_id=swarm.workspace_id, actor_type="swarm",
+                        action="subagent_logs_attached", action_category="swarm",
+                        description=f"{len(entries)} log entries of sub-agent {child.subagent_type} attached to task",
+                        target_type="task", target_id=str(parent.id),
+                        after_state={"subagent_id": str(child.id), "parent_agent_id": (child.meta_data or {}).get("parent_agent_id"),
+                                     "entries": len(entries)},
+                        success=True, created_at=now, updated_at=now))
+        await db.flush()
+        return {"parent_task_id": str(parent.id), "sub_agent_id": str(child.id), "entries": len(entries)}
+
+    async def time_out_stale(self, db: AsyncSession, now: Optional[datetime] = None) -> List[UUID]:
+        """Sub-agents still marked working past their timeout (their run died) become timed_out."""
+        now = now or datetime.now(timezone.utc)
+        rows = (await db.execute(select(SubAgent).where(SubAgent.status.in_(("working", "spawning"))))).scalars().all()
+        timed_out: List[UUID] = []
+        for child in rows:
+            started = child.started_at or child.created_at
+            if started is None:
+                continue
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            limit = int((child.meta_data or {}).get("timeout_seconds") or 1800)
+            if now - started < timedelta(seconds=limit):
+                continue
+            child.status, child.success, child.completed_at = "timed_out", False, now
+            child.error_message = f"No result within {limit}s; the run stopped."
+            for task in await _tasks(db, child.id):
+                if task.status == "in_progress":
+                    task.status, task.success, task.completed_at = "failed", False, now
+            db.add(SubAgentLog(subagent_id=child.id, log_level="error", log_category="timeout",
+                               log_message=child.error_message,
+                               context={"parent_agent_id": (child.meta_data or {}).get("parent_agent_id")}))
+            timed_out.append(child.id)
+        await db.flush()
+        return timed_out
+
+    async def list_sub_agents(self, db: AsyncSession, owner: UUID | str, swarm_run_id: Optional[UUID] = None,
+                              status: Optional[str] = None, active_only: bool = False) -> List[SubAgentResult]:
+        from app.models.workspace import Workspace
+
+        query = (select(SubAgent).join(SwarmRun, SubAgent.swarm_run_id == SwarmRun.id)
+                 .join(Workspace, SwarmRun.workspace_id == Workspace.id)
+                 .where(Workspace.owner_id == UUID(str(owner))))
+        if swarm_run_id is not None:
+            query = query.where(SubAgent.swarm_run_id == swarm_run_id)
+        if status is not None:
+            query = query.where(SubAgent.status == status)
+        elif active_only:
+            query = query.where(SubAgent.status.in_(("spawning", "idle", "working")))
+        rows = (await db.execute(query.order_by(SubAgent.created_at.desc()).limit(200))).scalars().all()
+        return [await to_result(db, row) for row in rows]
+
+    async def get_sub_agent(self, db: AsyncSession, sub_agent_id: UUID, owner: UUID | str) -> Optional[SubAgentResult]:
         try:
-            # In production: Insert into database
-            # from app.models.swarm import SubAgent as DBSubAgent
-            # from app.core.database import get_db
-            # async with get_db() as db:
-            #     db_sub_agent = DBSubAgent(
-            #         swarm_run_id=sub_agent.swarm_run_id,
-            #         agent_template=sub_agent.agent_template,
-            #         task_description=sub_agent.task_description,
-            #         status=SubAgentStatus.SPAWNING,
-            #         authority_level=sub_agent.authority_level,
-            #         allowed_tools=sub_agent.allowed_tools,
-            #         timeout_seconds=sub_agent.timeout_seconds,
-            #         spawned_at=datetime.utcnow(),
-            #         metadata=sub_agent.metadata,
-            #     )
-            #     db.add(db_sub_agent)
-            #     await db.commit()
-            #     sub_agent_id = db_sub_agent.id
-
-            sub_agent_id = uuid4()
-
-            self.logger.info(
-                f"Created sub-agent: {sub_agent.agent_template}",
-                extra={
-                    "sub_agent_id": str(sub_agent_id),
-                    "swarm_run_id": str(sub_agent.swarm_run_id),
-                }
-            )
-
-            return sub_agent_id
-
-        except Exception as e:
-            self.logger.error(
-                f"Failed to create sub-agent: {e}",
-                extra={"template": sub_agent.agent_template},
-                exc_info=True
-            )
-            raise
-
-    async def assign_task(
-        self,
-        task: SubAgentTaskCreate,
-    ) -> UUID:
-        """
-        Assign task to sub-agent.
-
-        In production: Create SubAgentTask record.
-
-        Args:
-            task: Task creation data
-
-        Returns:
-            Task ID
-        """
-        try:
-            # In production:
-            # 1. Load sub-agent
-            # 2. Verify sub-agent is active
-            # 3. Create SubAgentTask record
-            # 4. Update sub-agent assigned_tasks
-            # 5. Trigger task execution
-            # 6. Return task ID
-
-            task_id = uuid4()
-
-            self.logger.info(
-                f"Assigned task to sub-agent: {task.task_title}",
-                extra={
-                    "task_id": str(task_id),
-                    "sub_agent_id": str(task.sub_agent_id),
-                }
-            )
-
-            return task_id
-
-        except Exception as e:
-            self.logger.error(
-                f"Failed to assign task: {e}",
-                extra={"sub_agent_id": str(task.sub_agent_id)},
-                exc_info=True
-            )
-            raise
-
-    async def get_status(
-        self,
-        sub_agent_id: UUID,
-    ) -> Dict[str, Any]:
-        """
-        Get sub-agent status.
-
-        In production: Query sub-agent and task status.
-
-        Args:
-            sub_agent_id: Sub-agent ID
-
-        Returns:
-            Status information
-        """
-        try:
-            # In production:
-            # 1. Load sub-agent
-            # 2. Get task counts
-            # 3. Get resource usage
-            # 4. Return status
-
-            status = {
-                "sub_agent_id": str(sub_agent_id),
-                "status": "working",
-                "assigned_tasks": 0,
-                "completed_tasks": 0,
-                "failed_tasks": 0,
-                "current_task": None,
-                "tokens_used": {},
-                "cost_estimate": 0.0,
-                "uptime_seconds": 0,
-            }
-
-            return status
-
-        except Exception as e:
-            self.logger.error(
-                f"Failed to get sub-agent status: {e}",
-                extra={"sub_agent_id": str(sub_agent_id)},
-                exc_info=True
-            )
-            raise
-
-    async def collect_output(
-        self,
-        sub_agent_id: UUID,
-    ) -> Dict[str, Any]:
-        """
-        Collect sub-agent output.
-
-        In production: Gather all completed task outputs.
-
-        Args:
-            sub_agent_id: Sub-agent ID
-
-        Returns:
-            Collected outputs
-        """
-        try:
-            # In production:
-            # 1. Load sub-agent
-            # 2. Query all completed tasks
-            # 3. Aggregate outputs
-            # 4. Return combined result
-
-            output = {
-                "sub_agent_id": str(sub_agent_id),
-                "completed_tasks": [],
-                "outputs": [],
-                "summary": "",
-                "total_tokens": {},
-                "total_cost": 0.0,
-            }
-
-            return output
-
-        except Exception as e:
-            self.logger.error(
-                f"Failed to collect output: {e}",
-                extra={"sub_agent_id": str(sub_agent_id)},
-                exc_info=True
-            )
-            raise
-
-    async def attach_logs_to_parent_task(
-        self,
-        sub_agent_id: UUID,
-        parent_task_id: UUID,
-    ) -> bool:
-        """
-        Attach sub-agent logs to parent task.
-
-        In production: Link logs for audit trail.
-
-        Args:
-            sub_agent_id: Sub-agent ID
-            parent_task_id: Parent task ID
-
-        Returns:
-            Success status
-        """
-        try:
-            # In production:
-            # 1. Load sub-agent logs
-            # 2. Load parent task
-            # 3. Create log attachments
-            # 4. Update audit trail
-            # 5. Return success
-
-            self.logger.info(
-                f"Attached sub-agent logs to parent task",
-                extra={
-                    "sub_agent_id": str(sub_agent_id),
-                    "parent_task_id": str(parent_task_id),
-                }
-            )
-
-            return True
-
-        except Exception as e:
-            self.logger.error(
-                f"Failed to attach logs: {e}",
-                extra={"sub_agent_id": str(sub_agent_id)},
-                exc_info=True
-            )
-            return False
-
-    async def handle_timeout(
-        self,
-        sub_agent_id: UUID,
-    ) -> bool:
-        """
-        Handle sub-agent timeout.
-
-        In production: Mark as timed out and cleanup.
-
-        Args:
-            sub_agent_id: Sub-agent ID
-
-        Returns:
-            Success status
-        """
-        try:
-            # In production:
-            # 1. Load sub-agent
-            # 2. Stop execution
-            # 3. Update status to TIMED_OUT
-            # 4. Collect partial output
-            # 5. Trigger dissolution
-            # 6. Create timeout event
-
-            self.logger.warning(
-                f"Sub-agent timed out",
-                extra={"sub_agent_id": str(sub_agent_id)}
-            )
-
-            return True
-
-        except Exception as e:
-            self.logger.error(
-                f"Failed to handle timeout: {e}",
-                extra={"sub_agent_id": str(sub_agent_id)},
-                exc_info=True
-            )
-            return False
-
-    async def list_active_sub_agents(
-        self,
-        swarm_run_id: Optional[UUID] = None,
-    ) -> List[SubAgentResult]:
-        """List active sub-agents"""
-        # In production: Query active sub-agents
-        return []
-
-    async def get_sub_agent(
-        self,
-        sub_agent_id: UUID,
-    ) -> Optional[SubAgentResult]:
-        """Get sub-agent by ID"""
-        # In production: Query database
-        return None
+            return await to_result(db, await self.swarms.owned_sub_agent(db, sub_agent_id, owner))
+        except LookupError:
+            return None
 
 
-# Global sub-agent manager
 _sub_agent_manager = SubAgentManager()
 
 
-async def assign_sub_agent_task(task: SubAgentTaskCreate) -> UUID:
-    """Global function to assign task"""
-    return await _sub_agent_manager.assign_task(task)
+async def assign_sub_agent_task(db: AsyncSession, task: SubAgentTaskCreate, owner: UUID | str) -> UUID:
+    return await _sub_agent_manager.assign_task(db, task, owner)
 
 
-async def get_sub_agent_status(sub_agent_id: UUID) -> Dict[str, Any]:
-    """Global function to get status"""
-    return await _sub_agent_manager.get_status(sub_agent_id)
+async def get_sub_agent_status(db: AsyncSession, sub_agent_id: UUID, owner: UUID | str) -> Dict[str, Any]:
+    return await _sub_agent_manager.get_status(db, sub_agent_id, owner)
 
 
-async def collect_sub_agent_output(sub_agent_id: UUID) -> Dict[str, Any]:
-    """Global function to collect output"""
-    return await _sub_agent_manager.collect_output(sub_agent_id)
+async def collect_sub_agent_output(db: AsyncSession, sub_agent_id: UUID, owner: UUID | str) -> Dict[str, Any]:
+    return await _sub_agent_manager.collect_output(db, sub_agent_id, owner)

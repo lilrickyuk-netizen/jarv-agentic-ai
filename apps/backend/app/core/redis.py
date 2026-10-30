@@ -4,6 +4,7 @@ JARV Backend - Redis Connection
 Provides Redis client for caching, session storage, and worker queue.
 """
 import logging
+import os
 from typing import Optional
 from redis.asyncio import Redis, ConnectionPool
 from redis.exceptions import ConnectionError, TimeoutError
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 # Global Redis client
 _redis_client: Optional[Redis] = None
 _redis_pool: Optional[ConnectionPool] = None
+_redis_loop = None
 
 
 async def init_redis() -> Redis:
@@ -28,7 +30,11 @@ async def init_redis() -> Redis:
     # run without a real Redis server. This branch is gated strictly on
     # settings.TESTING (set only by tests/conftest.py); production and dev are
     # unaffected and continue to use a real Redis connection pool below.
-    if getattr(settings, "TESTING", False):
+    use_test_double = (
+        getattr(settings, "TESTING", False)
+        and os.getenv("JARV_TEST_REAL_REDIS") != "1"
+    )
+    if use_test_double:
         import fakeredis.aioredis as _fakeredis  # dev/test dependency only
 
         class _TestFakeRedis(_fakeredis.FakeRedis):
@@ -60,7 +66,7 @@ async def init_redis() -> Redis:
 
         # Test connection
         await _redis_client.ping()
-        logger.info(f"Redis connected: {settings.REDIS_URL}")
+        logger.info("Redis connection established")
 
         return _redis_client
 
@@ -73,9 +79,22 @@ async def init_redis() -> Redis:
 
 
 async def get_redis() -> Redis:
-    """Get Redis client instance"""
+    """Get the Redis client for the running event loop.
+
+    The API runs one event loop for its whole life. Celery tasks run each job in
+    a fresh ``asyncio.run`` loop, and a pooled connection opened on a finished
+    loop cannot be used on the next one, so a client made on another loop is
+    replaced (the test double is loop-independent and kept)."""
+    global _redis_client, _redis_pool, _redis_loop
+    import asyncio
+
+    loop = asyncio.get_running_loop()
+    if _redis_client is not None and _redis_pool is not None and _redis_loop is not loop:
+        _redis_client, _redis_pool = None, None
     if _redis_client is None:
-        return await init_redis()
+        client = await init_redis()
+        _redis_loop = loop
+        return client
     return _redis_client
 
 

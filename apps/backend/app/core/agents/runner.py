@@ -17,14 +17,20 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app.core.agents.base import AgentConfig, AgentContext, AuthorityLevel
 from app.core.agents.registry import create_agent, get_registry
 from app.core.config import settings
+from app.core.database import AsyncSessionLocal
 from app.core.jarv_memory import memory_service
 from app.models.company_operations import LiveOperationsFeedItem
 from app.models.operations import AuditLog
 from app.models.task import Task
+from app.models.agent import Agent
+from app.core.knowledge.service import knowledge_service
+from app.core.knowledge.context import set_knowledge_context
 
 logger = logging.getLogger(__name__)
 
@@ -133,10 +139,14 @@ class AgentRunner:
         self, agent_name: str, task: str, workspace_id: UUID,
         user_id: Optional[UUID] = None,
         db: Optional[AsyncSession] = None,
+        agent_id: Optional[UUID] = None,
         task_id: Optional[UUID] = None,
         session_id: Optional[UUID] = None,
         approval_granted: bool = False,
         approved_tools: Optional[List[str]] = None,
+        authority_ceiling: Optional[int] = None,
+        allowed_tools_ceiling: Optional[List[str]] = None,
+        parent_agent_id: Optional[UUID] = None,
     ) -> Dict[str, Any]:
         """Invoke one agent on a role-specific task; return a structured result.
 
@@ -152,8 +162,6 @@ class AgentRunner:
         if meta is None:
             return {"agent": agent_name, "success": False, "error": "agent metadata missing"}
 
-        allowed_tools = list(meta.default_tools or [])
-
         try:
             runtime_authority = AuthorityLevel(meta.required_authority_level)
         except ValueError:
@@ -163,8 +171,43 @@ class AgentRunner:
                 "error": f"invalid registered authority level: {meta.required_authority_level}",
             }
 
+        if authority_ceiling is not None:
+            if authority_ceiling < meta.required_authority_level:
+                return {
+                    "agent": agent_name,
+                    "success": False,
+                    "error": "requested authority is below the agent's registered minimum",
+                }
+            try:
+                runtime_authority = AuthorityLevel(authority_ceiling)
+            except ValueError:
+                return {
+                    "agent": agent_name,
+                    "success": False,
+                    "error": "requested authority is not a valid authority level",
+                }
+
+        allowed_tools = list(meta.default_tools or [])
+        if allowed_tools_ceiling is not None:
+            allowed = set(allowed_tools_ceiling)
+            allowed_tools = [name for name in allowed_tools if name in allowed]
+
+        if agent_id is None and db is not None:
+            agent_id = uuid4()
+            db.add(Agent(
+                id=agent_id, name=f"{agent_name} runtime", agent_type=agent_name,
+                workspace_id=workspace_id, is_active=True, is_subagent=parent_agent_id is not None,
+                parent_agent_id=parent_agent_id, config={"runtime": "agent_runner"},
+                system_prompt=None, model_provider="configured-router", model_name=self.model,
+                authority_level=int(runtime_authority.value),
+                allowed_tools=allowed_tools, blocked_tools=[], current_state="running",
+                total_executions=0, successful_executions=0, failed_executions=0,
+                total_tokens_used=0,
+            ))
+            await db.flush()
+
         config = AgentConfig(
-            agent_id=uuid4(), workspace_id=workspace_id, user_id=user_id,
+            agent_id=agent_id or uuid4(), workspace_id=workspace_id, user_id=user_id,
             session_id=session_id,
             authority_level=runtime_authority, model=self.model,
             allowed_tools=allowed_tools,
@@ -172,12 +215,50 @@ class AgentRunner:
         agent = create_agent(agent_name, config)
         if agent is None:
             return {"agent": agent_name, "success": False, "error": "could not create agent"}
+        try:
+            if db is None:
+                if settings.TESTING:
+                    database_url = str(settings.DATABASE_URL).replace(
+                        "postgresql://", "postgresql+asyncpg://", 1,
+                    )
+                    engine = create_async_engine(database_url, poolclass=NullPool)
+                    try:
+                        async_session_factory = async_sessionmaker(
+                            engine, class_=AsyncSession, expire_on_commit=False,
+                        )
+                        async with async_session_factory() as knowledge_db:
+                            knowledge = await knowledge_service.retrieve(
+                                knowledge_db, agent_name=agent_name,
+                                query=task, limit=4,
+                            )
+                    finally:
+                        await engine.dispose()
+                else:
+                    async with AsyncSessionLocal() as knowledge_db:
+                        knowledge = await knowledge_service.retrieve(
+                            knowledge_db, agent_name=agent_name, query=task, limit=4,
+                        )
+            else:
+                knowledge = await knowledge_service.retrieve(
+                    db, agent_name=agent_name, query=task, limit=4,
+                )
+        except Exception as exc:  # noqa: BLE001 - no agent may run without retrieval
+            logger.exception("specialist knowledge retrieval failed for %s", agent_name)
+            return {"agent": agent_name, "success": False,
+                    "error": f"specialist knowledge retrieval failed: {str(exc)[:300]}"}
+        if not knowledge and agent_name in get_registry().REQUIRED_AGENTS:
+            return {"agent": agent_name, "success": False,
+                    "error": f"no active, relevant specialist knowledge for {agent_name}"}
         ctx = AgentContext(workspace_id=workspace_id, user_id=user_id,
                            task_id=task_id, session_id=session_id,
+                           parent_agent_id=parent_agent_id,
                            db_session=db,
+                           knowledge_context=knowledge,
                            approval_granted=bool(approval_granted),
                            approved_tools=list(approved_tools or []),
-                           metadata={"role_task": True, "source": "agent_runner"})
+                           metadata={"role_task": True, "source": "agent_runner",
+                                     "specialist_knowledge_ids": [item["id"] for item in knowledge]})
+        knowledge_token = set_knowledge_context(knowledge)
         try:
             try:
                 schema_cls = agent.input_schema
@@ -204,10 +285,14 @@ class AgentRunner:
                 "result_keys": list((result.result_data or {}).keys())[:12],
                 "result_data": {k: result.result_data[k] for k in list((result.result_data or {}).keys())[:8]},
                 "tokens": (result.tokens_used or {}).get("total_tokens", 0),
+                "specialist_knowledge": getattr(result, "metadata", {}).get(
+                    "specialist_knowledge", []),
             }
         except Exception as exc:  # noqa: BLE001 - report honestly, never fake success
             logger.warning(f"agent {agent_name} run failed: {exc}")
             return {"agent": agent_name, "success": False, "error": str(exc)[:400]}
+        finally:
+            set_knowledge_context((), reset_token=knowledge_token)
 
     async def spawn_employees(
         self, db: AsyncSession, lead_agent: str, parent_task_id: Optional[UUID],
@@ -232,7 +317,10 @@ class AgentRunner:
             db.add(child)
             await db.flush()
             # Employee executes its scoped slice (a focused agent run).
-            emp_result = await self.run_agent(lead_agent, f"[{role}] {task}", workspace_id)
+            emp_result = await self.run_agent(
+                lead_agent, f"[{role}] {task}", workspace_id, db=db,
+                task_id=parent_task_id,
+            )
             verified = bool(emp_result.get("success"))
             child.status = "completed" if verified else "partial"
             child.completed_at = datetime.now(timezone.utc)

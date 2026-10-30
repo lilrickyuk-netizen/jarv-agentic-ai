@@ -1,14 +1,27 @@
 """
 JARV Backend - Experience Management
 
-Captures, summarizes, and extracts lessons from agent experiences.
+Database-backed experience capture for the self-evolution API. Records are
+stored as ``ExperienceRecord`` rows through the verified-learning service, so
+experiences captured here feed the same lesson verification, application, and
+rollback lifecycle as agent runs.
+
+Summaries and lessons are taken from the stored record. Nothing is generated
+that the record does not support.
 """
-from typing import Optional, Dict, Any, List
-from uuid import UUID, uuid4
-from datetime import datetime
-from pydantic import BaseModel, Field
+from datetime import datetime, timezone
 from enum import Enum
+from typing import Any, Dict, List, Optional, Sequence
+from uuid import UUID
+
 import logging
+from pydantic import BaseModel, Field
+from sqlalchemy import or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.learning import learning_service
+from app.models.agent import Agent
+from app.models.self_evolution import ExperienceRecord
 
 logger = logging.getLogger(__name__)
 
@@ -26,25 +39,26 @@ class ExperienceType(str, Enum):
 class ExperienceCreate(BaseModel):
     """Schema for creating experience record"""
     workspace_id: UUID
-    agent_id: UUID
+    agent_id: Optional[UUID] = None
     agent_name: str
     task_description: str
     experience_type: ExperienceType
     tools_used: List[str] = Field(default_factory=list)
     actions_taken: List[str] = Field(default_factory=list)
     outcome: str
-    duration_seconds: float
+    duration_seconds: float = 0.0
     tokens_used: Dict[str, int] = Field(default_factory=dict)
     cost_estimate: float = 0.0
     context: Dict[str, Any] = Field(default_factory=dict)
     error_details: Optional[str] = None
+    lesson: Optional[str] = Field(None, description="Lesson stated by the caller; derived from the record if omitted")
 
 
 class LessonExtract(BaseModel):
-    """Extracted lesson from experience"""
+    """Lesson held by an experience record"""
     lesson_text: str
     confidence_score: float = Field(ge=0.0, le=1.0)
-    applicable_to: List[str] = Field(default_factory=list)  # agents, tools, patterns
+    applicable_to: List[str] = Field(default_factory=list)
     improvement_areas: List[str] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
@@ -52,7 +66,7 @@ class LessonExtract(BaseModel):
 class ExperienceResult(BaseModel):
     """Experience record result"""
     id: UUID
-    workspace_id: UUID
+    workspace_id: Optional[UUID]
     agent_id: UUID
     agent_name: str
     task_description: str
@@ -71,213 +85,132 @@ class ExperienceResult(BaseModel):
     updated_at: datetime
 
 
+def _type(record: ExperienceRecord) -> ExperienceType:
+    try:
+        return ExperienceType(record.experience_type)
+    except ValueError:
+        return {"success": ExperienceType.SUCCESS, "failure": ExperienceType.FAILURE}.get(
+            record.outcome, ExperienceType.PARTIAL)
+
+
+def _lesson(record: ExperienceRecord) -> LessonExtract:
+    meta = record.meta_data or {}
+    return LessonExtract(
+        lesson_text=record.lesson_learned,
+        confidence_score=max(0.0, min(1.0, record.confidence_score or 0.0)),
+        applicable_to=list(record.applicable_contexts or []),
+        improvement_areas=[],
+        metadata={"status": record.lesson_status, "source": meta.get("lesson_source"),
+                  "times_applied": record.times_applied, "success_rate": record.success_rate},
+    )
+
+
+def _summary(record: ExperienceRecord) -> str:
+    return f"{record.agent_name or 'agent'} {record.outcome}: {record.situation} -> {record.result}"[:1000]
+
+
+def to_result(record: ExperienceRecord, workspace_id: Optional[UUID] = None) -> ExperienceResult:
+    meta = record.meta_data or {}
+    now = datetime.now(timezone.utc)
+    return ExperienceResult(
+        id=record.id,
+        workspace_id=record.workspace_id or workspace_id,
+        agent_id=record.agent_id,
+        agent_name=record.agent_name or "agent",
+        task_description=record.situation,
+        experience_type=_type(record),
+        tools_used=list(meta.get("tools_used") or []),
+        actions_taken=[record.action_taken],
+        outcome=record.result,
+        duration_seconds=float(meta.get("duration_seconds") or 0.0),
+        tokens_used=dict(meta.get("tokens_used") or {}),
+        cost_estimate=float(meta.get("cost_estimate") or 0.0),
+        context=dict(meta.get("context") or {}),
+        error_details=record.result if record.outcome == "failure" else None,
+        summary=_summary(record),
+        lessons=[_lesson(record)],
+        created_at=record.created_at or now,
+        updated_at=record.updated_at or now,
+    )
+
+
 class ExperienceManager:
-    """
-    Manages experience capture and learning.
+    """Experience capture and retrieval scoped to the caller's workspaces."""
 
-    Captures agent experiences, summarizes them, and extracts lessons.
-    """
+    def _scoped(self, workspace_ids: Sequence[UUID]):
+        ids = list(workspace_ids)
+        return (
+            select(ExperienceRecord, Agent.workspace_id)
+            .join(Agent, Agent.id == ExperienceRecord.agent_id)
+            .where(or_(ExperienceRecord.workspace_id.in_(ids),
+                       (ExperienceRecord.workspace_id.is_(None)) & Agent.workspace_id.in_(ids)))
+        )
 
-    def __init__(self):
-        """Initialize experience manager"""
-        self.logger = logging.getLogger("evolution.experience")
-
-    async def capture_experience(
-        self,
-        experience: ExperienceCreate,
-    ) -> UUID:
-        """
-        Capture an agent experience.
-
-        In production: Insert into ExperienceRecord table.
-
-        Args:
-            experience: Experience data
-
-        Returns:
-            Experience ID
-        """
-        try:
-            # In production: Insert into database
-            # from app.models.evolution import ExperienceRecord as DBExperience
-            # from app.core.database import get_db
-            # async with get_db() as db:
-            #     db_experience = DBExperience(
-            #         workspace_id=experience.workspace_id,
-            #         agent_id=experience.agent_id,
-            #         agent_name=experience.agent_name,
-            #         task_description=experience.task_description,
-            #         experience_type=experience.experience_type,
-            #         tools_used=experience.tools_used,
-            #         actions_taken=experience.actions_taken,
-            #         outcome=experience.outcome,
-            #         duration_seconds=experience.duration_seconds,
-            #         tokens_used=experience.tokens_used,
-            #         cost_estimate=experience.cost_estimate,
-            #         context=experience.context,
-            #         error_details=experience.error_details,
-            #     )
-            #     db.add(db_experience)
-            #     await db.commit()
-            #     experience_id = db_experience.id
-
-            experience_id = uuid4()
-
-            self.logger.info(
-                f"Captured experience: {experience.experience_type}",
-                extra={
-                    "experience_id": str(experience_id),
-                    "agent_name": experience.agent_name,
-                    "workspace_id": str(experience.workspace_id),
-                }
-            )
-
-            return experience_id
-
-        except Exception as e:
-            self.logger.error(
-                f"Failed to capture experience: {e}",
-                extra={"agent_name": experience.agent_name},
-                exc_info=True
-            )
-            raise
-
-    async def summarize_experience(
-        self,
-        experience_id: UUID,
-    ) -> str:
-        """
-        Summarize an experience using LLM.
-
-        In production: Load experience, send to LLM for summarization.
-
-        Args:
-            experience_id: Experience ID
-
-        Returns:
-            Summary text
-        """
-        try:
-            # In production:
-            # 1. Load experience from database
-            # 2. Create prompt with experience details
-            # 3. Send to LLM (Claude/GPT) for summarization
-            # 4. Update experience record with summary
-            # 5. Return summary
-
-            summary = "Experience summary placeholder"
-
-            self.logger.info(
-                f"Summarized experience",
-                extra={"experience_id": str(experience_id)}
-            )
-
-            return summary
-
-        except Exception as e:
-            self.logger.error(
-                f"Failed to summarize experience: {e}",
-                extra={"experience_id": str(experience_id)},
-                exc_info=True
-            )
-            raise
-
-    async def extract_lesson(
-        self,
-        experience_id: UUID,
-    ) -> List[LessonExtract]:
-        """
-        Extract lessons from experience using LLM.
-
-        In production: Analyze experience and extract actionable lessons.
-
-        Args:
-            experience_id: Experience ID
-
-        Returns:
-            List of extracted lessons
-        """
-        try:
-            # In production:
-            # 1. Load experience and summary from database
-            # 2. Create prompt for lesson extraction
-            # 3. Send to LLM (Claude/GPT) with structured output
-            # 4. Parse lessons with confidence scores
-            # 5. Identify applicable areas (agents, tools, patterns)
-            # 6. Store lessons in database
-            # 7. Return lessons
-
-            lessons = [
-                LessonExtract(
-                    lesson_text="Placeholder lesson",
-                    confidence_score=0.8,
-                    applicable_to=["agent", "tool"],
-                    improvement_areas=["efficiency", "accuracy"],
-                )
-            ]
-
-            self.logger.info(
-                f"Extracted {len(lessons)} lessons from experience",
-                extra={"experience_id": str(experience_id)}
-            )
-
-            return lessons
-
-        except Exception as e:
-            self.logger.error(
-                f"Failed to extract lessons: {e}",
-                extra={"experience_id": str(experience_id)},
-                exc_info=True
-            )
-            raise
+    async def capture_experience(self, db: AsyncSession, experience: ExperienceCreate) -> UUID:
+        agent_id = None
+        if experience.agent_id is not None:
+            agent_id = (await db.execute(select(Agent.id).where(
+                Agent.id == experience.agent_id, Agent.workspace_id == experience.workspace_id,
+            ))).scalar_one_or_none()
+            if agent_id is None:
+                raise PermissionError("Agent does not belong to this workspace")
+        record = await learning_service.record_experience(
+            db,
+            workspace_id=experience.workspace_id,
+            agent_name=experience.agent_name,
+            situation=experience.task_description,
+            action="; ".join(experience.actions_taken) or "(not recorded)",
+            result=experience.error_details or experience.outcome,
+            outcome=experience.experience_type.value,
+            experience_type=experience.experience_type.value,
+            tools_used=experience.tools_used,
+            agent_id=agent_id,
+            lesson=experience.lesson,
+            meta={"duration_seconds": experience.duration_seconds,
+                  "tokens_used": experience.tokens_used,
+                  "cost_estimate": experience.cost_estimate,
+                  "context": experience.context},
+        )
+        return record.id
 
     async def get_experience(
-        self,
-        experience_id: UUID,
+        self, db: AsyncSession, experience_id: UUID, workspace_ids: Sequence[UUID],
     ) -> Optional[ExperienceResult]:
-        """Get experience by ID"""
-        # In production: Query database
-        return None
+        row = (await db.execute(
+            self._scoped(workspace_ids).where(ExperienceRecord.id == experience_id)
+        )).first()
+        return to_result(row[0], row[1]) if row else None
+
+    async def summarize_experience(
+        self, db: AsyncSession, experience_id: UUID, workspace_ids: Sequence[UUID],
+    ) -> Optional[str]:
+        result = await self.get_experience(db, experience_id, workspace_ids)
+        return result.summary if result else None
+
+    async def extract_lesson(
+        self, db: AsyncSession, experience_id: UUID, workspace_ids: Sequence[UUID],
+    ) -> Optional[List[LessonExtract]]:
+        result = await self.get_experience(db, experience_id, workspace_ids)
+        return result.lessons if result else None
 
     async def list_experiences(
         self,
-        workspace_id: Optional[UUID] = None,
+        db: AsyncSession,
+        workspace_ids: Sequence[UUID],
+        *,
         agent_id: Optional[UUID] = None,
         experience_type: Optional[ExperienceType] = None,
         limit: int = 100,
     ) -> List[ExperienceResult]:
-        """List experiences with filters"""
-        # In production: Query database with filters
-        return []
+        query = self._scoped(workspace_ids)
+        if agent_id:
+            query = query.where(ExperienceRecord.agent_id == agent_id)
+        if experience_type:
+            query = query.where(ExperienceRecord.experience_type == experience_type.value)
+        rows = (await db.execute(
+            query.order_by(ExperienceRecord.created_at.desc()).limit(limit)
+        )).all()
+        return [to_result(record, workspace) for record, workspace in rows]
 
-    async def get_experience_stats(
-        self,
-        workspace_id: UUID,
-    ) -> Dict[str, Any]:
-        """Get experience statistics"""
-        return {
-            "total_experiences": 0,
-            "by_type": {},
-            "total_lessons": 0,
-            "avg_confidence": 0.0,
-            "top_improvement_areas": [],
-        }
-
-
-# Global experience manager
-_experience_manager = ExperienceManager()
-
-
-async def capture_experience(experience: ExperienceCreate) -> UUID:
-    """Global function to capture experience"""
-    return await _experience_manager.capture_experience(experience)
-
-
-async def summarize_experience(experience_id: UUID) -> str:
-    """Global function to summarize experience"""
-    return await _experience_manager.summarize_experience(experience_id)
-
-
-async def extract_lesson(experience_id: UUID) -> List[LessonExtract]:
-    """Global function to extract lessons"""
-    return await _experience_manager.extract_lesson(experience_id)
+    async def get_experience_stats(self, db: AsyncSession, workspace_id: UUID) -> Dict[str, Any]:
+        return await learning_service.stats(db, [workspace_id])

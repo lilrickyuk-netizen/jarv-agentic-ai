@@ -1,8 +1,9 @@
 """
 JARV Backend - Infrastructure Tools
 
-Tools for infrastructure management, cloud operations, backup/restore,
-deployment, monitoring, and cost estimation.
+Backups and restores, the resource register (services on the deployment server and external
+resources tracked for cost), SSL, DNS and resource metrics, and cost estimation. Deployments
+are the deployment tools in app.tools.deploy.
 """
 from .backup import (
     BackupCreateTool,
@@ -17,12 +18,6 @@ from .resources import (
     ResourceHealthCheckTool,
     ResourceStatusTool,
     ResourceTerminateTool,
-)
-from .deployment import (
-    ServiceDeployTool,
-    DeploymentStatusTool,
-    DeploymentRollbackTool,
-    DeploymentLogsTool,
 )
 from .monitoring import (
     SSLCheckTool,
@@ -46,11 +41,6 @@ __all__ = [
     "ResourceHealthCheckTool",
     "ResourceStatusTool",
     "ResourceTerminateTool",
-    # Deployment
-    "ServiceDeployTool",
-    "DeploymentStatusTool",
-    "DeploymentRollbackTool",
-    "DeploymentLogsTool",
     # Monitoring
     "SSLCheckTool",
     "DNSVerifyTool",

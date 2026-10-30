@@ -8,9 +8,16 @@ from pydantic import BaseModel, Field
 from datetime import datetime, timedelta
 import logging
 import json
+import csv
+import io
+from difflib import SequenceMatcher
+from uuid import UUID, uuid4
+from sqlalchemy import select
 
 from app.core.tools import ToolBase, ToolConfig, ToolContext, ToolResult
 from app.core.agents.base import AuthorityLevel
+from app.tools.memory.storage import _memory_scope
+from app.models.self_evolution import ExperienceRecord
 
 logger = logging.getLogger(__name__)
 
@@ -72,42 +79,29 @@ class ExperienceExportTool(ToolBase):
         export_format = input_data.get("format", "json")
 
         try:
-            experiences = []
-
-            # In production: Query and export experiences
-            # from app.models.self_evolution import ExperienceRecord
-            # from app.core.database import get_db
-            # from sqlalchemy import select
-            #
-            # async for session in get_db():
-            #     stmt = select(ExperienceRecord).filter(ExperienceRecord.agent_id == context.agent_id)
-            #
-            #     if experience_type:
-            #         stmt = stmt.filter(ExperienceRecord.experience_type == experience_type)
-            #     if outcome:
-            #         stmt = stmt.filter(ExperienceRecord.outcome == outcome)
-            #     if min_confidence is not None:
-            #         stmt = stmt.filter(ExperienceRecord.confidence_score >= min_confidence)
-            #
-            #     result = await session.execute(stmt)
-            #     for exp in result.scalars():
-            #         experiences.append({
-            #             "id": str(exp.id),
-            #             "experience_type": exp.experience_type,
-            #             "title": exp.title,
-            #             "description": exp.description,
-            #             "situation": exp.situation,
-            #             "action_taken": exp.action_taken,
-            #             "result": exp.result,
-            #             "outcome": exp.outcome,
-            #             "lesson_learned": exp.lesson_learned,
-            #             "applicable_contexts": exp.applicable_contexts,
-            #             "confidence_score": exp.confidence_score,
-            #             "times_applied": exp.times_applied,
-            #             "success_rate": exp.success_rate,
-            #             "is_validated": exp.is_validated,
-            #             "created_at": exp.created_at.isoformat(),
-            #         })
+            db, agent_id = await _memory_scope(context)
+            records = (await db.execute(select(ExperienceRecord).where(
+                ExperienceRecord.agent_id == agent_id,
+                ExperienceRecord.is_active.is_(True),
+            ))).scalars().all()
+            if experience_type:
+                records = [record for record in records if record.experience_type == experience_type]
+            if outcome:
+                records = [record for record in records if record.outcome == outcome]
+            if min_confidence is not None:
+                records = [record for record in records if record.confidence_score >= min_confidence]
+            experiences = [{
+                "id": str(record.id), "experience_type": record.experience_type,
+                "title": record.title, "description": record.description,
+                "situation": record.situation, "action_taken": record.action_taken,
+                "result": record.result, "outcome": record.outcome,
+                "lesson_learned": record.lesson_learned,
+                "applicable_contexts": record.applicable_contexts,
+                "confidence_score": record.confidence_score,
+                "times_applied": record.times_applied, "success_rate": record.success_rate,
+                "is_validated": record.is_validated,
+                "created_at": record.created_at.isoformat(),
+            } for record in records]
 
             # Format export data
             if export_format == "json":
@@ -223,9 +217,59 @@ class ExperienceImportTool(ToolBase):
             skipped_count = 0
             overwritten_count = 0
             errors = []
-
-            # In production: Import experiences to database
-            # Similar to memory import logic
+            if merge_strategy not in ("skip", "overwrite", "create_new"):
+                return self.create_result(success=False, error_message="Invalid merge strategy")
+            db, agent_id = await _memory_scope(context)
+            for item in experiences_data:
+                try:
+                    if not isinstance(item, dict):
+                        raise ValueError("Entry must be an object")
+                    required = ("title", "situation", "action_taken", "result", "lesson_learned")
+                    missing = [field for field in required if not item.get(field)]
+                    if missing and validate_imports:
+                        raise ValueError(f"Missing required fields: {', '.join(missing)}")
+                    record_id = UUID(str(item["id"])) if item.get("id") else None
+                    existing = None
+                    if record_id is not None and merge_strategy != "create_new":
+                        existing = (await db.execute(select(ExperienceRecord).where(
+                            ExperienceRecord.id == record_id,
+                            ExperienceRecord.agent_id == agent_id,
+                        ))).scalar_one_or_none()
+                    if existing is not None and merge_strategy == "skip":
+                        skipped_count += 1
+                        continue
+                    if existing is not None and merge_strategy == "overwrite":
+                        existing.title = item["title"]
+                        existing.description = item.get("description", item["lesson_learned"])
+                        existing.situation = item["situation"]
+                        existing.action_taken = item["action_taken"]
+                        existing.result = item["result"]
+                        existing.lesson_learned = item["lesson_learned"]
+                        existing.is_validated = False
+                        existing.meta_data = {"provenance": "imported_unvalidated"}
+                        overwritten_count += 1
+                        continue
+                    db.add(ExperienceRecord(
+                        id=uuid4(), agent_id=agent_id, session_id=context.session_id,
+                        task_id=context.task_id,
+                        experience_type=str(item.get("experience_type", "imported"))[:50],
+                        title=item.get("title", "Imported experience"),
+                        description=item.get("description", item.get("lesson_learned", "Imported")),
+                        situation=item.get("situation", "Imported context"),
+                        action_taken=item.get("action_taken", "Imported action"),
+                        result=item.get("result", "Imported result"),
+                        outcome=str(item.get("outcome", "unknown"))[:50],
+                        lesson_learned=item.get("lesson_learned", "Imported lesson"),
+                        applicable_contexts=item.get("applicable_contexts", []),
+                        confidence_score=max(0.0, min(1.0, float(item.get("confidence_score", 0.5)))),
+                        times_applied=0, success_rate=None,
+                        is_validated=False, is_active=True,
+                        meta_data={"provenance": "imported_unvalidated"},
+                    ))
+                    imported_count += 1
+                except Exception as exc:
+                    errors.append(f"Experience {item.get('id', 'unknown') if isinstance(item, dict) else 'unknown'}: {exc}")
+            await db.flush()
 
             logger.info(f"Imported {imported_count} experiences, skipped {skipped_count}, overwritten {overwritten_count}")
 
@@ -295,8 +339,13 @@ class ExperienceAnalyzeTool(ToolBase):
     async def run(self, input_data: Dict[str, Any], context: ToolContext) -> ToolResult:
         """Analyze experience patterns from database"""
         try:
+            db, agent_id = await _memory_scope(context)
+            records = (await db.execute(select(ExperienceRecord).where(
+                ExperienceRecord.agent_id == agent_id,
+                ExperienceRecord.is_active.is_(True),
+            ))).scalars().all()
             analysis = {
-                "total_experiences": 0,
+                "total_experiences": len(records),
                 "by_type": {},
                 "by_outcome": {},
                 "average_confidence": 0.0,
@@ -306,8 +355,31 @@ class ExperienceAnalyzeTool(ToolBase):
                 "recommendations": [],
             }
 
-            # In production: Analyze ExperienceRecord table
-            # Similar to memory stats logic
+            confidences = []
+            success_rates = []
+            for record in records:
+                analysis["by_type"][record.experience_type] = analysis["by_type"].get(record.experience_type, 0) + 1
+                analysis["by_outcome"][record.outcome] = analysis["by_outcome"].get(record.outcome, 0) + 1
+                confidences.append(record.confidence_score)
+                if record.success_rate is not None:
+                    success_rates.append(record.success_rate)
+            analysis["average_confidence"] = sum(confidences) / len(confidences) if confidences else 0.0
+            analysis["average_success_rate"] = sum(success_rates) / len(success_rates) if success_rates else 0.0
+            analysis["most_successful_patterns"] = [
+                {"id": str(record.id), "title": record.title, "success_rate": record.success_rate,
+                 "validated": record.is_validated}
+                for record in sorted(
+                    [item for item in records if item.success_rate is not None and item.is_validated],
+                    key=lambda item: item.success_rate, reverse=True)[:10]
+            ]
+            analysis["most_applied_patterns"] = [
+                {"id": str(record.id), "title": record.title, "times_applied": record.times_applied}
+                for record in sorted(records, key=lambda item: item.times_applied, reverse=True)[:10]
+            ]
+            analysis["recommendations"] = (
+                [] if analysis["most_successful_patterns"] else
+                ["No verified experience outcomes are available for recommendations."]
+            )
 
             logger.info(f"Analyzed {analysis['total_experiences']} experiences")
 
@@ -376,14 +448,51 @@ class ExperienceVisualizeTool(ToolBase):
         filters = input_data.get("filters") or {}
 
         try:
-            visualization_data = {}
-            data_points = 0
-
-            # In production: Query experiences and generate visualization data
-            # Timeline: experiences over time
-            # Success Rate: success rate by type or context
-            # Distribution: count by type, outcome, confidence ranges
-            # Network: relationships between patterns
+            db, agent_id = await _memory_scope(context)
+            stmt = select(ExperienceRecord).where(
+                ExperienceRecord.agent_id == agent_id,
+                ExperienceRecord.is_active.is_(True),
+            )
+            if filters.get("experience_type"):
+                stmt = stmt.where(ExperienceRecord.experience_type == filters["experience_type"])
+            if filters.get("outcome"):
+                stmt = stmt.where(ExperienceRecord.outcome == filters["outcome"])
+            records = (await db.execute(stmt)).scalars().all()
+            if viz_type == "timeline":
+                by_day = {}
+                for record in records:
+                    day = record.created_at.date().isoformat()
+                    by_day[day] = by_day.get(day, 0) + 1
+                visualization_data = {"by_day": dict(sorted(by_day.items()))}
+            elif viz_type == "success_rate":
+                groups = {}
+                for record in records:
+                    if not record.is_validated or record.success_rate is None:
+                        continue
+                    row = groups.setdefault(record.experience_type, {"weighted_sum": 0.0, "count": 0})
+                    weight = max(1, record.times_applied)
+                    row["weighted_sum"] += record.success_rate * weight
+                    row["count"] += weight
+                visualization_data = {
+                    "by_type": {key: {"success_rate": value["weighted_sum"] / value["count"],
+                                      "verified_applications": value["count"]}
+                                for key, value in groups.items()}
+                }
+            elif viz_type == "distribution":
+                by_outcome, by_type = {}, {}
+                for record in records:
+                    by_outcome[record.outcome] = by_outcome.get(record.outcome, 0) + 1
+                    by_type[record.experience_type] = by_type.get(record.experience_type, 0) + 1
+                visualization_data = {"by_outcome": by_outcome, "by_type": by_type}
+            elif viz_type == "network":
+                context_counts = {}
+                for record in records:
+                    for item in record.applicable_contexts or []:
+                        context_counts[item] = context_counts.get(item, 0) + 1
+                visualization_data = {"context_frequency": context_counts}
+            else:
+                return self.create_result(success=False, error_message="Unsupported visualization type")
+            data_points = sum(len(value) for value in visualization_data.values())
 
             logger.info(f"Generated {viz_type} visualization with {data_points} data points")
 
@@ -462,12 +571,39 @@ class ExperiencePruneTool(ToolBase):
         dry_run = input_data.get("dry_run", True)
 
         try:
-            would_prune_count = 0
+            db, agent_id = await _memory_scope(context)
+            if (max_age_days is None and min_confidence is None and max_failure_rate is None
+                    and not inactive_only):
+                return self.create_result(success=False, error_message="At least one pruning criterion is required")
+            stmt = select(ExperienceRecord).where(ExperienceRecord.agent_id == agent_id)
+            if inactive_only:
+                stmt = stmt.where(ExperienceRecord.is_active.is_(False))
+            records = (await db.execute(stmt)).scalars().all()
+            cutoff = datetime.utcnow() - timedelta(days=max_age_days) if max_age_days else None
+            candidates = []
+            for record in records:
+                matches = []
+                if cutoff:
+                    matches.append(record.created_at.replace(tzinfo=None) < cutoff)
+                if min_confidence is not None:
+                    matches.append(record.confidence_score < min_confidence)
+                if max_failure_rate is not None and record.success_rate is not None:
+                    matches.append((1.0 - record.success_rate) > max_failure_rate)
+                if inactive_only:
+                    matches.append(not record.is_active)
+                if matches and any(matches):
+                    candidates.append(record)
+            would_prune_count = len(candidates)
             actually_pruned_count = 0
-            pruned_ids = []
-
-            # In production: Query and delete experiences matching criteria
-            # Similar to memory delete logic but with filters
+            pruned_ids = [str(record.id) for record in candidates]
+            if not dry_run:
+                if not self._has_approval(context):
+                    return self.create_result(success=False, requires_approval=True,
+                                              error_message="Pruning requires an explicit approved execution context")
+                for record in candidates:
+                    await db.delete(record)
+                actually_pruned_count = len(candidates)
+                await db.flush()
 
             logger.info(f"Pruned {actually_pruned_count} experiences (dry_run={dry_run})")
 
@@ -539,12 +675,56 @@ class ExperienceConsolidateTool(ToolBase):
         dry_run = input_data.get("dry_run", True)
 
         try:
-            consolidated_count = 0
-            merged_groups = []
-
-            # In production: Find similar experiences and consolidate
-            # Use text similarity (Levenshtein, cosine, etc.) to find duplicates
-            # Merge them into single consolidated experience with combined stats
+            db, agent_id = await _memory_scope(context)
+            records = (await db.execute(select(ExperienceRecord).where(
+                ExperienceRecord.agent_id == agent_id,
+                ExperienceRecord.is_active.is_(True),
+            ))).scalars().all()
+            groups = []
+            assigned = set()
+            for index, first in enumerate(records):
+                if first.id in assigned:
+                    continue
+                group = [first]
+                for second in records[index + 1:]:
+                    if second.id in assigned:
+                        continue
+                    same_evidence = (
+                        first.experience_type == second.experience_type
+                        and first.outcome == second.outcome
+                        and first.is_validated == second.is_validated
+                    )
+                    similarity = SequenceMatcher(
+                        None, first.lesson_learned.lower(), second.lesson_learned.lower()).ratio()
+                    if same_evidence and similarity >= similarity_threshold:
+                        group.append(second)
+                        assigned.add(second.id)
+                if len(group) > 1:
+                    assigned.add(first.id)
+                    groups.append(group)
+            merged_groups = [[str(record.id) for record in group] for group in groups]
+            consolidated_count = sum(len(group) - 1 for group in groups)
+            if not dry_run and consolidated_count:
+                if not self._has_approval(context):
+                    return self.create_result(success=False, requires_approval=True,
+                                              error_message="Consolidation requires an explicit approved execution context")
+                for group in groups:
+                    primary = group[0]
+                    for duplicate in group[1:]:
+                        primary.applicable_contexts = list(dict.fromkeys(
+                            (primary.applicable_contexts or []) + (duplicate.applicable_contexts or [])))
+                        primary.times_applied += duplicate.times_applied
+                        if primary.success_rate is not None and duplicate.success_rate is not None:
+                            left_count = max(1, primary.times_applied - duplicate.times_applied)
+                            total = left_count + max(1, duplicate.times_applied)
+                            primary.success_rate = (
+                                primary.success_rate * left_count
+                                + duplicate.success_rate * max(1, duplicate.times_applied)
+                            ) / total
+                        duplicate.is_active = False
+                        duplicate.meta_data = {**(duplicate.meta_data or {}),
+                                               "consolidated_into": str(primary.id)}
+                await db.flush()
 
             logger.info(f"Consolidated {consolidated_count} experiences (dry_run={dry_run})")
 

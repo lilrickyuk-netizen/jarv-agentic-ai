@@ -70,13 +70,20 @@ class DocumentationAgent(AgentBase):
 
     @property
     def default_tools(self) -> list[str]:
-        return ['file_read', 'file_write', 'file_search', 'analyze_code']
+        from app.core.agents.specialists.tool_mode import tools_for
+
+        return tools_for("documentation")
 
     async def run(
         self,
         input_data: Dict[str, Any],
         context: AgentContext,
     ) -> AgentResult:
+        if self.tools_enabled(context):
+            from app.core.agents.specialists import tool_mode
+
+            return await tool_mode.run(self, input_data, context)
+
         try:
             doc_type = input_data.get("doc_type", "user_guide")
             target = (input_data.get("target") or "").strip()

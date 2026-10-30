@@ -225,33 +225,32 @@ class WebsiteDownRunbook(RunbookBase):
         return False
 
     async def _check_application_health(self) -> bool:
-        """Check application process health"""
-        try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                response = await client.get("http://localhost:8000/health")
-                return response.status_code >= 500
-        except Exception as e:
-            logger.error(f"Application health check failed: {e}")
-            return True
+        """True when the JARV API is down or unhealthy (container health, else /health)."""
+        from app.core.ops.repair import service_state
+
+        return (await service_state("backend")).get("healthy") is False
 
     async def _verify_issue_persists(self) -> bool:
-        """Verify the issue still exists by rechecking"""
-        try:
-            async with httpx.AsyncClient(timeout=5) as client:
-                response = await client.get("http://localhost:8000/health")
-                return response.status_code >= 500
-        except Exception:
-            return True
+        """Re-check the API before acting, so a transient blip is not 'fixed'."""
+        from app.core.ops.repair import service_state
+
+        return (await service_state("backend")).get("healthy") is False
 
     async def _restart_application_services(self) -> Dict[str, Any]:
-        """Restart application services - requires infrastructure integration"""
-        raise IntegrationRequiredError(
-            "Service restart requires infrastructure integration. "
-            "Configure: (1) Kubernetes API for pod restart, "
-            "(2) Docker API for container restart, "
-            "(3) systemd for service restart, or "
-            "(4) Cloud provider API (AWS ECS, Azure Container Instances, GCP Cloud Run)"
-        )
+        """Restart the API container (and the worker if it is also down) and wait for recovery."""
+        from app.core.ops.docker_ops import get_docker_ops
+        from app.core.ops.repair import restart_and_wait, service_state, workers_alive
+
+        if not get_docker_ops().available:
+            raise IntegrationRequiredError(
+                "Service restart needs container operations: run the docker-proxy service and set "
+                "DOCKER_OPS_URL=http://docker-proxy:2375 for backend and worker."
+            )
+        actions = [await restart_and_wait("backend", "website_down runbook: API unhealthy")]
+        if not await workers_alive() and (await service_state("worker")).get("source") == "docker":
+            actions.append(await restart_and_wait("worker", "website_down runbook: no worker answered"))
+        return {"action": "restart_application_services", "restarts": actions,
+                "recovered": all(a["recovered"] for a in actions)}
 
     async def _scale_resources(self) -> Dict[str, Any]:
         """Scale resources - requires cloud provider integration"""
@@ -274,19 +273,15 @@ class WebsiteDownRunbook(RunbookBase):
         )
 
     async def _verify_recovery(self) -> bool:
-        """Verify recovery was successful by checking service health"""
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get("http://localhost:8000/health")
-                success = response.status_code < 400
-                if success:
-                    logger.info("Recovery verified: service responding normally")
-                else:
-                    logger.warning(f"Recovery incomplete: service returned {response.status_code}")
-                return success
-        except Exception as e:
-            logger.error(f"Recovery verification failed: {e}")
-            return False
+        """Recovered when the JARV API reports healthy again."""
+        from app.core.ops.repair import service_state
+
+        state = await service_state("backend")
+        if state.get("healthy"):
+            logger.info("Recovery verified: API healthy")
+            return True
+        logger.warning(f"Recovery incomplete: {state}")
+        return False
 
 
 class APIErrorSpikeRunbook(RunbookBase):
@@ -576,52 +571,35 @@ class QueueStuckRunbook(RunbookBase):
         return True
 
     async def _check_worker_health(self) -> bool:
-        """Check worker process health by looking for worker processes"""
-        try:
-            worker_processes = [
-                p for p in psutil.process_iter(['name', 'status'])
-                if 'worker' in p.info['name'].lower() or 'celery' in p.info['name'].lower()
-            ]
-            if not worker_processes:
-                logger.warning("No worker processes found")
-                return True
+        """True when no Celery worker answers a ping."""
+        from app.core.ops.repair import workers_alive
 
-            for proc in worker_processes:
-                if proc.info['status'] in ['zombie', 'dead']:
-                    logger.warning(f"Worker process in bad state: {proc.info['status']}")
-                    return True
-            return False
-        except Exception as e:
-            logger.error(f"Worker health check failed: {e}")
-            return True
+        return not await workers_alive()
 
     async def _check_deadlocked_jobs(self) -> bool:
-        """Check for deadlocked jobs by examining system state"""
-        try:
-            connections = len([c for c in psutil.net_connections() if c.status == 'CLOSE_WAIT'])
-            return connections > 50
-        except Exception:
-            return False
+        """True when running missions have stopped heartbeating."""
+        from app.core.ops.repair import stale_mission_count
+
+        return await stale_mission_count() > 0
 
     async def _restart_workers(self) -> Dict[str, Any]:
-        """Restart queue workers - requires worker system integration"""
-        raise IntegrationRequiredError(
-            "Worker restart requires queue system integration. "
-            "Configure: (1) Celery worker management API, "
-            "(2) RabbitMQ management plugin, "
-            "(3) Redis queue configuration, or "
-            "(4) Custom worker process manager"
-        )
+        """Restart the worker container, wait for it, then re-queue missions it abandoned."""
+        from app.core.ops.docker_ops import get_docker_ops
+        from app.core.ops.repair import recover_missions, restart_and_wait
+
+        if not get_docker_ops().available:
+            raise IntegrationRequiredError(
+                "Worker restart needs container operations: run the docker-proxy service and set "
+                "DOCKER_OPS_URL=http://docker-proxy:2375 for backend and worker."
+            )
+        restart = await restart_and_wait("worker", "queue_stuck runbook: no worker answered a ping")
+        return {"action": "restart_workers", "restart": restart, "recovery": await recover_missions()}
 
     async def _clear_deadlocked_jobs(self) -> Dict[str, Any]:
-        """Clear deadlocked jobs - requires queue system integration"""
-        raise IntegrationRequiredError(
-            "Job clearing requires queue system integration. "
-            "Configure: (1) Celery task revocation, "
-            "(2) RabbitMQ queue purge API, "
-            "(3) Redis job cleanup, or "
-            "(4) Database-backed queue cleanup queries"
-        )
+        """Re-queue (or close, past the retry cap) missions whose worker stopped heartbeating."""
+        from app.core.ops.repair import recover_missions
+
+        return await recover_missions()
 
     async def _scale_workers(self) -> Dict[str, Any]:
         """Scale workers - requires worker orchestration integration"""
@@ -634,12 +612,10 @@ class QueueStuckRunbook(RunbookBase):
         )
 
     async def _verify_queue_processing(self) -> bool:
-        """Verify queue is processing by checking system activity"""
-        try:
-            cpu_percent = psutil.cpu_percent(interval=1)
-            return cpu_percent > 5
-        except Exception:
-            return False
+        """Processing when a worker answers and no running mission is stale."""
+        from app.core.ops.repair import stale_mission_count, workers_alive
+
+        return await workers_alive() and await stale_mission_count() == 0
 
 
 class PaymentWebhookRunbook(RunbookBase):

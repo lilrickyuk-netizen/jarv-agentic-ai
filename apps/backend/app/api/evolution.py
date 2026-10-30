@@ -5,7 +5,13 @@ REST API for self-evolution management.
 """
 from typing import Optional, List
 from uuid import UUID
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.auth import CurrentUserId, get_current_user_id
+from app.core.database import get_db
+from app.models.workspace import Workspace
 from pydantic import BaseModel, Field
 
 from app.core.evolution.experience import (
@@ -15,33 +21,16 @@ from app.core.evolution.experience import (
     ExperienceManager,
     LessonExtract,
 )
-from app.core.evolution.improvements import (
-    ImprovementCreate,
-    ImprovementResult,
-    ImprovementType,
-    ImprovementStatus,
-    RiskLevel,
-    ImprovementManager,
-)
-from app.core.evolution.verification import (
-    VerificationResult,
-    VerificationManager,
-)
-from app.core.evolution.versioning import (
-    VersionCreate,
-    VersionResult,
-    VersionType,
-    VersionStatus,
-    VersionManager,
+from app.core.evolution.engine import TYPES, evolution_engine, view as evolution_view
+from app.models.agent import Agent
+from app.models.self_evolution import SelfEvolutionRecord
+
+router = APIRouter(
+    prefix="/api/evolution", tags=["evolution"],
+    dependencies=[Depends(get_current_user_id)],
 )
 
-router = APIRouter(prefix="/api/evolution", tags=["evolution"])
-
-# Initialize managers
 experience_manager = ExperienceManager()
-improvement_manager = ImprovementManager()
-verification_manager = VerificationManager()
-version_manager = VersionManager()
 
 
 # Response models
@@ -52,43 +41,29 @@ class ExperienceResponse(BaseModel):
     experience: Optional[ExperienceResult] = None
 
 
-class ImprovementResponse(BaseModel):
-    """Improvement response"""
-    id: UUID
-    message: str
-    improvement: Optional[ImprovementResult] = None
-
-
-class VerificationResponse(BaseModel):
-    """Verification response"""
-    id: UUID
-    message: str
-    verification: VerificationResult
-
-
-class VersionResponse(BaseModel):
-    """Version response"""
-    id: UUID
-    message: str
-    version: Optional[VersionResult] = None
+class ImprovementCreate(BaseModel):
+    """A proposed self-evolution change to one component of a workspace."""
+    workspace_id: UUID
+    improvement_type: str = Field(..., description="rule, runbook, agent_instruction, tool_selection, "
+                                                   "operating_plan, swarm_strategy, workflow")
+    target: dict = Field(default_factory=dict, description="{name} | {agent} | {plan_id} | {}")
+    change: dict = Field(..., description="The fields to set on the component")
+    title: str = Field(..., min_length=3)
+    reasoning: str = Field(..., min_length=3)
+    expected_benefit: str = Field("", description="What should improve")
 
 
 class ApprovalRequest(BaseModel):
-    """Approval request"""
-    user_id: UUID
+    """Richard's approval of a verified change."""
     notes: Optional[str] = None
 
 
 class RejectionRequest(BaseModel):
-    """Rejection request"""
-    user_id: UUID
-    reason: str
+    reason: str = Field(..., min_length=3)
 
 
 class RollbackRequest(BaseModel):
-    """Rollback request"""
-    reason: str
-    user_id: Optional[UUID] = None
+    reason: str = Field(..., min_length=3)
 
 
 class StatsResponse(BaseModel):
@@ -101,402 +76,298 @@ class StatsResponse(BaseModel):
 # EXPERIENCE ENDPOINTS
 # =============================================================================
 
-@router.post("/experiences", response_model=ExperienceResponse)
-async def capture_experience_endpoint(experience: ExperienceCreate):
-    """
-    Capture agent experience.
+async def _owned_workspaces(db: AsyncSession, user_id: str) -> List[UUID]:
+    return list((await db.execute(
+        select(Workspace.id).where(Workspace.owner_id == UUID(str(user_id)))
+    )).scalars().all())
 
-    Creates an experience record from agent execution.
-    """
+
+@router.post("/experiences", response_model=ExperienceResponse)
+async def capture_experience_endpoint(
+    experience: ExperienceCreate, user_id: CurrentUserId, db: AsyncSession = Depends(get_db),
+):
+    """Capture an experience into the verified-learning lifecycle."""
+    if experience.workspace_id not in await _owned_workspaces(db, user_id):
+        raise HTTPException(status_code=404, detail="Workspace not found")
     try:
-        experience_id = await experience_manager.capture_experience(experience)
-        return ExperienceResponse(
-            id=experience_id,
-            message="Experience captured successfully"
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        experience_id = await experience_manager.capture_experience(db, experience)
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    stored = await experience_manager.get_experience(db, experience_id, [experience.workspace_id])
+    return ExperienceResponse(id=experience_id, message="Experience captured", experience=stored)
 
 
 @router.post("/experiences/{experience_id}/summarize", response_model=dict)
-async def summarize_experience_endpoint(experience_id: UUID):
-    """
-    Summarize experience.
-
-    Creates summary of experience using LLM.
-    """
-    try:
-        summary = await experience_manager.summarize_experience(experience_id)
-        return {"experience_id": str(experience_id), "summary": summary}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def summarize_experience_endpoint(
+    experience_id: UUID, user_id: CurrentUserId, db: AsyncSession = Depends(get_db),
+):
+    """Summary built from the stored record."""
+    summary = await experience_manager.summarize_experience(
+        db, experience_id, await _owned_workspaces(db, user_id))
+    if summary is None:
+        raise HTTPException(status_code=404, detail="Experience not found")
+    return {"experience_id": str(experience_id), "summary": summary}
 
 
 @router.post("/experiences/{experience_id}/extract-lessons", response_model=dict)
-async def extract_lessons_endpoint(experience_id: UUID):
-    """
-    Extract lessons from experience.
+async def extract_lessons_endpoint(
+    experience_id: UUID, user_id: CurrentUserId, db: AsyncSession = Depends(get_db),
+):
+    """The lesson held by the record and its verification status."""
+    lessons = await experience_manager.extract_lesson(
+        db, experience_id, await _owned_workspaces(db, user_id))
+    if lessons is None:
+        raise HTTPException(status_code=404, detail="Experience not found")
+    return {"experience_id": str(experience_id), "lessons": [lesson.model_dump() for lesson in lessons]}
 
-    Analyzes experience and extracts actionable lessons.
-    """
-    try:
-        lessons = await experience_manager.extract_lesson(experience_id)
-        return {
-            "experience_id": str(experience_id),
-            "lessons": [lesson.dict() for lesson in lessons]
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/experiences/stats/{workspace_id}", response_model=StatsResponse)
+async def get_experience_stats_endpoint(
+    workspace_id: UUID, user_id: CurrentUserId, db: AsyncSession = Depends(get_db),
+):
+    if workspace_id not in await _owned_workspaces(db, user_id):
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    stats = await experience_manager.get_experience_stats(db, workspace_id)
+    return StatsResponse(workspace_id=workspace_id, stats=stats)
 
 
 @router.get("/experiences/{experience_id}", response_model=ExperienceResponse)
-async def get_experience_endpoint(experience_id: UUID):
-    """Get experience by ID"""
-    experience = await experience_manager.get_experience(experience_id)
+async def get_experience_endpoint(
+    experience_id: UUID, user_id: CurrentUserId, db: AsyncSession = Depends(get_db),
+):
+    experience = await experience_manager.get_experience(
+        db, experience_id, await _owned_workspaces(db, user_id))
     if not experience:
         raise HTTPException(status_code=404, detail="Experience not found")
-    return ExperienceResponse(
-        id=experience_id,
-        message="Experience retrieved",
-        experience=experience
-    )
+    return ExperienceResponse(id=experience_id, message="Experience retrieved", experience=experience)
 
 
 @router.get("/experiences", response_model=List[ExperienceResult])
 async def list_experiences_endpoint(
+    user_id: CurrentUserId,
     workspace_id: Optional[UUID] = Query(None),
     agent_id: Optional[UUID] = Query(None),
     experience_type: Optional[ExperienceType] = Query(None),
     limit: int = Query(100, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
 ):
-    """List experiences with filters"""
+    owned = await _owned_workspaces(db, user_id)
+    if workspace_id is not None:
+        if workspace_id not in owned:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+        owned = [workspace_id]
     return await experience_manager.list_experiences(
-        workspace_id=workspace_id,
-        agent_id=agent_id,
-        experience_type=experience_type,
-        limit=limit,
-    )
-
-
-@router.get("/experiences/stats/{workspace_id}", response_model=StatsResponse)
-async def get_experience_stats_endpoint(workspace_id: UUID):
-    """Get experience statistics"""
-    stats = await experience_manager.get_experience_stats(workspace_id)
-    return StatsResponse(workspace_id=workspace_id, stats=stats)
+        db, owned, agent_id=agent_id, experience_type=experience_type, limit=limit)
 
 
 # =============================================================================
-# IMPROVEMENT ENDPOINTS
+# IMPROVEMENT (SELF-EVOLUTION) ENDPOINTS
 # =============================================================================
 
-@router.post("/improvements", response_model=ImprovementResponse)
-async def propose_improvement_endpoint(improvement: ImprovementCreate):
-    """
-    Propose improvement.
-
-    Creates improvement proposal with risk classification.
-    """
-    try:
-        improvement_id = await improvement_manager.propose_improvement(improvement)
-        return ImprovementResponse(
-            id=improvement_id,
-            message="Improvement proposed successfully"
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+def _improvement(record: SelfEvolutionRecord) -> dict:
+    """A self-evolution record in the dashboard's improvement shape, with the full record attached."""
+    data = evolution_view(record)
+    priority = {"needs_approval": 1, "verified": 2, "proposed": 3}.get(record.status, 5)
+    return {**data, "improvement_type": record.evolution_type, "priority": priority,
+            "estimated_impact": record.expected_benefit, "approved_at": data["applied_at"],
+            "implemented_at": data["applied_at"]}
 
 
-@router.get("/improvements/{improvement_id}", response_model=ImprovementResponse)
-async def get_improvement_endpoint(improvement_id: UUID):
-    """Get improvement by ID"""
-    improvement = await improvement_manager.get_improvement(improvement_id)
-    if not improvement:
-        raise HTTPException(status_code=404, detail="Improvement not found")
-    return ImprovementResponse(
-        id=improvement_id,
-        message="Improvement retrieved",
-        improvement=improvement
-    )
+async def _owned_record(db: AsyncSession, user_id: str, record_id: UUID):
+    owned = await _owned_workspaces(db, user_id)
+    row = (await db.execute(select(SelfEvolutionRecord, Agent.workspace_id)
+                            .join(Agent, SelfEvolutionRecord.agent_id == Agent.id)
+                            .where(SelfEvolutionRecord.id == record_id, Agent.workspace_id.in_(owned or [None]))
+                            )).first()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Self-evolution record not found")
+    return row[0], row[1]
 
 
-@router.get("/improvements", response_model=List[ImprovementResult])
-async def list_improvements_endpoint(
-    workspace_id: Optional[UUID] = Query(None),
-    improvement_type: Optional[ImprovementType] = Query(None),
-    status: Optional[ImprovementStatus] = Query(None),
-    risk_level: Optional[RiskLevel] = Query(None),
-    limit: int = Query(100, ge=1, le=1000),
+def _http(exc: Exception) -> HTTPException:
+    if isinstance(exc, PermissionError):
+        return HTTPException(status_code=403, detail=str(exc))
+    if isinstance(exc, LookupError):
+        return HTTPException(status_code=404, detail=str(exc))
+    return HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/improvements")
+async def propose_improvement_endpoint(
+    improvement: ImprovementCreate, user_id: CurrentUserId, db: AsyncSession = Depends(get_db),
 ):
-    """List improvements with filters"""
-    return await improvement_manager.list_improvements(
-        workspace_id=workspace_id,
-        improvement_type=improvement_type,
-        status=status,
-        risk_level=risk_level,
-        limit=limit,
-    )
+    """Propose a change; it is safety-checked and verified straight away."""
+    if improvement.workspace_id not in await _owned_workspaces(db, user_id):
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    try:
+        record = await evolution_engine.propose(
+            db, improvement.workspace_id, evolution_type=improvement.improvement_type, target=improvement.target,
+            change=improvement.change, title=improvement.title, reasoning=improvement.reasoning,
+            expected_benefit=improvement.expected_benefit, proposed_by="richard", trigger="api")
+        if record.status != "blocked":
+            await evolution_engine.verify(db, improvement.workspace_id, record)
+    except (LookupError, PermissionError, ValueError) as exc:
+        raise _http(exc)
+    await db.commit()
+    return _improvement(record)
+
+
+@router.get("/improvements")
+async def list_improvements_endpoint(
+    user_id: CurrentUserId,
+    workspace_id: Optional[UUID] = Query(None),
+    improvement_type: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+):
+    owned = await _owned_workspaces(db, user_id)
+    if workspace_id is not None:
+        if workspace_id not in owned:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+        owned = [workspace_id]
+    rows = await evolution_engine.history(db, owned, evolution_type=improvement_type, status=status, limit=limit)
+    return [_improvement(r) for r in rows]
 
 
 @router.get("/improvements/stats/{workspace_id}", response_model=StatsResponse)
-async def get_improvement_stats_endpoint(workspace_id: UUID):
-    """Get improvement statistics"""
-    stats = await improvement_manager.get_improvement_stats(workspace_id)
-    return StatsResponse(workspace_id=workspace_id, stats=stats)
+async def get_improvement_stats_endpoint(workspace_id: UUID, user_id: CurrentUserId,
+                                         db: AsyncSession = Depends(get_db)):
+    if workspace_id not in await _owned_workspaces(db, user_id):
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    return StatsResponse(workspace_id=workspace_id, stats=await evolution_engine.stats(db, workspace_id))
+
+
+@router.get("/improvements/{improvement_id}")
+async def get_improvement_endpoint(improvement_id: UUID, user_id: CurrentUserId, db: AsyncSession = Depends(get_db)):
+    record, _ws = await _owned_record(db, user_id, improvement_id)
+    return _improvement(record)
+
+
+@router.post("/improvements/{improvement_id}/verify")
+async def verify_improvement_endpoint(improvement_id: UUID, user_id: CurrentUserId,
+                                      db: AsyncSession = Depends(get_db)):
+    record, ws = await _owned_record(db, user_id, improvement_id)
+    result = await evolution_engine.verify(db, ws, record)
+    await db.commit()
+    return {"improvement": _improvement(record), "verification": {
+        "passed": result.passed, "recommendation": result.recommendation, "checks": result.tests_run,
+        "warnings": result.warnings}}
+
+
+@router.post("/improvements/{improvement_id}/approve")
+async def approve_improvement_endpoint(improvement_id: UUID, user_id: CurrentUserId,
+                                       request: Optional[ApprovalRequest] = None,
+                                       db: AsyncSession = Depends(get_db)):
+    """Richard approves: a verified change is applied (protected-rule changes included)."""
+    record, ws = await _owned_record(db, user_id, improvement_id)
+    try:
+        await evolution_engine.approve(db, ws, record, approved_by=UUID(str(user_id)), richard_approved=True)
+    except (LookupError, PermissionError, ValueError) as exc:
+        raise _http(exc)
+    await db.commit()
+    return _improvement(record)
+
+
+@router.post("/improvements/{improvement_id}/apply")
+async def apply_improvement_endpoint(improvement_id: UUID, user_id: CurrentUserId,
+                                     db: AsyncSession = Depends(get_db)):
+    """Apply a verified change that needs no protected-rule approval."""
+    record, ws = await _owned_record(db, user_id, improvement_id)
+    try:
+        await evolution_engine.approve(db, ws, record, approved_by=UUID(str(user_id)))
+    except (LookupError, PermissionError, ValueError) as exc:
+        raise _http(exc)
+    await db.commit()
+    return _improvement(record)
+
+
+@router.post("/improvements/{improvement_id}/reject")
+async def reject_improvement_endpoint(improvement_id: UUID, request: RejectionRequest, user_id: CurrentUserId,
+                                      db: AsyncSession = Depends(get_db)):
+    record, ws = await _owned_record(db, user_id, improvement_id)
+    try:
+        await evolution_engine.reject(db, ws, record, request.reason)
+    except (LookupError, PermissionError, ValueError) as exc:
+        raise _http(exc)
+    await db.commit()
+    return _improvement(record)
+
+
+@router.post("/improvements/{improvement_id}/rollback")
+async def rollback_improvement_endpoint(improvement_id: UUID, request: RollbackRequest, user_id: CurrentUserId,
+                                        db: AsyncSession = Depends(get_db)):
+    record, ws = await _owned_record(db, user_id, improvement_id)
+    try:
+        await evolution_engine.rollback(db, ws, record, request.reason, richard_approved=True,
+                                        rolled_back_by=UUID(str(user_id)))
+    except (LookupError, PermissionError, ValueError) as exc:
+        raise _http(exc)
+    await db.commit()
+    return _improvement(record)
+
+
+@router.get("/improvements/{improvement_id}/monitor")
+async def monitor_improvement_endpoint(improvement_id: UUID, user_id: CurrentUserId,
+                                       duration_hours: int = Query(168, ge=24, le=720),
+                                       db: AsyncSession = Depends(get_db)):
+    """Success rate of the affected work before and after the change."""
+    record, ws = await _owned_record(db, user_id, improvement_id)
+    try:
+        result = await evolution_engine.assess(db, ws, record, days=max(1, duration_hours // 24))
+    except ValueError as exc:
+        raise _http(exc)
+    await db.commit()
+    return {"improvement_id": str(improvement_id), "monitoring_results": result}
 
 
 # =============================================================================
-# VERIFICATION ENDPOINTS
+# VERSION HISTORY (applied changes) AND RESTORE
 # =============================================================================
 
-@router.post("/improvements/{improvement_id}/verify", response_model=VerificationResponse)
-async def verify_improvement_endpoint(improvement_id: UUID):
-    """
-    Verify improvement safety.
+@router.get("/versions")
+async def list_versions_endpoint(user_id: CurrentUserId, workspace_id: Optional[UUID] = Query(None),
+                                 component: Optional[str] = Query(None, description="e.g. rule:branch names"),
+                                 limit: int = Query(100, ge=1, le=500), db: AsyncSession = Depends(get_db)):
+    owned = await _owned_workspaces(db, user_id)
+    if workspace_id is not None:
+        if workspace_id not in owned:
+            raise HTTPException(status_code=404, detail="Workspace not found")
+        owned = [workspace_id]
+    rows = await evolution_engine.history(db, owned, component=component, limit=500)
+    return [evolution_view(r) for r in rows if r.is_applied][:limit]
 
-    Runs safety checks on improvement proposal.
-    """
+
+@router.post("/snapshots/{workspace_id}/restore")
+async def restore_snapshot_endpoint(workspace_id: UUID, user_id: CurrentUserId,
+                                    snapshot_date: str = Query(..., description="ISO datetime; changes applied "
+                                                                                "after it are rolled back"),
+                                    db: AsyncSession = Depends(get_db)):
+    from datetime import datetime
+
+    if workspace_id not in await _owned_workspaces(db, user_id):
+        raise HTTPException(status_code=404, detail="Workspace not found")
     try:
-        result = await verification_manager.verify_improvement(improvement_id)
-        return VerificationResponse(
-            id=improvement_id,
-            message="Improvement verified",
-            verification=result
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        since = datetime.fromisoformat(snapshot_date.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid date format: {exc}")
+    result = await evolution_engine.restore_since(db, workspace_id, since, f"restore to {snapshot_date}")
+    await db.commit()
+    return {"workspace_id": str(workspace_id), "snapshot_date": snapshot_date, **result}
 
 
-@router.post("/improvements/{improvement_id}/approve", response_model=dict)
-async def approve_improvement_endpoint(improvement_id: UUID, request: ApprovalRequest):
-    """
-    Approve improvement.
-
-    Approves improvement for application.
-    """
-    try:
-        success = await verification_manager.approve_improvement(
-            improvement_id,
-            request.user_id,
-            request.notes,
-        )
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to approve improvement")
-        return {
-            "improvement_id": str(improvement_id),
-            "status": "approved",
-            "message": "Improvement approved successfully"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/improvements/{improvement_id}/reject", response_model=dict)
-async def reject_improvement_endpoint(improvement_id: UUID, request: RejectionRequest):
-    """
-    Reject improvement.
-
-    Rejects improvement with reason.
-    """
-    try:
-        success = await verification_manager.reject_improvement(
-            improvement_id,
-            request.user_id,
-            request.reason,
-        )
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to reject improvement")
-        return {
-            "improvement_id": str(improvement_id),
-            "status": "rejected",
-            "message": "Improvement rejected"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/improvements/{improvement_id}/apply", response_model=dict)
-async def apply_improvement_endpoint(improvement_id: UUID):
-    """
-    Apply improvement.
-
-    Applies approved improvement.
-    """
-    try:
-        success = await verification_manager.apply_improvement(improvement_id)
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to apply improvement")
-        return {
-            "improvement_id": str(improvement_id),
-            "status": "applied",
-            "message": "Improvement applied successfully"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/improvements/{improvement_id}/monitor", response_model=dict)
-async def monitor_improvement_endpoint(
-    improvement_id: UUID,
-    duration_hours: int = Query(24, ge=1, le=168),
-):
-    """
-    Monitor improvement results.
-
-    Tracks metrics after improvement application.
-    """
-    try:
-        result = await verification_manager.monitor_improvement_result(
-            improvement_id,
-            duration_hours,
-        )
-        return {
-            "improvement_id": str(improvement_id),
-            "monitoring_results": result
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# =============================================================================
-# VERSIONING ENDPOINTS
-# =============================================================================
-
-@router.post("/versions", response_model=VersionResponse)
-async def create_version_endpoint(version: VersionCreate):
-    """
-    Create version snapshot.
-
-    Creates version before applying change.
-    """
-    try:
-        version_id = await version_manager.create_version(version)
-        return VersionResponse(
-            id=version_id,
-            message="Version created successfully"
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/versions/{version_id}/rollback", response_model=dict)
-async def rollback_version_endpoint(version_id: UUID, request: RollbackRequest):
-    """
-    Rollback version.
-
-    Restores previous version.
-    """
-    try:
-        success = await version_manager.rollback_version(
-            version_id,
-            request.reason,
-            request.user_id,
-        )
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to rollback version")
-        return {
-            "version_id": str(version_id),
-            "status": "rolled_back",
-            "message": "Version rolled back successfully"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/versions/{version_id}", response_model=VersionResponse)
-async def get_version_endpoint(version_id: UUID):
-    """Get version by ID"""
-    version = await version_manager.get_version(version_id)
-    if not version:
-        raise HTTPException(status_code=404, detail="Version not found")
-    return VersionResponse(
-        id=version_id,
-        message="Version retrieved",
-        version=version
-    )
-
-
-@router.get("/versions", response_model=List[VersionResult])
-async def list_versions_endpoint(
-    workspace_id: Optional[UUID] = Query(None),
-    version_type: Optional[VersionType] = Query(None),
-    status: Optional[VersionStatus] = Query(None),
-    limit: int = Query(100, ge=1, le=1000),
-):
-    """List versions with filters"""
-    return await version_manager.list_versions(
-        workspace_id=workspace_id,
-        version_type=version_type,
-        status=status,
-        limit=limit,
-    )
-
-
-@router.get("/versions/component/{workspace_id}/{version_type}/{component_name}")
-async def get_component_versions_endpoint(
-    workspace_id: UUID,
-    version_type: VersionType,
-    component_name: str,
-):
-    """Get all versions for a component"""
-    return await version_manager.get_component_versions(
-        workspace_id,
-        version_type,
-        component_name,
-    )
-
-
-@router.get("/versions/stats/{workspace_id}", response_model=StatsResponse)
-async def get_version_stats_endpoint(workspace_id: UUID):
-    """Get version statistics"""
-    stats = await version_manager.get_version_stats(workspace_id)
-    return StatsResponse(workspace_id=workspace_id, stats=stats)
-
-
-@router.post("/snapshots/{workspace_id}", response_model=dict)
-async def create_snapshot_endpoint(workspace_id: UUID):
-    """
-    Create system snapshot.
-
-    Snapshots all components.
-    """
-    try:
-        snapshot_versions = await version_manager.create_snapshot(workspace_id)
-        return {
-            "workspace_id": str(workspace_id),
-            "snapshot_versions": {k: str(v) for k, v in snapshot_versions.items()},
-            "message": "Snapshot created successfully"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/snapshots/{workspace_id}/restore", response_model=dict)
-async def restore_snapshot_endpoint(
-    workspace_id: UUID,
-    snapshot_date: str = Query(..., description="ISO format datetime"),
-):
-    """
-    Restore system snapshot.
-
-    Rolls back all components to snapshot date.
-    """
-    try:
-        from datetime import datetime
-        target_date = datetime.fromisoformat(snapshot_date.replace('Z', '+00:00'))
-
-        success = await version_manager.restore_snapshot(workspace_id, target_date)
-        if not success:
-            raise HTTPException(status_code=500, detail="Failed to restore snapshot")
-        return {
-            "workspace_id": str(workspace_id),
-            "snapshot_date": snapshot_date,
-            "status": "restored",
-            "message": "Snapshot restored successfully"
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid date format: {e}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+def _evolution_health(stats: dict) -> dict:
+    """Rates computed from stored experiences; None where there is no data yet."""
+    total = stats.get("total", 0)
+    by_status = stats.get("by_status", {})
+    by_outcome = stats.get("by_outcome", {})
+    verified, retired = by_status.get("verified", 0), by_status.get("retired", 0)
+    return {
+        "learning_rate": round(verified / total, 3) if total else None,
+        "success_rate": round(by_outcome.get("success", 0) / total, 3) if total else None,
+        "rollback_rate": round(retired / (verified + retired), 3) if verified + retired else None,
+        "experiences": total,
+    }
 
 
 # =============================================================================
@@ -504,46 +375,22 @@ async def restore_snapshot_endpoint(
 # =============================================================================
 
 @router.get("/dashboard/{workspace_id}")
-async def get_evolution_dashboard(workspace_id: UUID):
-    """
-    Get self-evolution dashboard data.
-
-    Returns comprehensive evolution metrics and status.
-    """
-    try:
-        experience_stats = await experience_manager.get_experience_stats(workspace_id)
-        improvement_stats = await improvement_manager.get_improvement_stats(workspace_id)
-        version_stats = await version_manager.get_version_stats(workspace_id)
-
-        recent_experiences = await experience_manager.list_experiences(
-            workspace_id=workspace_id,
-            limit=10,
-        )
-
-        recent_improvements = await improvement_manager.list_improvements(
-            workspace_id=workspace_id,
-            limit=10,
-        )
-
-        recent_versions = await version_manager.list_versions(
-            workspace_id=workspace_id,
-            limit=10,
-        )
-
-        return {
-            "workspace_id": str(workspace_id),
-            "experience_stats": experience_stats,
-            "improvement_stats": improvement_stats,
-            "version_stats": version_stats,
-            "recent_experiences": [exp.dict() for exp in recent_experiences],
-            "recent_improvements": [imp.dict() for imp in recent_improvements],
-            "recent_versions": [ver.dict() for ver in recent_versions],
-            "evolution_health": {
-                "learning_rate": 0.0,
-                "improvement_rate": 0.0,
-                "success_rate": 0.0,
-                "rollback_rate": 0.0,
-            }
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def get_evolution_dashboard(
+    workspace_id: UUID, user_id: CurrentUserId, db: AsyncSession = Depends(get_db),
+):
+    """Self-evolution dashboard: experience, proposed/applied/rolled-back changes, and health."""
+    if workspace_id not in await _owned_workspaces(db, user_id):
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    experience_stats = await experience_manager.get_experience_stats(db, workspace_id)
+    recent_experiences = await experience_manager.list_experiences(db, [workspace_id], limit=10)
+    recent = await evolution_engine.history(db, [workspace_id], limit=10)
+    return {
+        "workspace_id": str(workspace_id),
+        "experience_stats": experience_stats,
+        "improvement_stats": await evolution_engine.stats(db, workspace_id),
+        "recent_experiences": [exp.dict() for exp in recent_experiences],
+        "recent_improvements": [_improvement(r) for r in recent],
+        "recent_versions": [evolution_view(r) for r in recent if r.is_applied],
+        "evolution_health": _evolution_health(experience_stats),
+        "change_types": list(TYPES),
+    }

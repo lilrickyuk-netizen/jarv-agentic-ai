@@ -4,11 +4,8 @@ JARV Backend Health and Version Endpoints
 from typing import Dict, Any
 from fastapi import APIRouter, status
 from datetime import datetime
-import platform
-import sys
 
 from app import __version__
-from app.core.config import settings
 from app.core.redis import check_redis_health
 from app.core.database import engine
 from sqlalchemy import text
@@ -43,35 +40,17 @@ async def health_check() -> Dict[str, Any]:
     status_code=status.HTTP_200_OK,
     response_model=Dict[str, Any],
     summary="Version Information",
-    description="Get detailed version and system information"
+    description="The service name and version"
 )
 async def version_info() -> Dict[str, Any]:
     """
-    Version information endpoint.
-
-    Returns:
-        Detailed version and system information
+    Public version endpoint: the service and its version only. Environment, platform,
+    feature switches and limits are on the signed-in Settings page (/api/settings/overview).
     """
     return {
         "service": "jarv-backend",
         "version": __version__,
-        "environment": settings.ENVIRONMENT,
-        "python_version": sys.version,
-        "platform": platform.platform(),
         "timestamp": datetime.utcnow().isoformat(),
-        "features": {
-            "swarm_enabled": settings.SWARM_ENABLED,
-            "self_evolution_enabled": settings.SELF_EVOLUTION_ENABLED,
-            "company_operator_enabled": settings.COMPANY_OPERATOR_ENABLED,
-            "self_healing_enabled": settings.SELF_HEALING_ENABLED,
-            "voice_enabled": settings.VOICE_ENABLED,
-        },
-        "configuration": {
-            "log_level": settings.LOG_LEVEL,
-            "default_authority_level": settings.DEFAULT_AUTHORITY_LEVEL,
-            "max_subagents_per_workspace": settings.MAX_SUBAGENTS_PER_WORKSPACE,
-            "max_subagents_global": settings.MAX_SUBAGENTS_GLOBAL,
-        },
     }
 
 
@@ -98,7 +77,7 @@ async def readiness_check() -> Dict[str, Any]:
             await conn.execute(text("SELECT 1"))
         checks["database"] = {"status": "healthy"}
     except Exception as e:
-        checks["database"] = {"status": "unhealthy", "error": str(e)}
+        checks["database"] = {"status": "unhealthy", "error": type(e).__name__}
         overall_status = "not_ready"
 
     # Check Redis

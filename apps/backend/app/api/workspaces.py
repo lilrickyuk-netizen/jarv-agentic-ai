@@ -12,6 +12,8 @@ from datetime import datetime
 from uuid import UUID
 import logging
 
+from app.core.auth import CurrentUserId
+from app.core.scoping import as_uuid, owned_workspaces
 from app.core.database import get_db
 from app.models.workspace import Workspace
 from app.models.task import Task
@@ -87,6 +89,7 @@ class WorkspaceUpdate(BaseModel):
     description="Get list of all workspaces with their current status"
 )
 async def list_workspaces(
+    user_id: CurrentUserId,
     active_only: bool = False,
     include_archived: bool = False,
     db: Session = Depends(get_db),
@@ -103,7 +106,7 @@ async def list_workspaces(
         List of workspace information
     """
     try:
-        query = select(Workspace)
+        query = select(Workspace).where(Workspace.owner_id == as_uuid(user_id))
 
         if active_only:
             query = query.where(Workspace.is_active == True)
@@ -156,7 +159,7 @@ async def list_workspaces(
     summary="Get workspace statistics",
     description="Get aggregated statistics across all workspaces"
 )
-async def get_workspace_stats(db: Session = Depends(get_db)) -> WorkspaceStats:
+async def get_workspace_stats(user_id: CurrentUserId, db: Session = Depends(get_db)) -> WorkspaceStats:
     """
     Get workspace statistics.
 
@@ -167,13 +170,15 @@ async def get_workspace_stats(db: Session = Depends(get_db)) -> WorkspaceStats:
         Workspace statistics
     """
     try:
-        # Count workspaces (async session: use select + execute)
+        # The operator's own workspaces, and the tasks and agents in them.
+        mine = Workspace.owner_id == as_uuid(user_id)
         total_workspaces = (
-            await db.execute(select(func.count(Workspace.id)))
+            await db.execute(select(func.count(Workspace.id)).where(mine))
         ).scalar()
         active_workspaces = (
             await db.execute(
                 select(func.count(Workspace.id)).where(
+                    mine,
                     Workspace.is_active == True,
                     Workspace.is_archived == False,
                 )
@@ -182,23 +187,25 @@ async def get_workspace_stats(db: Session = Depends(get_db)) -> WorkspaceStats:
         archived_workspaces = (
             await db.execute(
                 select(func.count(Workspace.id)).where(
-                    Workspace.is_archived == True
+                    mine, Workspace.is_archived == True
                 )
             )
         ).scalar()
         company_mode_workspaces = (
             await db.execute(
                 select(func.count(Workspace.id)).where(
-                    Workspace.company_mode_enabled == True
+                    mine, Workspace.company_mode_enabled == True
                 )
             )
         ).scalar()
 
         # Count tasks across all workspaces
-        total_tasks = (await db.execute(select(func.count(Task.id)))).scalar()
+        total_tasks = (await db.execute(select(func.count(Task.id)).where(
+            Task.workspace_id.in_(owned_workspaces(user_id))))).scalar()
 
         # Count agents across all workspaces
-        total_agents = (await db.execute(select(func.count(Agent.id)))).scalar()
+        total_agents = (await db.execute(select(func.count(Agent.id)).where(
+            Agent.workspace_id.in_(owned_workspaces(user_id))))).scalar()
 
         return WorkspaceStats(
             total_workspaces=total_workspaces or 0,
@@ -217,6 +224,17 @@ async def get_workspace_stats(db: Session = Depends(get_db)) -> WorkspaceStats:
         )
 
 
+@router.get("/mine", summary="The signed-in operator's workspaces")
+async def my_workspaces(user_id: CurrentUserId, db: Session = Depends(get_db)) -> List[Dict[str, Any]]:
+    """Active, unarchived workspaces owned by the caller (the dashboard's workspace picker)."""
+    rows = (await db.execute(select(Workspace).where(
+        Workspace.owner_id == UUID(str(user_id)), Workspace.is_archived == False)  # noqa: E712
+        .order_by(Workspace.created_at.asc()))).scalars().all()
+    return [{"id": str(ws.id), "name": ws.name, "slug": ws.slug, "type": ws.workspace_type,
+             "is_active": ws.is_active, "company_mode": ws.company_mode_enabled, "company_name": ws.company_name,
+             "has_folder": bool((ws.config or {}).get("root_path"))} for ws in rows]
+
+
 @router.get(
     "/{workspace_id}",
     response_model=WorkspaceInfo,
@@ -225,6 +243,7 @@ async def get_workspace_stats(db: Session = Depends(get_db)) -> WorkspaceStats:
 )
 async def get_workspace(
     workspace_id: UUID,
+    user_id: CurrentUserId,
     db: Session = Depends(get_db),
 ) -> WorkspaceInfo:
     """
@@ -241,7 +260,7 @@ async def get_workspace(
         404: If workspace not found
     """
     try:
-        result = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
+        result = await db.execute(select(Workspace).where(Workspace.id == workspace_id, Workspace.owner_id == as_uuid(user_id)))
         workspace = result.scalar_one_or_none()
 
         if not workspace:
@@ -292,6 +311,7 @@ async def get_workspace(
 )
 async def create_workspace(
     workspace: WorkspaceCreate,
+    user_id: CurrentUserId,
     db: Session = Depends(get_db),
 ) -> WorkspaceInfo:
     """
@@ -318,13 +338,12 @@ async def create_workspace(
                 detail=f"Workspace with slug '{workspace.slug}' already exists"
             )
 
-        # Owner: use a real seeded user (operators authenticate via the Redis
-        # user store; workspaces are owned by the first persisted user).
-        owner_id = (await db.execute(select(User.id).limit(1))).scalar_one_or_none()
+        # The signed-in operator owns the workspace they create.
+        owner_id = (await db.execute(select(User.id).where(User.id == as_uuid(user_id)))).scalar_one_or_none()
         if owner_id is None:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No user exists to own the workspace. Seed a user first.",
+                detail="The signed-in operator has no user record to own the workspace.",
             )
 
         new_workspace = Workspace(
@@ -369,7 +388,7 @@ async def create_workspace(
     except HTTPException:
         raise
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         logger.error(f"Error creating workspace: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -386,6 +405,7 @@ async def create_workspace(
 async def update_workspace(
     workspace_id: UUID,
     workspace_update: WorkspaceUpdate,
+    user_id: CurrentUserId,
     db: Session = Depends(get_db),
 ) -> WorkspaceInfo:
     """
@@ -403,7 +423,7 @@ async def update_workspace(
         404: If workspace not found
     """
     try:
-        result = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
+        result = await db.execute(select(Workspace).where(Workspace.id == workspace_id, Workspace.owner_id == as_uuid(user_id)))
         workspace = result.scalar_one_or_none()
 
         if not workspace:
@@ -457,7 +477,7 @@ async def update_workspace(
     except HTTPException:
         raise
     except Exception as e:
-        db.rollback()
+        await db.rollback()
         logger.error(f"Error updating workspace: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -467,43 +487,38 @@ async def update_workspace(
 
 @router.delete(
     "/{workspace_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete workspace",
-    description="Delete a workspace and all associated data"
+    summary="Archive or permanently delete a workspace",
+    description=("Archives the workspace (reversible: PATCH is_archived=false restores it). Permanent deletion of "
+                 "the workspace and all its data needs permanent=true and confirm set to the workspace's slug."),
 )
 async def delete_workspace(
     workspace_id: UUID,
+    user_id: CurrentUserId,
+    permanent: bool = False,
+    confirm: Optional[str] = None,
     db: Session = Depends(get_db),
-) -> None:
-    """
-    Delete workspace.
-
-    Args:
-        workspace_id: Workspace UUID
-        db: Database session
-
-    Raises:
-        404: If workspace not found
-    """
-    try:
-        result = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
-        workspace = result.scalar_one_or_none()
-
-        if not workspace:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Workspace '{workspace_id}' not found"
-            )
-
-        await db.delete(workspace)
+) -> Dict[str, Any]:
+    """Archive by default. Deleting a workspace's data is a hard boundary, so it must be confirmed by slug."""
+    result = await db.execute(select(Workspace).where(Workspace.id == workspace_id, Workspace.owner_id == as_uuid(user_id)))
+    workspace = result.scalar_one_or_none()
+    if not workspace:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Workspace '{workspace_id}' not found")
+    if not permanent:
+        workspace.is_archived, workspace.is_active = True, False
         await db.commit()
+        return {"id": str(workspace.id), "archived": True, "deleted": False,
+                "note": "Archived. Restore it with is_archived=false; nothing was deleted."}
+    if confirm != workspace.slug:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Permanent deletion removes every record in the workspace. Confirm it by sending "
+                                   f"confirm={workspace.slug}.")
+    from app.core.audit import AuditLogger
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        db.rollback()
-        logger.error(f"Error deleting workspace: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete workspace: {str(e)}"
-        )
+    name, slug = workspace.name, workspace.slug
+    await db.delete(workspace)
+    await db.commit()
+    await AuditLogger.log_system_event(db, action="workspace.deleted_permanently", result="success",
+                                       resource_type="workspace", resource_id=workspace_id,
+                                       user_id=as_uuid(user_id), details={"name": name, "slug": slug},
+                                       severity="warning")
+    return {"id": str(workspace_id), "archived": False, "deleted": True}

@@ -3,22 +3,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api';
+import { cancelMission, MissionResult, retryMission, runMission } from '@/lib/missions';
 
-interface CommandResponse {
-  task_id: string;
-  command: string;
-  status: string;
-  requires_approval: boolean;
-  response_text: string;
-  plan_steps: string[];
-  selected_agents: string[];
-  provider: string | null;
-  model: string | null;
-  execution_time: number;
-  tokens_used: number;
-  approval_reason?: string | null;
-  error?: string | null;
-}
+type CommandResponse = MissionResult;
 
 interface HistoryItem {
   task_id: string;
@@ -67,17 +54,30 @@ export default function CommandPage() {
     setError(null);
     setResult(null);
     try {
-      const res = await apiClient.post<CommandResponse>('/api/command/execute', {
-        command: trimmed,
-      });
-      if (res.error) {
-        setError(res.error);
-      } else if (res.data) {
-        setResult(res.data);
-        loadHistory();
-      }
+      const mission = await runMission(trimmed, { onUpdate: setResult });
+      setResult(mission);
+      loadHistory();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Command failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const runCommandFollow = async (mission: CommandResponse) => {
+    setResult(mission);
+    setLoading(true);
+    try {
+      let current = mission;
+      while (!current.finished) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1200));
+        const res = await apiClient.get<CommandResponse>(`/api/command/tasks/${current.task_id}`);
+        if (res.data) {
+          current = res.data;
+          setResult(current);
+        }
+      }
+      loadHistory();
     } finally {
       setLoading(false);
     }
@@ -106,7 +106,8 @@ export default function CommandPage() {
 
   const statusColor = (status: string) => {
     if (status === 'completed' || status === 'approved') return 'bg-green-100 text-green-800';
-    if (status === 'running' || status === 'pending') return 'bg-blue-100 text-blue-800';
+    if (status === 'running' || status === 'pending' || status === 'queued') return 'bg-blue-100 text-blue-800';
+    if (status === 'recovering') return 'bg-purple-100 text-purple-800';
     if (status === 'partial') return 'bg-orange-100 text-orange-800';
     if (status === 'needs_continuation') return 'bg-purple-100 text-purple-800';
     if (status === 'resuming') return 'bg-blue-100 text-blue-800';
@@ -205,8 +206,55 @@ export default function CommandPage() {
               </span>
               <span className="text-xs text-muted-foreground">
                 {result.provider}/{result.model} · {result.execution_time}s · {result.tokens_used} tokens
+                {result.attempts && result.attempts > 1 ? ` · attempt ${result.attempts}` : ''}
               </span>
             </div>
+
+            {(!result.finished || ['failed', 'partial'].includes(result.status)) && (
+              <div className="flex gap-3 mb-3">
+                {!result.finished && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        const cancelled = await cancelMission(result.task_id);
+                        if (cancelled) setResult(cancelled);
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : 'Could not cancel the mission');
+                      }
+                    }}
+                    className="text-sm px-3 py-1 rounded border border-red-300 text-red-700"
+                  >
+                    Cancel mission
+                  </button>
+                )}
+                {['failed', 'partial'].includes(result.status) && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        const retried = await retryMission(result.task_id);
+                        if (retried) void runCommandFollow(retried);
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : 'Could not retry the mission');
+                      }
+                    }}
+                    className="text-sm px-3 py-1 rounded border"
+                  >
+                    Retry mission
+                  </button>
+                )}
+              </div>
+            )}
+
+            {result.events && result.events.length > 0 && (
+              <ul className="mb-4 space-y-1 text-xs text-muted-foreground">
+                {result.events.slice(-8).map((event, idx) => (
+                  <li key={`${event.at}-${idx}`}>
+                    <span className="font-medium">{event.title}</span>
+                    {event.message ? ` · ${event.message.slice(0, 160)}` : ''}
+                  </li>
+                ))}
+              </ul>
+            )}
 
             {result.requires_approval && (
               <div className="mb-4 bg-yellow-50 border border-yellow-300 text-yellow-900 px-4 py-3 rounded-lg">

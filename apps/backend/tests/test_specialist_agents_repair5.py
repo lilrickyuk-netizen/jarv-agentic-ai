@@ -32,6 +32,9 @@ from app.core.agents.registry import get_registry, create_agent
 from app.core.agents.runner import AgentRunner, _auto_input
 from app.core.agents.base import AgentConfig, AgentContext, AuthorityLevel
 from app.core.agents.specialists._helpers import FORBIDDEN_FAKE_TOKENS
+from app.core.knowledge.catalog import specialist_knowledge
+from app.core.knowledge.service import knowledge_service
+from tests.conftest import AsyncTestingSessionLocal
 
 # The 26 agents repaired in Repair 5 (excludes already-real research, qa,
 # customer_support, swarm_manager, and the Repair-1 orchestrator).
@@ -106,9 +109,21 @@ def test_repaired_agent_runs_honestly_without_provider(name, monkeypatch):
 @pytest.mark.agent
 @pytest.mark.integration
 @pytest.mark.parametrize("name", ["security", "verifier", "monitoring"])
-def test_repaired_agent_invokable_via_runner(name, monkeypatch):
+def test_repaired_agent_invokable_via_runner(
+    name, monkeypatch, test_user, test_workspace,
+):
     _disable_provider(monkeypatch)
-    out = asyncio.run(AgentRunner().run_agent(name, "assess the module", uuid4()))
+
+    async def run():
+        async with AsyncTestingSessionLocal() as session:
+            await knowledge_service.ingest(session, specialist_knowledge())
+            await session.commit()
+            return await AgentRunner().run_agent(
+                name, "assess the module", test_workspace.id,
+                user_id=test_user.id, db=session,
+            )
+
+    out = asyncio.run(run())
     assert out["success"] is True
     assert out["output_text"]
     _assert_no_fakes(out["output_text"] + json.dumps(out.get("result_data", {})))

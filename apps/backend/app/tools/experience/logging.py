@@ -15,11 +15,28 @@ from typing import Dict, Any, Type, List, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
 import logging
+from uuid import UUID, uuid4
+from sqlalchemy import select
 
 from app.core.tools import ToolBase, ToolConfig, ToolContext, ToolResult
 from app.core.agents.base import AuthorityLevel
+from app.tools.memory.storage import _memory_scope
+from app.models.self_evolution import ExperienceRecord
+from app.core.safety.evolution_guard import classify_change
+from app.core.security import redact_text
 
 logger = logging.getLogger(__name__)
+
+
+def _guarded(lesson: str, situation: str, action: str, result: str):
+    """Redact secrets and apply the self-evolution safety guard: a lesson that would weaken
+    safety, authority, logging or verification is stored rejected and inactive."""
+    lesson, situation, action, result = (redact_text(lesson), redact_text(situation),
+                                         redact_text(action), redact_text(result))
+    unsafe, matched = classify_change(lesson)
+    extra = {"lesson_status": "rejected", "is_active": False} if unsafe else {"lesson_status": "candidate",
+                                                                              "is_active": True}
+    return lesson, situation, action, result, extra, (f"safety guard: '{matched}'" if unsafe else None)
 
 
 # ===== EXPERIENCE LOG SUCCESS TOOL =====
@@ -88,35 +105,24 @@ class ExperienceLogSuccessTool(ToolBase):
         experience_type = input_data.get("experience_type", "success_pattern")
 
         try:
-            from uuid import uuid4
-            experience_id = str(uuid4())
-
-            # In production: Insert into ExperienceRecord table
-            # from app.models.self_evolution import ExperienceRecord
-            # from app.core.database import get_db
-            # async for session in get_db():
-            #     experience = ExperienceRecord(
-            #         id=experience_id,
-            #         agent_id=context.agent_id,
-            #         session_id=context.session_id,
-            #         task_id=getattr(context, 'task_id', None),
-            #         experience_type=experience_type,
-            #         title=title,
-            #         description=f"Success: {lesson_learned}",
-            #         situation=situation,
-            #         action_taken=action_taken,
-            #         result=result,
-            #         outcome="success",
-            #         lesson_learned=lesson_learned,
-            #         applicable_contexts=applicable_contexts,
-            #         confidence_score=confidence_score,
-            #         times_applied=0,
-            #         success_rate=None,
-            #         is_validated=False,
-            #         is_active=True,
-            #     )
-            #     session.add(experience)
-            #     await session.commit()
+            db, agent_id = await _memory_scope(context)
+            lesson_learned, situation, action_taken, result, guard, rejected = _guarded(
+                lesson_learned, situation, action_taken, result)
+            record = ExperienceRecord(
+                id=uuid4(), agent_id=agent_id, session_id=context.session_id,
+                task_id=context.task_id, experience_type=experience_type,
+                title=title, description=f"Caller-reported success: {lesson_learned}",
+                situation=situation, action_taken=action_taken, result=result,
+                outcome="success", lesson_learned=lesson_learned,
+                applicable_contexts=applicable_contexts,
+                confidence_score=confidence_score, times_applied=0,
+                success_rate=None, is_validated=False, workspace_id=context.workspace_id, **guard,
+                meta_data={"workspace_id": str(context.workspace_id), "provenance": "caller_reported",
+                           **({"rejected_reason": rejected} if rejected else {})},
+            )
+            db.add(record)
+            await db.flush()
+            experience_id = str(record.id)
 
             logger.info(f"Logged successful experience: {experience_id}, type={experience_type}, confidence={confidence_score}")
 
@@ -205,35 +211,24 @@ class ExperienceLogFailureTool(ToolBase):
         experience_type = input_data.get("experience_type", "failure_pattern")
 
         try:
-            from uuid import uuid4
-            experience_id = str(uuid4())
-
-            # In production: Insert into ExperienceRecord table
-            # from app.models.self_evolution import ExperienceRecord
-            # from app.core.database import get_db
-            # async for session in get_db():
-            #     experience = ExperienceRecord(
-            #         id=experience_id,
-            #         agent_id=context.agent_id,
-            #         session_id=context.session_id,
-            #         task_id=getattr(context, 'task_id', None),
-            #         experience_type=experience_type,
-            #         title=title,
-            #         description=f"Failure: {lesson_learned}",
-            #         situation=situation,
-            #         action_taken=action_taken,
-            #         result=result,
-            #         outcome="failure",
-            #         lesson_learned=lesson_learned,
-            #         applicable_contexts=applicable_contexts,
-            #         confidence_score=confidence_score,
-            #         times_applied=0,
-            #         success_rate=0.0,  # Initialize at 0 for failures
-            #         is_validated=False,
-            #         is_active=True,
-            #     )
-            #     session.add(experience)
-            #     await session.commit()
+            db, agent_id = await _memory_scope(context)
+            lesson_learned, situation, action_taken, result, guard, rejected = _guarded(
+                lesson_learned, situation, action_taken, result)
+            record = ExperienceRecord(
+                id=uuid4(), agent_id=agent_id, session_id=context.session_id,
+                task_id=context.task_id, experience_type=experience_type,
+                title=title, description=f"Caller-reported failure: {lesson_learned}",
+                situation=situation, action_taken=action_taken, result=result,
+                outcome="failure", lesson_learned=lesson_learned,
+                applicable_contexts=applicable_contexts,
+                confidence_score=confidence_score, times_applied=0,
+                success_rate=None, is_validated=False, workspace_id=context.workspace_id, **guard,
+                meta_data={"workspace_id": str(context.workspace_id), "provenance": "caller_reported",
+                           **({"rejected_reason": rejected} if rejected else {})},
+            )
+            db.add(record)
+            await db.flush()
+            experience_id = str(record.id)
 
             logger.info(f"Logged failed experience: {experience_id}, type={experience_type}, confidence={confidence_score}")
 
@@ -313,68 +308,37 @@ class ExperienceRateActionTool(ToolBase):
         notes = input_data.get("notes")
 
         try:
-            # In production: Update ExperienceRecord
-            # from app.models.self_evolution import ExperienceRecord
-            # from app.core.database import get_db
-            #
-            # async for session in get_db():
-            #     experience = await session.get(ExperienceRecord, experience_id)
-            #     if not experience or experience.agent_id != context.agent_id:
-            #         return self.create_result(success=False, error_message="Experience not found")
-            #
-            #     # Update application count
-            #     experience.times_applied += 1
-            #
-            #     # Update success rate
-            #     if experience.success_rate is None:
-            #         experience.success_rate = 1.0 if was_successful else 0.0
-            #     else:
-            #         # Running average
-            #         total_successes = experience.success_rate * (experience.times_applied - 1)
-            #         if was_successful:
-            #             total_successes += 1
-            #         experience.success_rate = total_successes / experience.times_applied
-            #
-            #     # Adjust confidence based on repeated application
-            #     # More applications = more confidence (up to a limit)
-            #     if experience.times_applied > 5:
-            #         experience.confidence_score = min(0.95, experience.confidence_score * 1.02)
-            #
-            #     # Store rating in metadata
-            #     if not experience.meta_data:
-            #         experience.meta_data = {}
-            #     if "ratings" not in experience.meta_data:
-            #         experience.meta_data["ratings"] = []
-            #     experience.meta_data["ratings"].append({
-            #         "rating": rating,
-            #         "was_successful": was_successful,
-            #         "notes": notes,
-            #         "timestamp": datetime.utcnow().isoformat(),
-            #     })
-            #
-            #     await session.commit()
-            #
-            #     return self.create_result(
-            #         success=True,
-            #         result_data={
-            #             "experience_id": experience_id,
-            #             "updated_success_rate": experience.success_rate,
-            #             "times_applied": experience.times_applied,
-            #             "confidence_score": experience.confidence_score,
-            #         },
-            #         output_text=f"Rated experience application (success_rate: {experience.success_rate:.2f})",
-            #     )
-
+            db, agent_id = await _memory_scope(context)
+            record = (await db.execute(select(ExperienceRecord).where(
+                ExperienceRecord.id == UUID(experience_id),
+                ExperienceRecord.agent_id == agent_id,
+                ExperienceRecord.meta_data["workspace_id"].as_string() == str(context.workspace_id),
+            ))).scalar_one_or_none()
+            if record is None:
+                return self.create_result(success=False, error_message="Experience not found in this agent/workspace scope")
+            previous_count = record.times_applied
+            record.times_applied += 1
+            previous_successes = (record.success_rate or 0.0) * previous_count
+            record.success_rate = (previous_successes + int(was_successful)) / record.times_applied
+            metadata = dict(record.meta_data or {})
+            ratings = list(metadata.get("ratings", []))
+            ratings.append({
+                "rating": rating, "was_successful": was_successful,
+                "notes": notes, "timestamp": datetime.utcnow().isoformat(),
+                "provenance": "caller_reported",
+            })
+            metadata["ratings"] = ratings
+            record.meta_data = metadata
+            await db.flush()
             logger.info(f"Rated experience: {experience_id}, rating={rating}, successful={was_successful}")
-
-            # Placeholder response
             return self.create_result(
                 success=True,
                 result_data={
                     "experience_id": experience_id,
-                    "updated_success_rate": 0.75,  # Placeholder
-                    "times_applied": 1,  # Placeholder
-                    "confidence_score": 0.7,  # Placeholder
+                    "updated_success_rate": record.success_rate,
+                    "times_applied": record.times_applied,
+                    "confidence_score": record.confidence_score,
+                    "validated": record.is_validated,
                 },
                 output_text=f"Rated experience application",
             )

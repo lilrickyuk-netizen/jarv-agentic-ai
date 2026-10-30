@@ -3,16 +3,80 @@ JARV Backend - Advanced File Tools
 
 Advanced file tools: watch, diff, patch.
 """
-from typing import Dict, Any, Type, List, Optional
+from typing import Dict, Any, Type, List, Optional, Tuple
 from pydantic import BaseModel, Field
 from pathlib import Path
+import asyncio
 import difflib
 import logging
+import re
+import time
 
 from app.core.tools import ToolBase, ToolConfig, ToolContext, ToolResult
 from app.core.agents.base import AuthorityLevel
 
 logger = logging.getLogger(__name__)
+
+
+def _snapshot(path: Path) -> Tuple:
+    """What a watch compares: a file's mtime and size, or a folder's entries with theirs."""
+    if path.is_dir():
+        entries = []
+        for child in sorted(path.iterdir())[:5000]:
+            try:
+                st = child.stat()
+                entries.append((child.name, st.st_mtime_ns, st.st_size))
+            except OSError:
+                entries.append((child.name, None, None))
+        return tuple(entries)
+    st = path.stat()
+    return (st.st_mtime_ns, st.st_size)
+
+
+_HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+
+
+def apply_unified_diff(original: List[str], patch: str, fuzz: int = 50) -> Tuple[List[str], int]:
+    """Apply a unified diff to ``original`` lines (without line endings).
+
+    Each hunk's context and removed lines must match the file, at the stated line or within
+    ``fuzz`` lines of it (earlier hunks may have shifted it). ValueError explains the first
+    hunk that does not apply; nothing is partially applied.
+    """
+    hunks: List[Tuple[int, List[str], List[str]]] = []
+    current = None
+    for line in patch.splitlines():
+        match = _HUNK.match(line)
+        if match:
+            current = (int(match.group(1)), [], [])
+            hunks.append(current)
+        elif current is not None and line[:1] in (" ", "-", "+"):
+            if line[0] in (" ", "-"):
+                current[1].append(line[1:])
+            if line[0] in (" ", "+"):
+                current[2].append(line[1:])
+        elif current is not None and line == "":
+            current[1].append("")
+            current[2].append("")
+        elif line.startswith(("---", "+++", "diff ", "index ", "\\")):
+            continue
+    if not hunks:
+        raise ValueError("The patch has no hunks (expected unified diff '@@ -a,b +c,d @@' sections)")
+    result = list(original)
+    offset = 0
+    for number, (start, old, new) in enumerate(hunks, start=1):
+        expected = max(0, start - 1 + offset) if old else max(0, start + offset)
+        found = None
+        for delta in sorted(range(-fuzz, fuzz + 1), key=abs):
+            at = expected + delta
+            if 0 <= at <= len(result) - len(old) and result[at:at + len(old)] == old:
+                found = at
+                break
+        if found is None:
+            raise ValueError(f"Hunk {number} (at line {start}) does not match the file; it was not changed")
+        result[found:found + len(old)] = new
+        offset += len(new) - len(old) + (found - expected)
+    return result, len(hunks)
 
 
 # ===== FILE WATCH TOOL =====
@@ -90,19 +154,26 @@ class FileWatchTool(ToolBase):
                             error_message=f"Access denied: Path in banned folder {banned}",
                         )
 
-            # Get initial modification time
-            initial_mtime = watch_path.stat().st_mtime
-
-            # Note: Full implementation would use watchdog library or inotify
-            # For now, return immediate status with instructions
+            # Poll until the file (or a folder's entries) changes, is deleted, or the timeout passes.
+            initial = _snapshot(watch_path)
+            started = time.monotonic()
+            changed, how = False, "no change"
+            while time.monotonic() - started < timeout:
+                await asyncio.sleep(0.5)
+                if not watch_path.exists():
+                    changed, how = True, "deleted"
+                    break
+                if _snapshot(watch_path) != initial:
+                    changed, how = True, "modified"
+                    break
+            waited = round(time.monotonic() - started, 1)
+            message = (f"{watch_path.name} was {how} after {waited}s" if changed
+                       else f"{watch_path.name} did not change in {timeout}s")
             return self.create_result(
                 success=True,
-                result_data={
-                    "path": str(watch_path),
-                    "changed": False,
-                    "message": f"File watch not yet fully implemented. Initial mtime: {initial_mtime}",
-                },
-                output_text=f"Watch started for {watch_path.name} (implementation pending)",
+                result_data={"path": str(watch_path), "changed": changed, "message": message,
+                             "change": how, "waited_seconds": waited},
+                output_text=message,
             )
 
         except Exception as e:
@@ -349,19 +420,29 @@ class FilePatchTool(ToolBase):
                             error_message=f"Access denied: File in banned folder {banned}",
                         )
 
-            # Note: Full implementation would use patch library or subprocess
-            # For now, return status with instructions
+            text = file_path.read_text(encoding="utf-8")
+            ends_with_newline = text.endswith("\n")
+            try:
+                patched, hunks = apply_unified_diff(text.splitlines(), patch)
+            except ValueError as exc:
+                return self.create_result(success=False, error_message=str(exc),
+                                          result_data={"file": str(file_path), "applied": False, "changes": 0,
+                                                       "message": str(exc)})
+            new_text = "\n".join(patched) + ("\n" if ends_with_newline or not patched else "")
+            changes = sum(1 for line in difflib.unified_diff(text.splitlines(), patched, lineterm="")
+                          if line[:1] in ("+", "-") and not line.startswith(("+++", "---")))
             if dry_run:
-                message = "Patch validation not yet fully implemented (dry_run=True)"
+                message = f"The patch applies cleanly: {hunks} hunk(s), {changes} line(s) would change"
             else:
-                message = "Patch application not yet fully implemented"
+                file_path.write_text(new_text, encoding="utf-8")
+                message = f"Applied {hunks} hunk(s), {changes} line(s) changed"
 
             return self.create_result(
                 success=True,
                 result_data={
                     "file": str(file_path),
-                    "applied": False,
-                    "changes": 0,
+                    "applied": not dry_run,
+                    "changes": changes,
                     "message": message,
                 },
                 output_text=message,

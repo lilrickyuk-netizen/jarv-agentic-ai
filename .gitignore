@@ -1,7 +1,12 @@
-# Environment variables
+# Environment variables: every real env file stays local; only *.example files are tracked
 .env
-.env.local
-.env.*.local
+.env.*
+!.env.example
+!.env.*.example
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.*.example
 
 # OS files
 .DS_Store
@@ -71,8 +76,7 @@ dump.rdb
 celerybeat-schedule
 celerybeat.pid
 
-# Docker
-.dockerignore
+# Docker: .dockerignore files are tracked (they keep secrets and build output out of images)
 
 # Backup files
 *.bak
@@ -92,3 +96,9 @@ nul
 
 # Test data and assets (development only)
 apps/backend/data/
+
+# Dashboard source lib is code, not a Python build dir
+!apps/dashboard/src/lib/
+
+# Patch files handed over between sessions
+*.patch

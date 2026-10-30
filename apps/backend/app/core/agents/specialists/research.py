@@ -15,6 +15,7 @@ from typing import Dict, Any, List, Optional, Type
 import json
 import re
 import logging
+import hashlib
 
 from pydantic import BaseModel, Field
 
@@ -67,7 +68,7 @@ class ResearchAgent(AgentBase):
 
     @property
     def default_tools(self) -> List[str]:
-        return ['http_get', 'http_post', 'file_read', 'memory_search']
+        return ['web_search', 'http_get', 'http_post', 'file_read', 'memory_search']
 
     # ----- provider detection -------------------------------------------------
 
@@ -148,20 +149,71 @@ class ResearchAgent(AgentBase):
             self.logger.info(f"Researching: {query} (depth: {depth})")
 
             sources_consulted = self._local_context(context, sources)
-            limitations: List[str] = [
-                "No external web/search tool is wired into this agent; "
-                "external_search_used is False and findings are not verified "
-                "against live external sources.",
-            ]
+            limitations: List[str] = []
 
             findings: List[Dict[str, str]] = []
             recommendations: List[str] = []
             related_topics: List[str] = []
             provider_used: Optional[str] = None
             tokens: Dict[str, int] = {}
+            public_sources: List[Dict[str, Any]] = []
+
+            from app.core.config import settings
+            if settings.TESTING:
+                limitations.append(
+                    "Public source network access is disabled in automated test mode."
+                )
+            else:
+                try:
+                    from app.core.research.public_search import search_public_sources
+
+                    public_sources = await search_public_sources(query)
+                except Exception as exc:  # noqa: BLE001 - report actual network failures
+                    self.logger.warning("public source search failed: %s", exc)
+                    limitations.append(
+                        f"Public source search failed ({type(exc).__name__}); "
+                        "no external findings were added."
+                    )
+
+            if public_sources:
+                findings.extend({
+                    "type": "public_source_excerpt",
+                    "point": item["title"],
+                    "detail": item["content"][:1000],
+                    "source_url": item["url"],
+                    "source_license": item.get("license"),
+                    "source_author": item.get("author"),
+                    "source_author_url": item.get("author_url"),
+                } for item in public_sources)
+                sources_consulted.extend(item["url"] for item in public_sources)
+                if context.db_session is not None:
+                    from app.core.knowledge.service import knowledge_service
+
+                    terms = list(dict.fromkeys(re.findall(r"[a-zA-Z0-9_-]{3,}", query.lower())))[:20]
+                    entries = [{
+                        "agent_name": "research",
+                        "knowledge_key": "public-source-" + hashlib.sha256(
+                            item["url"].encode("utf-8")).hexdigest()[:24],
+                        "title": item["title"],
+                        "content": item["content"][:1800],
+                        "keywords": terms or ["public research"],
+                        "url": item["url"],
+                        "source_title": item["title"],
+                        "publisher": item["publisher"],
+                        "license": item.get("license"),
+                        "author": item.get("author"),
+                        "author_url": item.get("author_url"),
+                    } for item in public_sources]
+                    await knowledge_service.ingest(context.db_session, entries)
+
+            external_search_used = bool(public_sources)
+            if not public_sources and not any(
+                "Public source search failed" in item for item in limitations
+            ) and not settings.TESTING:
+                limitations.append("Public search returned no matching source pages.")
 
             if self._provider_configured():
-                llm = await self._llm_research(query, depth, context)
+                llm = await self._llm_research(query, depth, context, public_sources)
                 if llm is not None:
                     findings = llm["findings"]
                     recommendations = llm["recommendations"]
@@ -180,8 +232,9 @@ class ResearchAgent(AgentBase):
                     )
             else:
                 limitations.append(
-                    "No LLM provider API key is configured; performed local/"
-                    "contextual analysis only (no model reasoning)."
+                    "No LLM provider API key is configured; findings contain "
+                    "only retrieved source excerpts and local context, without "
+                    "model-generated synthesis."
                 )
 
             # Local/contextual analysis is always recorded honestly so the
@@ -197,16 +250,21 @@ class ResearchAgent(AgentBase):
                            else "none")
                     ),
                 })
+            if not recommendations and external_search_used:
+                recommendations.append(
+                    "Use the attributed excerpts as starting evidence; consult "
+                    "the linked source pages and relevant primary sources before acting."
+                )
             if not recommendations:
                 recommendations.append(
-                    "Configure an LLM provider and/or an external search tool to "
-                    "produce verified research; otherwise treat results as "
-                    "unverified context only."
+                    "Treat the available context as incomplete; consult verified "
+                    "public sources before making a decision."
                 )
 
             output_text = (
                 f"Research on '{query}': {len(findings)} finding(s); "
-                f"provider={provider_used or 'none'}; external_search=False; "
+                f"provider={provider_used or 'none'}; "
+                f"external_search={external_search_used}; "
                 f"{len(limitations)} limitation(s) noted."
             )
 
@@ -218,7 +276,7 @@ class ResearchAgent(AgentBase):
                     "sources_consulted": sources_consulted,
                     "recommendations": recommendations,
                     "related_topics": related_topics,
-                    "external_search_used": False,
+                    "external_search_used": external_search_used,
                     "provider_used": provider_used,
                     "limitations": limitations,
                 },
@@ -236,7 +294,8 @@ class ResearchAgent(AgentBase):
             )
 
     async def _llm_research(
-        self, query: str, depth: str, context: AgentContext
+        self, query: str, depth: str, context: AgentContext,
+        public_sources: Optional[List[Dict[str, Any]]] = None,
     ) -> Optional[Dict[str, Any]]:
         """Call the real model router. Returns None on any provider failure."""
         try:
@@ -250,6 +309,17 @@ class ResearchAgent(AgentBase):
             c = m.get("content") if isinstance(m, dict) else None
             if c:
                 ctx_lines.append(f"- memory: {str(c)[:200]}")
+        for item in (getattr(context, "knowledge_context", None) or [])[:5]:
+            if isinstance(item, dict) and item.get("content"):
+                ctx_lines.append(
+                    f"- verified specialist knowledge: {item['title']} "
+                    f"({item['source_url']}) {item['content'][:400]}"
+                )
+        for item in (public_sources or [])[:3]:
+            ctx_lines.append(
+                f"- fetched public source: {item['title']} ({item['url']}) "
+                f"{item['content'][:500]}"
+            )
         for r in (getattr(context, "previous_results", None) or [])[:5]:
             if isinstance(r, dict):
                 ctx_lines.append(f"- prior: {str(r)[:200]}")
@@ -257,8 +327,9 @@ class ResearchAgent(AgentBase):
         prompt = (
             f"Research request (depth={depth}): {query}\n\n"
             + ("Local context:\n" + "\n".join(ctx_lines) + "\n\n" if ctx_lines else "")
-            + "You have NO live web access. Base your analysis on general "
-            "knowledge and the local context only. Respond with ONLY a JSON "
+            + "Use only general knowledge and the cited local or fetched excerpts "
+            "shown above. Do not claim broader web research or invent sources. "
+            "Respond with ONLY a JSON "
             "object: {\"findings\":[{\"point\":\"...\",\"detail\":\"...\"}],"
             "\"recommendations\":[\"...\"],\"related_topics\":[\"...\"]}"
         )

@@ -92,6 +92,10 @@ class AgentContext(BaseModel):
         default_factory=list,
         description="Relevant memories for this execution"
     )
+    knowledge_context: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Retrieved, source-attributed specialist knowledge for this task"
+    )
     workspace_rules: List[Dict[str, Any]] = Field(
         default_factory=list,
         description="Active workspace rules"
@@ -343,6 +347,7 @@ class AgentBase(ABC):
         import time
 
         self._execution_start_time = time.time()
+        knowledge_token = None
 
         # Audit log: Agent execution start
         await self._audit_start(input_data, context)
@@ -364,8 +369,73 @@ class AgentBase(ABC):
             # Validate input
             validated_input = self._validate_input(input_data)
 
+            from app.core.agents.registry import get_registry
+            from app.core.knowledge.context import set_knowledge_context
+            from app.core.knowledge.service import knowledge_service
+
+            if (self.name in get_registry().REQUIRED_AGENTS
+                    and not context.metadata.get("specialist_knowledge_ids")):
+                from app.core.config import settings
+
+                if context.db_session is not None:
+                    knowledge = await knowledge_service.retrieve(
+                        context.db_session, agent_name=self.name,
+                        query=" ".join(str(value) for value in validated_input.values()
+                                       if isinstance(value, (str, list))),
+                        limit=4,
+                    )
+                elif settings.TESTING:
+                    knowledge = []
+                else:
+                    from app.core.database import AsyncSessionLocal
+
+                    async with AsyncSessionLocal() as knowledge_db:
+                        knowledge = await knowledge_service.retrieve(
+                            knowledge_db, agent_name=self.name,
+                            query=" ".join(str(value) for value in validated_input.values()
+                                           if isinstance(value, (str, list))),
+                            limit=4,
+                        )
+                if not knowledge and not settings.TESTING:
+                    raise AgentExecutionError(
+                        message=f"No verified specialist knowledge available for {self.name}",
+                        agent_name=self.name,
+                    )
+                if knowledge:
+                    context.knowledge_context = knowledge
+                    context.metadata["specialist_knowledge_ids"] = [
+                        item["id"] for item in knowledge
+                    ]
+            if context.knowledge_context:
+                knowledge_token = set_knowledge_context(context.knowledge_context)
+
+            # Recall workspace memory and verified lessons (Repair 11).
+            task_query = " ".join(str(value) for value in validated_input.values()
+                                  if isinstance(value, (str, list)))[:2000]
+            applied_lessons, recall_token = await self._recall(context, task_query)
+
             # Execute agent
-            result = await self.run(validated_input, context)
+            try:
+                result = await self.run(validated_input, context)
+            except Exception as run_error:
+                await self._learn(context, task_query, None, applied_lessons, run_error)
+                raise
+            finally:
+                if recall_token is not None:
+                    from app.core.memory.context import set_recall_context
+
+                    set_recall_context([], [], reset_token=recall_token)
+            await self._learn(context, task_query, result, applied_lessons, None)
+            result.metadata["recalled_memory_ids"] = [m["id"] for m in context.memory_context
+                                                      if isinstance(m, dict) and "id" in m]
+            result.metadata["applied_lessons"] = [{"id": item["id"], "lesson_key": item["lesson_key"]}
+                                                  for item in applied_lessons]
+            result.metadata["specialist_knowledge"] = [{
+                "id": item["id"],
+                "title": item["title"],
+                "source_url": item["source_url"],
+                "version": item["version"],
+            } for item in context.knowledge_context]
 
             # Calculate execution time
             execution_time = time.time() - self._execution_start_time
@@ -412,6 +482,145 @@ class AgentBase(ABC):
             # Audit log: Agent execution error
             await self._audit_error(error, context)
             raise error
+        finally:
+            if knowledge_token is not None:
+                from app.core.knowledge.context import set_knowledge_context
+
+                set_knowledge_context((), reset_token=knowledge_token)
+
+    # ===== Tool use (Repair 12c) =====
+
+    def tools_enabled(self, context: AgentContext) -> bool:
+        """True when this agent can work through its toolbox: a model provider
+        is configured and the task has a database session and a workspace."""
+        from app.core.agents.specialists._helpers import provider_configured
+        from app.core.config import settings
+
+        if context.db_session is None or context.workspace_id is None:
+            return False
+        # Off by default inside the test suite: a developer's .env may hold a real
+        # provider key, and tests must never spend it. Tests opt in explicitly.
+        enabled = context.metadata.get("tools_enabled", not settings.TESTING)
+        return bool(enabled) and provider_configured()
+
+    async def use_tools(
+        self, context: AgentContext, task: str, *, instructions: str = "", max_steps: int = 12,
+    ) -> Dict[str, Any]:
+        """Work ``task`` through this agent's toolbox (authority-checked, logged,
+        confined to the workspace). See app.core.agents.tool_loop."""
+        from app.core.agents.tool_loop import run_tool_loop
+
+        outcome = await run_tool_loop(self, context, task, instructions=instructions, max_steps=max_steps)
+        self.logger.info(
+            f"{self.name} tool loop: success={outcome['success']} steps={outcome['steps']} "
+            f"tools={outcome['tools_used']} blocked={outcome['blocked']}",
+            extra={"workspace_id": str(context.workspace_id) if context.workspace_id else None},
+        )
+        return outcome
+
+    def result_from_tools(self, outcome: Dict[str, Any], **result_data: Any) -> "AgentResult":
+        """AgentResult for a tool-loop outcome, with the full tool trail attached."""
+        data = {**result_data, "summary": outcome["summary"], "outputs": outcome["outputs"],
+                "tool_calls": outcome["tool_calls"], "blocked_actions": outcome["blocked"],
+                "approval_needed": outcome["approval_needed"], "steps": outcome["steps"],
+                "workspace_root": outcome["workspace_root"]}
+        return self.create_result(
+            success=outcome["success"], result_data=data, output_text=outcome["summary"],
+            error_message=None if outcome["success"] else (
+                "waiting for approval" if outcome["requires_approval"] else "task not completed"),
+            tools_used=outcome["tools_used"],
+            tokens_used={"total_tokens": outcome["tokens"]},
+            iterations_used=outcome["steps"],
+            requires_approval=outcome["requires_approval"],
+        )
+
+    # ===== Memory and verified learning (Repair 11) =====
+
+    def _learning_enabled(self, context: AgentContext) -> bool:
+        """Recall and capture run whenever the agent has a database session and a
+        workspace. The unit-test suite opts in per test via
+        ``context.metadata["learning_enabled"]`` so unrelated tests see no extra rows."""
+        if context.db_session is None or context.workspace_id is None:
+            return False
+        from app.core.config import settings
+
+        return bool(context.metadata.get("learning_enabled", not settings.TESTING))
+
+    async def _recall(self, context: AgentContext, task_query: str):
+        """Load relevant workspace memory and verified lessons into this task's prompt."""
+        if not self._learning_enabled(context) or not task_query.strip():
+            return [], None
+        from app.core.jarv_memory import memory_service
+        from app.core.learning import learning_service
+        from app.core.memory.context import set_recall_context
+
+        try:
+            hits = await memory_service.search_scored(
+                context.db_session, task_query, limit=5, workspace_id=context.workspace_id,
+            )
+            memories = [hit.as_dict() for hit in hits]
+            lessons = await learning_service.retrieve_lessons(
+                context.db_session, workspace_id=context.workspace_id,
+                agent_name=self.name, query=task_query, limit=3,
+            )
+        except Exception as exc:  # noqa: BLE001 - recall is advisory; the task still runs
+            self.logger.warning(f"Memory recall failed for {self.name}: {exc}")
+            return [], None
+        known = {m.get("id") for m in context.memory_context if isinstance(m, dict)}
+        context.memory_context = list(context.memory_context) + [
+            m for m in memories if m["id"] not in known]
+        if not memories and not lessons:
+            return [], None
+        self.logger.info(
+            f"{self.name} recalled {len(memories)} memories and {len(lessons)} verified lessons",
+            extra={"workspace_id": str(context.workspace_id)},
+        )
+        return lessons, set_recall_context(memories, lessons)
+
+    async def _learn(
+        self,
+        context: AgentContext,
+        task_query: str,
+        result: Optional["AgentResult"],
+        applied_lessons: List[Dict[str, Any]],
+        error: Optional[BaseException],
+    ) -> None:
+        """Record the outcome as experience, memory, and lesson performance."""
+        if not self._learning_enabled(context):
+            return
+        from app.core.learning import learning_service
+
+        succeeded = error is None and result is not None and result.success
+        if error is not None:
+            outcome, observed = "failure", f"{type(error).__name__}: {error}"
+        elif result is None:
+            return
+        else:
+            outcome = "success" if result.success else "failure"
+            observed = result.error_message or result.output_text or ""
+        tools = list(result.tools_used) if result is not None else []
+        try:
+            await learning_service.record_experience(
+                context.db_session,
+                workspace_id=context.workspace_id,
+                agent_name=self.name,
+                situation=task_query or self.role,
+                action=(f"{self.role}; tools: {', '.join(tools)}" if tools else self.role),
+                result=observed[:1500] or outcome,
+                outcome=outcome,
+                task_id=context.task_id,
+                tools_used=tools,
+                agent_id=self.config.agent_id,
+                meta={"parent_agent_id": str(context.parent_agent_id) if context.parent_agent_id else None},
+            )
+            if applied_lessons:
+                await learning_service.record_application(
+                    context.db_session, workspace_id=context.workspace_id,
+                    lesson_keys=[item["lesson_key"] for item in applied_lessons],
+                    success=succeeded,
+                )
+        except Exception as exc:  # noqa: BLE001 - never mask the task's own result
+            self.logger.warning(f"Experience capture failed for {self.name}: {exc}")
 
     # ===== Validation Methods =====
 
@@ -626,17 +835,33 @@ class AgentBase(ABC):
             context: Execution context
         """
         try:
-            from app.core.audit import audit_agent_start
+            if context.db_session is not None:
+                from app.core.audit import AuditLogger
 
-            await audit_agent_start(
-                agent_name=self.name,
-                user_id=context.user_id,
-                workspace_id=context.workspace_id,
-                agent_id=self.config.agent_id,
-                task_id=context.task_id,
-                session_id=context.session_id,
-                input_data=input_data,
-            )
+                await AuditLogger.log_agent_start(
+                    session=context.db_session,
+                    agent_name=self.name,
+                    user_id=context.user_id,
+                    workspace_id=context.workspace_id,
+                    agent_id=self.config.agent_id,
+                    task_id=context.task_id,
+                    session_id=context.session_id,
+                    parent_agent_id=context.parent_agent_id,
+                    input_data=input_data,
+                )
+            else:
+                from app.core.audit import audit_agent_start
+
+                await audit_agent_start(
+                    agent_name=self.name,
+                    user_id=context.user_id,
+                    workspace_id=context.workspace_id,
+                    agent_id=self.config.agent_id,
+                    task_id=context.task_id,
+                    session_id=context.session_id,
+                    parent_agent_id=context.parent_agent_id,
+                    input_data=input_data,
+                )
         except Exception as e:
             # Don't fail execution if audit logging fails
             self.logger.warning(
@@ -657,21 +882,41 @@ class AgentBase(ABC):
             context: Execution context
         """
         try:
-            from app.core.audit import audit_agent_complete
+            if context.db_session is not None:
+                from app.core.audit import AuditLogger
 
-            await audit_agent_complete(
-                agent_name=self.name,
-                result="success" if result.success else "failure",
-                execution_time=result.execution_time_seconds,
-                tokens_used=result.tokens_used,
-                cost_estimate=result.cost_estimate,
-                user_id=context.user_id,
-                workspace_id=context.workspace_id,
-                agent_id=self.config.agent_id,
-                task_id=context.task_id,
-                session_id=context.session_id,
-                output_data=result.result_data,
-            )
+                await AuditLogger.log_agent_complete(
+                    session=context.db_session,
+                    agent_name=self.name,
+                    result="success" if result.success else "failure",
+                    execution_time=result.execution_time_seconds,
+                    tokens_used=result.tokens_used,
+                    cost_estimate=result.cost_estimate,
+                    user_id=context.user_id,
+                    workspace_id=context.workspace_id,
+                    agent_id=self.config.agent_id,
+                    task_id=context.task_id,
+                    session_id=context.session_id,
+                    parent_agent_id=context.parent_agent_id,
+                    output_data=result.result_data,
+                )
+            else:
+                from app.core.audit import audit_agent_complete
+
+                await audit_agent_complete(
+                    agent_name=self.name,
+                    result="success" if result.success else "failure",
+                    execution_time=result.execution_time_seconds,
+                    tokens_used=result.tokens_used,
+                    cost_estimate=result.cost_estimate,
+                    user_id=context.user_id,
+                    workspace_id=context.workspace_id,
+                    agent_id=self.config.agent_id,
+                    task_id=context.task_id,
+                    session_id=context.session_id,
+                    parent_agent_id=context.parent_agent_id,
+                    output_data=result.result_data,
+                )
         except Exception as e:
             # Don't fail execution if audit logging fails
             self.logger.warning(
@@ -692,19 +937,37 @@ class AgentBase(ABC):
             context: Execution context
         """
         try:
-            from app.core.audit import audit_agent_error
+            if context.db_session is not None:
+                from app.core.audit import AuditLogger
 
-            await audit_agent_error(
-                agent_name=self.name,
-                error_message=str(error),
-                error_type=type(error).__name__,
-                user_id=context.user_id,
-                workspace_id=context.workspace_id,
-                agent_id=self.config.agent_id,
-                task_id=context.task_id,
-                session_id=context.session_id,
-                stack_trace=traceback.format_exc(),
-            )
+                await AuditLogger.log_agent_error(
+                    session=context.db_session,
+                    agent_name=self.name,
+                    error_message=str(error),
+                    error_type=type(error).__name__,
+                    user_id=context.user_id,
+                    workspace_id=context.workspace_id,
+                    agent_id=self.config.agent_id,
+                    task_id=context.task_id,
+                    session_id=context.session_id,
+                    parent_agent_id=context.parent_agent_id,
+                    stack_trace=traceback.format_exc(),
+                )
+            else:
+                from app.core.audit import audit_agent_error
+
+                await audit_agent_error(
+                    agent_name=self.name,
+                    error_message=str(error),
+                    error_type=type(error).__name__,
+                    user_id=context.user_id,
+                    workspace_id=context.workspace_id,
+                    agent_id=self.config.agent_id,
+                    task_id=context.task_id,
+                    session_id=context.session_id,
+                    parent_agent_id=context.parent_agent_id,
+                    stack_trace=traceback.format_exc(),
+                )
         except Exception as e:
             # Don't fail execution if audit logging fails
             self.logger.warning(

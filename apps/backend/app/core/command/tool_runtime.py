@@ -58,6 +58,11 @@ _TOOL_AUTHORITY = {
     "check_package_registry": 1,
     "check_cve": 1,
     "asset_licence_check": 1,
+    # Repair 12e-3a workspace tools
+    "edit_file": 2, "create_folder": 2, "move_file": 2, "copy_file": 2, "delete_file_with_boundary": 2,
+    "get_file_metadata": 1, "detect_workspace_type": 1, "detect_stack": 1, "detect_commands": 1,
+    "find_missing_files": 1, "check_installed": 1, "get_command_log": 1, "git_create_branch": 2,
+    "git_push_with_boundary": 5, "memory_link_to_workspace": 1, "memory_link_to_task": 1,
 }
 
 
@@ -161,6 +166,7 @@ class ToolRuntime:
         requires_approval_flag: Optional[bool] = None,
         allow_build: bool = True,
         allow_install: bool = True,
+        approval_granted: bool = False,
     ) -> PermissionDecision:
         """Run the ONE shared permission check for this runtime's context."""
         path_in_scope: Optional[bool] = None
@@ -178,6 +184,7 @@ class ToolRuntime:
             workspace_id=self.workspace_id,
             authority_level=self.authority_level,
             requires_approval_flag=requires_approval_flag,
+            approval_granted=approval_granted,
             path_in_scope=path_in_scope,
             allow_build=allow_build,
             allow_install=allow_install,
@@ -194,6 +201,7 @@ class ToolRuntime:
         requires_approval_flag: Optional[bool] = None,
         allow_build: bool = True,
         allow_install: bool = True,
+        approval_granted: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """Permission gate every tool method calls FIRST.
 
@@ -206,6 +214,7 @@ class ToolRuntime:
             tool, command=command, path=path, action_description=action_description,
             content=content, requires_approval_flag=requires_approval_flag,
             allow_build=allow_build, allow_install=allow_install,
+            approval_granted=approval_granted,
         )
         if decision.allowed:
             return None
@@ -246,7 +255,7 @@ class ToolRuntime:
         """Resolve the runtime's user to a REAL users row (get-or-create).
 
         The operator string is the authenticated identity from the API layer;
-        coercion mirrors app.core.auth.get_current_user so the same operator
+        coercion matches the operator identity mapping in app.core.auth so the same operator
         always maps to the same UUID. The row is real (FKs must hold).
         """
         from app.core.richard.workflow import coerce_user_id
@@ -462,7 +471,7 @@ class ToolRuntime:
         # Persist a FileChange record (best-effort).
         if ok:
             try:
-                agent_id = await memory_service._agent_id(self.db)
+                agent_id = await memory_service._agent_id(self.db, self.workspace_id)
                 prev = res.data.get("previous_content")
                 self.db.add(FileChange(
                     id=uuid4(), agent_id=agent_id,
@@ -580,7 +589,7 @@ class ToolRuntime:
     async def _persist_command_run(self, command, cwd, exit_code, stdout, stderr, success,
                                    dangerous=False):
         try:
-            agent_id = await memory_service._agent_id(self.db)
+            agent_id = await memory_service._agent_id(self.db, self.workspace_id)
             self.db.add(CommandRun(
                 id=uuid4(), agent_id=agent_id, command=redact_text(command or ""),
                 command_type="readonly",

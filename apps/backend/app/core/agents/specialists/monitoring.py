@@ -1,14 +1,11 @@
 """
 JARV Backend - MonitoringAgent
 
-Reports system monitoring HONESTLY.
-
-This agent CANNOT monitor live systems in standalone execution: no live
-monitoring integrations, metrics backends, or probe targets are wired into an
-isolated agent run. It therefore never reports fake healthy counts, uptime, or
-percentages. It echoes any caller-supplied targets with status "unknown" and
-states clearly that real monitoring requires the monitoring subsystem and its
-integrations.
+Measures JARV and the targets it is given with the operations tools
+(Repair 12d): service and dependency health, containers, crashes, recent
+errors, server resources, Prometheus metrics, and uptime of public URLs.
+See ``ops_mode``. When no database session or workspace is available, the
+fallback below reports targets as "unknown" and never invents health numbers.
 """
 from typing import Dict, Any, List, Type
 from pydantic import BaseModel, Field
@@ -68,7 +65,9 @@ class MonitoringAgent(AgentBase):
 
     @property
     def default_tools(self) -> list[str]:
-        return ['http_get', 'analyze_metrics', 'memory_store']
+        from app.core.agents.specialists.ops_mode import tools_for
+
+        return tools_for("monitoring")
 
     async def run(
         self,
@@ -76,6 +75,11 @@ class MonitoringAgent(AgentBase):
         context: AgentContext,
     ) -> AgentResult:
         """Return an honest LIMITED monitoring assessment (no live integration)."""
+        from app.core.agents.specialists import ops_mode
+
+        live = await ops_mode.run(self, input_data, context)
+        if live is not None:
+            return live
         try:
             targets = [str(t).strip() for t in (input_data.get("targets") or []) if str(t).strip()]
 

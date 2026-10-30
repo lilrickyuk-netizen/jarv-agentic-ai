@@ -28,6 +28,8 @@ from app.core.richard.workflow import (
     RichardBoundaryWorkflow, COMPLETED, PARTIAL, REJECTED, EXPIRED, WAITING,
 )
 from app.core.richard.service import RichardBoundaryService, OK, NOT_FOUND, FORBIDDEN
+from app.core.knowledge.catalog import specialist_knowledge
+from app.core.knowledge.service import knowledge_service
 from app.models.boundary import (
     ApprovalWindow, BoundaryApproval, BoundaryReport, ResumeAction,
     RichardBoundaryInput, SafeCheckpoint,
@@ -51,6 +53,8 @@ async def _seed_user_ws(session, owner_id=None):
     session.add(Workspace(id=wid, name="WS", slug=f"ws-{wid.hex[:8]}", description="d",
                           owner_id=uid, is_active=True, workspace_type="test",
                           authority_level=9))
+    await session.commit()
+    await knowledge_service.ingest(session, specialist_knowledge())
     await session.commit()
     return uid, wid
 

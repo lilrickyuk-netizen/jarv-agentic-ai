@@ -114,6 +114,14 @@ class Task(Base, UUIDMixin, TimestampMixin):
     tokens_used: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
+    # Repair 12: worker lease. The worker that claims a mission records itself
+    # here and refreshes heartbeat_at while it runs; a stale heartbeat means the
+    # worker died and the recovery sweeper re-queues the mission.
+    lease_owner: Mapped[Optional[str]] = mapped_column(String(160), nullable=True)
+    heartbeat_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True,
+    )
+
     # Context
     context: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     meta_data: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)

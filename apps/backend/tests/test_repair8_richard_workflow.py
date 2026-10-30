@@ -27,6 +27,8 @@ from app.core.agents.base import AgentConfig, AgentContext, AuthorityLevel
 from app.core.richard.workflow import (
     RichardBoundaryWorkflow, WAITING, COMPLETED, PARTIAL, FAILED, REJECTED, EXPIRED,
 )
+from app.core.knowledge.catalog import specialist_knowledge
+from app.core.knowledge.service import knowledge_service
 from app.agents.orchestrator import OrchestratorAgent, TaskPlan
 from app.models.boundary import (
     ApprovalWindow, BoundaryApproval, BoundaryReport, ResumeAction,
@@ -53,6 +55,8 @@ async def _seed_user_ws(session):
     session.add(Workspace(id=wid, name="WS", slug=f"ws-{wid.hex[:8]}", description="d",
                           owner_id=uid, is_active=True, workspace_type="test",
                           authority_level=9))
+    await session.commit()
+    await knowledge_service.ingest(session, specialist_knowledge())
     await session.commit()
     return uid, wid
 
@@ -146,6 +150,44 @@ def test_orchestrator_pauses_only_blocked_and_persists_records():
     assert reports == 1 and cps == 1 and pend == 1
     assert paused is True and sstatus == "paused"
     assert blocked is True and action_taken == "paused_blocked_action"
+
+
+@pytest.mark.integration
+def test_orchestrator_persists_and_links_the_blocked_plan_task():
+    """A normal persisted orchestration boundary links a real Task row."""
+    from app.models.task import Task
+
+    async def run():
+        async with AsyncTestingSessionLocal() as session:
+            uid, wid = await _seed_user_ws(session)
+            orch = OrchestratorAgent(AgentConfig(
+                workspace_id=wid, user_id=uid,
+                authority_level=AuthorityLevel.LEVEL_9_SWARM_CREATION))
+            plan = [TaskPlan(
+                task_id=2,
+                description="delete production database now",
+                assigned_agent="research",
+                requires_approval=True,
+            )]
+            ctx = AgentContext(workspace_id=wid, user_id=uid, db_session=session)
+            delegation = await orch._delegate_tasks(plan, ctx)
+            report = (await session.execute(select(BoundaryReport))).scalars().one()
+            checkpoint = (await session.execute(select(SafeCheckpoint))).scalars().one()
+            task = None
+            if report.task_id is not None:
+                task = (await session.execute(
+                    select(Task).where(Task.id == report.task_id)
+                )).scalar_one_or_none()
+            return delegation, report, checkpoint, task
+
+    delegation, report, checkpoint, task = asyncio.run(run())
+
+    assert delegation["task_results"][0]["status"] == "waiting_on_richard"
+    assert report.task_id is not None
+    assert checkpoint.task_id == report.task_id
+    assert task is not None
+    assert task.workspace_id == report.workspace_id
+    assert task.status == "waiting_on_approval"
 
 
 @pytest.mark.integration

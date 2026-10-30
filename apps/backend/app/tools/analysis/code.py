@@ -7,14 +7,53 @@ These tools use static analysis to provide insights about code without execution
 """
 from typing import Dict, Any, Type, List, Optional
 from pydantic import BaseModel, Field
+import ast
+import difflib
+import io
 import logging
 import os
 from pathlib import Path
+import tokenize
 
 from app.core.tools import ToolBase, ToolConfig, ToolContext, ToolResult
 from app.core.agents.base import AuthorityLevel
 
 logger = logging.getLogger(__name__)
+
+
+def _python_source_files(path: str) -> List[Path]:
+    root = Path(path)
+    if not root.exists():
+        raise FileNotFoundError(f"Path not found: {path}")
+    files = [root] if root.is_file() else sorted(root.rglob("*.py"))
+    files = [candidate for candidate in files if candidate.suffix == ".py"]
+    if not files:
+        raise ValueError("No Python source files found; this analyzer supports Python only.")
+    return files
+
+
+def _python_line_metrics(source: str) -> Dict[str, int]:
+    lines = source.splitlines()
+    comment_lines = set()
+    code_lines = set()
+    ignored = {
+        tokenize.ENCODING, tokenize.NL, tokenize.NEWLINE, tokenize.INDENT,
+        tokenize.DEDENT, tokenize.COMMENT, tokenize.ENDMARKER,
+    }
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type == tokenize.COMMENT:
+            comment_lines.add(token.start[0])
+        elif token.type not in ignored:
+            code_lines.update(range(token.start[0], token.end[0] + 1))
+    blank_lines = {index for index, line in enumerate(lines, start=1) if not line.strip()}
+    code_lines -= comment_lines
+    code_lines -= blank_lines
+    return {
+        "total": len(lines),
+        "code": len(code_lines),
+        "comments": len(comment_lines),
+        "blank": len(blank_lines),
+    }
 
 
 # ===== ANALYZE CODE TOOL =====
@@ -107,14 +146,8 @@ class AnalyzeCodeTool(ToolBase):
             blank_lines = 0
             issues = []
 
-            # In production: Use static analysis tools like:
-            # - pylint, flake8, mypy for Python
-            # - eslint, tsc for TypeScript
-            # - rubocop for Ruby
-            # - clippy for Rust
-            # Or integrate with SonarQube, CodeClimate, etc.
-
-            # Simple file counting for now
+            # Line metrics: files, total, code, comment and blank lines. Linting and type checks are
+            # the quality tools (analyze_style, analyze_types) and the agents' run_command.
             path_obj = Path(path)
             if path_obj.is_file():
                 total_files = 1
@@ -256,26 +289,120 @@ class AnalyzeComplexityTool(ToolBase):
         threshold = input_data.get("threshold", 10)
 
         try:
-            # In production: Use radon, lizard, or similar tools
-            # For now, return placeholder analysis
-
             logger.info(f"Analyzing complexity: {path}, threshold={threshold}")
+            path_obj = Path(path)
+            if not path_obj.exists():
+                return self.create_result(success=False, error_message=f"Path not found: {path}")
+            files = [path_obj] if path_obj.is_file() else sorted(path_obj.rglob("*.py"))
+            files = [candidate for candidate in files if candidate.suffix == ".py"]
+            if not files:
+                return self.create_result(
+                    success=False,
+                    error_message="Complexity analysis supports Python source files only; none were found.",
+                )
 
-            # Placeholder data
-            high_complexity = []
-            functions_analyzed = 0
-            total_complexity = 0
+            class FunctionComplexityVisitor(ast.NodeVisitor):
+                def __init__(self):
+                    self.functions = []
+                    self._current_name = None
+                    self._current_line = None
+                    self._complexity = 0
+
+                def visit_FunctionDef(self, node):
+                    self._visit_function(node)
+
+                def visit_AsyncFunctionDef(self, node):
+                    self._visit_function(node)
+
+                def _visit_function(self, node):
+                    previous = (self._current_name, self._current_line, self._complexity)
+                    self._current_name = node.name
+                    self._current_line = node.lineno
+                    self._complexity = 1
+                    for child in node.body:
+                        self.visit(child)
+                    self.functions.append((self._current_name, self._current_line, self._complexity))
+                    self._current_name, self._current_line, self._complexity = previous
+
+                def visit_If(self, node):
+                    self._complexity += 1
+                    self.generic_visit(node)
+
+                def visit_For(self, node):
+                    self._complexity += 1
+                    self.generic_visit(node)
+
+                visit_AsyncFor = visit_For
+
+                def visit_While(self, node):
+                    self._complexity += 1
+                    self.generic_visit(node)
+
+                def visit_IfExp(self, node):
+                    self._complexity += 1
+                    self.generic_visit(node)
+
+                def visit_BoolOp(self, node):
+                    self._complexity += max(0, len(node.values) - 1)
+                    self.generic_visit(node)
+
+                def visit_ExceptHandler(self, node):
+                    self._complexity += 1
+                    self.generic_visit(node)
+
+                def visit_Match(self, node):
+                    self._complexity += sum(
+                        not (isinstance(case.pattern, ast.MatchAs) and case.pattern.name is None)
+                        for case in node.cases
+                    )
+                    self.generic_visit(node)
+
+                def visit_Lambda(self, node):
+                    return
+
+            measured = []
+            for source_file in files:
+                try:
+                    source = source_file.read_text(encoding="utf-8")
+                    tree = ast.parse(source, filename=str(source_file))
+                except (OSError, UnicodeError, SyntaxError) as exc:
+                    return self.create_result(
+                        success=False,
+                        error_message=f"Unable to parse {source_file}: {exc}",
+                    )
+                visitor = FunctionComplexityVisitor()
+                visitor.visit(tree)
+                measured.extend((str(source_file), name, complexity, line)
+                                for name, line, complexity in visitor.functions)
+
+            if not measured:
+                return self.create_result(
+                    success=False,
+                    error_message="No Python functions were found to analyze.",
+                )
+
+            total_complexity = sum(item[2] for item in measured)
+            functions_analyzed = len(measured)
+            high_complexity = [
+                {"file": file_name, "function": function_name,
+                 "complexity": complexity, "line": line}
+                for file_name, function_name, complexity, line in measured
+                if complexity > threshold
+            ]
+            average_complexity = total_complexity / functions_analyzed
+            max_complexity = max(item[2] for item in measured)
 
             return self.create_result(
                 success=True,
                 result_data={
                     "path": path,
-                    "average_complexity": 5.0,
-                    "max_complexity": 8,
+                    "average_complexity": average_complexity,
+                    "max_complexity": max_complexity,
                     "functions_analyzed": functions_analyzed,
                     "high_complexity_functions": high_complexity,
                 },
-                output_text=f"Analyzed complexity: {functions_analyzed} functions, average: 5.0",
+                output_text=(f"Analyzed complexity: {functions_analyzed} functions, "
+                             f"average: {average_complexity:.2f}, max: {max_complexity}"),
             )
 
         except Exception as e:
@@ -351,23 +478,51 @@ class AnalyzeDuplicationTool(ToolBase):
         ignore_whitespace = input_data.get("ignore_whitespace", True)
 
         try:
-            # In production: Use jscpd, PMD CPD, or similar tools
-
             logger.info(f"Analyzing duplication: {path}, min_lines={min_lines}")
+            files = _python_source_files(path)
+            file_lines = {}
+            total_lines = 0
+            for source_file in files:
+                lines = source_file.read_text(encoding="utf-8").splitlines()
+                if ignore_whitespace:
+                    lines = [line.strip() for line in lines]
+                file_lines[source_file] = lines
+                total_lines += len(lines)
 
-            # Placeholder data
             duplicate_blocks = []
+            duplicate_lines = 0
+            for file_index, file1 in enumerate(files):
+                for file2 in files[file_index + 1:]:
+                    matcher = difflib.SequenceMatcher(
+                        None, file_lines[file1], file_lines[file2], autojunk=False)
+                    for block in matcher.get_matching_blocks():
+                        if block.size < min_lines:
+                            continue
+                        duplicate_lines += block.size
+                        duplicate_blocks.append({
+                            "file1": str(file1),
+                            "line1": block.a + 1,
+                            "file2": str(file2),
+                            "line2": block.b + 1,
+                            "lines": block.size,
+                            "tokens": sum(len(line.split()) for line in file_lines[file1][block.a:block.a + block.size]),
+                        })
+
+            duplication_percentage = (
+                duplicate_lines * 100.0 / total_lines if total_lines else 0.0
+            )
 
             return self.create_result(
                 success=True,
                 result_data={
                     "path": path,
-                    "total_lines": 1000,
-                    "duplicate_lines": 50,
-                    "duplication_percentage": 5.0,
+                    "total_lines": total_lines,
+                    "duplicate_lines": duplicate_lines,
+                    "duplication_percentage": duplication_percentage,
                     "duplicate_blocks": duplicate_blocks,
                 },
-                output_text=f"Duplication analysis: 5.0% duplicate code",
+                output_text=(f"Duplication analysis: {duplicate_lines} duplicate lines "
+                             f"({duplication_percentage:.2f}%) across {len(files)} files"),
             )
 
         except Exception as e:
@@ -432,29 +587,49 @@ class AnalyzeMetricsTool(ToolBase):
         requested_metrics = input_data.get("metrics", ["loc", "complexity", "maintainability"])
 
         try:
-            # In production: Use radon, cloc, or similar tools
-
             logger.info(f"Calculating metrics: {path}, metrics={requested_metrics}")
+            files = _python_source_files(path)
+            totals = {"total": 0, "code": 0, "comments": 0, "blank": 0}
+            for source_file in files:
+                line_counts = _python_line_metrics(source_file.read_text(encoding="utf-8"))
+                for key in totals:
+                    totals[key] += line_counts[key]
 
-            # Placeholder metrics
-            metrics = {
-                "loc": {
-                    "total": 1000,
-                    "code": 800,
-                    "comments": 150,
-                    "blank": 50,
-                },
-                "complexity": {
-                    "average": 5.2,
-                    "max": 12,
-                },
-                "maintainability": {
-                    "index": 75.0,
-                    "rank": "B",
-                },
-            }
+            metrics = {}
+            limitations = []
+            if "loc" in requested_metrics:
+                metrics["loc"] = totals
+            unsupported = set(requested_metrics) - {"loc", "complexity", "maintainability"}
+            if unsupported:
+                limitations.append(f"Unsupported metrics: {', '.join(sorted(unsupported))}")
+            if "complexity" in requested_metrics or "maintainability" in requested_metrics:
+                complexity_result = await AnalyzeComplexityTool(self.config).run(
+                    {"path": path}, context)
+                if not complexity_result.success:
+                    return complexity_result
+                complexity = complexity_result.result_data
+                if "complexity" in requested_metrics:
+                    metrics["complexity"] = {
+                        "average": complexity["average_complexity"],
+                        "max": complexity["max_complexity"],
+                        "functions_analyzed": complexity["functions_analyzed"],
+                    }
+                if "maintainability" in requested_metrics:
+                    metrics["maintainability"] = {
+                        "supported": False,
+                        "reason": "A validated Halstead volume analyzer is not available; no maintainability index is fabricated.",
+                    }
+                    limitations.append("Maintainability index was not calculated.")
 
-            summary = f"LOC: {metrics['loc']['total']}, Avg Complexity: {metrics['complexity']['average']}, MI: {metrics['maintainability']['index']}"
+            summary_parts = []
+            if "loc" in metrics:
+                summary_parts.append(f"LOC: {totals['total']} total, {totals['code']} code")
+            if "complexity" in metrics:
+                summary_parts.append(
+                    f"average complexity: {metrics['complexity']['average']:.2f}")
+            if limitations:
+                summary_parts.append("Limitations: " + " ".join(limitations))
+            summary = "; ".join(summary_parts) or "No supported metrics were requested."
 
             return self.create_result(
                 success=True,
@@ -462,6 +637,7 @@ class AnalyzeMetricsTool(ToolBase):
                     "path": path,
                     "metrics": metrics,
                     "summary": summary,
+                    "limitations": limitations,
                 },
                 output_text=summary,
             )

@@ -5,13 +5,27 @@ Workspace management: create, delete, list, switch, info, update.
 """
 from typing import Dict, Any, Type, List, Optional
 from pydantic import BaseModel, Field
-from uuid import UUID
+from uuid import UUID, uuid4
 import logging
+import re
+from sqlalchemy import func, select
 
 from app.core.tools import ToolBase, ToolConfig, ToolContext, ToolResult
 from app.core.agents.base import AuthorityLevel
+from app.models.agent import Agent
+from app.models.session import AgentSession
+from app.models.task import Task
+from app.models.workspace import Workspace
 
 logger = logging.getLogger(__name__)
+
+
+def _workspace_scope(context: ToolContext):
+    if context.db_session is None:
+        raise ValueError("Workspace database session is unavailable")
+    if context.user_id is None:
+        raise PermissionError("Authenticated user context is required")
+    return context.db_session, UUID(str(context.user_id))
 
 
 # ===== WORKSPACE CREATE TOOL =====
@@ -68,11 +82,35 @@ class WorkspaceCreateTool(ToolBase):
         settings = input_data.get("settings") or {}
 
         try:
-            # In production: Create workspace in database
-            from uuid import uuid4
-            workspace_id = str(uuid4())
-
-            # Placeholder: Workspace creation would involve database operations
+            db, user_id = _workspace_scope(context)
+            base_slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "workspace"
+            slug = base_slug[:90]
+            suffix = 1
+            while (await db.execute(
+                select(Workspace.id).where(Workspace.slug == slug)
+            )).scalar_one_or_none() is not None:
+                slug = f"{base_slug[:88]}-{suffix}"
+                suffix += 1
+            # A new workspace never gets more authority than the one creating it
+            # (or the registration default of 2 when created outside a workspace).
+            ceiling = 2
+            if context.workspace_id is not None:
+                ceiling = (await db.execute(select(Workspace.authority_level).where(
+                    Workspace.id == context.workspace_id, Workspace.owner_id == user_id))).scalar_one_or_none() or 2
+            workspace = Workspace(
+                id=uuid4(),
+                owner_id=user_id,
+                name=name,
+                slug=slug,
+                description=description,
+                workspace_type="project",
+                authority_level=min(int(context.metadata.get("authority_level", 2)), int(ceiling)),
+                config=settings,
+                is_active=True,
+            )
+            db.add(workspace)
+            await db.flush()
+            workspace_id = str(workspace.id)
             logger.info(f"Creating workspace: {name}")
 
             return self.create_result(
@@ -139,7 +177,14 @@ class WorkspaceDeleteTool(ToolBase):
         force = input_data["force"]
 
         try:
-            # Placeholder: Would delete workspace from database
+            db, user_id = _workspace_scope(context)
+            workspace = (await db.execute(select(Workspace).where(
+                Workspace.id == UUID(workspace_id), Workspace.owner_id == user_id
+            ))).scalar_one_or_none()
+            if workspace is None:
+                return self.create_result(success=False, error_message="Owned workspace not found")
+            await db.delete(workspace)
+            await db.flush()
             logger.info(f"Deleting workspace: {workspace_id}")
 
             return self.create_result(
@@ -150,6 +195,8 @@ class WorkspaceDeleteTool(ToolBase):
                 },
                 output_text=f"Deleted workspace: {workspace_id}",
             )
+        except PermissionError as e:
+            return self.create_result(success=False, error_message=str(e))
         except Exception as e:
             return self.create_result(success=False, error_message=f"Failed to delete workspace: {str(e)}")
 
@@ -214,23 +261,27 @@ class WorkspaceListTool(ToolBase):
         limit = input_data["limit"]
 
         try:
-            # Placeholder: Would query database for workspaces
-            from datetime import datetime
-            workspaces = [
-                {
-                    "workspace_id": "example-workspace-1",
-                    "name": "Default Workspace",
-                    "description": "Default workspace",
-                    "created_at": datetime.utcnow().isoformat(),
-                    "updated_at": datetime.utcnow().isoformat(),
-                }
-            ]
+            db, owner_id = _workspace_scope(context)
+            if user_id is not None and UUID(user_id) != owner_id:
+                return self.create_result(success=False, error_message="Cannot list another user's workspaces")
+            rows = (await db.execute(
+                select(Workspace).where(Workspace.owner_id == owner_id)
+                .order_by(Workspace.created_at.desc()).limit(max(1, min(limit, 100)))))
+            workspaces = [{
+                "workspace_id": str(row.id),
+                "name": row.name,
+                "description": row.description,
+                "created_at": row.created_at.isoformat(),
+                "updated_at": row.updated_at.isoformat(),
+            } for row in rows.scalars().all()]
 
             return self.create_result(
                 success=True,
                 result_data={"workspaces": workspaces, "count": len(workspaces)},
                 output_text=f"Found {len(workspaces)} workspace(s)",
             )
+        except PermissionError as e:
+            return self.create_result(success=False, error_message=str(e))
         except Exception as e:
             return self.create_result(success=False, error_message=f"Failed to list workspaces: {str(e)}")
 
@@ -285,18 +336,36 @@ class WorkspaceSwitchTool(ToolBase):
         workspace_id = input_data["workspace_id"]
 
         try:
-            # Placeholder: Would update session/context with new workspace
+            db, user_id = _workspace_scope(context)
+            if context.session_id is None:
+                return self.create_result(
+                    success=False,
+                    error_message="A persisted agent session is required to switch workspaces.",
+                )
+            workspace = (await db.execute(select(Workspace).where(
+                Workspace.id == UUID(workspace_id), Workspace.owner_id == user_id
+            ))).scalar_one_or_none()
+            session = (await db.execute(select(AgentSession).where(
+                AgentSession.id == context.session_id,
+                AgentSession.user_id == user_id,
+            ))).scalar_one_or_none()
+            if workspace is None or session is None:
+                return self.create_result(success=False, error_message="Owned workspace or session not found")
+            session.workspace_id = workspace.id
+            await db.flush()
             logger.info(f"Switching to workspace: {workspace_id}")
 
             return self.create_result(
                 success=True,
                 result_data={
                     "workspace_id": workspace_id,
-                    "name": "Workspace Name",
+                    "name": workspace.name,
                     "message": f"Switched to workspace: {workspace_id}",
                 },
                 output_text=f"Switched to workspace: {workspace_id}",
             )
+        except PermissionError as e:
+            return self.create_result(success=False, error_message=str(e))
         except Exception as e:
             return self.create_result(success=False, error_message=f"Failed to switch workspace: {str(e)}")
 
@@ -355,16 +424,26 @@ class WorkspaceInfoTool(ToolBase):
         workspace_id = input_data["workspace_id"]
 
         try:
-            # Placeholder: Would query database for workspace details
-            from datetime import datetime
+            db, user_id = _workspace_scope(context)
+            workspace = (await db.execute(select(Workspace).where(
+                Workspace.id == UUID(workspace_id), Workspace.owner_id == user_id
+            ))).scalar_one_or_none()
+            if workspace is None:
+                return self.create_result(success=False, error_message="Owned workspace not found")
+            task_count = int((await db.execute(
+                select(func.count()).select_from(Task).where(Task.workspace_id == workspace.id)
+            )).scalar_one())
+            agent_count = int((await db.execute(
+                select(func.count()).select_from(Agent).where(Agent.workspace_id == workspace.id)
+            )).scalar_one())
             info = {
-                "workspace_id": workspace_id,
-                "name": "Workspace Name",
-                "description": "Workspace description",
-                "created_at": datetime.utcnow().isoformat(),
-                "updated_at": datetime.utcnow().isoformat(),
-                "settings": {},
-                "stats": {"tasks": 0, "files": 0, "agents": 0},
+                "workspace_id": str(workspace.id),
+                "name": workspace.name,
+                "description": workspace.description,
+                "created_at": workspace.created_at.isoformat(),
+                "updated_at": workspace.updated_at.isoformat(),
+                "settings": workspace.config or {},
+                "stats": {"tasks": task_count, "files": 0, "agents": agent_count},
             }
 
             return self.create_result(
@@ -372,6 +451,8 @@ class WorkspaceInfoTool(ToolBase):
                 result_data=info,
                 output_text=f"Retrieved info for workspace: {workspace_id}",
             )
+        except PermissionError as e:
+            return self.create_result(success=False, error_message=str(e))
         except Exception as e:
             return self.create_result(success=False, error_message=f"Failed to get workspace info: {str(e)}")
 
@@ -432,14 +513,25 @@ class WorkspaceUpdateTool(ToolBase):
         settings = input_data.get("settings")
 
         try:
-            # Placeholder: Would update workspace in database
+            db, user_id = _workspace_scope(context)
+            workspace = (await db.execute(select(Workspace).where(
+                Workspace.id == UUID(workspace_id), Workspace.owner_id == user_id
+            ))).scalar_one_or_none()
+            if workspace is None:
+                return self.create_result(success=False, error_message="Owned workspace not found")
             updated_fields = []
-            if name:
+            if name is not None:
+                if not name.strip():
+                    return self.create_result(success=False, error_message="Workspace name cannot be empty")
+                workspace.name = name.strip()
                 updated_fields.append("name")
-            if description:
+            if description is not None:
+                workspace.description = description
                 updated_fields.append("description")
-            if settings:
+            if settings is not None:
+                workspace.config = settings
                 updated_fields.append("settings")
+            await db.flush()
 
             logger.info(f"Updating workspace {workspace_id}: {updated_fields}")
 
@@ -452,5 +544,7 @@ class WorkspaceUpdateTool(ToolBase):
                 },
                 output_text=f"Updated workspace: {workspace_id}",
             )
+        except PermissionError as e:
+            return self.create_result(success=False, error_message=str(e))
         except Exception as e:
             return self.create_result(success=False, error_message=f"Failed to update workspace: {str(e)}")

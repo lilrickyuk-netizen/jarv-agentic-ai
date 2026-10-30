@@ -183,6 +183,15 @@ class CostEstimateTool(ToolBase):
             include_projected = input_data.get("include_projected", False)
             growth_rate_percent = input_data.get("growth_rate_percent", 0.0)
 
+            supported_providers = {"aws", "azure", "gcp"}
+            supported_resource_types = {"vm", "container", "database", "storage"}
+            if provider not in supported_providers:
+                return self.create_result(
+                    success=False, error_message=f"Unsupported provider for local reference rates: {provider}")
+            if resource_type is not None and resource_type not in supported_resource_types:
+                return self.create_result(
+                    success=False, error_message=f"Unsupported resource type for local reference rates: {resource_type}")
+
             # If no resource_type specified, get all resources
             if resource_type is None:
                 # Query all resources to get total cost
@@ -221,8 +230,8 @@ class CostEstimateTool(ToolBase):
                 total_hourly = compute_hourly + storage_hourly + transfer_hourly
 
                 # Calculate monthly and annual costs
-                total_monthly = total_hourly * 730  # Average hours per month
-                total_annual = total_monthly * 12
+                total_monthly = total_hourly * usage_hours
+                total_annual = total_hourly * 8760
 
                 # Cost breakdown
                 cost_breakdown = {
@@ -270,6 +279,13 @@ class CostEstimateTool(ToolBase):
                 "currency": "USD",
                 "time_period": time_period,
                 "usage_hours": usage_hours,
+                "pricing_basis": "local_reference_rates",
+                "live_pricing_used": False,
+                "assumptions": [
+                    "Rates are local reference constants, not fetched from a provider pricing API.",
+                    "Provider discounts, region-specific prices, taxes, commitments, and current price changes are not included.",
+                    f"Monthly compute estimate uses {usage_hours} usage hours.",
+                ],
             }
 
             # Add projected costs if available

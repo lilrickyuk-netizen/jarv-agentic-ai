@@ -6,6 +6,10 @@ Tools for querying learned patterns and getting suggestions from experience.
 from typing import Dict, Any, Type, List, Optional
 from pydantic import BaseModel, Field
 import logging
+from uuid import UUID
+from sqlalchemy import or_, select
+from app.tools.memory.storage import _memory_scope
+from app.models.self_evolution import ExperienceRecord
 
 from app.core.tools import ToolBase, ToolConfig, ToolContext, ToolResult
 from app.core.agents.base import AuthorityLevel
@@ -88,63 +92,43 @@ class ExperienceQueryPatternTool(ToolBase):
         limit = input_data.get("limit", 10)
 
         try:
-            patterns = []
-
-            # In production: Query ExperienceRecord table
-            # from app.models.self_evolution import ExperienceRecord
-            # from app.core.database import get_db
-            # from sqlalchemy import select, or_, func
-            #
-            # async for session in get_db():
-            #     stmt = select(ExperienceRecord).filter(
-            #         ExperienceRecord.agent_id == context.agent_id,
-            #         ExperienceRecord.is_active == True,
-            #         ExperienceRecord.confidence_score >= min_confidence,
-            #     )
-            #
-            #     # Filter by type
-            #     if experience_type:
-            #         stmt = stmt.filter(ExperienceRecord.experience_type == experience_type)
-            #
-            #     # Filter by outcome
-            #     if outcome:
-            #         stmt = stmt.filter(ExperienceRecord.outcome == outcome)
-            #
-            #     # Filter by success rate
-            #     if min_success_rate is not None:
-            #         stmt = stmt.filter(ExperienceRecord.success_rate >= min_success_rate)
-            #
-            #     # Search for relevant context
-            #     # Use full-text search or filter by applicable_contexts
-            #     stmt = stmt.filter(
-            #         or_(
-            #             ExperienceRecord.situation.ilike(f"%{query_context}%"),
-            #             ExperienceRecord.applicable_contexts.contains([query_context])
-            #         )
-            #     )
-            #
-            #     # Order by confidence and success rate
-            #     stmt = stmt.order_by(
-            #         ExperienceRecord.confidence_score.desc(),
-            #         ExperienceRecord.success_rate.desc().nullslast()
-            #     ).limit(limit)
-            #
-            #     result = await session.execute(stmt)
-            #     for exp in result.scalars():
-            #         patterns.append({
-            #             "experience_id": str(exp.id),
-            #             "title": exp.title,
-            #             "experience_type": exp.experience_type,
-            #             "situation": exp.situation,
-            #             "action_taken": exp.action_taken,
-            #             "result": exp.result,
-            #             "outcome": exp.outcome,
-            #             "lesson_learned": exp.lesson_learned,
-            #             "confidence_score": exp.confidence_score,
-            #             "times_applied": exp.times_applied,
-            #             "success_rate": exp.success_rate,
-            #             "applicable_contexts": exp.applicable_contexts,
-            #         })
+            db, agent_id = await _memory_scope(context)
+            stmt = select(ExperienceRecord).where(
+                ExperienceRecord.agent_id == agent_id,
+                ExperienceRecord.is_active.is_(True),
+                ExperienceRecord.confidence_score >= min_confidence,
+            )
+            if experience_type:
+                stmt = stmt.where(ExperienceRecord.experience_type == experience_type)
+            if outcome:
+                stmt = stmt.where(ExperienceRecord.outcome == outcome)
+            if min_success_rate is not None:
+                stmt = stmt.where(ExperienceRecord.success_rate >= min_success_rate)
+            terms = [term for term in query_context.lower().split() if len(term) > 2]
+            if terms:
+                stmt = stmt.where(or_(*[
+                    condition for term in terms
+                    for condition in (
+                        ExperienceRecord.situation.ilike(f"%{term}%"),
+                        ExperienceRecord.action_taken.ilike(f"%{term}%"),
+                        ExperienceRecord.lesson_learned.ilike(f"%{term}%"),
+                        ExperienceRecord.title.ilike(f"%{term}%"),
+                    )
+                ]))
+            stmt = stmt.order_by(
+                ExperienceRecord.confidence_score.desc(),
+                ExperienceRecord.success_rate.desc().nullslast(),
+            ).limit(limit)
+            records = (await db.execute(stmt)).scalars().all()
+            patterns = [{
+                "experience_id": str(record.id), "title": record.title,
+                "experience_type": record.experience_type, "situation": record.situation,
+                "action_taken": record.action_taken, "result": record.result,
+                "outcome": record.outcome, "lesson_learned": record.lesson_learned,
+                "confidence_score": record.confidence_score, "times_applied": record.times_applied,
+                "success_rate": record.success_rate,
+                "applicable_contexts": record.applicable_contexts,
+            } for record in records]
 
             logger.info(f"Queried patterns for context: {query_context[:50]}..., found {len(patterns)}")
 
@@ -183,6 +167,7 @@ class Suggestion(BaseModel):
     experience_title: str
     success_rate: Optional[float]
     times_applied: int
+    provenance: str = "verified_outcome"
 
 
 class ExperienceGetSuggestionsOutput(BaseModel):
@@ -229,41 +214,41 @@ class ExperienceGetSuggestionsTool(ToolBase):
         limit = input_data.get("limit", 5)
 
         try:
-            suggestions = []
-
-            # In production: Query successful experiences and generate suggestions
-            # from app.models.self_evolution import ExperienceRecord
-            # from app.core.database import get_db
-            # from sqlalchemy import select, or_
-            # from uuid import uuid4
-            #
-            # async for session in get_db():
-            #     # Find successful experiences relevant to situation and goal
-            #     stmt = select(ExperienceRecord).filter(
-            #         ExperienceRecord.agent_id == context.agent_id,
-            #         ExperienceRecord.is_active == True,
-            #         ExperienceRecord.outcome == "success",
-            #         or_(
-            #             ExperienceRecord.situation.ilike(f"%{current_situation}%"),
-            #             ExperienceRecord.lesson_learned.ilike(f"%{goal}%")
-            #         )
-            #     ).order_by(
-            #         ExperienceRecord.success_rate.desc().nullslast(),
-            #         ExperienceRecord.confidence_score.desc()
-            #     ).limit(limit)
-            #
-            #     result = await session.execute(stmt)
-            #     for exp in result.scalars():
-            #         suggestions.append({
-            #             "suggestion_id": str(uuid4()),
-            #             "action": exp.action_taken,
-            #             "reasoning": f"Based on experience: {exp.lesson_learned}",
-            #             "confidence": exp.confidence_score,
-            #             "based_on_experience_id": str(exp.id),
-            #             "experience_title": exp.title,
-            #             "success_rate": exp.success_rate,
-            #             "times_applied": exp.times_applied,
-            #         })
+            db, agent_id = await _memory_scope(context)
+            stmt = select(ExperienceRecord).where(
+                ExperienceRecord.agent_id == agent_id,
+                ExperienceRecord.is_active.is_(True),
+                ExperienceRecord.is_validated.is_(True),
+                ExperienceRecord.outcome == "success",
+                ExperienceRecord.success_rate.is_not(None),
+            )
+            terms = [term for term in (current_situation + " " + goal).lower().split()
+                     if len(term) > 2]
+            if terms:
+                stmt = stmt.where(or_(*[
+                    condition for term in terms
+                    for condition in (
+                        ExperienceRecord.situation.ilike(f"%{term}%"),
+                        ExperienceRecord.lesson_learned.ilike(f"%{term}%"),
+                        ExperienceRecord.applicable_contexts.contains([term]),
+                    )
+                ]))
+            stmt = stmt.order_by(
+                ExperienceRecord.success_rate.desc(),
+                ExperienceRecord.confidence_score.desc(),
+            ).limit(limit)
+            records = (await db.execute(stmt)).scalars().all()
+            suggestions = [{
+                "suggestion_id": str(record.id),
+                "action": record.action_taken,
+                "reasoning": f"Verified outcome ({record.success_rate:.2f} success rate): {record.lesson_learned}",
+                "confidence": record.confidence_score,
+                "based_on_experience_id": str(record.id),
+                "experience_title": record.title,
+                "success_rate": record.success_rate,
+                "times_applied": record.times_applied,
+                "provenance": "verified_outcome",
+            } for record in records]
 
             logger.info(f"Generated {len(suggestions)} suggestions for: {current_situation[:50]}...")
 
@@ -347,98 +332,48 @@ class ExperienceCompareApproachesTool(ToolBase):
         criteria = input_data.get("comparison_criteria", ["success_rate", "confidence", "applicability"])
 
         try:
-            # In production: Fetch both experiences and compare
-            # from app.models.self_evolution import ExperienceRecord
-            # from app.core.database import get_db
-            #
-            # async for session in get_db():
-            #     exp_a = await session.get(ExperienceRecord, approach_a_id)
-            #     exp_b = await session.get(ExperienceRecord, approach_b_id)
-            #
-            #     if not exp_a or not exp_b:
-            #         return self.create_result(success=False, error_message="One or both experiences not found")
-            #
-            #     if exp_a.agent_id != context.agent_id or exp_b.agent_id != context.agent_id:
-            #         return self.create_result(success=False, error_message="Access denied to experiences")
-            #
-            #     # Build comparison
-            #     comparison_details = {}
-            #     score_a = 0
-            #     score_b = 0
-            #
-            #     if "success_rate" in criteria:
-            #         sr_a = exp_a.success_rate or 0.5
-            #         sr_b = exp_b.success_rate or 0.5
-            #         comparison_details["success_rate"] = f"A: {sr_a:.2f} vs B: {sr_b:.2f}"
-            #         if sr_a > sr_b:
-            #             score_a += 1
-            #         elif sr_b > sr_a:
-            #             score_b += 1
-            #
-            #     if "confidence" in criteria:
-            #         comparison_details["confidence"] = f"A: {exp_a.confidence_score:.2f} vs B: {exp_b.confidence_score:.2f}"
-            #         if exp_a.confidence_score > exp_b.confidence_score:
-            #             score_a += 1
-            #         elif exp_b.confidence_score > exp_a.confidence_score:
-            #             score_b += 1
-            #
-            #     if "times_applied" in criteria:
-            #         comparison_details["times_applied"] = f"A: {exp_a.times_applied} vs B: {exp_b.times_applied}"
-            #         if exp_a.times_applied > exp_b.times_applied:
-            #             score_a += 0.5
-            #         elif exp_b.times_applied > exp_a.times_applied:
-            #             score_b += 0.5
-            #
-            #     if "applicability" in criteria:
-            #         comparison_details["applicability"] = f"A: {len(exp_a.applicable_contexts)} contexts vs B: {len(exp_b.applicable_contexts)} contexts"
-            #         if len(exp_a.applicable_contexts) > len(exp_b.applicable_contexts):
-            #             score_a += 0.5
-            #         elif len(exp_b.applicable_contexts) > len(exp_a.applicable_contexts):
-            #             score_b += 0.5
-            #
-            #     # Determine recommendation
-            #     if score_a > score_b:
-            #         recommendation = "approach_a"
-            #         reasoning = f"Approach A scores higher ({score_a:.1f} vs {score_b:.1f}) across selected criteria"
-            #     elif score_b > score_a:
-            #         recommendation = "approach_b"
-            #         reasoning = f"Approach B scores higher ({score_b:.1f} vs {score_a:.1f}) across selected criteria"
-            #     else:
-            #         recommendation = "tie"
-            #         reasoning = "Both approaches score equally; choose based on context"
-            #
-            #     comparison_result = {
-            #         "approach_a": {
-            #             "id": str(exp_a.id),
-            #             "title": exp_a.title,
-            #             "success_rate": exp_a.success_rate,
-            #             "confidence": exp_a.confidence_score,
-            #             "times_applied": exp_a.times_applied,
-            #         },
-            #         "approach_b": {
-            #             "id": str(exp_b.id),
-            #             "title": exp_b.title,
-            #             "success_rate": exp_b.success_rate,
-            #             "confidence": exp_b.confidence_score,
-            #             "times_applied": exp_b.times_applied,
-            #         },
-            #         "comparison": comparison_details,
-            #         "recommendation": recommendation,
-            #         "reasoning": reasoning,
-            #     }
-            #
-            #     return self.create_result(
-            #         success=True,
-            #         result_data={"comparison": comparison_result},
-            #         output_text=f"Comparison complete: {recommendation}",
-            #     )
+            db, agent_id = await _memory_scope(context)
+            ids = [UUID(approach_a_id), UUID(approach_b_id)]
+            records = (await db.execute(select(ExperienceRecord).where(
+                ExperienceRecord.id.in_(ids), ExperienceRecord.agent_id == agent_id,
+            ))).scalars().all()
+            by_id = {record.id: record for record in records}
+            if len(by_id) != 2:
+                return self.create_result(success=False, error_message="One or both experiences are not in this agent/workspace scope")
+            a, b = by_id[ids[0]], by_id[ids[1]]
+            comparison = {}
+            if "success_rate" in criteria:
+                comparison["success_rate"] = f"A: {a.success_rate!r} vs B: {b.success_rate!r}"
+            if "confidence" in criteria:
+                comparison["confidence"] = f"A: {a.confidence_score:.2f} vs B: {b.confidence_score:.2f}"
+            if "times_applied" in criteria:
+                comparison["times_applied"] = f"A: {a.times_applied} vs B: {b.times_applied}"
+            if "applicability" in criteria:
+                comparison["applicability"] = (
+                    f"A: {len(a.applicable_contexts)} contexts vs B: {len(b.applicable_contexts)} contexts")
+            if not (a.is_validated and b.is_validated and
+                    a.success_rate is not None and b.success_rate is not None):
+                recommendation = "insufficient_verified_evidence"
+                reasoning = "At least one approach lacks a verified outcome and measured success rate."
+            elif a.success_rate > b.success_rate:
+                recommendation, reasoning = "approach_a", "Approach A has the higher verified success rate."
+            elif b.success_rate > a.success_rate:
+                recommendation, reasoning = "approach_b", "Approach B has the higher verified success rate."
+            else:
+                recommendation, reasoning = "tie", "Verified success rates are equal."
+            comparison_result = {
+                "approach_a": {"id": str(a.id), "title": a.title, "success_rate": a.success_rate,
+                                "confidence": a.confidence_score, "times_applied": a.times_applied},
+                "approach_b": {"id": str(b.id), "title": b.title, "success_rate": b.success_rate,
+                                "confidence": b.confidence_score, "times_applied": b.times_applied},
+                "comparison": comparison, "recommendation": recommendation, "reasoning": reasoning,
+            }
 
             logger.info(f"Compared approaches: {approach_a_id} vs {approach_b_id}")
-
-            # Placeholder response
             return self.create_result(
-                success=False,
-                error_message=f"Approach comparison not yet connected to database",
+                success=True,
+                result_data={"comparison": comparison_result},
+                output_text=f"Compared approaches: {recommendation}",
             )
 
         except Exception as e:

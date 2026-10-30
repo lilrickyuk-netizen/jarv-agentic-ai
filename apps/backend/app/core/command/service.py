@@ -42,6 +42,9 @@ from app.core.providers import CompletionRequest, Message, get_router
 from app.core.config import settings
 from app.core.workspaces import fs_inspector
 from app.core.jarv_memory import memory_service
+from app.core.learning import learning_service
+from app.core.runtime import lifecycle
+from app.core.safety.evolution_guard import is_unsafe_change
 from app.core.command.tool_runtime import ToolRuntime
 from app.core.qa.verifier import qa_verifier
 from app.models.agent import Agent
@@ -56,6 +59,17 @@ from app.models.workspace import Workspace
 _PATH_RE = re.compile(r'([A-Za-z]:[\\/][^\s"\'<>|]+)')
 
 logger = logging.getLogger(__name__)
+
+
+def _provider_name_for_model(model: str) -> str:
+    normalized = model.lower()
+    if normalized.startswith("claude-"):
+        return "claude"
+    if normalized.startswith("gpt-") or normalized.startswith(("o1", "o3", "o4")):
+        return "openai"
+    if normalized.startswith("gemini-"):
+        return "gemini"
+    return "ollama"
 
 
 # ===== Safety / approval classification =====
@@ -102,6 +116,15 @@ class SafetyDecision:
     reason: str
     boundary_type: Optional[str] = None
     forced_safe: bool = False
+
+
+def _maybe_uuid(value: Any) -> Optional[UUID]:
+    if value is None or isinstance(value, UUID):
+        return value
+    try:
+        return UUID(str(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def classify_command_safety(command_text: str) -> SafetyDecision:
@@ -172,11 +195,11 @@ class CommandResult:
 
 
 class CommandService:
-    """Runs the live command pipeline against the real orchestrator + Claude."""
+    """Runs the live command pipeline against the configured model provider."""
 
     def __init__(self, model: Optional[str] = None):
-        # Default to the configured Claude model (Claude is the primary provider).
         self.model = model or getattr(settings, "DEFAULT_MODEL", None) or "claude-sonnet-4-6"
+        self.provider_name = _provider_name_for_model(self.model)
 
     async def execute(
         self,
@@ -186,6 +209,36 @@ class CommandService:
         user_id: Optional[UUID] = None,
         operator: Optional[str] = None,
     ) -> CommandResult:
+        """Submit and run a mission in this process (used by tools and tests).
+
+        The dashboard API submits and hands the mission to the worker queue
+        instead, so missions survive restarts and do not hold a web request open.
+        """
+        submitted = await self.submit(command_text, db, workspace_id=workspace_id,
+                                      user_id=user_id, operator=operator)
+        if submitted.status != lifecycle.QUEUED:
+            return submitted
+        task = (await db.execute(select(Task).where(Task.id == UUID(submitted.task_id)))).scalar_one()
+        lifecycle.transition(task, lifecycle.RUNNING, reason="run in-process", actor=self.operator)
+        await db.commit()
+        from app.core.observability.context import mission_context
+
+        with mission_context(task.id):
+            return await self.run_task(db, task)
+
+    async def submit(
+        self,
+        command_text: str,
+        db: AsyncSession,
+        workspace_id: Optional[UUID] = None,
+        user_id: Optional[UUID] = None,
+        operator: Optional[str] = None,
+    ) -> CommandResult:
+        """Validate, safety-classify, and record a mission.
+
+        Returns status ``queued`` (ready for a worker) or ``blocked`` (needs
+        Richard's approval before it may start). Nothing is executed here.
+        """
         start = time.time()
         command_text = (command_text or "").strip()
         if not command_text:
@@ -215,8 +268,8 @@ class CommandService:
                 forced_safe=True,
             )
 
-        # 2) Resolve a workspace to attach the task to
-        ws_id = await self._resolve_workspace(db, workspace_id)
+        # 2) Resolve a workspace the operator owns
+        ws_id = await self._resolve_workspace(db, workspace_id, operator=self.operator)
 
         # 3) Create the real Task record (pending)
         task = Task(
@@ -232,7 +285,9 @@ class CommandService:
                 "requires_approval": safety.requires_approval,
                 "safety_reason": safety.reason,
             },
-            meta_data={"channel": "dashboard"},
+            meta_data={"channel": "dashboard", "operator": self.operator,
+                       "user_id": str(user_id) if user_id else None,
+                       "provider": self.provider_name, "model": self.model},
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
@@ -251,14 +306,14 @@ class CommandService:
             db, ws_id, action="command_received", category="command",
             description=f"Command received from {self.operator}: {command_text[:300]}",
             success=True, target_id=task_id,
-            metadata={"operator": self.operator, "provider": "claude", "model": self.model},
+            metadata={"operator": self.operator, "provider": self.provider_name, "model": self.model},
         )
 
         # 4) Approval gate: do NOT execute, pause the blocked action
         if safety.requires_approval:
-            task.status = "blocked"
-            task.meta_data = {**(task.meta_data or {}), "blocked_reason": safety.reason}
-            task.updated_at = datetime.now(timezone.utc)
+            lifecycle.transition(task, lifecycle.BLOCKED, reason=safety.reason, actor="safety_gate")
+            task.meta_data = {**(task.meta_data or {}), "blocked_reason": safety.reason,
+                              "boundary_type": safety.boundary_type}
             await self._feed(
                 db, ws_id, task.id,
                 item_type="boundary",
@@ -288,20 +343,40 @@ class CommandService:
                     "rephrase the command to inspect/plan only."
                 ),
                 approval_reason=safety.reason,
-                provider="claude",
+                provider=self.provider_name,
                 model=self.model,
                 execution_time=time.time() - start,
             )
 
-        # 5) Execute: mark running, persist immediately so the dashboard sees it
-        task.status = "running"
-        task.started_at = datetime.now(timezone.utc)
-        task.updated_at = task.started_at
+        lifecycle.transition(task, lifecycle.QUEUED, reason="accepted for execution", actor=self.operator)
+        await db.commit()
+        return CommandResult(
+            task_id=task_id,
+            command=command_text,
+            status=lifecycle.QUEUED,
+            requires_approval=False,
+            response_text="Mission accepted and queued for execution.",
+            provider=self.provider_name,
+            model=self.model,
+            execution_time=time.time() - start,
+        )
+
+    async def run_task(self, db: AsyncSession, task: Task) -> CommandResult:
+        """Execute a mission that has already been claimed (status ``running``)."""
+        start = time.time()
+        meta = task.meta_data or {}
+        self.operator = meta.get("operator") or getattr(self, "operator", None) or "operator"
+        command_text = (task.description or task.title or "").strip()
+        ws_id = task.workspace_id
+        task_id = str(task.id)
+        user_id = _maybe_uuid(meta.get("user_id"))
+        attempt = int(task.retry_count or 0)
+
         await self._feed(
             db, ws_id, task.id,
             item_type="agent_execution",
             severity="info",
-            title="Orchestrator running",
+            title="Orchestrator running" if attempt == 0 else f"Orchestrator recovering (attempt {attempt + 1})",
             message=f"JARV is planning and executing: {command_text[:200]}",
         )
         await db.commit()
@@ -313,13 +388,29 @@ class CommandService:
             result_extra: Dict[str, Any] = {}
 
             # Retrieve relevant persistent memory BEFORE planning (BLOCKER 1).
+            # Workspace-isolated, semantically ranked recall plus verified lessons (Repair 11).
+            applied_lessons: List[Dict[str, Any]] = []
             try:
-                recalled = await memory_service.search(db, command_text, limit=5, workspace_id=ws_id)
+                recalled = await memory_service.search_scored(db, command_text, limit=5, workspace_id=ws_id)
                 system_context["relevant_memory"] = [
-                    {"type": m.memory_type, "content": m.content} for m in recalled
+                    {"type": hit.memory.memory_type, "category": hit.memory.memory_category,
+                     "content": hit.memory.content, "score": round(hit.score, 3)}
+                    for hit in recalled
                 ]
-            except Exception:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"memory recall failed: {exc}")
                 system_context["relevant_memory"] = []
+            try:
+                if ws_id is not None:
+                    applied_lessons = await learning_service.retrieve_lessons(
+                        db, workspace_id=ws_id, agent_name="orchestrator", query=command_text, limit=3)
+                system_context["verified_lessons"] = [
+                    {"lesson": item["lesson"], "outcome": item["polarity"],
+                     "success_rate": item["success_rate"]} for item in applied_lessons
+                ]
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(f"lesson recall failed: {exc}")
+                system_context["verified_lessons"] = []
 
             # Tool runtime: agents act through real, logged tools (BLOCKER 3).
             runtime = ToolRuntime(db, ws_id, task.id, operator=self.operator)
@@ -391,7 +482,7 @@ class CommandService:
                 total_tokens = 0
             elif intent == "delegate":
                 answer, plan_steps, selected_agents, result_extra = (
-                    await self._handle_delegate(db, runtime, command_text)
+                    await self._handle_delegate(db, runtime, command_text, user_id, system_context)
                 )
                 total_tokens = 0
             elif intent == "remember_memory":
@@ -418,15 +509,17 @@ class CommandService:
                 total_tokens = 0
             else:
                 # 5a) Real orchestrator + Claude planning
-                plan = await self._run_orchestrator(command_text, ws_id, user_id, system_context)
+                plan = await self._run_orchestrator(command_text, ws_id, user_id, system_context, db=db,
+                                                    task_id=task.id)
                 plan_steps = plan["steps"]
                 selected_agents = plan["agents"]
                 total_tokens = plan.get("tokens", 0)
+                result_extra["orchestration"] = plan["outcome"]
 
-                # 5b) Live execution: Claude produces the real answer using the real
-                #     system context and the orchestrator's plan.
+                # 5b) The report: grounded in the real context, the plan and what each
+                #     delegated agent actually did (completed, failed or paused).
                 answer, answer_tokens = await self._run_answer(
-                    command_text, system_context, plan_steps, selected_agents
+                    command_text, system_context, plan_steps, selected_agents, plan["outcome"]
                 )
                 total_tokens += answer_tokens
 
@@ -434,21 +527,20 @@ class CommandService:
             #    "completed". Failed commands / installs / builds / verification /
             #    step-limit / missing report downgrade the status accordingly.
             status, failure = self._derive_status(intent, result_extra, runtime.calls, answer)
-            task.status = status
+            status = await self._finish(db, task, status, (failure or {}).get("reason"))
             now = datetime.now(timezone.utc)
-            task.updated_at = now
-            if status in ("completed", "partial", "failed"):
-                task.completed_at = now if status == "completed" else task.completed_at
-                if status == "failed":
-                    task.failed_at = now
             if task.started_at:
-                task.execution_duration_seconds = int((now - task.started_at).total_seconds())
+                # A worker's claim reloads started_at from the database; SQLite returns
+                # it without a timezone, so normalise before subtracting.
+                started = task.started_at if task.started_at.tzinfo else \
+                    task.started_at.replace(tzinfo=timezone.utc)
+                task.execution_duration_seconds = int((now - started).total_seconds())
             task.tokens_used = total_tokens
             task.result = {
                 "response": answer,
                 "plan_steps": plan_steps,
                 "selected_agents": selected_agents,
-                "provider": "claude",
+                "provider": self.provider_name,
                 "model": self.model,
                 "tool_calls": runtime.calls,
                 "task_status": status,
@@ -478,6 +570,35 @@ class CommandService:
             except Exception as exc:  # noqa: BLE001
                 logger.warning(f"memory persist failed: {exc}")
 
+            # Experience + lesson performance (Repair 11). Approval waits are not outcomes.
+            if ws_id is not None and status in ("completed", "partial", "failed"):
+                try:
+                    await learning_service.record_experience(
+                        db, workspace_id=ws_id, agent_name="orchestrator",
+                        situation=command_text,
+                        action=f"intent={intent}; agents={', '.join(selected_agents)}; "
+                               f"tool_calls={len(runtime.calls)}",
+                        result=(failure or {}).get("reason") or answer[:800],
+                        outcome={"completed": "success", "failed": "failure"}.get(status, "partial"),
+                        task_id=task.id,
+                        tools_used=sorted({c.get("tool") for c in runtime.calls
+                                           if isinstance(c, dict) and c.get("tool")}),
+                    )
+                    if applied_lessons:
+                        retired = await learning_service.record_application(
+                            db, workspace_id=ws_id,
+                            lesson_keys=[item["lesson_key"] for item in applied_lessons],
+                            success=status == "completed",
+                        )
+                        if retired:
+                            await self._feed(
+                                db, ws_id, task.id, item_type="self_evolution", severity="warning",
+                                title="Lesson retired",
+                                message=f"{len(retired)} verified lesson(s) stopped working and were rolled back.",
+                            )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(f"experience capture failed: {exc}")
+
             task.updated_at = datetime.now(timezone.utc)
 
             _ok = status == "completed"
@@ -498,7 +619,7 @@ class CommandService:
                 description=f"Command {status} ({self.operator}): {command_text[:300]}",
                 success=_ok, target_id=task_id,
                 error_message=(failure or {}).get("reason") if not _ok else None,
-                metadata={"operator": self.operator, "provider": "claude", "model": self.model,
+                metadata={"operator": self.operator, "provider": self.provider_name, "model": self.model,
                           "selected_agents": selected_agents, "tokens_used": total_tokens,
                           "status": status},
             )
@@ -512,7 +633,7 @@ class CommandService:
                 response_text=answer,
                 plan_steps=plan_steps,
                 selected_agents=selected_agents,
-                provider="claude",
+                provider=self.provider_name,
                 model=self.model,
                 execution_time=time.time() - start,
                 tokens_used=total_tokens,
@@ -521,10 +642,8 @@ class CommandService:
 
         except Exception as exc:  # noqa: BLE001 - surface real failure on the task
             logger.error(f"Command execution failed: {exc}", exc_info=True)
-            task.status = "failed"
-            task.failed_at = datetime.now(timezone.utc)
+            await self._finish(db, task, lifecycle.FAILED, str(exc))
             task.error_message = str(exc)
-            task.updated_at = datetime.now(timezone.utc)
             try:
                 await self._feed(
                     db, ws_id, task.id,
@@ -548,7 +667,7 @@ class CommandService:
                 status="failed",
                 requires_approval=False,
                 response_text=f"JARV could not complete the command: {exc}",
-                provider="claude",
+                provider=self.provider_name,
                 model=self.model,
                 execution_time=time.time() - start,
                 error=str(exc),
@@ -556,21 +675,53 @@ class CommandService:
 
     # ===== Pipeline steps =====
 
+    async def _finish(self, db: AsyncSession, task: Task, status: str, reason: Optional[str]) -> str:
+        """Record the mission outcome through the enforced lifecycle.
+
+        A boundary flow may already have moved the task to waiting_on_approval
+        during the run, and an operator may have cancelled it; neither is
+        overwritten by the outcome computed here.
+        """
+        try:
+            await db.refresh(task, attribute_names=["status"])
+        except Exception:  # noqa: BLE001 - unsaved task in a fresh session
+            pass
+        current = lifecycle.normalise(task.status)
+        if current in (lifecycle.CANCELLED, lifecycle.WAITING_ON_APPROVAL) or current == status:
+            return current
+        try:
+            lifecycle.transition(task, status, reason=reason or "", actor="orchestrator")
+        except lifecycle.IllegalTransition as exc:
+            logger.error(f"Refused mission status change for {task.id}: {exc}")
+            lifecycle.transition(task, lifecycle.FAILED, actor="orchestrator",
+                                 reason=f"illegal outcome '{status}' from '{current}'")
+            return lifecycle.FAILED
+        return status
+
     async def _resolve_workspace(
-        self, db: AsyncSession, workspace_id: Optional[UUID]
+        self, db: AsyncSession, workspace_id: Optional[UUID], operator: Optional[str] = None,
     ) -> UUID:
+        owner = _maybe_uuid(operator)
         if workspace_id:
+            if owner is not None:
+                owned = (await db.execute(select(Workspace.id).where(
+                    Workspace.id == workspace_id, Workspace.owner_id == owner,
+                ))).scalar_one_or_none()
+                if owned is None:
+                    raise ValueError("Workspace not found")
             return workspace_id
-        result = await db.execute(select(Workspace.id).limit(1))
-        existing = result.scalar_one_or_none()
+        query = select(Workspace.id).where(Workspace.is_active.is_(True))
+        if owner is not None:
+            query = query.where(Workspace.owner_id == owner)
+        existing = (await db.execute(query.order_by(Workspace.created_at.asc()).limit(1))).scalar_one_or_none()
         if existing:
             return existing
         # No workspace yet: create a Command Center workspace so commands have a home.
-        owner_id = await self._first_user_id(db)
+        owner_id = owner or await self._first_user_id(db)
         ws = Workspace(
             id=uuid4(),
             name="Command Center",
-            slug="command-center",
+            slug=f"command-center-{str(owner_id)[:8]}",
             description="Default workspace for dashboard commands.",
             owner_id=owner_id,
             workspace_type="general",
@@ -586,7 +737,7 @@ class CommandService:
 
     async def _first_user_id(self, db: AsyncSession) -> UUID:
         """Return a real user id to own workspaces (operators auth via Redis)."""
-        result = await db.execute(select(User.id).limit(1))
+        result = await db.execute(select(User.id).order_by(User.created_at.asc()).limit(1))
         uid = result.scalar_one_or_none()
         if uid:
             return uid
@@ -758,6 +909,22 @@ class CommandService:
         if isinstance(se, dict) and se.get("verdict") == "blocked":
             return "blocked", {"reason": "Self-evolution change blocked by safety guard."}
 
+        # 1b) Orchestrated missions: a step paused at a hard boundary means the mission waits
+        #     for Richard (safe steps already ran); every delegated step failing is a failure.
+        orch = extra.get("orchestration")
+        if isinstance(orch, dict):
+            if orch.get("boundaries"):
+                return "waiting_on_approval", {
+                    "reason": f"{len(orch['boundaries'])} step(s) reached a hard boundary; the rest ran.",
+                    "next": "Approve or reject on the Approvals page; JARV resumes from the checkpoint."}
+            if orch.get("attempted") and not orch.get("completed"):
+                return fail("Every delegated step failed.",
+                            errors=[r for r in orch.get("task_results", []) if r.get("status") == "failed"][:5],
+                            next="Inspect the agents' results and re-run.")
+            if orch.get("failed"):
+                return ("partial", {"reason": f"{orch['failed']} of {orch['attempted']} delegated step(s) failed.",
+                                    "next": "Re-run the failed steps."})
+
         # 2) QA verification failure.
         v = extra.get("verification")
         if isinstance(v, dict) and v.get("passed") is False:
@@ -925,13 +1092,14 @@ class CommandService:
         ("Infrastructure readiness", "app/core/command/service.py", "_handle_infra_readiness"),
         ("Company workflow drafts", "app/core/command/service.py", "_handle_company_workflow"),
         ("Approval/boundary gate", "app/api/approvals.py", "command-blocks"),
-        ("Integrations (email/webhook dry-run)", "app/core/integrations/__init__.py", "class IntegrationRegistry"),
+        ("Notifications to Richard (email and webhook)", "app/core/integrations/__init__.py", "class IntegrationRegistry"),
+        ("Settings: service connections and live checks", "app/core/ops/connections.py", "SERVICES"),
         ("Department detail endpoints", "app/api/agents.py", "department_detail"),
         ("Per-department dashboard page", "app/api/agents.py", "DEPT_SLUGS"),
+        ("Changelog generator tool", "app/core/business/drafting.py", "create_changelog"),
+        ("Email live SMTP send adapter", "app/core/business/mailer.py", "smtplib"),
         # Forward-looking requirements that may be partial/missing -> drive task
         # creation. Targets are NOT this file (avoid self-referential false hits).
-        ("Changelog generator tool", "app/workers/tasks.py", "create_changelog"),
-        ("Email live SMTP send adapter", "app/core/integrations/__init__.py", "smtplib"),
         ("Cloud auto-deploy automation", "app/workers/tasks.py", "auto_deploy"),
     ]
 
@@ -1292,7 +1460,10 @@ class CommandService:
             "Self-Evolution: accept + version a safe change, or BLOCK an unsafe one.",
         ]
         agents = self._validate_agents(["orchestrator", "self_evolution", "verifier", "security"])
-        unsafe = bool(self._UNSAFE_EVO_RE.search(command_text))
+        unsafe = is_unsafe_change(command_text) or bool(self._UNSAFE_EVO_RE.search(command_text))
+        proposal = await learning_service.record_proposal(
+            db, workspace_id=runtime.workspace_id, proposal=command_text, task_id=runtime.task_id)
+        version = (proposal.meta_data or {}).get("version")
         if unsafe:
             await self._feed(db, runtime.workspace_id, runtime.task_id, item_type="self_evolution",
                              severity="warning", title="Self-evolution change BLOCKED",
@@ -1311,25 +1482,30 @@ class CommandService:
                 "controls. JARV cannot self-modify in a way that reduces its own safety. "
                 "No change was applied; the block is logged and recorded in memory."
             )
-            return answer, steps, agents, {"self_evolution": {"verdict": "blocked", "applied": False}}
+            return answer, steps, agents, {"self_evolution": {
+                "verdict": "blocked", "applied": False, "record_id": str(proposal.id)}}
 
         # Safe proposal: accept + version it (recorded as a workflow improvement).
         await self._feed(db, runtime.workspace_id, runtime.task_id, item_type="self_evolution",
-                         severity="success", title="Self-evolution proposal accepted (safe)",
+                         severity="success", title="Self-evolution proposal recorded (safe, pending verification)",
                          message=command_text[:300])
-        await self._audit(db, runtime.workspace_id, action="self_evolution_applied",
+        await self._audit(db, runtime.workspace_id, action="self_evolution_proposal_accepted",
                           category="self_evolution", description=f"Safe proposal accepted: {command_text[:200]}",
                           success=True, target_id=str(runtime.task_id),
-                          metadata={"verdict": "safe", "versioned": True})
+                          metadata={"verdict": "safe", "versioned": True, "record_id": str(proposal.id)})
         await memory_service.add(db, content=f"Self-evolution accepted (safe): {command_text[:200]}",
                                  memory_type="self_evolution", workspace_id=runtime.workspace_id,
                                  task_id=runtime.task_id, importance=0.7)
         answer = (
             "**Self-evolution proposal accepted (classified SAFE).**\n\n"
-            "The change does not touch safety, authority, logging, boundaries, or approval, so "
-            "it is versioned and recorded (reversible). Unsafe changes are always blocked."
+            "The change does not touch safety, authority, logging, boundaries, or approval. It is "
+            f"recorded as proposal version {version} (record {str(proposal.id)[:8]}) and stays "
+            "pending until verified; it does not change behaviour before then. Unsafe changes are "
+            "always blocked."
         )
-        return answer, steps, agents, {"self_evolution": {"verdict": "safe", "applied": True}}
+        return answer, steps, agents, {"self_evolution": {
+            "verdict": "safe", "applied": False, "status": "pending_verification",
+            "record_id": str(proposal.id), "version": version}}
 
     # Role-specific swarm employees: (label, keyword(s), lead agent, output file).
     _SWARM_ROLES = [
@@ -1410,7 +1586,10 @@ class CommandService:
             # EXECUTE (role-specific via the lead agent; then write the artifact)
             assignment = (f"As the {label} employee for this sandbox project, produce a concise, "
                           f"useful {label} document for the project brief.")
-            run = await agent_runner.run_agent(lead, assignment, runtime.workspace_id)
+            run = await agent_runner.run_agent(
+                lead, assignment, runtime.workspace_id, db=db,
+                task_id=runtime.task_id,
+            )
             body = (run.get("output_text") or "").strip() or f"({label}: no content generated)"
             content = (f"# {label.title()} Output\n\n"
                        f"_Produced by scoped employee (lead: {lead}, authority <= {lead_authority}, "
@@ -1919,95 +2098,66 @@ class CommandService:
         return answer, steps, agents, {"notification": res}
 
     async def _handle_delegate(
-        self, db: AsyncSession, runtime: ToolRuntime, command_text: str
+        self, db: AsyncSession, runtime: ToolRuntime, command_text: str, user_id: Optional[UUID],
+        system_context: Dict[str, Any],
     ) -> tuple[str, List[str], List[str], Dict[str, Any]]:
-        """Run a real researcher -> qa-tester -> verifier chain with recorded handoffs."""
-        steps = [
-            "Orchestrator: assign subtasks to researcher, qa-tester, verifier.",
-            "Researcher: inspect docs and hand off the referenced file list.",
-            "QA-tester: verify each referenced file exists; hand off the results.",
-            "Verifier: produce the final pass/fail from QA's output.",
-        ]
-        agents = self._validate_agents(["orchestrator", "research", "qa", "verifier"])
-        host_path = await self._resolve_ws_root(db, command_text)
-        if not host_path:
-            return ("No approved workspace to run the delegation chain on. Register one first.",
-                    steps, agents, {"delegate_error": "no_workspace"})
+        """Multi-agent delegation: the orchestrator plans and each step runs on its registered specialist.
 
-        chain: List[Dict[str, Any]] = []
+        Every handoff is recorded as a child task carrying that agent's real result, an operations
+        feed entry and a delegation memory. A step that reaches a hard boundary pauses (boundary
+        report, checkpoint, approval request) while independent steps continue.
+        """
+        if runtime.workspace_id is None:
+            return ("Delegation needs a workspace. Choose or register one first.", [], ["orchestrator"],
+                    {"delegate_error": "no_workspace"})
+        plan = await self._run_orchestrator(command_text, runtime.workspace_id, user_id, system_context, db=db,
+                                            task_id=runtime.task_id)
+        outcome = plan["outcome"]
         parent_id = runtime.task_id
-
-        async def child(agent: str, description: str) -> UUID:
-            t = Task(id=uuid4(), workspace_id=runtime.workspace_id,
-                     title=f"[{agent}] {description}"[:500], description=description,
-                     task_type="subtask", status="running", priority=5,
-                     context={"parent_task_id": str(parent_id), "agent": agent},
-                     meta_data={"delegated": True},
-                     started_at=datetime.now(timezone.utc),
-                     created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
-            db.add(t)
+        chain: List[Dict[str, Any]] = []
+        for r in outcome["task_results"]:
+            agent = r.get("resolved_agent") or r.get("assigned_agent") or "unassigned"
+            status = r.get("status") or "unknown"
+            step = next((d for i, d in enumerate(plan["steps"]) if i + 1 == r.get("task_id")), None)
+            child = Task(id=uuid4(), workspace_id=runtime.workspace_id,
+                         title=f"[{agent}] {step or command_text}"[:500], description=step or command_text,
+                         task_type="subtask",
+                         status={"completed": "completed", "failed": "failed"}.get(status, "waiting_on_approval"
+                                                                                     if "richard" in status
+                                                                                     or "approval" in status
+                                                                                     else "pending"),
+                         priority=5, context={"parent_task_id": str(parent_id), "agent": agent,
+                                              "plan_task_id": r.get("task_id")},
+                         meta_data={"delegated": True},
+                         result={"agent": agent, "status": status, "output": r.get("output_preview"),
+                                 **({"boundary_report_id": r.get("boundary_report_id")}
+                                    if r.get("boundary_report_id") else {})},
+                         started_at=datetime.now(timezone.utc),
+                         completed_at=datetime.now(timezone.utc) if status in ("completed", "failed") else None,
+                         created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc))
+            db.add(child)
             await db.flush()
-            return t.id
-
-        async def finish(child_id: UUID, agent: str, output: Dict[str, Any], summary: str) -> None:
-            res = await db.execute(select(Task).where(Task.id == child_id))
-            ct = res.scalar_one_or_none()
-            if ct:
-                ct.status = "completed"
-                ct.completed_at = datetime.now(timezone.utc)
-                ct.result = {"agent": agent, "output": output, "summary": summary}
-                ct.updated_at = datetime.now(timezone.utc)
+            summary = (f"{status}: {r.get('output_preview')}" if r.get("output_preview")
+                       else f"{status}" + (f" ({r.get('boundary_type')})" if r.get("boundary_type") else ""))
             await self._feed(db, runtime.workspace_id, parent_id, item_type="delegation",
-                             severity="info", title=f"Handoff: {agent}", message=summary)
-            await memory_service.add(db, content=f"[delegation:{agent}] {summary}",
+                             severity="warning" if status not in ("completed",) else "info",
+                             title=f"Handoff: {agent}", message=summary[:500])
+            await memory_service.add(db, content=f"[delegation:{agent}] {summary[:400]}",
                                      memory_type="delegation", workspace_id=runtime.workspace_id,
                                      task_id=parent_id, importance=0.55)
-            chain.append({"agent": agent, "child_task_id": str(child_id),
-                          "output": output, "summary": summary})
-
-        # 1) Researcher inspects docs (real scan via tool).
-        c1 = await child("researcher", f"Inspect docs in {host_path}")
-        scan = await runtime.scan_workspace(host_path)
-        docs = (scan.get("data") or {}).get("doc_files", []) if scan.get("success") else []
-        referenced = (scan.get("data") or {}).get("top_level_files", []) + docs
-        await finish(c1, "researcher", {"referenced_files": referenced},
-                     f"found {len(referenced)} referenced file(s)")
-
-        # 2) QA-tester verifies the researcher's files exist (consumes handoff).
-        c2 = await child("qa-tester", "Verify researcher's referenced files exist")
-        sep = "\\" if "\\" in host_path else "/"
-        base = host_path.rstrip("\\/")
-        checks = []
-        for rel in referenced:
-            full = base + sep + rel.replace("/", sep)
-            chk = fs_inspector.path_exists(full)
-            checks.append({"file": rel, "exists": bool(chk.accessible and chk.exists)})
-        verified = sum(1 for c in checks if c["exists"])
-        await finish(c2, "qa-tester", {"checks": checks, "verified": verified, "total": len(checks)},
-                     f"verified {verified}/{len(checks)} files exist")
-
-        # 3) Verifier produces the final pass/fail from QA's output.
-        c3 = await child("verifier", "Produce final pass/fail from QA results")
-        passed = len(checks) > 0 and verified == len(checks)
-        await finish(c3, "verifier", {"passed": passed, "verified": verified, "total": len(checks)},
-                     f"final verdict: {'PASS' if passed else 'FAIL'}")
-
-        lines = "\n".join(
-            f"  {i+1}. **{h['agent']}** → {h['summary']} (task `{h['child_task_id'][:8]}`)"
-            for i, h in enumerate(chain)
-        )
-        answer = (
-            f"**Multi-agent delegation chain complete** on `{host_path}`.\n\n"
-            f"{lines}\n\n"
-            f"**Final result:** {'PASS' if passed else 'FAIL'} "
-            f"({verified}/{len(checks)} files verified). Each handoff is a child task "
-            f"with its output stored and logged to the operations feed and memory."
-        )
-        return answer, steps, agents, {
-            "delegation": chain,
-            "parent_task_id": str(parent_id),
-            "final_passed": passed,
-        }
+            chain.append({"agent": agent, "child_task_id": str(child.id), "status": status,
+                          "summary": summary[:300]})
+        passed = bool(chain) and outcome["completed"] == len(chain)
+        lines = "\n".join(f"  {i + 1}. **{h['agent']}** → {h['summary']} (task `{h['child_task_id'][:8]}`)"
+                          for i, h in enumerate(chain)) or "  (the orchestrator produced no steps)"
+        waiting = len(outcome["boundaries"])
+        answer = (f"**Multi-agent delegation** ({len(chain)} step(s), {outcome['completed']} completed, "
+                  f"{outcome['failed']} failed{f', {waiting} waiting for your approval' if waiting else ''}).\n\n"
+                  f"{lines}\n\nEach handoff is a child task with the agent's result, logged to the operations "
+                  f"feed and memory.")
+        return answer, plan["steps"], plan["agents"] or outcome["agents_used"], {
+            "delegation": chain, "parent_task_id": str(parent_id), "final_passed": passed,
+            "orchestration": outcome}
 
     async def _handle_remember(
         self, runtime: ToolRuntime, command_text: str
@@ -2303,8 +2453,17 @@ class CommandService:
         workspace_id: UUID,
         user_id: Optional[UUID],
         system_context: Dict[str, Any],
+        *,
+        db: Optional[AsyncSession] = None,
+        task_id: Optional[UUID] = None,
     ) -> Dict[str, Any]:
-        """Run the real Orchestrator (Claude planning) and return plan + agents."""
+        """Run the real Orchestrator: plan, then delegate each step to its specialist.
+
+        With the mission's database session the delegated agents work through their
+        own toolboxes (authority-checked, logged, confined to the workspace) and a step
+        that reaches a hard boundary is paused with a persisted boundary report,
+        checkpoint and approval request while independent steps continue.
+        """
         config = AgentConfig(
             agent_id=uuid4(),
             workspace_id=workspace_id,
@@ -2316,6 +2475,8 @@ class CommandService:
         context = AgentContext(
             workspace_id=workspace_id,
             user_id=user_id,
+            task_id=task_id,
+            db_session=db,
             metadata={"source": "command_center", "system_context": system_context},
         )
         result = await orchestrator.execute(
@@ -2340,11 +2501,24 @@ class CommandService:
             agents = validated or agents
         except Exception:  # noqa: BLE001
             pass
+        data = result.result_data or {}
+        outcome = {
+            "completed": int(data.get("completed_tasks") or 0),
+            "failed": int(data.get("failed_tasks") or 0),
+            "agents_used": list(data.get("agents_used") or []),
+            "task_results": list(data.get("task_results") or []),
+            "boundaries": [{k: b.get(k) for k in ("task_id", "boundary_type", "boundary_report_id", "approval_id",
+                                                   "checkpoint_id") if isinstance(b, dict)}
+                           for b in (data.get("boundaries") or [])],
+            "session_id": data.get("session_id"),
+        }
+        outcome["attempted"] = outcome["completed"] + outcome["failed"]
         return {
             "steps": steps,
             "agents": agents,
             "summary": result.output_text or "",
             "tokens": (result.tokens_used or {}).get("total_tokens", 0),
+            "outcome": outcome,
         }
 
     async def _run_answer(
@@ -2353,8 +2527,9 @@ class CommandService:
         system_context: Dict[str, Any],
         plan_steps: List[str],
         selected_agents: List[str],
+        outcome: Optional[Dict[str, Any]] = None,
     ) -> tuple[str, int]:
-        """Produce the final user-facing answer with Claude over real context."""
+        """Produce the final user-facing answer with Claude over real context and real results."""
         router = get_router()
         system_prompt = (
             "You are JARV, a private autonomous multi-agent AI operations system. "
@@ -2372,6 +2547,13 @@ class CommandService:
             f"EXECUTION PLAN (from the orchestrator, Claude-generated):\n"
             f"- Selected agents: {', '.join(selected_agents) or 'orchestrator'}\n"
             + "\n".join(f"- Step {i+1}: {s}" for i, s in enumerate(plan_steps))
+            + (("\n\nWHAT THE AGENTS ACTUALLY DID (report these results; never claim work that is not here):\n"
+                + "\n".join(f"- {r.get('resolved_agent') or r.get('assigned_agent')}: {r.get('status')}"
+                             + (f" - {r.get('output_preview')}" if r.get('output_preview') else "")
+                             for r in (outcome or {}).get("task_results", []))
+                + ("\nPaused for Richard's approval: " + ", ".join(
+                    str(b.get("boundary_type")) for b in outcome["boundaries"]) if outcome.get("boundaries") else ""))
+               if outcome and outcome.get("task_results") else "")
             + "\n\nProvide the response now."
         )
         request = CompletionRequest(

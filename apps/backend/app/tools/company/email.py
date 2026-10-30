@@ -1,32 +1,92 @@
 """
 JARV Backend - Email Tools
 
-Real email operations with local draft mode when unconfigured.
+email_send, email_read and email_search on the real mailbox through the
+mailer (app/core/business/mailer.py).
 
-SETUP INSTRUCTIONS:
-- Set EMAIL_SERVICE_ENABLED=true in environment
-- Configure SMTP or email service API credentials:
-  - SMTP: EMAIL_SMTP_HOST, EMAIL_SMTP_PORT, EMAIL_SMTP_USER, EMAIL_SMTP_PASSWORD
-  - Gmail API: GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN
-  - SendGrid: SENDGRID_API_KEY
+Setup: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM to send;
+IMAP_HOST, IMAP_PORT, IMAP_USER, IMAP_PASSWORD (IMAP_FOLDER) to read. The
+Settings page shows which are set and checks the connection.
 
-When unconfigured, emails are saved as local drafts in database.
+- Sending always waits for approval: each message goes from Richard's account.
+  Each recipient gets their own message; more than MAX_RECIPIENTS recipients
+  is mass email, a hard boundary with no path here. Attachments must be files
+  inside the workspace folder. Secrets are redacted from subject and body.
+  Without SMTP the message is saved as a draft for Richard and nothing is sent.
+- Reading and searching open the mailbox read-only (nothing is marked read,
+  moved or deleted). The "drafts" folder is JARV's own saved drafts. Without
+  IMAP only those drafts are available.
 """
 from typing import Dict, Any, Type, List, Optional
+from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
-from datetime import datetime
 import logging
-import os
+import json
+from uuid import UUID, uuid4
+from sqlalchemy import select, or_
 
 from app.core.tools import ToolBase, ToolConfig, ToolContext, ToolResult
 from app.core.agents.base import AuthorityLevel
+from app.core.business import mailer
+from app.core.security import redact_secrets
+from app.tools.memory.storage import _memory_scope
+from app.models.integrations import OutboundMessageDraft
 
 logger = logging.getLogger(__name__)
 
+MAX_RECIPIENTS = 10
+_DRAFT_FOLDERS = ("draft", "drafts")
 
-def is_email_configured() -> bool:
-    """Check if email service is configured"""
-    return os.getenv("EMAIL_SERVICE_ENABLED", "false").lower() == "true"
+
+async def _attachment_paths(context: ToolContext, names: List[str]) -> List[Path]:
+    """Resolve attachments inside the workspace folder; anything else is refused."""
+    if not names:
+        return []
+    from app.core.workspaces import fs_inspector
+    from app.models.workspace import Workspace
+
+    ws = (await context.db_session.execute(select(Workspace).where(Workspace.id == context.workspace_id))).scalar_one()
+    host = (ws.config or {}).get("root_path")
+    root = fs_inspector.host_to_container(host) if host else None
+    if root is None or not root.is_dir():
+        raise ValueError("Attachments need a workspace folder; this workspace has none")
+    root = root.resolve()
+    paths: List[Path] = []
+    for name in names:
+        target = (root / name).resolve()
+        if root != target and root not in target.parents:
+            raise PermissionError(f"Attachment '{name}' is outside the workspace folder")
+        if fs_inspector._is_banned(str(target)) or not target.is_file():
+            raise LookupError(f"No file at '{name}' in the workspace")
+        paths.append(target)
+    return paths
+
+
+def _draft_row(row: OutboundMessageDraft) -> Dict[str, Any]:
+    return {"message_id": str(row.id), "from_addr": "local-draft", "subject": row.subject or "",
+            "date": row.created_at.isoformat(), "preview": row.body[:160], "read": True,
+            "has_attachments": bool((row.meta_data or {}).get("attachment_references"))}
+
+
+def _mail_row(m: Dict[str, Any]) -> Dict[str, Any]:
+    return {"message_id": m["message_id"], "from_addr": m["from_email"], "subject": m["subject"], "date": m["date"],
+            "preview": redact_secrets(m["body"])[:400], "read": False, "has_attachments": m["has_attachments"]}
+
+
+async def _drafts(context: ToolContext, limit: int, query: Optional[str] = None):
+    db, agent_id = await _memory_scope(context)
+    stmt = select(OutboundMessageDraft).where(
+        OutboundMessageDraft.owner_id == UUID(str(context.user_id)),
+        OutboundMessageDraft.workspace_id == UUID(str(context.workspace_id)),
+        OutboundMessageDraft.agent_id == agent_id,
+        OutboundMessageDraft.channel_type == "email",
+        OutboundMessageDraft.status == "draft",
+    )
+    if query:
+        stmt = stmt.where(or_(OutboundMessageDraft.subject.ilike(f"%{query}%"),
+                              OutboundMessageDraft.body.ilike(f"%{query}%")))
+    rows = (await db.execute(stmt.order_by(OutboundMessageDraft.created_at.desc()).limit(limit))).scalars().all()
+    return [_draft_row(r) for r in rows]
 
 
 # ===== EMAIL SEND TOOL =====
@@ -51,7 +111,7 @@ class EmailSendOutput(BaseModel):
 
 
 class EmailSendTool(ToolBase):
-    """Tool for sending emails (or saving as drafts when unconfigured)"""
+    """Approved email sending from Richard's account (drafts without SMTP)."""
 
     @property
     def name(self) -> str:
@@ -59,7 +119,8 @@ class EmailSendTool(ToolBase):
 
     @property
     def description(self) -> str:
-        return "Send email with optional attachments. Saves as draft when email service not configured."
+        return ("Send an email from Richard's account (after approval), one message per recipient, attachments from the "
+                "workspace folder. Saves a draft when sending is not set up.")
 
     @property
     def input_schema(self) -> Type[BaseModel]:
@@ -82,52 +143,70 @@ class EmailSendTool(ToolBase):
         return "company"
 
     async def run(self, input_data: Dict[str, Any], context: ToolContext) -> ToolResult:
-        """Execute email send or save as draft"""
-        to = input_data["to"]
-        subject = input_data["subject"]
-        body = input_data["body"]
-        cc = input_data.get("cc") or []
-        bcc = input_data.get("bcc") or []
-        attachments = input_data.get("attachments") or []
-
-        total_recipients = len(to) + len(cc) + len(bcc)
+        """Send each recipient their own message after approval; save a draft when SMTP is not set up."""
+        to = list(input_data["to"])
+        cc = list(input_data.get("cc") or [])
+        bcc = list(input_data.get("bcc") or [])
+        attachments = list(input_data.get("attachments") or [])
+        recipients = list(dict.fromkeys(str(r) for r in to + cc + bcc))
+        subject = redact_secrets(input_data["subject"])
+        body = redact_secrets(input_data["body"])
+        html = bool(input_data.get("html", False))
 
         try:
-            # Check if email service is configured
-            if not is_email_configured():
-                # LOCAL DRAFT MODE: Save email as draft in database
-                from uuid import uuid4
-                draft_id = str(uuid4())
-
-                # In production: Save to EmailDraft table in database
-                logger.info(f"Email service not configured. Saving draft: {draft_id}")
-                logger.info(f"Draft: To={to}, Subject='{subject}'")
-
+            if len(recipients) > MAX_RECIPIENTS:
+                return self._blocked_result(
+                    f"{len(recipients)} recipients is mass email from Richard's account, a hard boundary: at most "
+                    f"{MAX_RECIPIENTS} per message. Draft a campaign instead for Richard to send from his email "
+                    "platform.", approvable=False)
+            if not self._has_approval(context):
+                return self.create_result(success=False, requires_approval=True,
+                    error_message="Sending email from Richard's account waits for his approval.")
+            db, agent_id = await _memory_scope(context)
+            files = await _attachment_paths(context, attachments)
+            live = mailer.smtp_configured()
+            sent: List[Dict[str, Any]] = []
+            failed: List[Dict[str, Any]] = []
+            if live:
+                for address in recipients:
+                    try:
+                        result = await mailer.send_email(address, subject, body, html=html, attachments=files)
+                        sent.append({"to": result["to"], "message_id": result["message_id"]})
+                    except (OSError, ValueError) as exc:
+                        failed.append({"to": address, "error": redact_secrets(str(exc)) or type(exc).__name__})
+            record = OutboundMessageDraft(
+                id=uuid4(), owner_id=UUID(str(context.user_id)),
+                workspace_id=UUID(str(context.workspace_id)), agent_id=agent_id,
+                channel_type="email", destination=json.dumps({"to": to, "cc": cc, "bcc": bcc}),
+                subject=subject, body=body,
+                meta_data={"html": html, "attachment_references": attachments,
+                           "attachments_included": bool(live and files), "sent": sent, "failed": failed},
+                status=("sent" if sent and not failed else "partially_sent" if sent else
+                        "failed" if live else "draft"),
+            )
+            db.add(record)
+            await db.flush()
+            if not live:
                 return self.create_result(
                     success=True,
-                    result_data={
-                        "message_id": draft_id,
-                        "status": "draft",
-                        "mode": "draft",
-                        "recipients": total_recipients,
-                    },
-                    output_text=f"Email saved as draft (service not configured). Draft ID: {draft_id}",
-                )
-
-            # LIVE MODE: Would send via configured email service
-            # This code path only executes if EMAIL_SERVICE_ENABLED=true
-            logger.warning("Email service enabled but SMTP/API integration not implemented yet")
-
+                    result_data={"message_id": str(record.id), "status": "draft", "mode": "draft",
+                                 "recipients": len(recipients), "sent": False, "attachments_included": False,
+                                 "setup": "Set " + ", ".join(mailer.status()["missing_for_sending"]) + " to send."},
+                    output_text=f"Email sending is not set up; saved draft {record.id} for Richard. Nothing was sent.")
             return self.create_result(
-                success=False,
-                error_message="Email service enabled but send integration not yet implemented. Use draft mode.",
+                success=not failed,
+                result_data={"message_id": str(record.id), "status": record.status, "mode": "live",
+                             "recipients": len(recipients), "sent": bool(sent), "delivered": sent, "failed": failed,
+                             "attachments_included": bool(files)},
+                output_text=(f"Sent to {len(sent)} of {len(recipients)} recipient(s)." if sent else
+                             "No message was sent."),
+                error_message=None if not failed else f"{len(failed)} recipient(s) failed: "
+                              + "; ".join(f"{f['to']}: {f['error']}" for f in failed),
             )
-
+        except (PermissionError, LookupError, ValueError) as e:
+            return self.create_result(success=False, error_message=str(e))
         except Exception as e:
-            return self.create_result(
-                success=False,
-                error_message=f"Failed to process email: {str(e)}",
-            )
+            return self.create_result(success=False, error_message=f"Failed to process email: {redact_secrets(str(e))}")
 
 
 # ===== EMAIL READ TOOL =====
@@ -159,7 +238,7 @@ class EmailReadOutput(BaseModel):
 
 
 class EmailReadTool(ToolBase):
-    """Tool for reading emails (local mode when unconfigured)"""
+    """Read-only mailbox reader (saved drafts without IMAP)."""
 
     @property
     def name(self) -> str:
@@ -167,7 +246,7 @@ class EmailReadTool(ToolBase):
 
     @property
     def description(self) -> str:
-        return "Read emails from mailbox. Returns local drafts when email service not configured."
+        return "Read the mailbox read-only (folder, unread only), or folder 'drafts' for JARV's saved drafts."
 
     @property
     def input_schema(self) -> Type[BaseModel]:
@@ -190,41 +269,34 @@ class EmailReadTool(ToolBase):
         return "company"
 
     async def run(self, input_data: Dict[str, Any], context: ToolContext) -> ToolResult:
-        """Execute email read"""
-        folder = input_data["folder"]
-        limit = input_data["limit"]
-        unread_only = input_data["unread_only"]
+        """Read the mailbox read-only, or JARV's saved drafts."""
+        folder = input_data.get("folder") or "inbox"
+        limit = int(input_data.get("limit") or 50)
+        unread_only = bool(input_data.get("unread_only"))
 
         try:
-            if not is_email_configured():
-                # LOCAL MODE: Return local drafts from database
-                # In production: Query EmailDraft table
-                emails = []
-                logger.info("Email service not configured. Returning local drafts.")
-
-                return self.create_result(
-                    success=True,
-                    result_data={
-                        "emails": emails,
-                        "count": len(emails),
-                        "mode": "local",
-                    },
-                    output_text=f"Retrieved {len(emails)} local draft(s) (service not configured)",
-                )
-
-            # LIVE MODE: Would fetch from configured email service
-            logger.warning("Email service enabled but fetch integration not implemented yet")
-
+            await _memory_scope(context)
+            if folder.lower() in _DRAFT_FOLDERS:
+                if unread_only:
+                    return self.create_result(success=False, error_message="Saved drafts have no unread state.")
+                emails, mode = await _drafts(context, limit), "local_drafts"
+            elif mailer.imap_configured():
+                imap_folder = None if folder.lower() == "inbox" else folder
+                emails = [_mail_row(m) for m in await mailer.read_messages(imap_folder, unread_only, min(limit, 200))]
+                mode = "live"
+            else:
+                return self.create_result(success=False, error_message=(
+                    "Mailbox reading is not set up (set " + ", ".join(mailer.status()["missing_for_reading"])
+                    + "); only folder 'drafts' (JARV's saved drafts) is available."))
             return self.create_result(
-                success=False,
-                error_message="Email service enabled but fetch integration not yet implemented. Use local mode.",
+                success=True, result_data={"emails": emails, "count": len(emails), "mode": mode},
+                output_text=(f"Read {len(emails)} message(s) from {folder} (read-only)." if mode == "live" else
+                             f"Retrieved {len(emails)} saved email draft(s)."),
             )
-
+        except (PermissionError, LookupError, ValueError, RuntimeError, OSError) as e:
+            return self.create_result(success=False, error_message=redact_secrets(str(e)) or type(e).__name__)
         except Exception as e:
-            return self.create_result(
-                success=False,
-                error_message=f"Failed to read emails: {str(e)}",
-            )
+            return self.create_result(success=False, error_message=f"Failed to read emails: {redact_secrets(str(e))}")
 
 
 # ===== EMAIL SEARCH TOOL =====
@@ -246,7 +318,7 @@ class EmailSearchOutput(BaseModel):
 
 
 class EmailSearchTool(ToolBase):
-    """Tool for searching emails (local mode when unconfigured)"""
+    """Read-only mailbox search (saved drafts without IMAP)."""
 
     @property
     def name(self) -> str:
@@ -254,7 +326,7 @@ class EmailSearchTool(ToolBase):
 
     @property
     def description(self) -> str:
-        return "Search emails by query. Searches local drafts when email service not configured."
+        return "Search the mailbox read-only by text and sender, or JARV's saved drafts."
 
     @property
     def input_schema(self) -> Type[BaseModel]:
@@ -277,38 +349,35 @@ class EmailSearchTool(ToolBase):
         return "company"
 
     async def run(self, input_data: Dict[str, Any], context: ToolContext) -> ToolResult:
-        """Execute email search"""
+        """Server-side search of the mailbox (read-only), or of JARV's saved drafts."""
         query = input_data["query"]
         folder = input_data.get("folder")
-        limit = input_data["limit"]
+        limit = int(input_data.get("limit") or 50)
+        from_addr = input_data.get("from_addr")
 
         try:
-            if not is_email_configured():
-                # LOCAL MODE: Search local drafts in database
-                # In production: Query EmailDraft table with search
-                emails = []
-                logger.info(f"Email service not configured. Searching local drafts: {query}")
-
-                return self.create_result(
-                    success=True,
-                    result_data={
-                        "emails": emails,
-                        "count": len(emails),
-                        "mode": "local",
-                    },
-                    output_text=f"Found {len(emails)} matching local draft(s) (service not configured)",
-                )
-
-            # LIVE MODE: Would search via configured email service
-            logger.warning("Email service enabled but search integration not implemented yet")
-
+            await _memory_scope(context)
+            if folder and folder.lower() in _DRAFT_FOLDERS or (folder is None and not mailer.imap_configured()):
+                emails, mode = await _drafts(context, limit, query), "local_drafts"
+                if from_addr:
+                    emails = [row for row in emails if row["from_addr"] == from_addr]
+            elif mailer.imap_configured():
+                imap_folder = None if not folder or folder.lower() == "inbox" else folder
+                emails = [_mail_row(m) for m in await mailer.search_messages(query, imap_folder, from_addr,
+                                                                             min(limit, 200))]
+                mode = "live"
+            else:
+                return self.create_result(success=False, error_message=(
+                    "Mailbox search is not set up (set " + ", ".join(mailer.status()["missing_for_reading"])
+                    + "); only folder 'drafts' (JARV's saved drafts) can be searched."))
+            if input_data.get("has_attachments") is not None:
+                emails = [row for row in emails if row["has_attachments"] == input_data["has_attachments"]]
             return self.create_result(
-                success=False,
-                error_message="Email service enabled but search integration not yet implemented. Use local mode.",
+                success=True, result_data={"emails": emails, "count": len(emails), "mode": mode},
+                output_text=(f"Found {len(emails)} matching message(s) in the mailbox (read-only)." if mode == "live"
+                             else f"Found {len(emails)} matching saved draft(s)."),
             )
-
+        except (PermissionError, LookupError, ValueError, RuntimeError, OSError) as e:
+            return self.create_result(success=False, error_message=redact_secrets(str(e)) or type(e).__name__)
         except Exception as e:
-            return self.create_result(
-                success=False,
-                error_message=f"Failed to search emails: {str(e)}",
-            )
+            return self.create_result(success=False, error_message=f"Failed to search emails: {redact_secrets(str(e))}")

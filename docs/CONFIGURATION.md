@@ -85,6 +85,26 @@ GEMINI_API_KEY=your_gemini_key
 OLLAMA_BASE_URL=http://localhost:11434
 ```
 
+### Memory Embedding Configuration
+
+Every memory is embedded on write and searched by semantic similarity plus
+keyword overlap. No key is needed: by default JARV uses its built-in local
+embedder (`jarv-hash-v1`), which runs offline and matches word, phrase, and
+sub-word overlap. Set a provider for neural embeddings that also match
+synonyms.
+
+```env
+# auto (default): openai when OPENAI_API_KEY is set, otherwise local
+EMBEDDING_PROVIDER=auto        # auto | local | openai | ollama | custom
+EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_DIMENSIONS=1536      # must stay 1536 (the memories.embedding column size)
+CUSTOM_EMBEDDING_ENDPOINT=     # only for EMBEDDING_PROVIDER=custom
+```
+
+Vectors from different models are never compared. Each row records the model
+that produced it; after changing provider, existing rows stay keyword-searchable
+and can be re-embedded with `memory_service.backfill_embeddings`.
+
 ### Authority Configuration
 
 ```env
@@ -131,10 +151,36 @@ BANNED_FOLDERS=/path/to/banking,/path/to/crypto
 
 ```env
 VOICE_ENABLED=false
-STT_PROVIDER=whisper
-TTS_PROVIDER=elevenlabs
-ELEVENLABS_API_KEY=your_key
+VOICEBOX_BASE_URL=http://voicebox:17493
+VOICEBOX_PROFILE_ID=
+VOICEBOX_CONNECT_TIMEOUT_SECONDS=3
+VOICEBOX_READ_TIMEOUT_SECONDS=180
+VOICEBOX_MAX_AUDIO_BYTES=26214400
+WAKEWORD_MODEL_DIR=/data/voice-models/sherpa-kws-gigaspeech
 ```
+
+Voicebox is an optional CPU service in the private Compose network. Start it with
+`docker compose --profile voice up -d --build voicebox`; do not publish its port,
+because the upstream API has no authentication. JARV proxies authenticated
+transcription, speech generation, status, cancellation, and audio requests.
+
+After the backend and Voicebox are healthy, sign in as an administrator and use
+the cockpit's **Set up JARV voice** action to create the persistent Kokoro
+American-male profile. Use **Install wake model** to download and checksum-verify
+the Apache-2.0 English sherpa-onnx model into `WAKEWORD_MODEL_DIR`. Browser
+hands-free operation is opt-in: microphone access is requested explicitly and
+16 kHz audio frames are sent to the self-hosted JARV detector while enabled. Use
+**Update wake phrase** to regenerate and runtime-validate the installed keyword
+file as “Talk to me”; disable hands-free before updating it. The local detector
+and Voicebox Whisper recognizer accept “Talk to me” without a JARV prefix. After
+the phrase, the captured instruction is sent through the normal authenticated
+command/authority pipeline. Voicebox spoken replies can be interrupted by wake
+detection or the explicit interrupt control.
+
+Voicebox CPU inference is supported but can be slow, and the first speech
+generation downloads the selected TTS model. Real microphone accuracy,
+false-trigger rate, generated audio quality, and barge-in behavior still require
+hands-on acceptance on the target browser and hardware.
 
 ### Monitoring and Logging
 
@@ -155,13 +201,28 @@ BACKUP_RETENTION_DAYS=30
 
 ### Email Configuration
 
+Sending (support replies, the agents' `email_send` after approval, notifications to you) uses SMTP;
+reading (the support inbox, `email_read`, `email_search`) uses IMAP, opened read-only. Leave them blank
+to keep email off: messages are then saved as drafts. The older `EMAIL_SMTP_*` / `EMAIL_IMAP_*` names
+are still read when these are unset.
+
 ```env
-SMTP_HOST=smtp.gmail.com
+SMTP_HOST=smtp.your-provider.com
 SMTP_PORT=587
-SMTP_USER=your_email
-SMTP_PASSWORD=your_password
-SMTP_FROM=noreply@your-domain.com
+SMTP_USER=you@your-domain.com
+SMTP_PASSWORD=app-password-from-your-provider
+SMTP_FROM=you@your-domain.com
+IMAP_HOST=imap.your-provider.com
+IMAP_PORT=993
+IMAP_USER=you@your-domain.com
+IMAP_PASSWORD=app-password-from-your-provider
+IMAP_FOLDER=INBOX
+NOTIFY_EMAIL=you@your-domain.com        # where JARV notifies you (defaults to your login email)
+NOTIFY_WEBHOOK_URL=https://ntfy.sh/your-topic   # optional: Slack, Discord or ntfy webhook
 ```
+
+The dashboard's Settings page shows which services are configured (never their values) and has a
+Check button per service that tests the connection without sending or spending anything.
 
 ## Backend Configuration
 

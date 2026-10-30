@@ -1,15 +1,18 @@
 """
 JARV Backend - SelfEvolutionAgent
 
-Proposes improvement ideas for JARV's behaviour from experience.
+Improves JARV's way of working in a workspace through the verified
+self-evolution pipeline (app.core.evolution.engine, via the self-evolution
+tools): it proposes changes to rules, runbooks, agent instructions, tool
+selection, operating plans and swarm strategy from the workspace's
+experience; every proposal is safety-checked and verified; only verified,
+safe changes are applied (protected-rule changes wait for Richard); every
+applied change is versioned and can be rolled back.
 
-This agent NEVER applies, activates, versions, or rolls back any change. It has
-no access to the verified self-evolution pipeline (a separate subsystem that
-owns change application, versioning, verification, and rollback). Everything
-this agent produces is a PROPOSAL ONLY. When an LLM provider is configured it
-drafts improvement proposals via the model router; otherwise it returns an
-honest limited response. There are no fabricated impact scores, no false
-"evolution applied" claims, and no false rollback_available guarantees.
+- With a model provider and a workspace, it works through those tools.
+- Without a provider but inside a workspace, the caller's proposed changes are
+  recorded as workflow changes and verified (applied only when the input asks).
+- With no database session it can only draft text, and says nothing was saved.
 """
 from typing import Dict, Any, List, Optional, Type
 import logging
@@ -66,29 +69,67 @@ class SelfEvolutionAgent(AgentBase):
 
     @property
     def default_tools(self) -> list[str]:
-        return ['experience_log_success', 'experience_query_pattern', 'memory_search']
+        from app.core.tools.base import ToolConfig
+        from app.tools.evolution import EVOLUTION_TOOLS
+
+        return ['experience_log_success', 'experience_query_pattern', 'memory_search',
+                'summarise_experience', 'extract_lesson', 'list_experience_records'] + [
+            tool(ToolConfig()).name for tool in EVOLUTION_TOOLS]
 
     async def run(
         self,
         input_data: Dict[str, Any],
         context: AgentContext,
     ) -> AgentResult:
+        if self.tools_enabled(context):
+            outcome = await self.use_tools(context, _brief(input_data), instructions=_INSTRUCTIONS, max_steps=16)
+            return self.result_from_tools(outcome, mode="tools")
+        if context.db_session is not None and context.workspace_id is not None and input_data.get("proposed_changes"):
+            return await self._record(input_data, context)
+        return await self._draft(input_data, context)
+
+    async def _record(self, input_data: Dict[str, Any], context: AgentContext) -> AgentResult:
+        """Record the caller's proposed changes as workflow changes, verify them, and apply if asked."""
+        from app.core.evolution.engine import evolution_engine, view
+
+        db, ws = context.db_session, context.workspace_id
+        trigger = str(input_data.get("trigger") or "pattern")
+        apply = bool((input_data.get("context") or {}).get("apply"))
+        records = []
+        for text in [str(c).strip() for c in input_data.get("proposed_changes") or [] if str(c).strip()]:
+            record = await evolution_engine.propose(
+                db, ws, evolution_type="workflow", target={}, change={"note": text}, title=text[:200],
+                reasoning=f"Proposed after a {trigger}", expected_benefit="", proposed_by="self_evolution",
+                trigger=trigger, task_id=context.task_id)
+            if record.status != "blocked":
+                await evolution_engine.verify(db, ws, record)
+                if apply and record.status == "verified":
+                    await evolution_engine.approve(db, ws, record)
+            records.append(view(record))
+        applied = [r for r in records if r["status"] == "applied"]
+        blocked = [r for r in records if r["status"] == "blocked"]
+        return self.create_result(
+            success=True,
+            result_data={"trigger": trigger, "applied": bool(applied), "records": records,
+                         "proposals": [r["title"] for r in records], "rationale": "", "provider_used": None,
+                         "limitations": [f"{len(blocked)} proposal(s) blocked by the safety guard"] if blocked else []},
+            output_text=(f"{len(records)} change(s) recorded: {len(applied)} applied, {len(blocked)} blocked, "
+                         f"{len(records) - len(applied) - len(blocked)} awaiting approval or review"),
+            tools_used=["create_self_evolution_record", "verify_self_evolution_change"]
+            + (["approve_safe_self_evolution_change"] if applied else []))
+
+    async def _draft(self, input_data: Dict[str, Any], context: AgentContext) -> AgentResult:
+        """No database session: draft proposals as text only."""
         try:
             trigger = input_data.get("trigger", "pattern")
             proposed_changes = list(input_data.get("proposed_changes", []) or [])
 
             self.logger.info(f"Self-evolution proposal drafting triggered by: {trigger}")
 
-            # This agent can ONLY propose. Applying/activating/versioning/
-            # rolling-back a change is owned by the verified self-evolution
-            # pipeline, which is a separate subsystem not wired in here.
+            # No database session: nothing can be recorded, verified or applied.
             limitations: List[str] = [
-                "These are PROPOSALS ONLY. Applying, activating, versioning, or "
-                "rolling back any change requires the verified self-evolution "
-                "pipeline (a separate subsystem) and was NOT performed by this "
-                "agent. No change was applied.",
-                "No safety/verification gate was run here; proposals must pass "
-                "the pipeline's safety checks before any change is considered.",
+                "This run has no database session, so these proposals were not recorded, "
+                "verified or applied; run inside a workspace to use the self-evolution pipeline.",
             ]
 
             proposals: List[str] = []
@@ -146,9 +187,8 @@ class SelfEvolutionAgent(AgentBase):
 
             if not proposals:
                 proposals = [
-                    "Configure an LLM provider to generate improvement "
-                    "proposals, then route accepted ones through the verified "
-                    "self-evolution pipeline for safety review and application.",
+                    "Run this inside a workspace with recorded experience so proposals can be "
+                    "drawn from real outcomes and verified before they are applied.",
                 ]
 
             output_text = (
@@ -198,3 +238,22 @@ class SelfEvolutionAgent(AgentBase):
             if s:
                 out.append(s)
         return rationale, out
+
+
+_INSTRUCTIONS = (
+    "Improve how this workspace works, from evidence. Start with summarise_experience and "
+    "list_self_evolution_history. Propose specific changes with the propose_* tools (rules, runbooks, agent "
+    "instructions, tool selection, operating plan, swarm strategy), each with the evidence in its reasoning. "
+    "Apply only changes that verified as safe (approve_safe_self_evolution_change); protected-rule changes wait "
+    "for Richard. Never propose weakening safety, authority, logging, audit, approvals, verification, secrets or "
+    "limits: such changes are blocked. Roll back an applied change that made outcomes worse. Finish with what "
+    "you proposed, applied and rolled back.")
+
+
+def _brief(input_data: Dict[str, Any]) -> str:
+    lines = [f"Trigger: {input_data.get('trigger') or 'pattern'}"]
+    for key, value in (input_data.get("context") or {}).items():
+        lines.append(f"{key}: {value}")
+    for change in input_data.get("proposed_changes") or []:
+        lines.append(f"Candidate change: {change}")
+    return "\n".join(lines)

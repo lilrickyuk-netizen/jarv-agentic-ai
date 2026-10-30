@@ -1,16 +1,8 @@
 """
-JARV Backend - Asset Management System
+JARV Backend - Assets
 
-Comprehensive system for creating, storing, managing, and retrieving digital assets.
+The licence-checked asset library (library.py): sourcing from free-licence
+libraries, licence normalisation and checks, downloads into the workspace,
+and the attribution manifest. Asset records are persisted in the assets and
+asset_licences tables and exposed through /api/assets and the asset tools.
 """
-from app.core.assets.manager import AssetManager, AssetType, AssetStatus
-from app.core.assets.storage import AssetStorage
-from app.core.assets.templates import AssetTemplateLibrary
-
-__all__ = [
-    "AssetManager",
-    "AssetType",
-    "AssetStatus",
-    "AssetStorage",
-    "AssetTemplateLibrary",
-]

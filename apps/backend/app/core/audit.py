@@ -37,6 +37,7 @@ class AuditLogger:
         agent_id: Optional[UUID] = None,
         task_id: Optional[UUID] = None,
         session_id: Optional[UUID] = None,
+        parent_agent_id: Optional[UUID] = None,
         details: Optional[Dict[str, Any]] = None,
         severity: str = "info",
     ) -> AuditLog:
@@ -60,14 +61,21 @@ class AuditLogger:
             Created audit log entry
         """
         try:
+            safe_agent_name = redact_secrets(agent_name)
+            safe_action = redact_secrets(action)
+            safe_result = redact_secrets(result)
             audit_entry = AuditLog(
+                workspace_id=workspace_id,
                 user_id=user_id,
+                agent_id=agent_id,
                 actor_type="agent",
-                action=f"agent.{agent_name}.{action}",
+                action=redact_secrets(f"agent.{safe_agent_name}.{safe_action}"),
                 action_category="agent",
-                description=f"Agent '{agent_name}' {action} ({result})",
+                description=redact_secrets(
+                    f"Agent '{safe_agent_name}' {safe_action} ({safe_result})"),
                 target_type="agent",
                 target_id=str(agent_id) if agent_id else None,
+                session_id=session_id,
                 success=str(result).lower() in ("success", "completed", "started", "ok"),
                 ip_address=None,  # Will be set by API layer if available
                 user_agent=None,  # Will be set by API layer if available
@@ -81,6 +89,7 @@ class AuditLogger:
                     "workspace_id": str(workspace_id) if workspace_id else None,
                     "task_id": str(task_id) if task_id else None,
                     "session_id": str(session_id) if session_id else None,
+                    "parent_agent_id": str(parent_agent_id) if parent_agent_id else None,
                     **(details or {}),
                 }),
             )
@@ -90,12 +99,12 @@ class AuditLogger:
             await session.refresh(audit_entry)
 
             logger.debug(
-                f"Audit log created: {agent_name}.{action}",
+                f"Audit log created: {safe_agent_name}.{safe_action}",
                 extra={
                     "audit_id": str(audit_entry.id),
-                    "agent_name": agent_name,
-                    "action": action,
-                    "result": result,
+                    "agent_name": safe_agent_name,
+                    "action": safe_action,
+                    "result": safe_result,
                 }
             )
 
@@ -106,8 +115,8 @@ class AuditLogger:
                 f"Failed to create audit log: {e}",
                 exc_info=True,
                 extra={
-                    "agent_name": agent_name,
-                    "action": action,
+                    "agent_name": redact_secrets(agent_name),
+                    "action": redact_secrets(action),
                 }
             )
             await session.rollback()
@@ -122,6 +131,7 @@ class AuditLogger:
         agent_id: Optional[UUID] = None,
         task_id: Optional[UUID] = None,
         session_id: Optional[UUID] = None,
+        parent_agent_id: Optional[UUID] = None,
         input_data: Optional[Dict[str, Any]] = None,
     ) -> AuditLog:
         """
@@ -150,6 +160,7 @@ class AuditLogger:
             agent_id=agent_id,
             task_id=task_id,
             session_id=session_id,
+            parent_agent_id=parent_agent_id,
             details={"input": input_data} if input_data else None,
             severity="info",
         )
@@ -167,6 +178,7 @@ class AuditLogger:
         agent_id: Optional[UUID] = None,
         task_id: Optional[UUID] = None,
         session_id: Optional[UUID] = None,
+        parent_agent_id: Optional[UUID] = None,
         output_data: Optional[Dict[str, Any]] = None,
     ) -> AuditLog:
         """
@@ -201,6 +213,7 @@ class AuditLogger:
             agent_id=agent_id,
             task_id=task_id,
             session_id=session_id,
+            parent_agent_id=parent_agent_id,
             details={
                 "execution_time": execution_time,
                 "tokens_used": tokens_used,
@@ -221,6 +234,7 @@ class AuditLogger:
         agent_id: Optional[UUID] = None,
         task_id: Optional[UUID] = None,
         session_id: Optional[UUID] = None,
+        parent_agent_id: Optional[UUID] = None,
         stack_trace: Optional[str] = None,
     ) -> AuditLog:
         """
@@ -251,6 +265,7 @@ class AuditLogger:
             agent_id=agent_id,
             task_id=task_id,
             session_id=session_id,
+            parent_agent_id=parent_agent_id,
             details={
                 "error_message": error_message,
                 "error_type": error_type,
@@ -340,16 +355,24 @@ class AuditLogger:
             Audit log entry
         """
         try:
+            safe_action = redact_secrets(action)
+            safe_result = redact_secrets(result)
+            safe_resource_type = redact_secrets(resource_type)
             audit_entry = AuditLog(
                 user_id=user_id,
-                action=action,
-                resource_type=resource_type,
-                resource_id=resource_id,
-                details={
+                actor_type="system",
+                action=safe_action,
+                action_category="system",
+                description=redact_secrets(
+                    f"System event '{safe_action}' on '{safe_resource_type}' ({safe_result})"),
+                target_type=safe_resource_type,
+                target_id=str(resource_id) if resource_id else None,
+                success=str(result).lower() in ("success", "completed", "started", "ok"),
+                meta_data=redact_secrets({
                     "result": result,
+                    "severity": severity,
                     **(details or {}),
-                },
-                severity=severity,
+                }),
             )
 
             session.add(audit_entry)
@@ -444,6 +467,7 @@ async def audit_agent_start(
     agent_id: Optional[UUID] = None,
     task_id: Optional[UUID] = None,
     session_id: Optional[UUID] = None,
+    parent_agent_id: Optional[UUID] = None,
     input_data: Optional[Dict[str, Any]] = None,
 ) -> Optional[AuditLog]:
     """
@@ -461,6 +485,7 @@ async def audit_agent_start(
                 agent_id=agent_id,
                 task_id=task_id,
                 session_id=session_id,
+                parent_agent_id=parent_agent_id,
                 input_data=input_data,
             )
     except Exception as e:
@@ -479,6 +504,7 @@ async def audit_agent_complete(
     agent_id: Optional[UUID] = None,
     task_id: Optional[UUID] = None,
     session_id: Optional[UUID] = None,
+    parent_agent_id: Optional[UUID] = None,
     output_data: Optional[Dict[str, Any]] = None,
 ) -> Optional[AuditLog]:
     """
@@ -500,6 +526,7 @@ async def audit_agent_complete(
                 agent_id=agent_id,
                 task_id=task_id,
                 session_id=session_id,
+                parent_agent_id=parent_agent_id,
                 output_data=output_data,
             )
     except Exception as e:
@@ -516,6 +543,7 @@ async def audit_agent_error(
     agent_id: Optional[UUID] = None,
     task_id: Optional[UUID] = None,
     session_id: Optional[UUID] = None,
+    parent_agent_id: Optional[UUID] = None,
     stack_trace: Optional[str] = None,
 ) -> Optional[AuditLog]:
     """
@@ -535,6 +563,7 @@ async def audit_agent_error(
                 agent_id=agent_id,
                 task_id=task_id,
                 session_id=session_id,
+                parent_agent_id=parent_agent_id,
                 stack_trace=stack_trace,
             )
     except Exception as e:

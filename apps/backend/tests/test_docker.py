@@ -4,6 +4,11 @@ Tests for Docker and container functionality
 import pytest
 import subprocess
 import os
+import shutil
+
+import yaml
+
+from tests.repo_paths import repo_path
 
 
 @pytest.mark.docker
@@ -26,22 +31,22 @@ def test_dockerfile_exists():
 def test_docker_compose_valid():
     """Test docker-compose files are valid"""
     # Tests run from apps/backend, docker-compose files are at repo root
-    compose_files = [
-        os.path.join("..", "..", "docker-compose.yml"),
-        os.path.join("..", "..", "docker-compose.prod.yml"),
-    ]
+    compose_files = [repo_path("docker-compose.yml"), repo_path("docker-compose.prod.yml")]
 
     for compose_file in compose_files:
-        assert os.path.exists(compose_file), f"{compose_file} not found"
+        assert compose_file.is_file(), f"{compose_file} not found"
+        data = yaml.safe_load(compose_file.read_text())
+        assert isinstance(data.get("services"), dict) and data["services"]
 
-        # Validate syntax
-        result = subprocess.run(
-            ["docker", "compose", "-f", compose_file, "config", "--quiet"],
-            capture_output=True,
-            text=True
-        )
-        # Will show warnings but should not error
-        assert result.returncode in [0, 1]  # 1 is warnings only
+        # Full validation with the Docker CLI where it is installed
+        if shutil.which("docker"):
+            result = subprocess.run(
+                ["docker", "compose", "-f", str(compose_file), "config", "--quiet"],
+                capture_output=True,
+                text=True
+            )
+            # Will show warnings but should not error
+            assert result.returncode in [0, 1]  # 1 is warnings only
 
 
 @pytest.mark.docker
@@ -56,16 +61,15 @@ def test_env_example_files_exist():
         assert os.path.exists(env_file), f"{env_file} not found"
 
     # Also check if root .env.production.example exists (optional)
-    root_env = os.path.join("..", "..", ".env.production.example")
-    if os.path.exists(root_env):
-        pass  # Optional file, OK if exists
+    root_env = repo_path(".env.production.example")
+    assert root_env.is_file(), f"{root_env} not found"
 
 
 @pytest.mark.docker
 def test_gitignore_excludes_secrets():
     """Test .gitignore properly excludes secrets"""
     # .gitignore is at repo root
-    gitignore_path = os.path.join("..", "..", ".gitignore")
+    gitignore_path = repo_path(".gitignore")
     with open(gitignore_path, 'r') as f:
         gitignore_content = f.read()
 

@@ -19,35 +19,15 @@ def test_health_check(client):
 
 
 def test_version_info(client):
-    """Test version information endpoint"""
+    """The public version endpoint names the service and version and nothing about the environment"""
     response = client.get("/version")
 
     assert response.status_code == status.HTTP_200_OK
     data = response.json()
-
     assert data["service"] == "jarv-backend"
-    assert "version" in data
-    assert "environment" in data
-    assert "python_version" in data
-    assert "platform" in data
-    assert "timestamp" in data
-    assert "features" in data
-    assert "configuration" in data
-
-    # Check features
-    features = data["features"]
-    assert "swarm_enabled" in features
-    assert "self_evolution_enabled" in features
-    assert "company_operator_enabled" in features
-    assert "self_healing_enabled" in features
-    assert "voice_enabled" in features
-
-    # Check configuration
-    config = data["configuration"]
-    assert "log_level" in config
-    assert "default_authority_level" in config
-    assert "max_subagents_per_workspace" in config
-    assert "max_subagents_global" in config
+    assert "version" in data and "timestamp" in data
+    for private in ("environment", "python_version", "platform", "features", "configuration"):
+        assert private not in data
 
 
 def test_readiness_check(client):

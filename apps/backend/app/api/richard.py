@@ -20,12 +20,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import CurrentUserId
+from app.core.scoping import as_uuid, visible
 from app.core.database import get_db
 from app.core.richard.workflow import RichardBoundaryWorkflow
 from app.core.richard.service import (
     RichardBoundaryService, OK, NOT_FOUND, FORBIDDEN,
 )
-from app.models.boundary import ApprovalWindow, BoundaryApproval, BoundaryReport
+from app.models.boundary import ApprovalWindow, BoundaryApproval, BoundaryReport, SafeCheckpoint
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,39 @@ def _access_to_http(access: str) -> None:
             status_code=403,
             detail="Not authorised for this workspace's boundary case",
         )
+
+
+async def _auto_resume(db: AsyncSession, result: Dict[str, Any], operator: str) -> Dict[str, Any]:
+    """After Richard approves, resume the paused mission without a second step.
+
+    The decision is committed first so the resume (which runs in its own session,
+    usually on a worker) sees it. The resume itself is the idempotent workflow
+    resume, so a repeated approval or a redelivered job cannot run the action twice.
+    """
+    if not result.get("decided") or result.get("status") != "approved":
+        return result
+    from app.core.runtime.dispatcher import dispatch_resume
+
+    approval_id = result.get("approval_id")
+    report_id = result.get("boundary_report_id")
+    query = select(SafeCheckpoint).order_by(SafeCheckpoint.created_at.desc())
+    if approval_id:
+        query = query.where(SafeCheckpoint.approval_id == UUID(str(approval_id)))
+    elif report_id:
+        query = query.where(SafeCheckpoint.boundary_report_id == UUID(str(report_id)))
+    else:
+        return {**result, "auto_resume": {"dispatched": False, "reason": "no approval reference"}}
+    checkpoint = (await db.execute(query)).scalars().first()
+    if checkpoint is None and report_id and approval_id:
+        checkpoint = (await db.execute(
+            select(SafeCheckpoint).where(SafeCheckpoint.boundary_report_id == UUID(str(report_id)))
+            .order_by(SafeCheckpoint.created_at.desc())
+        )).scalars().first()
+    if checkpoint is None:
+        return {**result, "auto_resume": {"dispatched": False, "reason": "no checkpoint to resume"}}
+    await db.commit()
+    dispatched = await dispatch_resume(checkpoint.id, operator, reason="approved")
+    return {**result, "auto_resume": dispatched}
 
 
 def _decision_to_http(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -140,7 +174,7 @@ async def list_pending_decisions(
 ) -> List[Dict[str, Any]]:
     """List pending Richard decisions (paused hard boundaries awaiting a decision)."""
     wf = RichardBoundaryWorkflow(db)
-    return await wf.list_pending_decisions(workspace_id=workspace_id)
+    return await wf.list_pending_decisions(workspace_id=workspace_id, owner=as_uuid(operator))
 
 
 @router.get("/boundary-reports/{report_id}")
@@ -151,7 +185,7 @@ async def get_boundary_report(
 ) -> Dict[str, Any]:
     """Read a persisted BoundaryReport."""
     row = (await db.execute(
-        select(BoundaryReport).where(BoundaryReport.id == report_id)
+        select(BoundaryReport).where(BoundaryReport.id == report_id, visible(BoundaryReport, operator))
     )).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Boundary report not found")
@@ -197,7 +231,7 @@ async def submit_decision(
         raise HTTPException(status_code=403, detail=result["reason"])
     if result.get("blocked") and "not found" in result.get("reason", ""):
         raise HTTPException(status_code=404, detail=result["reason"])
-    return result
+    return await _auto_resume(db, result, str(operator))
 
 
 @router.get("/approval-windows/{approval_id}")
@@ -208,7 +242,7 @@ async def get_approval_window(
 ) -> Dict[str, Any]:
     """Read the ApprovalWindow opened for an approval (its exact scope)."""
     approval = (await db.execute(
-        select(BoundaryApproval).where(BoundaryApproval.id == approval_id)
+        select(BoundaryApproval).where(BoundaryApproval.id == approval_id, visible(BoundaryApproval, operator))
     )).scalar_one_or_none()
     if approval is None:
         raise HTTPException(status_code=404, detail="Approval not found")
@@ -313,7 +347,7 @@ async def decide_report(
         release_scope=body.release_scope, expiry_seconds=body.expiry_seconds,
         single_use=body.single_use)
     _access_to_http(access)
-    return _decision_to_http(result)
+    return await _auto_resume(db, _decision_to_http(result), str(operator))
 
 
 @router.post("/reports/{report_id}/resume")

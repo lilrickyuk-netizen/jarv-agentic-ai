@@ -10,9 +10,14 @@ from pydantic import BaseModel, Field
 import logging
 from datetime import datetime, timedelta
 import secrets
+import hashlib
+from uuid import UUID, uuid4
+from sqlalchemy import select
 
 from app.core.tools import ToolBase, ToolConfig, ToolContext, ToolResult
 from app.core.agents.base import AuthorityLevel
+from app.tools.memory.storage import _memory_scope
+from app.models.integrations import ApiCredential
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +92,11 @@ class ApiKeyManageTool(ToolBase):
         action = input_data["action"]
 
         try:
+            if not self._has_approval(context):
+                return self.create_result(
+                    success=False, requires_approval=True,
+                    error_message="API key operations require an explicit approved execution context.",
+                )
             if action == "create":
                 return await self._create_key(input_data, context)
             elif action == "revoke":
@@ -120,44 +130,29 @@ class ApiKeyManageTool(ToolBase):
         expires_in_days = input_data.get("expires_in_days")
         scopes = input_data.get("scopes") or []
 
-        # Generate secure API key
+        db, agent_id = await _memory_scope(context)
         key_value = f"jarv_{secrets.token_urlsafe(32)}"
-        key_id = secrets.token_hex(16)
+        key_id = uuid4()
         key_prefix = key_value[:8]
 
         created_at = datetime.utcnow()
         expires_at = created_at + timedelta(days=expires_in_days) if expires_in_days else None
 
-        # In production: Store in ApiKey table
-        # from app.models.api_key import ApiKey
-        # from app.core.database import get_db
-        # import hashlib
-        # async for session in get_db():
-        #     # Hash the key value for security
-        #     key_hash = hashlib.sha256(key_value.encode()).hexdigest()
-        #     api_key = ApiKey(
-        #         id=key_id,
-        #         agent_id=context.agent_id,
-        #         service_name=service_name,
-        #         description=description,
-        #         key_hash=key_hash,
-        #         key_prefix=key_prefix,
-        #         scopes=scopes,
-        #         created_at=created_at,
-        #         expires_at=expires_at,
-        #         last_used_at=None,
-        #         is_active=True,
-        #     )
-        #     session.add(api_key)
-        #     await session.commit()
-
-        logger.info(f"Created API key: {key_id}, service={service_name}")
+        db.add(ApiCredential(
+            id=key_id, owner_id=UUID(str(context.user_id)),
+            workspace_id=UUID(str(context.workspace_id)), agent_id=agent_id,
+            service_name=service_name, description=description,
+            key_hash=hashlib.sha256(key_value.encode()).hexdigest(),
+            key_prefix=key_prefix, scopes=scopes, expires_at=expires_at, is_active=True,
+        ))
+        await db.flush()
+        logger.info(f"Created API credential {key_id} for service={service_name}; secret omitted")
 
         return self.create_result(
             success=True,
             result_data={
                 "action": "create",
-                "key_id": key_id,
+                "key_id": str(key_id),
                 "key_value": key_value,
                 "keys": None,
                 "count": None,
@@ -174,17 +169,18 @@ class ApiKeyManageTool(ToolBase):
                 error_message="key_id required for revoke action",
             )
 
-        # In production: Update ApiKey to set is_active=False
-        # from app.models.api_key import ApiKey
-        # from app.core.database import get_db
-        # async for session in get_db():
-        #     api_key = await session.get(ApiKey, key_id)
-        #     if not api_key or api_key.agent_id != context.agent_id:
-        #         return self.create_result(success=False, error_message="API key not found")
-        #     api_key.is_active = False
-        #     await session.commit()
-
-        logger.info(f"Revoked API key: {key_id}")
+        db, agent_id = await _memory_scope(context)
+        credential = (await db.execute(select(ApiCredential).where(
+            ApiCredential.id == UUID(key_id),
+            ApiCredential.owner_id == UUID(str(context.user_id)),
+            ApiCredential.workspace_id == UUID(str(context.workspace_id)),
+            ApiCredential.agent_id == agent_id,
+        ))).scalar_one_or_none()
+        if credential is None:
+            return self.create_result(success=False, error_message="API credential not found in this scope")
+        credential.is_active = False
+        await db.flush()
+        logger.info(f"Revoked API credential {credential.id}")
 
         return self.create_result(
             success=True,
@@ -200,27 +196,20 @@ class ApiKeyManageTool(ToolBase):
 
     async def _list_keys(self, input_data: Dict[str, Any], context: ToolContext) -> ToolResult:
         """List API keys"""
-        keys = []
-
-        # In production: Query ApiKey table
-        # from app.models.api_key import ApiKey
-        # from app.core.database import get_db
-        # from sqlalchemy import select
-        # async for session in get_db():
-        #     stmt = select(ApiKey).filter(ApiKey.agent_id == context.agent_id, ApiKey.is_active == True)
-        #     result = await session.execute(stmt)
-        #     for api_key in result.scalars():
-        #         keys.append({
-        #             "key_id": str(api_key.id),
-        #             "service_name": api_key.service_name,
-        #             "description": api_key.description,
-        #             "key_prefix": api_key.key_prefix,
-        #             "scopes": api_key.scopes,
-        #             "created_at": api_key.created_at.isoformat(),
-        #             "expires_at": api_key.expires_at.isoformat() if api_key.expires_at else None,
-        #             "last_used_at": api_key.last_used_at.isoformat() if api_key.last_used_at else None,
-        #             "is_active": api_key.is_active,
-        #         })
+        db, agent_id = await _memory_scope(context)
+        records = (await db.execute(select(ApiCredential).where(
+            ApiCredential.owner_id == UUID(str(context.user_id)),
+            ApiCredential.workspace_id == UUID(str(context.workspace_id)),
+            ApiCredential.agent_id == agent_id,
+        ).order_by(ApiCredential.created_at.desc()))).scalars().all()
+        keys = [{
+            "key_id": str(record.id), "service_name": record.service_name,
+            "description": record.description, "key_prefix": record.key_prefix,
+            "scopes": record.scopes, "created_at": record.created_at.isoformat(),
+            "expires_at": record.expires_at.isoformat() if record.expires_at else None,
+            "last_used_at": record.last_used_at.isoformat() if record.last_used_at else None,
+            "is_active": record.is_active,
+        } for record in records]
 
         logger.info(f"Listed {len(keys)} API keys")
 
@@ -245,63 +234,35 @@ class ApiKeyManageTool(ToolBase):
                 error_message="key_id required for rotate action",
             )
 
-        # In production: Get old key, revoke it, create new one
-        # from app.models.api_key import ApiKey
-        # from app.core.database import get_db
-        # import hashlib
-        # async for session in get_db():
-        #     old_key = await session.get(ApiKey, key_id)
-        #     if not old_key or old_key.agent_id != context.agent_id:
-        #         return self.create_result(success=False, error_message="API key not found")
-        #
-        #     # Revoke old key
-        #     old_key.is_active = False
-        #
-        #     # Create new key with same settings
-        #     new_key_value = f"jarv_{secrets.token_urlsafe(32)}"
-        #     new_key_id = secrets.token_hex(16)
-        #     new_key_prefix = new_key_value[:8]
-        #     new_key_hash = hashlib.sha256(new_key_value.encode()).hexdigest()
-        #
-        #     new_api_key = ApiKey(
-        #         id=new_key_id,
-        #         agent_id=context.agent_id,
-        #         service_name=old_key.service_name,
-        #         description=old_key.description,
-        #         key_hash=new_key_hash,
-        #         key_prefix=new_key_prefix,
-        #         scopes=old_key.scopes,
-        #         created_at=datetime.utcnow(),
-        #         expires_at=old_key.expires_at,
-        #         last_used_at=None,
-        #         is_active=True,
-        #     )
-        #     session.add(new_api_key)
-        #     await session.commit()
-        #
-        #     return self.create_result(
-        #         success=True,
-        #         result_data={
-        #             "action": "rotate",
-        #             "key_id": new_key_id,
-        #             "key_value": new_key_value,
-        #             "keys": None,
-        #             "count": None,
-        #         },
-        #         output_text=f"Rotated API key. New key: {new_key_value}",
-        #     )
-
-        logger.info(f"Rotated API key: {key_id}")
-
-        # Placeholder response
+        db, agent_id = await _memory_scope(context)
+        old = (await db.execute(select(ApiCredential).where(
+            ApiCredential.id == UUID(key_id),
+            ApiCredential.owner_id == UUID(str(context.user_id)),
+            ApiCredential.workspace_id == UUID(str(context.workspace_id)),
+            ApiCredential.agent_id == agent_id,
+            ApiCredential.is_active.is_(True),
+        ))).scalar_one_or_none()
+        if old is None:
+            return self.create_result(success=False, error_message="Active API credential not found in this scope")
+        old.is_active = False
         new_key_value = f"jarv_{secrets.token_urlsafe(32)}"
-        new_key_id = secrets.token_hex(16)
+        new_key_id = uuid4()
+        db.add(ApiCredential(
+            id=new_key_id, owner_id=old.owner_id, workspace_id=old.workspace_id,
+            agent_id=old.agent_id, service_name=old.service_name,
+            description=old.description,
+            key_hash=hashlib.sha256(new_key_value.encode()).hexdigest(),
+            key_prefix=new_key_value[:8], scopes=old.scopes,
+            expires_at=old.expires_at, is_active=True,
+        ))
+        await db.flush()
+        logger.info(f"Rotated API credential {old.id}; raw key omitted")
 
         return self.create_result(
             success=True,
             result_data={
                 "action": "rotate",
-                "key_id": new_key_id,
+                "key_id": str(new_key_id),
                 "key_value": new_key_value,
                 "keys": None,
                 "count": None,

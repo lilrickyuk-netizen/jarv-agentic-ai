@@ -14,7 +14,8 @@ from app.core.agents.base import AuthorityLevel
 
 logger = logging.getLogger(__name__)
 
-# Global terminal session storage (in production, use Redis or database)
+# Terminal sessions live in the process that runs the mission using them (a mission's tools run in
+# one worker process) and end with that process.
 _terminal_sessions: Dict[str, Any] = {}
 
 

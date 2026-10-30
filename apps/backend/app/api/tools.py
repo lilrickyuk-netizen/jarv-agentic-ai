@@ -4,13 +4,14 @@ JARV Backend - Tools API
 REST API endpoints for tool management and discovery.
 """
 from fastapi import APIRouter, HTTPException, Depends
+from app.core.auth import get_current_user_id
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 from app.core.tools import get_registry, ToolMetadata
 from app.core.agents.base import AuthorityLevel
 
-router = APIRouter(tags=["tools"])
+router = APIRouter(tags=["tools"], dependencies=[Depends(get_current_user_id)])
 
 
 # Response models

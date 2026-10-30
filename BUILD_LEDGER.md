@@ -4,14 +4,25 @@
 - **Project Name**: JARV Agentic AI System
 - **Owner**: Richard Curley
 - **Build Type**: First, last, final, and only production build
-- **Status**: COMPLETE ✅ PRODUCTION READY
+- **Status**: LEGACY PHASE CLAIM; REPAIRS 10-15 UNDER VERIFICATION
 
 ## CURRENT STATUS
-- **Current Phase**: PHASE 25: FINAL ACCEPTANCE
-- **Current Task**: All Phase 25 tasks complete (16/16)
-- **Build Status**: PRODUCTION READY ✅
+- **Current Phase**: REPAIR CONTINUATION (10-15)
+- **Current Task**: None. Repairs 11-15 complete 2026-10-30; final acceptance passed; merging pre-repair-11 to master
+- **Build Status**: NOT ACCEPTED; Repairs 11-15 remain open under the locked execution order
 - **Build Start Date**: 2026-06-03
 - **Build Completion Date**: 2026-06-03
+
+## LOCKED REPAIR ORDER (2026-10-20)
+- Repair 10 is IN_PROGRESS. The focused tests recorded below verify subsets only; they do not prove all 31 agents are executable, all declared tools are real, or the complete orchestrator/swarm acceptance flow.
+- Repair 11: COMPLETE (2026-10-23, commit f5e92cb). Persistent, workspace-isolated semantic memory and the verified-learning lifecycle; migration verified up/down/up on PostgreSQL+pgvector; full suite 433 passed. See REPAIR-11-MEMORY-LEARNING.
+- Repair 12: COMPLETE (2026-10-29, commit 6286395; full suite 553 passed): 12e-1 provider failover, 12e-2 deployments, 12e-3 swarm/company/workspace/evolution, 12e-4a business, 12e-4b revenue/infrastructure/assets, 12e-4c voice. History: 12a (mission runtime, recovery, automatic resume) COMPLETE 2026-10-23 (444 passed, migration up/down/up verified, dashboard type-check clean). 12b observability COMPLETE 2026-10-29 (REPAIR-12B-OBSERVABILITY); 12c agent toolbox + engineering agents COMPLETE 2026-10-29 (460 passed; REPAIR-12C-AGENT-TOOLS); 12d operations agents on real tools COMPLETE 2026-10-29 (484 passed, verified live; REPAIR-12D-OPS-AGENTS); 12e in progress (REPAIR-12E-1-PROVIDER-FAILOVER first). See REPAIR-12A-MISSION-RUNTIME.
+- Repair 13: COMPLETE for non-paid knowledge installation, retrieval, authenticated administration, and attributed public-source research. All 31 registered agents passed individual retrieval/task verification. Live paid-LLM generation is DEFERRED to Repair 15 and is not reported as passed.
+- Repair 14: IN_PROGRESS after the user approved the cinematic UI and Voicebox integration direction. Implementation and runtime checks are recorded below; hands-on voice acceptance remains open.
+- Repair 15: production hardening and hands-on end-to-end acceptance.
+- No production readiness or system-completion claim is authorized before the final acceptance flow passes.
+- Earlier entries labeled Repair 11-14 below were created before the locked definitions were supplied. They are reclassified as supporting work and do not complete those locked repairs.
+- Last verified continuation update: 2026-10-29.
 
 ## BUILD PROGRESS SUMMARY
 
@@ -11743,9 +11754,1015 @@ KNOWN LIMITATIONS (honest):
 - Safe-work continuation remains SEQUENTIAL (Repair-8 limitation; out of scope).
 - Hard-boundary detection remains the Repair-7 deterministic detector (signal-only).
 
-NEXT TASK: REPAIR-10 -- recommended: (a) wire the Richard Boundary Operator dashboard
-page to the new /api/richard/reports* endpoints (currently static); and/or (b) add a
-worker/async layer so safe-parallel-work continuation is genuinely concurrent; and/or
-(c) thread a real Task row through the orchestrator so BoundaryReport.task_id is
-populated end-to-end in the normal mission flow. Swarm authority/scope guards and the
-remaining missing tool groups remain deferred.
+TASK ID: REPAIR-10
+TASK NAME: Verify remaining tool-permission and approval gates
+STATUS: IN_PROGRESS (SUBSET OF GATES VERIFIED)
+FILES CREATED: None
+FILES MODIFIED: BUILD_LEDGER.md
+COMMANDS RUN:
+- docker run --rm -v "$PWD/apps/backend:/app" -w /app -e TEST_DATABASE_URL=sqlite:////tmp/jarv-r10-test.db -e TESTING=1 -e SECRET_KEY=<test-only> jarv-backend-test:latest python -m pytest -q tests/test_repair10_tool_permissions_pause_resume.py
+- docker run --rm -v "$PWD/apps/backend:/app" -w /app -e TEST_DATABASE_URL=sqlite:////tmp/jarv-r10-agents-test.db -e TESTING=1 -e SECRET_KEY=<test-only> jarv-backend-test:latest python -m pytest -q tests/test_repair10_tool_permissions_pause_resume.py tests/test_agent_roster.py tests/test_agent_tool_wiring.py
+TESTS RUN:
+- Dedicated Repair 10 suite: 22 passed
+- Combined Repair 10, agent roster, and tool wiring suites: 29 passed
+RESULT: Focused gates pass for permission enforcement, pause-only semantics, linked boundary records, expiry/rejection/single-use rules, scoped/redacted Richard APIs, agent/tool registry wiring, real execution of all 31 agents, constructibility of all 135 declared tools, orchestrator delegation, and real child swarm execution. The expanded focused suite has 208 passed; the latest full backend suite has 355 passed with temporary PostgreSQL and a read-only Docker CLI mount. The complete migration chain was upgraded, downgraded to base, and re-upgraded on disposable PostgreSQL to head r10_local_crm; all new integration tables were verified. This remains a code/test gate only, not hands-on company operation or proof of all provider integrations.
+BLOCKERS: Repair 10 remains open. No production services are running. DATABASE_URL, REDIS_URL, all LLM provider keys, Slack, email, and calendar credentials were absent at the 2026-10-21 check. Cloud resource provisioning/scaling/termination, backup/restore, deployment/rollback, live mail/Slack/calendar sends, webhook delivery, live pricing, and model-provider operation remain unavailable without real adapters/credentials. The full suite passed only with temporary local PostgreSQL/Redis service checks and a read-only Docker CLI mount; hands-on end-to-end project acceptance has not been run.
+NEXT TASK: Continue Repair 10's remaining tool and authority/execution gates, then prove the complete orchestrator/swarm project flow before starting locked Repair 11.
+
+TASK ID: REPAIR-10-CHECKPOINT-4
+TASK NAME: Verify truthful infrastructure states and PostgreSQL migration reversibility
+STATUS: IN_PROGRESS (PROVIDER ACTIONS EXPLICITLY BLOCKED)
+FILES CREATED:
+- apps/backend/tests/test_infrastructure_runtime_tools.py
+FILES MODIFIED:
+- apps/backend/app/tools/infrastructure/monitoring.py
+- apps/backend/app/tools/infrastructure/resources.py
+- apps/backend/app/tools/infrastructure/cost.py
+- apps/backend/app/tools/infrastructure/backup.py
+- apps/backend/app/tools/infrastructure/deployment.py
+- apps/backend/alembic/versions/2026_06_03_1536-d784fd7cd498_create_all_63_models_complete.py
+- BUILD_LEDGER.md
+COMMANDS RUN:
+- Disposable PostgreSQL/pgvector upgrade to head, downgrade to base, and re-upgrade to head
+- docker Compose base and dev config validation
+- 208-test focused Repair 10 suite (latest full focused rerun before the DNS addition)
+- Full backend suite with PostgreSQL readiness and read-only Docker CLI mounted: 355 passed
+TESTS RUN:
+- Local telemetry, cloud provider mutation truthfulness, DNS resolver, and cost honesty: 6 passed
+- Full backend suite including DNS regression: 355 passed
+RESULT: Local host metrics/health use real psutil values; DNS A/AAAA/CNAME/MX/TXT use real resolvers; unsupported cloud metrics/mutations, backup/restore, and deploy/rollback now fail without claiming external work. Cost estimates identify local reference rates and reject unknown providers. Base migration forward FKs and pgvector import are repaired; migration upgrade/downgrade/re-upgrade succeeds on disposable PostgreSQL.
+BLOCKERS: No cloud/deployment/backup provider adapters or external credentials are configured. Full end-to-end system acceptance remains open.
+NEXT TASK: Continue the remaining Repair 10 declared-tool audit and real orchestrator/project acceptance. Do not start locked Repair 11 yet.
+
+TASK ID: REPAIR-10-FOLLOWUP-A
+TASK NAME: Link orchestrator boundary records to persisted plan tasks
+STATUS: COMPLETE (SUPPORTING WORK ONLY)
+FILES CREATED: None
+FILES MODIFIED:
+- apps/backend/app/agents/orchestrator.py
+- apps/backend/tests/test_repair8_richard_workflow.py
+- BUILD_LEDGER.md
+COMMANDS RUN:
+- docker run --rm -v "$PWD/apps/backend:/app" -w /app -e TEST_DATABASE_URL=sqlite:////tmp/jarv-r11-task-link-verify.db -e TESTING=1 -e SECRET_KEY=<test-only> jarv-backend-test:latest python -m pytest -q tests/test_repair8_richard_workflow.py::test_orchestrator_persists_and_links_the_blocked_plan_task
+- docker run --rm -v "$PWD/apps/backend:/app" -w /app -e TEST_DATABASE_URL=sqlite:////tmp/jarv-r10-r11-focused.db -e TESTING=1 -e SECRET_KEY=<test-only> jarv-backend-test:latest python -m pytest -q tests/test_repair10_tool_permissions_pause_resume.py tests/test_agent_roster.py tests/test_agent_tool_wiring.py tests/test_orchestrator_delegation.py tests/test_repair8_richard_workflow.py::test_orchestrator_persists_and_links_the_blocked_plan_task
+TESTS RUN:
+- Task-link regression: 1 passed
+- Combined Repair 10/11 gates, roster, tool wiring, and orchestrator delegation: 33 passed
+RESULT: An approval-gated plan task now has a real scoped Task row; its UUID is passed into the boundary workflow and linked by both BoundaryReport and SafeCheckpoint. The existing workflow moves that row to waiting_on_approval. Task descriptive fields are generic to avoid duplicating sensitive action text.
+BLOCKERS: Full Repair 8 integration tests that invoke safe agents also touch the global Postgres audit engine; that unrelated service was not started for this focused check. No production acceptance claim is made.
+NEXT TASK: REPAIR-10 - verify every declared agent/tool and actual orchestrator execution.
+
+TASK ID: REPAIR-10-FOLLOWUP-B
+TASK NAME: Add swarm owner and child permission guards
+STATUS: IN_PROGRESS (GUARDS ONLY; SWARM BEHAVIOR GATE OPEN)
+FILES CREATED:
+- apps/backend/tests/test_repair12_swarm_scope.py
+FILES MODIFIED:
+- apps/backend/app/core/swarm/manager.py
+- apps/backend/app/api/swarm.py
+- BUILD_LEDGER.md
+COMMANDS RUN:
+- docker run --rm -v "$PWD/apps/backend:/app" -w /app -e TEST_DATABASE_URL=sqlite:////tmp/jarv-r12-api-verify.db -e TESTING=1 -e SECRET_KEY=<test-only> jarv-backend-test:latest python -m pytest -q --tb=short tests/test_repair12_swarm_scope.py
+TESTS RUN:
+- Repair 12 swarm authorization, scope, persistence, and API authentication tests: 4 passed
+RESULT: Swarm creation now requires an authenticated owner, active owned workspace, active lead agent in that workspace, enabled swarm capability, and a workspace-bounded parent task. Swarm runs and sub-agents are persisted. Child authority cannot exceed the lead; child tools must be a subset of lead tools; active child count is bounded; child metadata records the parent and workspace scope. Swarm create/spawn API routes require auth and a request-scoped DB session.
+BLOCKERS: The change enforces mutation guards and persistence only. It does not prove real worker-backed swarm execution, lifecycle/recovery, costs, or end-to-end parent/child task behavior required by locked Repair 10.
+NEXT TASK: REPAIR-10 - implement and test real swarm behavior and the complete 31-agent/tool gate.
+
+TASK ID: REPAIR-10-FOLLOWUP-C
+TASK NAME: Enforce audit redaction at persistence boundaries
+STATUS: COMPLETE (SUPPORTING SAFETY WORK ONLY)
+FILES CREATED:
+- apps/backend/tests/test_repair13_audit_redaction.py
+FILES MODIFIED:
+- apps/backend/app/core/audit.py
+- apps/backend/app/models/operations.py
+- BUILD_LEDGER.md
+COMMANDS RUN:
+- docker run --rm -v "$PWD/apps/backend:/app" -w /app -e TEST_DATABASE_URL=sqlite:////tmp/jarv-r13-combined.db -e TESTING=1 -e SECRET_KEY=<test-only> jarv-backend-test:latest python -m pytest -q --tb=short tests/test_repair13_audit_redaction.py tests/test_tool_authority_repair6.py::test_toolrun_input_is_redacted
+TESTS RUN:
+- AuditLogger tool event, direct AuditLog insert, system event, and ToolRun redaction: 4 passed
+RESULT: AuditLogger now redacts free-text action/result fields; log_system_event writes valid fields for the current AuditLog schema; ORM insert/update listeners redact every AuditLog text and JSON field so direct writers cannot bypass the rule. Real-database tests confirm secret-shaped values are absent after persistence.
+BLOCKERS: This guarantees AuditLog ORM persistence and the tested ToolRun path. It does not claim that arbitrary application logs or other non-audit storage are globally secret-free.
+NEXT TASK: REPAIR-10 - verify all authority, execution, approval, and swarm gates.
+
+TASK ID: PRE-LOCKED-DASHBOARD-FOUNDATION
+TASK NAME: Restore dashboard API/auth and executable frontend checks
+STATUS: SUPPORTING WORK COMPLETE; LOCKED REPAIR 14 UI REMAINS OPEN
+FILES CREATED:
+- apps/dashboard/src/lib/api.ts
+- apps/dashboard/src/lib/auth.ts
+FILES MODIFIED:
+- apps/dashboard/package.json
+- apps/dashboard/package-lock.json
+- apps/dashboard/jest.config.js
+- apps/dashboard/__tests__/dashboard.test.tsx
+- BUILD_LEDGER.md
+COMMANDS RUN:
+- cd apps/dashboard && npm ci
+- npm install --save-dev @testing-library/react@^14.3.1 @testing-library/jest-dom@^6.6.4 @types/jest@^29.5.14 jest@^29.7.0 jest-environment-jsdom@^29.7.0 identity-obj-proxy@^3.0.0
+- npm test -- --runInBand
+- npm run type-check
+- npm run build
+TESTS RUN:
+- Dashboard Jest suite: 2 passed
+- Dashboard TypeScript check: passed
+- Next.js production build: passed; 41 static pages generated
+RESULT: Restored the absent shared API client and authentication helpers used throughout the existing dashboard; aligned response types with live backend health/version contracts; made the existing Jest setup executable and type-safe. This does not implement the designed cinematic UI, voice-first interaction, wake phrase, real company telemetry, or secret-entry mode required by locked Repair 14.
+BLOCKERS: npm reported 49 dependency advisories after adding the test tooling (6 moderate, 42 high, 1 critical); dependency upgrades were not applied because they would expand scope and could introduce breaking changes.
+NEXT TASK: REPAIR-10 - complete the locked Repair 10 acceptance gate before starting locked Repair 11.
+
+TASK ID: REPAIR-10-CHECKPOINT-2
+TASK NAME: Implement and behavior-test declared tool groups
+STATUS: IN_PROGRESS (SUBSTANTIAL SUBSETS VERIFIED)
+FILES CREATED:
+- apps/backend/app/models/integrations.py
+- apps/backend/app/models/company_crm.py
+- apps/backend/alembic/versions/2026_10_20_1500-r10_api_integrations.py
+- apps/backend/alembic/versions/2026_10_20_1530-r10_local_crm.py
+- apps/backend/tests/test_infrastructure_runtime_tools.py
+- apps/backend/tests/test_analysis_tools.py
+- apps/backend/tests/test_api_integration_tools.py
+- apps/backend/tests/test_calendar_tools.py
+- apps/backend/tests/test_crm_tools.py
+- apps/backend/tests/test_experience_tools.py
+- apps/backend/tests/test_memory_tools.py
+- apps/backend/tests/test_workspace_tools.py
+FILES MODIFIED:
+- apps/backend/app/models/__init__.py
+- apps/backend/app/tools/analysis/code.py
+- apps/backend/app/tools/analysis/quality.py
+- apps/backend/app/tools/analysis/structure.py
+- apps/backend/app/tools/api/keys.py
+- apps/backend/app/tools/api/webhook.py
+- apps/backend/app/tools/company/calendar.py
+- apps/backend/app/tools/company/crm.py
+- apps/backend/app/tools/company/email.py
+- apps/backend/app/tools/company/slack.py
+- apps/backend/app/tools/infrastructure/monitoring.py
+- apps/backend/app/tools/infrastructure/resources.py
+- apps/backend/app/tools/infrastructure/backup.py
+- apps/backend/app/tools/infrastructure/deployment.py
+- apps/backend/app/tools/infrastructure/cost.py
+- apps/backend/app/tools/experience/logging.py
+- apps/backend/app/tools/experience/management.py
+- apps/backend/app/tools/experience/query.py
+- apps/backend/app/tools/memory/management.py
+- apps/backend/app/tools/memory/storage.py
+- apps/backend/app/tools/workspace/backup.py
+- apps/backend/app/tools/workspace/management.py
+- apps/backend/app/core/tools/base.py
+- apps/backend/app/models/integrations.py
+- apps/backend/app/models/company_crm.py
+- apps/backend/tests/test_agent_roster.py
+- apps/backend/tests/test_agent_tool_wiring.py
+- apps/backend/tests/test_api_integration_tools.py
+- apps/backend/tests/test_experience_tools.py
+- apps/backend/tests/test_memory_tools.py
+- apps/backend/tests/test_workspace_tools.py
+- apps/backend/tests/test_crm_tools.py
+- apps/backend/tests/test_calendar_tools.py
+COMMANDS RUN:
+- docker test image: focused Repair 10 suite across agents, tools, boundary, approval, resume, swarm, analysis, persistence and local integrations
+TESTS RUN:
+- Combined focused suite: 208 passed
+- Workspace management/backup/export/import suite: 4 passed
+- Memory CRUD/management suite: 2 passed
+- Experience persistence/provenance and management suite: 2 passed
+- API key lifecycle: 1 passed
+- Webhook lifecycle: 1 passed
+- CRM local operations: 1 passed
+- Calendar event lifecycle: 1 passed
+- Email/Slack local draft lifecycle: 1 passed
+- Infrastructure local telemetry and providerless mutation honesty: 5 passed
+- Diagnostics on touched backend files: no errors
+RESULT: Multiple previously successful-but-empty tool paths now persist and query real scoped records. API credentials and webhook secrets are stored as hashes. Email/Slack are persisted drafts only and explicitly not sent; webhook registrations are stored but delivery is disabled; calendar sync is disabled. Local infrastructure telemetry is measured; cloud metrics without adapters and all providerless mutations fail honestly. Cost values are explicitly local reference rates, not live pricing.
+BLOCKERS: Repair 10 is NOT COMPLETE. Registry construction and the 208 focused tests do not establish every declared operation or end-to-end company operation works. Remaining external adapters/provider actions and infrastructure mutation/recovery require real implementations, credentials and live services. The new Alembic chain has not been applied against PostgreSQL.
+NEXT TASK: Continue locked Repair 10 with remaining declared tools and authority cases; start required local services only when safely configured, then verify database migrations and real runtime connections.
+
+TASK ID: REPAIR-10-CHECKPOINT-3
+TASK NAME: Verify full backend suite and PostgreSQL migration chain
+STATUS: COMPLETE (VERIFICATION CHECKPOINT ONLY)
+FILES CREATED: None
+FILES MODIFIED:
+- apps/backend/alembic/versions/2026_06_03_1536-d784fd7cd498_create_all_63_models_complete.py
+- BUILD_LEDGER.md
+COMMANDS RUN:
+- docker run --rm --network host -v /home/lilri/jarv-agentic-ai:/workspace -w /workspace/apps/backend -e DATABASE_URL=<temporary localhost PostgreSQL> -e TESTING=1 -e SECRET_KEY=<test-only> jarv-backend-test:latest python -m alembic upgrade head
+- docker run --rm --network host -v /home/lilri/jarv-agentic-ai:/workspace -v /mnt/wsl/docker-desktop/cli-tools/usr/bin/docker:/usr/bin/docker:ro -v /mnt/wsl/docker-desktop/cli-tools/usr/local/lib/docker/cli-plugins/docker-compose:/usr/local/lib/docker/cli-plugins/docker-compose:ro -w /workspace/apps/backend -e DATABASE_URL=<temporary localhost PostgreSQL> -e TEST_DATABASE_URL=sqlite:////tmp/jarv-full-backend-all-pass.db -e TESTING=1 -e SECRET_KEY=<test-only> jarv-backend-test:latest python -m pytest -q --tb=short
+TESTS RUN:
+- Full backend suite: 354 passed
+- Migration chain on fresh PostgreSQL/pgvector: upgraded to r10_local_crm; version row and all six new integration tables verified
+RESULT: Fixed two fresh-install base migration defects (forward/cyclic self-evolution foreign keys and the missing pgvector type import). Applied base, Repair 9, Repair 10 expiry, API-integration and local CRM/calendar/draft migrations successfully on disposable PostgreSQL. Full backend suite passed with actual PostgreSQL readiness and Docker compose syntax test enabled.
+BLOCKERS: This verifies backend tests and schema only. It does not establish real provider credentials, live service adapters, worker restart recovery, dashboard/browser acceptance, or full JARV project execution.
+NEXT TASK: Continue Repair 10 remaining advertised tool behavior and end-to-end acceptance gates; do not advance to locked Repair 11 until Repair 10 is complete.
+
+TASK ID: REPAIR-13-NONPAID-KNOWLEDGE-RESEARCH
+TASK NAME: Install, retrieve, update, and source public knowledge for all 31 agents
+STATUS: COMPLETE (NON-PAID ACCEPTANCE; LIVE LLM DEFERRED TO REPAIR 15)
+FILES CREATED:
+- apps/backend/app/models/agent_knowledge.py
+- apps/backend/app/core/knowledge/catalog.py
+- apps/backend/app/core/knowledge/context.py
+- apps/backend/app/core/knowledge/service.py
+- apps/backend/app/api/agent_knowledge.py
+- apps/backend/alembic/versions/2026_10_21_1600-r13_agent_knowledge.py
+- apps/backend/tests/test_agent_knowledge_runtime.py
+- apps/backend/app/core/research/public_search.py
+- apps/backend/tests/test_research_public_sources.py
+FILES MODIFIED:
+- apps/backend/app/models/agent_knowledge.py
+- apps/backend/app/api/internet.py
+- apps/backend/app/api/agent_knowledge.py
+- apps/backend/app/core/knowledge/catalog.py
+- apps/backend/app/core/knowledge/service.py
+- apps/backend/app/core/agents/specialists/research.py
+- BUILD_LEDGER.md
+COMMANDS RUN:
+- Verified 20 canonical public-source pages using the web fetch service; created 31 original, role-specific briefs with publisher, source title, URL, version, verification timestamp, and SHA-256 content provenance.
+- PostgreSQL Alembic migration upgrade to r13_agent_knowledge, downgrade to r10_local_crm, and re-upgrade to r13_agent_knowledge on the disposable jarvtest3 database.
+- Full backend pytest suite with disposable PostgreSQL/pgvector plus isolated SQLite test DB: 392 passed.
+- Focused knowledge, direct-agent, API install/retrieve/revise, and provider-prompt tests.
+- Live no-key Stack Exchange query and ResearchAgent task with PostgreSQL source persistence; 3 public findings returned with CC BY-SA 3.0/4.0 and author/profile attribution.
+- Live LLM request test: NOT RUN; paid credentials/credit unavailable. Deferred to Repair 15.
+- git diff --check; get_errors on knowledge/runtime/API files.
+TESTS RUN:
+- Individual persistent-knowledge execution for every registered agent: 31 passed.
+- Knowledge ingestion/idempotence/revision, direct AgentBase retrieval, API lifecycle, provider prompt, research persistence, and source API auth scope: 37 passed in test_agent_knowledge_runtime.py.
+- Public search transport, no-result broadening, attribution licensing: 4 passed.
+- Swarm/Richard/relational workflow regressions after fixture seeding: 6 passed.
+- Full backend suite: 392 passed, 0 failed.
+RESULT: 31/31 authoritative registry agents were individually executed with persisted, source-attributed specialist knowledge and task-specific retrieval. Direct AgentBase and customer-support paths retrieve knowledge; shared provider prompts receive cited material. Authenticated admin installation and immutable version updates passed. ResearchAgent now performs real, free Stack Exchange API searches without a model key, includes results as attributed findings, and persists excerpt/license/author/profile URL/version/hash. A live no-key run returned three excerpts and wrote attribution records to PostgreSQL. Knowledge schema migrations upgraded, downgraded, and re-upgraded successfully. The full backend suite passed 398 tests before the final focused research attribution additions; the knowledge/API tests and source adapter tests then passed individually.
+BLOCKERS: Live LLM execution remains explicitly deferred to Repair 15; no provider key/credit was used or claimed. Repair 10 remains open. The user approved the Repair 14 design direction; implementation and remaining voice acceptance are tracked in REPAIR-14-VOICE-CHECKPOINT-1.
+NEXT TASK: Continue Repair 14 voice acceptance after authenticated profile setup. Live paid-LLM acceptance remains scheduled for Repair 15.
+
+TASK ID: REPAIR-14-VOICE-CHECKPOINT-1
+TASK NAME: Implement the approved cinematic dashboard and local CUDA Voicebox path
+STATUS: IN_PROGRESS
+FILES CREATED:
+- services/voicebox/Dockerfile
+- apps/backend/tests/test_voicebox_adapter.py
+- apps/dashboard/src/components/cockpit-core.tsx
+- apps/dashboard/src/components/voice-operator.tsx
+FILES MODIFIED:
+- apps/backend/Dockerfile
+- apps/backend/app/api/v1/voicebox.py
+- apps/backend/app/api/auth.py
+- apps/backend/app/core/config.py
+- apps/backend/app/core/voice/wake_service.py
+- apps/backend/app/main.py
+- apps/backend/pyproject.toml
+- apps/backend/poetry.lock
+- apps/dashboard/src/app/api/backend/[...path]/route.ts
+- apps/dashboard/src/app/dashboard/layout.tsx
+- apps/dashboard/src/app/dashboard/page.tsx
+- apps/dashboard/src/app/globals.css
+- apps/dashboard/src/lib/api.ts
+- apps/dashboard/__tests__/dashboard.test.tsx
+- apps/backend/.env.example
+- docker-compose.yml
+- docs/CONFIGURATION.md
+- BUILD_LEDGER.md
+COMMANDS RUN:
+- WORKSPACE_HOST_ROOT=/tmp docker compose --profile voice build --progress=plain voicebox
+- cd apps/dashboard && npm run type-check
+- docker run --rm -v /home/lilri/jarv-agentic-ai:/workspace -w /workspace/apps/backend -e TESTING=1 -e SECRET_KEY=<test-only> jarv-backend-test:latest python -m pytest tests/test_voicebox_adapter.py -q --tb=short
+- WORKSPACE_HOST_ROOT=/tmp docker compose --profile voice up -d voicebox
+- docker inspect --format '{{.State.Health.Status}}' jarv-voicebox
+- cd apps/dashboard && npm run dev -- --port 3002
+TESTS RUN:
+- Voicebox adapter tests: 7 passed
+- Backend authentication tests: 8 passed
+- Dashboard TypeScript check: passed
+- Voicebox CUDA image build: completed successfully with PyTorch 2.6.0+cu124 and torchaudio 2.6.0+cu124
+- Voicebox runtime health: healthy; startup reports CUDA and NVIDIA GeForce RTX 4050 Laptop GPU
+- Authenticated /auth/me request: 200; is_admin true after refresh-token renewal
+- Admin voice profile provisioning: 200; Kokoro American male preset created
+- Wake model installation/update: original archive checksum verified; persistent keyword file now contains `TALK TO ME`, and the running backend reports phrase_current=true
+- TTS generation status: completed; generated WAV retrieval returned audio/x-wav, 157484 bytes
+- Voicebox STT: after first-request Whisper base model download completed, retry returned exact generated phrase "JARV voice test. Speech output is ready."
+- Dashboard microphone permission: earlier tab reported granted; current shared tab is at login and its microphone state is unverified
+- Synthetic wake checks: the real sherpa model detected generated “Talk to me” using a temporary candidate keyword file; five seconds of silence did not trigger. This does not update the persistent file or prove live microphone acceptance.
+- Local ASR wake fallback: bounded speech segments are transcribed by self-hosted Voicebox; wake-prefix normalization tests cover J-R-V and Jarve variants
+- Dashboard focused tests: 8 passed, including Talk to me without a JARV prefix and leading ASR filler; TypeScript check passed
+- Persistent wake test: backend reports phrase_current=true; installed keyword file detected generated Talk to me and stayed quiet on five seconds of silence
+- Backend Voicebox adapter tests: 10 passed, including phrase refresh, current-status reporting, and active-stream update rejection
+- JARV access recovery: PostgreSQL and Redis restarted healthy; backend restarted; `/health`, `/login`, and `/dashboard` returned HTTP 200; login page renders
+- Wake phrase update control: admin-only Update wake phrase button is shown for stale installed keywords; hands-free remains disabled until phrase_current is true
+- Wake acknowledgment: local TTS "I'm listening" now runs on both KWS wake events and Whisper-confirmed wake-only speech before command capture; transcript matching accepts leading filler, and unmatched speech is reported; live playback after this change is not verified
+- Wake mismatch diagnostics: likely wake-related unmatched text is shown briefly in the browser only; no transcript is logged or saved, and the privacy disclosure states this
+- Browser authentication: backend logs observed login and /auth/me success in one session, but both shared tabs hold the same access token issued about 53 minutes ago (expired) and refresh is rejected; the newly signed-in page is not shared
+- OpenAI credential safety: the value previously found in tracked `.env.example` was cleared. The user confirmed a fresh key is in Git-ignored `apps/backend/.env`; revocation of the earlier exposed key is not independently verified.
+- Provider check: running backend reports OpenAI configured, `DEFAULT_MODEL=gpt-6-luna`, providers `ollama` and `openai`, and healthy status.
+- Paid smoke tests: two `/api/models/test` requests to GPT-6 Luna, each capped at 16 output tokens; each used 22 total tokens, estimated at $0.0000054. No JARV command was executed.
+- Editor diagnostics for voice-operator.tsx: no errors
+RESULT: The approved cockpit and voice operator now use Talk to me as the canonical wake phrase. A real sherpa-onnx test detected generated Talk to me speech and did not trigger on five seconds of silence. The backend admin updater rewrites the installed keyword file atomically, validates the new spotter, restores the old file on failure, and refuses updates during active streams; phrase_current reports whether persistent keywords match. The dashboard exposes the admin update button only for stale keywords and blocks hands-free until the update validates. The local Whisper fallback tolerates ASR prefix noise and displays likely wake-related mismatches transiently. Backend adapter tests (10), dashboard focused tests (8), and TypeScript checks pass. Voicebox remains healthy on the RTX 4050; profile setup, TTS generation/retrieval, and STT remain verified.
+BLOCKERS: The persistent keyword file now reports phrase_current=true and passed the local phrase/silence test. The shared browser is still at login, so authenticated JARV command and live microphone acknowledgment cannot be verified. Revocation of the earlier exposed credential is not independently verified. The user set a £10 ceiling; no application-level cumulative cost guard enforces that ceiling, so further requests must remain individually bounded and usage reviewed. Interruption remains unverified. Repair 10 is still open; this checkpoint is not Repair 14 completion or final acceptance.
+NEXT TASK: Share the authenticated dashboard tab and confirm hands-free/microphone state. Run one harmless read-only JARV command through GPT-6 Luna with strict planner/answer token bounds, then review usage against the £10 ceiling. Confirm the earlier exposed key was revoked. Continue spoken acknowledgment and interruption acceptance; continue Repair 15 only after the locked repair order permits it.
+
+
+TASK ID: REPAIR-11-MEMORY-LEARNING
+TASK NAME: Persistent memory and verified learning
+STATUS: COMPLETE
+AUDIT FINDINGS THAT DROVE THIS REPAIR:
+- core/memory/search.py returned [] for every semantic search; core/memory/embeddings.py returned an all-zero vector when no provider key was set. Neither was on a live path; memory search everywhere was keyword-only.
+- core/jarv_memory.py (the live store used by the command center, tool runtime, agent runner, and agents API) accepted workspace_id in search() but never filtered on it, so missions recalled every workspace's memories. Its owner-agent lookup took the first Agent row in the database, from any workspace.
+- core/evolution/experience.py persisted nothing (returned uuid4) and extract_lesson returned a hard-coded fake lesson string; /api/evolution served this to the Self-Evolution page.
+- The command center's safe self-evolution path told the user changes were "versioned and recorded (reversible)" but wrote no version record.
+- /api/memory, /api/experience, and /api/evolution had no authentication (11 further routers also have none; recorded for Repair 15).
+- Secret redaction missed hyphenated provider keys (sk-proj-..., sk-ant-api03-..., sk-svcacct-...).
+- .gitignore rule `lib/` hid apps/dashboard/src/lib (api.ts, auth.ts) from git; fixed by the owner in commit 24bbe2e.
+FILES CREATED:
+- apps/backend/app/core/memory/taxonomy.py (23 design categories + legacy type mapping)
+- apps/backend/app/core/memory/context.py (task-scoped recall context + prompt rendering)
+- apps/backend/app/core/learning/__init__.py
+- apps/backend/app/core/learning/service.py (experience capture, clustering, evidence/human verification, application tracking, auto-retirement, versioned SelfEvolutionRecords, proposals)
+- apps/backend/app/core/safety/evolution_guard.py (shared self-evolution safety classifier)
+- apps/backend/alembic/versions/2026_10_23_1200-r11_memory_learning.py (revision r11_memory_learning, down_revision r13_source_attribution; PostgreSQL backfill of workspace_id and memory_category)
+- apps/backend/scripts/backfill_memory_embeddings.py
+- apps/backend/tests/test_repair11_memory_learning.py
+FILES MODIFIED:
+- apps/backend/app/core/memory/embeddings.py (offline jarv-hash-v1 embedder replaces the zero vector; model id recorded per vector; auto provider)
+- apps/backend/app/core/memory/__init__.py
+- apps/backend/app/core/jarv_memory.py (rewritten: isolation, semantic+keyword ranking via pgvector or Python, dedupe/reinforce, update/version, delete, link-to-task/workspace, redaction, backfill)
+- apps/backend/app/models/memory.py (workspace_id, memory_category, confidence_score, source_ref, version, embedding_model, parent/sub-agent/approval/checkpoint/boundary-input references)
+- apps/backend/app/models/self_evolution.py (ExperienceRecord workspace_id, agent_name, lesson_status, lesson_key)
+- apps/backend/app/core/agents/base.py (execute() recalls memory + verified lessons before run and records experience + lesson outcome after)
+- apps/backend/app/core/agents/specialists/_helpers.py (recalled context injected into provider prompts)
+- apps/backend/app/core/command/service.py (semantic recall, verified lessons in context, experience capture, lesson outcome tracking, real versioned proposal records, shared safety guard)
+- apps/backend/app/core/command/tool_runtime.py (owner agent scoped to the task workspace)
+- apps/backend/app/tools/memory/storage.py (memory_store/memory_search use the shared store; semantic search)
+- apps/backend/app/core/evolution/experience.py and __init__.py (database-backed)
+- apps/backend/app/api/memory.py (authenticated, owner-scoped; create/search/update/delete/link endpoints added)
+- apps/backend/app/api/experience.py (authenticated, owner-scoped; lessons, evolution history, approve/reject/retire)
+- apps/backend/app/api/evolution.py (router-wide authentication; experience endpoints and dashboard health use real data)
+- apps/backend/app/core/security.py (redaction of hyphenated provider keys)
+- apps/dashboard/src/app/dashboard/self-evolution/page.tsx (matches the real experience response)
+- apps/backend/.env.example, docs/CONFIGURATION.md (embedding settings)
+FILES DELETED:
+- apps/backend/app/core/memory/manager.py, apps/backend/app/core/memory/search.py (dead, non-functional)
+COMMANDS RUN:
+- python -m py_compile on every changed backend file: passed
+- Dependency-free checks of the embedder ranking and the safety guard: passed
+- pytest: not runnable in the authoring environment (no package registry access); run on the owner's machine with the jarv-backend-test image
+- 2026-10-23 owner run, SQLite only (no PostgreSQL, no Docker CLI mounted): 429 passed, 4 failed (orchestrator delegation x2, readiness, docker compose; all need PostgreSQL or the Docker CLI)
+- 2026-10-23 owner run, fresh pgvector/pgvector:pg16 + Docker CLI mounted: alembic upgrade head -> downgrade r13_source_attribution -> upgrade head all succeeded; pytest 431 passed, 2 failed
+- The 2 remaining failures (test_orchestrator_delegation) are pre-existing test-isolation defects: AgentRunner without a session reads specialist knowledge from settings.DATABASE_URL, test mode skips the startup catalog install, so the tests only passed against a database JARV had previously been started on. Fixed by an idempotent runtime_knowledge fixture that installs the catalog first.
+TESTS RUN:
+- 2026-10-23 owner run after the fixture fix, fresh pgvector/pgvector:pg16: tests/test_orchestrator_delegation.py 3 passed (with the earlier run: 433 of 433)
+- Repair 11 suite passed in all owner runs. Written: tests/test_repair11_memory_learning.py (embedder, taxonomy, guard, isolation, redaction, dedupe, versioned update, scoped delete/link, evidence verification, unsafe rejection, auto-retirement with rollback, agent recall into prompt, experience capture, authenticated memory and experience APIs, redaction regression)
+RESULT: Repair 11 code and migration verified. Full suite 431 passed; the 2 failures are pre-existing orchestrator test-isolation defects, fixed in tests/test_orchestrator_delegation.py.
+BLOCKERS: None for Repair 11. /api/evolution improvement and version endpoints remain backed by non-persistent managers (core/evolution/improvements.py, verification.py, versioning.py); lesson verification, versioning, and rollback are now real through the learning service, and the improvement/version endpoints are scheduled for Repair 12. Learning is on whenever an agent has a database session and a workspace; the unit-test suite enables it per test via context.metadata["learning_enabled"].
+NEXT TASK: Repair 12 - runtime, recovery, observability, and real tool wiring for all 31 agents.
+
+
+TASK ID: REPAIR-12A-MISSION-RUNTIME
+TASK NAME: Mission runtime, crash recovery, and automatic resume after approval
+STATUS: COMPLETE
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- Every command mission ran inside the HTTP request (POST /command/execute awaited the whole pipeline). Celery workers only ran a test task and a heartbeat loop. A restart mid-mission left the task "running" forever with nothing to resume it.
+- The task state machine existed but only an API helper used it; statuses were assigned directly everywhere, and the enum ("complete") disagreed with the pipeline and dashboard ("completed").
+- Approving a blocked command set status "approved" and nothing ran. The Richard boundary chain resumed only after a second, manual /resume call, contrary to "JARV resumes automatically after approval".
+- Step-limited missions (needs_continuation) waited for a manual resume, handing routine work back to Richard.
+- Workspace ownership was not checked: _resolve_workspace used any caller-supplied workspace or the first workspace in the database; command history, command-block approvals, approval list/stats/detail, and task resume had no owner scoping (several had no authentication).
+- Celery jobs ran asyncio.run() against the pooled engine; pooled asyncpg connections are bound to the first event loop, so a long-lived worker would fail on its second job.
+- The worker container lacked the workspace mount the backend uses, so file-tool missions could not have run there.
+FILES CREATED:
+- apps/backend/app/core/runtime/__init__.py
+- apps/backend/app/core/runtime/lifecycle.py (enforced mission statuses and transitions, status history, legacy status mapping)
+- apps/backend/app/core/runtime/dispatcher.py (celery | background | sync | deferred; broker-outage fallback; resume dispatch)
+- apps/backend/app/core/runtime/missions.py (atomic claim with lease, heartbeat on its own column/session, release, crash-safe failure, automatic continuation, recovery sweeper, cancel, retry)
+- apps/backend/app/core/command/continuation.py (continuation logic shared by the runner and the tasks API)
+- apps/backend/alembic/versions/2026_10_23_1500-r12_mission_runtime.py (tasks.lease_owner, tasks.heartbeat_at; legacy "approved" commands returned to the approval queue)
+- apps/backend/tests/test_repair12_mission_runtime.py
+- apps/dashboard/src/lib/missions.ts (submit and follow a mission; cancel; retry)
+FILES MODIFIED:
+- apps/backend/app/core/command/service.py (execute split into submit + run_task; lifecycle-enforced outcomes that never overwrite a cancellation or a boundary pause; owner-scoped workspace resolution)
+- apps/backend/app/api/command.py (submit + dispatch; GET /command/tasks/{id} with history and events; cancel; retry; owner-scoped history; authenticated info)
+- apps/backend/app/api/approvals.py (router-wide auth; owner-scoped command blocks; approve re-queues with a single-mission grant and dispatches; reject cancels; approval list/stats/detail scoped to the caller)
+- apps/backend/app/api/richard.py (approve decisions dispatch the idempotent checkpoint resume automatically)
+- apps/backend/app/api/tasks.py (resume uses the shared continuation, lifecycle, and an owner check)
+- apps/backend/app/workers/tasks.py (run_mission, resume_checkpoint, recover_stale_missions)
+- apps/backend/app/workers/__init__.py, apps/backend/app/core/database.py (worker processes use a connection per use)
+- apps/backend/app/core/celery.py (mission-recovery beat every 60s; prefetch 1 for long missions)
+- apps/backend/app/core/config.py, apps/backend/app/main.py (runtime settings; recovery at API startup)
+- apps/backend/app/models/task.py (lease_owner, heartbeat_at)
+- docker-compose.yml, docker-compose.prod.yml (worker role; worker gets the workspace mount)
+- apps/dashboard/src/app/dashboard/page.tsx, apps/dashboard/src/app/dashboard/command/page.tsx (missions followed live; cancel and retry)
+- apps/backend/.env.example
+COMMANDS RUN:
+- python -m py_compile on every changed backend file: passed
+- Intent routing of every command used in the tests checked against the real _detect_intent: as intended
+- pytest and dashboard type-check: not runnable in the authoring environment; run on the owner's machine
+- 2026-10-23 owner run 1, fresh pgvector/pgvector:pg16: migration upgrade -> downgrade r11_memory_learning -> upgrade succeeded; 440 passed, 4 failed (naive/aware datetime subtraction after a worker claim reloads started_at from SQLite; /command/info signature change broke a direct-call test)
+- Fix: timezone-normalised duration; /command/info authenticated at route level with its original response
+- 2026-10-23 owner run 2: 444 passed, 0 failed; dashboard tsc --noEmit clean
+TESTS RUN:
+- All passed in owner run 2. Written: lifecycle, submit/block, exclusive claim, end-to-end run with lease release, recovery (re-queue, repeated-loss failure, legacy abandonment, live mission untouched), recovered mission re-runs, cancellation not claimable and not overwritten, automatic continuation with cap, command API (auth, run, status, history, cancel, owner scoping), approval re-queue with grant and owner scoping, Richard approval auto-resume with idempotent second resume.
+RESULT: Mission runtime, recovery, automatic resume, and owner scoping verified.
+BLOCKERS: None for 12a. Note: a recovered mission re-runs its pipeline from the start; its tools are idempotent (full-content writes, classified read/build/test commands, memory de-duplication), and step-limited agent missions continue from their saved step. In celery mode a mission waits in the queue if no worker is running; set MISSION_EXECUTION_MODE=background for a single-process setup.
+NEXT TASK: Repair 12b - observability (REPAIR-12B-OBSERVABILITY).
+
+
+TASK ID: REPAIR-12B-OBSERVABILITY
+TASK NAME: Metrics, monitoring stack, alert intake, and trace context
+STATUS: COMPLETE
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- Prometheus scraped /metrics on the backend, which did not exist, and /metrics/celery on the worker, which runs no HTTP server. The Grafana dashboard and every alert rule therefore had no data.
+- Prometheus, Grafana, Alertmanager, and the postgres/redis/node exporters the configuration targets were not defined in any compose file. Alertmanager had no receiver.
+- Alert rules referenced metrics nothing exported (celery_task_duration_seconds, pg_stat_statements, quantile-labelled http durations).
+- Request ids were generated after the logging middleware ran, so request log lines never carried them; worker logs had no way to identify the mission.
+- The monitoring README described Loki/Promtail, which were never part of the system.
+FILES CREATED:
+- apps/backend/app/core/observability/__init__.py
+- apps/backend/app/core/observability/context.py (request/mission trace context, log filter, safe incoming request ids)
+- apps/backend/app/core/observability/metrics.py (Prometheus text exposition without new dependencies; HTTP metrics by route template; process metrics; mission, approval, agent, tool, memory, lesson, queue, and worker metrics read from the database and broker, cached 10s)
+- apps/backend/app/api/metrics.py (GET /metrics, optional METRICS_TOKEN)
+- apps/backend/app/api/observability.py (Alertmanager webhook -> incidents + Live Operations Feed; de-duplicated by fingerprint; resolve on clear; ALERT_WEBHOOK_TOKEN or private-network only)
+- docker-compose.monitoring.yml (Prometheus, Alertmanager, Grafana, postgres/redis/node exporters; localhost-only ports; Grafana password required)
+- infra/monitoring/alertmanager.yml, infra/monitoring/grafana/provisioning/{datasources,dashboards}/*.yml, infra/monitoring/secrets/{README.md,.gitignore}
+- apps/backend/tests/test_repair12b_observability.py
+FILES MODIFIED:
+- apps/backend/app/main.py (single tracing + metrics + logging middleware; metrics and alert routers)
+- apps/backend/app/core/logging.py (trace filter on every record; ids in JSON and development formats)
+- apps/backend/app/core/runtime/missions.py, apps/backend/app/core/command/service.py (mission id in log context while a mission runs)
+- apps/backend/app/core/config.py (METRICS_TOKEN, ALERT_WEBHOOK_TOKEN)
+- infra/monitoring/prometheus.yml, infra/monitoring/alerting-rules.yml, infra/monitoring/grafana-dashboard.json (rewritten against exported metrics), infra/monitoring/README.md
+- .env.example, .env.production.example, apps/backend/.env.example
+COMMANDS RUN:
+- python -m py_compile on every changed backend file: passed
+- YAML parse of every monitoring and compose file: passed
+- Owner run 2026-10-29, fresh pgvector/pgvector:pg16: 452 passed, 0 failed
+- Live stack with docker-compose.monitoring.yml: backend, worker, dashboard, local-runner healthy; Prometheus targets jarv-backend, node, postgres, prometheus, redis all up; jarv_workers_up 1; mission gauges read from the live database
+- Fixes found while bringing the live stack up: dashboard image could not build (Dockerfile copied a public/ directory the repo does not have); .gitignore excluded .dockerignore files, so backend and local-runner images copied apps/backend/.env (API keys) into the image and the dashboard sent node_modules as build context; the workspace bind mount used a C:/ path that Compose under WSL rejects (backend had the same defect, previously worked around with WORKSPACE_HOST_ROOT=/tmp, which broke typed-path translation) - now WORKSPACE_MOUNT_SOURCE (WSL path) is separate from WORKSPACE_HOST_ROOT (typed Windows path); celery beat could not write celerybeat-schedule into the host-mounted code folder (schedule moved to /tmp); .gitignore did not cover .env.production (now every real env file is ignored)
+- The owner's development database was at r13_source_attribution: Repair 11 and 12a migrations had only been verified on disposable test databases. Backed up (pg_dump) and upgraded to r12_mission_runtime on 2026-10-29.
+- Incident 2026-10-29: a real Grafana admin password was entered into the tracked .env.production.example and pushed to the public repository in commit 9a9ede2. Grafana never started with it. The template was blanked and marked template-only; the owner was told to rotate the password anywhere it is reused and to keep real values in the ignored .env.production.
+TESTS RUN:
+- All passed. Written: exposition validity, route-template labels, database-backed mission/approval/stale/queue gauges, metrics token, alert open/de-duplicate/resolve with incidents and feed, webhook auth, log trace context, request-id acceptance.
+RESULT: Metrics, monitoring stack, alert intake, and trace context verified on the live stack.
+BLOCKERS: None. Notes: the monitoring stack pulls public images on first start; it is verified by starting it (see the Repair 12b instructions). Worker and mission metrics are read from shared state, so they are correct regardless of which process did the work; per-worker process metrics (CPU/memory of each worker) are not exported.
+NEXT TASK: Repair 12c - real tool wiring for the 31 agents.
+
+
+TASK ID: REPAIR-12C-AGENT-TOOLS
+TASK NAME: Agent toolbox, tool-use loop, and the engineering agents on real tools
+STATUS: COMPLETE (2026-10-29: full suite 460 passed on the owner's machine)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- No specialist agent ever called a tool: AgentBase.execute_tool existed but had zero callers. The coding agent's own docstring said it "does NOT write or modify any file". The only tool-using loop (AgentExecutor) lived inside the command center with four tools.
+- Registry file tools (file_read, file_write, ...) check only a banned-folder list; any path in the container, including apps/backend/.env, was readable through them. Registry git tools accept any repo_path.
+- run_command fixes the working directory but not its arguments: `cat /app/.env` or inline interpreter code could read outside the workspace.
+- Settings read apps/backend/.env even inside the test container, which on the owner's machine holds a real OpenAI key; any test reaching a model call could spend it.
+FILES CREATED:
+- apps/backend/app/core/agents/toolbox.py (AgentToolbox: workspace-confined runtime tools for files, search, commands, git, memory, web, package/CVE/licence checks; registry tools with path arguments resolved inside the workspace folder; unconfined registry categories and history-rewriting git tools never offered; command argument guard; effective authority = min(agent level mapped to 1-7, workspace level), never 7)
+- apps/backend/app/core/agents/tool_loop.py (model tool-use loop with finish; success only on finish with success and nothing waiting for approval; specialist knowledge, recalled memory and verified lessons in the instructions)
+- apps/backend/app/core/agents/specialists/tool_mode.py (tools, standing instructions, and task briefs for coding, debugging, verifier, QA, documentation, DevOps, security)
+- apps/backend/tests/test_repair12c_agent_tools.py
+FILES MODIFIED:
+- apps/backend/app/core/agents/base.py (tools_enabled, use_tools, result_from_tools)
+- apps/backend/app/core/agents/specialists/{coding_agent,debugging_agent,verifier,qa,documentation,devops,security}.py (tool mode when a provider, database session and workspace are present; local analysis path otherwise; declared tools are registry names within each agent's authority; devops no longer declares git_push)
+- apps/backend/tests/conftest.py (every provider key blanked before settings load: the test suite can never spend real credit)
+COMMANDS RUN:
+- python -m py_compile on every changed backend file: passed
+- pytest: not runnable in the authoring environment; to be run on the owner's machine
+TESTS RUN:
+- None yet. Written: authority mapping, declared tools registered and within authority, confinement (outside paths, traversal, another workspace, secret redaction, secret-content search, outside-path and inline-code commands, destructive command, registry path argument, tools not offered), no filesystem tools without a registered folder, coding agent end to end through execute() with a scripted model (read, write, compile, finish), unfinished and blocked tasks not reported as plain success, test-suite key blanking.
+RESULT: Full backend suite 460 passed (owner's machine, PostgreSQL 16 + pgvector, 2026-10-29).
+BLOCKERS: Known residual risk, scheduled for Repair 15: an agent can write a script inside the workspace and run it with an allowed interpreter; that script runs with the backend container's file access. Full isolation requires executing agent commands in a separate runner container that mounts only the workspace and holds no secrets. Until then the command classifier, argument guard, boundary chain, and audit trail apply.
+NEXT TASK: Owner runs the Repair 12c verification commands; then 12d (operations agents and their tools) and 12e (company agents and the missing spec tool groups).
+
+TASK ID: REPAIR-12D-OPS-AGENTS
+TASK NAME: Operations agents (monitoring, self-healing, rollback, infrastructure) on real tools
+STATUS: COMPLETE (2026-10-29: 484 passed; live: backups verified, Command Center panels and identity working, scheduler loop live)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- The monitoring agent reported every target as "unknown" and the self-healing agent reported every repair as blocked; neither measured or changed anything.
+- Self-healing runbooks raised IntegrationRequiredError for service and worker restarts, and verified "recovery" from CPU percentage.
+- Backup tools (backup_create/restore/verify/list/cleanup) were unregistered and failed by design; nothing backed up JARV's own database.
+- The ops agents declared tools (command_run, git_commit, http_post) unrelated to operations; the spec's monitoring, deployment and infrastructure tool names (check_health, restart_service, create_backup, restore_backup_with_boundary, ...) did not exist.
+- The dashboard Infrastructure page was static text.
+FILES CREATED:
+- apps/backend/app/core/ops/__init__.py
+- apps/backend/app/core/ops/docker_ops.py (Docker Engine API through the restricted proxy only; lists, inspects and reads logs of JARV's own Compose project; secret-redacted logs; restarts only RESTARTABLE services, never postgres/redis/docker-proxy, never its own container, only unhealthy replicas)
+- apps/backend/app/core/ops/backups.py (pg_dump custom format, SHA-256, client/server version check through psql, verify with pg_restore --list, restore only into a new database, retention cleanup keeping the newest verified backups)
+- apps/backend/app/core/ops/health.py (database, Redis and queue, Celery worker ping, stale missions, Prometheus targets; PromQL queries; recent workspace errors including failing runtime and registry tools; PostgreSQL internals)
+- apps/backend/app/core/ops/repair.py (service state, restart-and-wait, worker liveness, stuck-mission recovery used by the runbooks)
+- apps/backend/app/tools/ops/__init__.py (25 registered tools: check_health, check_queue, check_errors, check_database_health, query_metrics, check_uptime (SSRF-guarded), inspect_server, check_disk_space, check_memory_usage, check_cpu_usage, check_env_vars (names only), check_container_status, check_docker_status, check_crashes, check_container_logs, check_service_logs, check_logs, restart_service, restart_container, recover_stuck_missions, create_backup, verify_backup, list_backups, restore_backup_with_boundary (approval), cleanup_backups (approval))
+- apps/backend/app/core/agents/specialists/ops_mode.py (tool loop with a provider; without one, fixed real procedures: monitoring measures; self-healing diagnoses, re-queues stuck missions, restarts crashed services and verifies; rollback reports real state and restorable backups; infrastructure measures and runs backups)
+- apps/backend/app/api/operations.py (authenticated /api/operations: health, server, containers, audited service restart, backups list and audited create+verify)
+- apps/backend/tests/test_repair12d_ops_tools.py
+- docs/OPERATIONS.md
+FILES MODIFIED:
+- apps/backend/app/core/tools/registry.py (operations tools registered)
+- apps/backend/app/tools/infrastructure/backup.py (the historical backup class names now point at the single real implementation)
+- apps/backend/app/core/agents/specialists/{monitoring,self_healing,rollback,infrastructure}.py (operations tools declared; operations mode first; previous honest fallbacks kept for runs without a database session or workspace)
+- apps/backend/app/core/self_healing/runbooks.py (website-down and queue-stuck runbooks detect, restart, recover missions and verify through real checks)
+- apps/backend/app/core/config.py (DOCKER_OPS_URL, PROMETHEUS_URL, BACKUP_DIR, BACKUP_INTERVAL_HOURS, BACKUP_RETENTION_DAYS)
+- apps/backend/app/core/celery.py, apps/backend/app/workers/tasks.py (scheduled, verified database backup)
+- apps/backend/app/main.py (operations router)
+- apps/backend/Dockerfile (PostgreSQL 17 client tools from the PostgreSQL apt repository in build/test and runtime images; /data/backups owned by jarv)
+- docker-compose.yml, docker-compose.prod.yml (docker-proxy tecnativa/docker-socket-proxy:v0.4.2 with CONTAINERS=1, ALLOW_RESTARTS=1, POST=0, read-only socket, internal jarv-ops network shared only with backend and worker; backups volume; DOCKER_OPS_URL, BACKUP_DIR, JARV_API_URL)
+- docker-compose.monitoring.yml (PROMETHEUS_URL for backend and worker)
+- .env.example, .env.production.example, apps/backend/.env.example (backup schedule settings)
+- apps/backend/tests/test_infrastructure_runtime_tools.py (backup assertions moved to the new test file: backups are real now)
+- apps/dashboard/src/app/dashboard/infrastructure/page.tsx (live services, server, database, containers with restart, backups with "Back up now")
+COMMANDS RUN:
+- python -m py_compile on every changed backend file: passed
+- YAML parse of both compose files and the monitoring overlay: passed
+- pytest and tsc: not runnable in the authoring environment; to be run on the owner's machine
+TESTS RUN:
+- None yet. Written: all 25 tools registered and implemented; ops agents declare only registered tools within their authority (monitoring cannot restart); restart below production authority refused; restore always approval-gated; Docker adapter limited to its project, log redaction, data stores and own container never restarted, only the unhealthy replica restarted; server/config tools measure without leaking values; uptime refuses private and metadata addresses; workspace-scoped errors; monitoring agent measures and logs each check; self-healing restarts the crashed worker and verifies, and only reports when repairs are not allowed; infrastructure reports measurements and missing container access honestly; runbooks explain missing container access; real pg_dump/verify/approved restore/tamper detection round trip; compose proxy restrictions and network isolation; operations API authentication, live state, audited restart and refusal.
+RESULT: First owner run 2026-10-29: 477 passed, 2 failed. Fixes: (1) registry tool audit entries are named agent.tool.<name>.tool.<name>; recent_errors and the monitoring test now read that form; (2) pg_dump 17 writes SET transaction_timeout, unknown to PostgreSQL 16, so pg_restore exited non-zero; restore now accepts exactly that class of error (unknown session settings, and only when they are every error reported) and records the ignored settings; any other restore error still fails. Dashboard type-check clean. Second owner run: full suite passed; committed 747d246; live stack rebuilt; docker-proxy lists all 15 services; pg_dump 17.11 against PostgreSQL 15.4; dashboard "Back up now" created and verified a 321 KB backup.
+LIVE FINDINGS FIXED IN FOLLOW-UP (2026-10-29):
+- Command Center memory and approval panels returned 500: endpoints converted the token subject ("admin_richard") with UUID(); operators log in through the login store while data is owned by users-table rows. CurrentUserId now resolves the subject to a persisted user (administrator -> JARV's owner, the earliest user, which is the account new workspaces were always assigned to; other logins -> their own row), cached in Redis. /auth/me, logout and change-password use the raw subject (TokenSubject). Owner lookups are now ordered by creation time.
+- The scheduled status loop created a completed Task every 2 minutes. It now runs service_health plus container state, writes one audit entry per run, writes the feed only when the state changes, and restarts a restartable service that is down or unhealthy on two consecutive runs (never data stores, never itself). /scheduler/runs reads the audit entries.
+- Redis client reused across Celery's per-task event loops; get_redis now replaces a client made on another loop.
+- Disk list repeated one disk per bind-mounted file; disks are now folded by device. Worker ping returns on the first reply.
+BLOCKERS: Deployment rollback (returning a service to a previous release) needs recorded releases from the deploy tools; it is part of 12e with deploy_staging and deploy_production_with_boundary. Data rollback (approval-gated restore) works now.
+NEXT TASK: Owner rebuilds the backend images and runs the Repair 12d verification commands; then 12e (company agents, deployment tools, and the missing spec tool groups).
+
+TASK ID: REPAIR-12E-1-PROVIDER-FAILOVER
+TASK NAME: Model routing that never fails a mission for a provider name
+STATUS: COMPLETE (2026-10-29: 491 passed, committed b3d2c53; live router plan sends claude-sonnet-4-6 to gpt-6-luna on OpenAI)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- Mission ab6c4882 (2026-10-22) failed with "Provider ModelProvider.CLAUDE not configured. Available providers: ollama": agents default to claude-sonnet-4-6 and the router chose a provider only from the model name, with no fallback.
+- Ollama was registered as available whenever OLLAMA_BASE_URL had its default value, with no server behind it.
+- The router ignored ANTHROPIC_API_KEY although provider_configured() counted it.
+- Owner decision (2026-10-29): Claude remains a supported, preferred provider; OpenAI is used while the Anthropic key has no credit.
+FILES CREATED:
+- apps/backend/tests/test_repair12e_provider_failover.py
+FILES MODIFIED:
+- apps/backend/app/core/providers/router.py (plan: requested model on its own provider when configured, then the same tier on each other configured provider in PROVIDER_ORDER; fails over on authentication, rate limit/quota, missing model, outage, and no-credit billing errors, never on malformed requests; a provider that failed for an account reason rests 10 minutes; substitution logged; clear message naming the keys when nothing is configured; Claude reads CLAUDE_API_KEY or ANTHROPIC_API_KEY; Ollama only with OLLAMA_ENABLED)
+- apps/backend/app/core/config.py (PROVIDER_ORDER, OPENAI_MODEL, OLLAMA_ENABLED, OLLAMA_MODEL)
+- apps/backend/app/core/agents/specialists/_helpers.py (provider_configured counts an enabled Ollama)
+COMMANDS RUN:
+- python -m py_compile on changed files: passed
+TESTS RUN:
+- 7 tests: Claude model served by OpenAI when only OpenAI is configured; no-credit Claude fails over and rests; tier mapping (fast/top); malformed requests do not fail over; all-failed error lists each provider's reason; no-provider message names the keys; Ollama only when enabled.
+RESULT: Full suite 491 passed on the owner's machine.
+BLOCKERS: None.
+NEXT TASK: REPAIR-12E-2 (deploy tools: deploy_staging, deploy_production_with_boundary, release rollback).
+
+TASK ID: REPAIR-12E-2-DEPLOY
+TASK NAME: Deployment tools: staging, approval-gated production, health-checked rollback (VPS over SSH)
+STATUS: COMPLETE (2026-10-29: 497 passed; live deploys wait on Richard's VPS setup per docs/DEPLOYMENT.md)
+OWNER DECISION (2026-10-29): deploy target is Richard's own VPS over SSH with Docker Compose; staging and production on the server.
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- service_deploy / deployment_rollback were unregistered and failed by design; nothing could release a workspace project or roll one back, and the rollback agent could only report.
+FILES CREATED:
+- apps/backend/app/core/deploy/__init__.py (git-archive packaging of committed code only; SSH with a pinned host key, BatchMode, key written 0600 to a temporary directory for one command; release layout releases/<id> + shared/.env link + atomic current switch; compose up per environment project; health check from JARV or from the server for loopback URLs; automatic restore of the previous release and removal of the failed one (stopping it when there is nothing to restore); pruning to the newest 5; rollback to the previous or a named release; status and redacted logs; every remote argument shell-quoted; app and environment names validated)
+- apps/backend/app/tools/deploy/__init__.py (check_deploy_target, deploy_staging, deploy_production_with_boundary (approval), rollback, deployment_status, deployment_logs; each deploy and rollback stored as a DeploymentRecord)
+- apps/backend/tests/test_repair12e_deploy.py
+- docs/DEPLOYMENT.md (server setup, deploy key, host key pinning, per-app secrets on the server)
+FILES MODIFIED:
+- apps/backend/app/core/tools/registry.py (deployment tools registered)
+- apps/backend/app/tools/infrastructure/deployment.py (historical names point at the real tools)
+- apps/backend/app/core/config.py (DEPLOY_SSH_HOST/USER/PORT/PRIVATE_KEY/KNOWN_HOSTS, DEPLOY_BASE_DIR, DEPLOY_COMPOSE_COMMAND)
+- apps/backend/app/core/agents/specialists/tool_mode.py (DevOps agent: deploy tools and the staging-then-approved-production procedure)
+- apps/backend/app/core/agents/specialists/ops_mode.py (rollback agent rolls back recorded deployments for real, health-checked; reports state and backups otherwise)
+- apps/backend/Dockerfile (openssh-client and git in build/test and runtime images; DEBIAN_FRONTEND=noninteractive)
+- docker-compose.prod.yml (DEPLOY_* passed to backend and worker)
+- .env.example, .env.production.example, apps/backend/.env.example (deployment settings, blank)
+- apps/backend/tests/test_infrastructure_runtime_tools.py (superseded "deploy fails without adapter" assertion removed)
+COMMANDS RUN:
+- python -m py_compile on changed files: passed
+TESTS RUN:
+- None yet. Written: registration and approval gate; full lifecycle on a real git repository (two deploys, failed build restored, failed health check restored, rollback, status, compose invocations, DeploymentRecords); uncommitted changes and unsafe names refused; production pauses for approval then ships; pruning keeps the newest releases; unconfigured server reported with missing settings; SSH host-key pinning, BatchMode, 0600 key removed after use.
+RESULT: Owner runs 2026-10-29: first 495 passed / 2 failed (both test expectations: the lifecycle test counted deployment_status's `compose ps` as an `up`; the Repair 6 guard listed deploy_production_with_boundary as a tool that must not exist, written before it had an implementation, now asserted real and approval-gated); after fix 497 passed.
+BLOCKERS: Live deploys need Richard's VPS and deploy key (docs/DEPLOYMENT.md); everything else runs without them.
+NEXT TASK: REPAIR-12E-3 (company and business agents on real tools and the remaining spec tool groups).
+
+TASK ID: REPAIR-12E-3A-WORKSPACE-TOOLS
+TASK NAME: The design's file, command, git, memory and project tools, confined and registered under their design names
+STATUS: COMPLETE (2026-10-29: 503 passed)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- Spec inventory (docs/IMPLEMENTATION_CHECKLIST.md tasks 5.3-5.24): 174 of 206 design tool names were not registered. Agents had no edit, move, copy, folder, delete, metadata, build/test/install helpers, branch, push, memory-link or project-detection tools; several design names were silently aliased to different tools (edit_file -> write_file, check_installed -> check_package_registry, run_tests -> run_command).
+FILES CREATED:
+- apps/backend/app/core/agents/workspace_ops.py (edit_file exact-text replace with uniqueness check; create_folder; move_file/copy_file with overwrite guard; delete_file_with_boundary (approval; never the workspace root); get_file_metadata; detect_workspace_type/detect_stack/detect_commands/find_missing_files from the project's own manifests; run_build/run_tests using the detected commands; install_package via the project's package manager; check_installed from manifests and node_modules; get_command_log from CommandRun; git_create_branch; git_push_with_boundary (approval); memory_link_to_workspace/task. Secret files never opened, moved or edited; protected locations refused)
+- apps/backend/app/tools/workspace_runtime/__init__.py (every toolbox workspace tool registered under its design name, running through the confined toolbox; names an existing real registry tool already has keep that tool)
+- apps/backend/tests/test_repair12e3a_workspace_tools.py
+FILES MODIFIED:
+- apps/backend/app/core/agents/toolbox.py (new tool specs, confinement for every path argument, dispatch; misleading aliases removed)
+- apps/backend/app/core/command/tool_runtime.py (permission gate accepts an approval carried by the run, so approved gated actions execute; authority entries for the new tools)
+- apps/backend/app/core/safety/permission_policy.py (policies for the new tools; delete and push statically approval-gated)
+- apps/backend/app/core/tools/registry.py (workspace tools registered; design-name placeholders replaced by the real tools)
+- apps/backend/app/core/agents/specialists/tool_mode.py (coding, debugging, verifier, QA, documentation and DevOps agents get the new tools within their authority)
+COMMANDS RUN:
+- python -m py_compile on changed files: passed
+TESTS RUN:
+- Written: edit (single, ambiguous, missing, secret refused), folder/copy/move, escape refused; delete pauses then runs with approval and never deletes the root; detection on a real Next.js+Python project; run_tests runs the project's pytest; check_installed; command log; branch creation and invalid names; push pauses for approval; every workspace tool registered under its design name; a registry call runs through the confined toolbox.
+RESULT: Owner runs 2026-10-29: first 502 passed / 1 failed (git_push_with_boundary sent "git push ..." to the shell-command classifier, which hard-blocks it, so a push could never be approved; git runs with an argument list, so the gate is now the tool's approval policy); after the fix 503 passed.
+BLOCKERS: None.
+NEXT TASK: REPAIR-12E-3A part 2 (workspace lifecycle, company operations, experience, self-evolution persistence, swarm tools).
+
+TASK ID: REPAIR-12E-3B-SWARM
+TASK NAME: Persisted swarm lifecycle, limits, costs, and the 13 swarm tools
+STATUS: COMPLETE (2026-10-29: 510 passed)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- Only swarm creation and spawning were real. dissolve, pause, resume, cancel, get, list and stats in SwarmManager; every SubAgentManager method; every SwarmTracker method; and all limit storage/lookup only wrote a log line and returned fixed values (the Command Center swarm panel read an always-empty list). Limit checks counted active swarms and sub-agents as 0. None of the 13 design swarm tools existed; the swarm manager agent only reported constant limits.
+FILES CREATED:
+- apps/backend/app/tools/swarm/__init__.py (spawn_sub_agent, assign_sub_agent_task, check_sub_agent_status, collect_sub_agent_output, dissolve_sub_agent, list_active_sub_agents, set_max_sub_agent_limit, report_swarm_activity, calculate_swarm_token_cost, pause_swarm, resume_swarm, cancel_swarm_with_boundary (approval), attach_sub_agent_log_to_parent_task; workspace- and owner-scoped; a new swarm's lead is the caller or a named specialist capped at the caller's authority; sub-agents cannot create swarms)
+- apps/backend/tests/test_repair12e3b_swarm.py
+FILES MODIFIED:
+- apps/backend/app/core/swarm/manager.py (owner-scoped get/list/stats from the database; real dissolve (agent record deactivated, outcome kept, logged), pause/resume (no new work while paused), cancel (dissolves unfinished sub-agents), complete; per-swarm budget check before each spawn; child execution shared by spawn and follow-up tasks, with token and estimated cost recording)
+- apps/backend/app/core/swarm/sub_agent.py (assign a follow-up task within the spawn-time ceilings; status; collected output; attach logs to the parent task with an audit entry; time out sub-agents whose run died; list/get from the database)
+- apps/backend/app/core/swarm/tracking.py (cost by model and sub-agent from published model prices, metrics, activity report with timeline/issues/recommendations, one SwarmCostRecord per finished swarm, workspace cost history)
+- apps/backend/app/core/swarm/limits.py (global limits from settings, tightened by workspace max_subagents and the workspace SwarmLimitPolicy; real usage counts; policies stored and capped at the global limits; depth fixed at 1)
+- apps/backend/app/api/swarm.py (every endpoint authenticated and owner-scoped; complete and attach-logs endpoints)
+- apps/backend/app/core/agents/specialists/swarm_manager.py (swarm tools; tool loop with a provider; without one, runs the given tasks as one swarm, collects outputs and cost, closes it; otherwise reports real limits and usage)
+- apps/backend/app/core/tools/registry.py, apps/backend/app/core/config.py (SWARM_MAX_* settings), apps/backend/app/workers/tasks.py (stale sub-agent sweep with mission recovery)
+- apps/backend/tests/test_agent_tool_wiring.py, apps/backend/tests/test_tool_authority_repair6.py (expectations written when the swarm manager had no tools and spawn_sub_agent had no implementation)
+COMMANDS RUN:
+- python -m py_compile on changed files: passed
+TESTS RUN:
+- Owner run 1 (2026-10-29): collection stopped: test_repair12d_ops_tools.py located the repository three directories above the test file, which does not exist inside the test image (tests live at /app/tests). Fix 1: repository-level files located through JARV_REPO_ROOT (the owner's run mounts the repository read-only) or the nearest parent holding docker-compose.yml.
+- Owner run 2: 503 passed, 7 failed. Six were repository-level tests (compose, .gitignore, backup scripts, CI, deployment and security docs) that read ../../ relative to the working directory, which is / inside the image; they now use the same repository locator (tests/repo_paths.py), and the compose check parses the YAML and runs docker compose config only where the Docker CLI exists. One was real: the swarm manager agent passed the swarm id as text to complete_swarm, and the UUID column rejected it; owned_swarm and owned_sub_agent now normalise ids. Fix 2 omitted the new tests/repo_paths.py (fix 3 added it).
+- Owner run 4: 509 passed, 1 failed: the swarm manager's completion audit carried the swarm report, whose metrics held a raw UUID; the JSON column rejected it, the audit logger rolled the session back and the uncommitted swarm went with it. Fix 4: the report's metrics are serialised as JSON, and AuditLog now stores ids, dates and decimals inside its JSON details as text, so no audit entry can fail on them. Owner run 5: 510 passed, 0 failed.
+- Written: full lifecycle (spawn, pause blocks spawning, resume, follow-up task, status, output, list, stats, complete dissolves and records cost, child agents deactivated); cancel and owner scoping; limits from policy capped at global; logs attached to the parent task; stale sub-agents timed out; tools spawn under a named lead, cost report, cancel needs approval, low authority refused; swarm manager agent runs two tasks as one swarm; API lists only the owner's runs.
+RESULT: Full suite 510 passed on the owner's machine (repository mounted read-only so repository-level checks run against the real files).
+BLOCKERS: None.
+NEXT TASK: REPAIR-12E-3C (workspace lifecycle, company operations, experience, self-evolution persistence).
+
+TASK ID: REPAIR-12E-3C-COMPANY-WORKSPACE-EXPERIENCE
+TASK NAME: Company operating layer, workspace lifecycle and experience record tools, persisted and wired
+STATUS: COMPLETE (2026-10-29: 519 passed, committed ab2a976)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- app/core/company (operating plan, daily loop, orchestrator, structure) was an in-memory set of managers whose database writes were comments; nothing imported it. None of the 17 design company tools, 11 workspace lifecycle tools or 6 experience tools existed. The company operator agent could only draft unsaved text; the workspace manager only walked a folder.
+- workspace_create took its new workspace's authority level from caller-supplied metadata (default 3), so a caller could create a workspace with more authority than its own.
+- experience_log_success / experience_log_failure wrote lessons without the self-evolution safety guard, redaction, or the workspace column.
+FILES CREATED:
+- apps/backend/app/core/company_ops/__init__.py, service.py (operating plans with versions, daily loops, weekly plans, standups, KPIs with targets and direction, risk register (probability x impact), decision log with reversal, operations feed, next best actions; standups, loops and actions computed from the workspace's real tasks, approvals, incidents, risks, KPIs and plans)
+- apps/backend/app/tools/company/operations.py (the 17 company tools)
+- apps/backend/app/core/workspaces/lifecycle.py (create, import folder / repository (public https only, real git clone) / document pack / live platform (SSRF-guarded check), recorded scans, task plans (given steps, model plan, or from the project's own files and commands), roadmap, launch checklist with verified checks, versioned rules with protected-rule approval, archive, delete (records only, files kept))
+- apps/backend/app/tools/workspace/lifecycle.py (the 11 workspace lifecycle tools; new workspaces capped at the calling workspace's authority; delete_workspace_with_boundary approval-gated)
+- apps/backend/app/tools/experience/records.py (the 6 experience tools through the verified-learning service; linking across workspaces makes a guarded copy, never a shared record)
+- apps/backend/app/tools/_scoped.py (shared base for workspace-scoped database tools)
+- apps/backend/app/api/company_ops.py (authenticated, owner-scoped: overview, next actions, run daily loop, standup, KPI, risk, decision, plan versions)
+- apps/backend/tests/test_repair12e3c_company_workspace_experience.py
+FILES MODIFIED:
+- apps/backend/app/core/agents/specialists/company_operator.py (tool loop over the company tools with a provider; without one runs the requested operation on persisted records; draft-only path kept for runs with no database session)
+- apps/backend/app/core/agents/specialists/workspace_manager.py (lifecycle tools; recorded scan and launch checklist without a provider)
+- apps/backend/app/core/agents/specialists/memory.py, self_evolution.py (experience tools added)
+- apps/backend/app/tools/workspace/management.py (workspace_create authority capped)
+- apps/backend/app/tools/experience/logging.py (safety guard, redaction, workspace column)
+- apps/backend/app/tools/company/__init__.py, apps/backend/app/core/tools/registry.py (registration)
+- apps/backend/app/core/celery.py, apps/backend/app/workers/tasks.py, apps/backend/app/core/config.py (company_daily_loop beat job for company-mode workspaces, COMPANY_LOOP_INTERVAL_HOURS)
+- apps/backend/app/main.py (company-ops router)
+FILES DELETED:
+- apps/backend/app/core/company/ (unused in-memory managers, replaced by app/core/company_ops)
+COMMANDS RUN:
+- python -m py_compile on changed files: passed
+- unit check of the plan item merge (partial updates keep status): passed
+TESTS RUN:
+- None yet. Written: all 34 tools registered, real and gated; plans/versions, weekly plan, KPIs (both directions), risks, decisions with reversal, feed; daily loop and next actions from seeded tasks; company operator agent loop and review; folder import with scan and authority cap, duplicate and outside-root refusals, task plans (project files and given steps), roadmap, checklist; real git clone import, document pack, live platform; protected rule approval, archive refusing running work, delete approval / self-delete refusal / files kept; experience safety guard, extraction from a failed task, task link, cross-workspace copy and refusal; owner-scoped API.
+RESULT: Owner run 1 (2026-10-29): 517 passed, 2 failed. (1) A new rule was created with is_active and priority read from keys the tool always sends (as null), so the insert broke the NOT NULL constraint; defaults now apply when the value is null. The workspace delete also moved to one database DELETE relying on the ON DELETE rules every reference declares, because an ORM cascade would lazily load each task's dependency collections, which an async session cannot do. (2) The experience test read a variable outside the function that defined it. Owner run 2: 519 passed, 0 failed.
+BLOCKERS: None.
+NEXT TASK: REPAIR-12E-3D (self-evolution persistence and the 12 self-evolution tools).
+
+TASK ID: REPAIR-12E-3D-SELF-EVOLUTION
+TASK NAME: Persisted, verified, versioned and reversible self-evolution, and the 12 self-evolution tools
+STATUS: COMPLETE (2026-10-29: 525 passed, committed 43f958f)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- app/core/evolution/improvements.py, verification.py and versioning.py kept proposals, verifications and versions in process memory (their database steps were comments), so /api/evolution improvements, approvals, applications, versions, snapshots and rollbacks changed nothing and were lost on restart; those endpoints also had no owner scoping. "Apply" and "rollback" did not touch any component. None of the 12 design self-evolution tools existed; the self-evolution agent could only draft text.
+FILES CREATED:
+- apps/backend/app/core/evolution/engine.py (propose with the safety guard; verification stored as VerificationResult: safety guard, target and change validity, no authority/limit increase, no disabling protected rules or blocking safety tools, a real change; protected-rule edits need Richard; apply saves the previous state and writes through each component's own versioning (workspace rule versions, runbook versions, agent strategy versions, tool selection rules, operating plan versions, workspace swarm strategy, workflow notes); rollback newest-first, itself versioned; restore to a point in time; before/after outcome assessment; guidance and tool narrowing for agents)
+- apps/backend/app/tools/evolution/__init__.py (the 12 tools)
+- apps/backend/tests/test_repair12e3d_self_evolution.py
+FILES MODIFIED:
+- apps/backend/app/api/evolution.py (improvements, verification, approval, apply, reject, rollback, monitoring, versions and restore on the engine, all owner-scoped; experience endpoints unchanged)
+- apps/backend/app/core/agents/tool_loop.py, toolbox.py (applied instructions, workflow notes, runbooks, swarm strategy and preferred tools are given to agents below the system and safety rules; tool-selection rules can withhold tools, never add them, and never withhold safety tools)
+- apps/backend/app/core/agents/specialists/self_evolution.py (tool loop over the evolution tools; without a provider records, verifies and (when asked) applies the caller's changes; draft-only path kept for runs without a database session)
+- apps/backend/app/core/evolution/__init__.py, apps/backend/app/core/tools/registry.py
+- apps/backend/app/core/workspaces/lifecycle.py (deactivating a rule now advances its version)
+FILES DELETED:
+- apps/backend/app/core/evolution/improvements.py, verification.py, versioning.py (in-memory, replaced by engine.py)
+COMMANDS RUN:
+- python -m py_compile on changed files: passed
+TESTS RUN:
+- None yet. Written: registration and authority; rule change applied, versioned, no-op refused, rollback out of order refused, newest-first rollbacks restore content then remove the rule; unsafe instructions blocked and unapprovable; protected rule edit paused then applied with Richard's approval; disabling a protected rule, blocking a safety tool and raising swarm parallelism blocked; six component types applied and reaching agents (instructions, workflow note, preferred and withheld tools, runbook, swarm strategy, plan) then restored to a point in time; self-evolution agent applies a safe change and blocks an unsafe one; owner-scoped API through propose, approve, monitor, dashboard, rollback.
+RESULT: Full suite 525 passed on the owner's machine (first run).
+BLOCKERS: None.
+NEXT TASK: REPAIR-12E-4 (business tool groups: support, marketing, content, onboarding, community, partnership, sales, revenue; voice; remaining infrastructure tools).
+
+TASK ID: REPAIR-12E-4A-BUSINESS
+TASK NAME: Grounded business drafting and persisted support, community, partnership, sales and onboarding tools
+STATUS: COMPLETE
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- None of the 58 design support, marketing, content, onboarding, community, partnership and sales tools existed. The support inbox (app/core/support: tickets, knowledge base, responses) lived in process memory and was lost on restart; /api/support used it without any workspace scoping. The marketing, content, onboarding, community, partnerships and sales agents could only draft unsaved text; the customer support agent read tickets from the in-memory store. No email adapter could send or read mail. The capability map pointed the changelog generator and SMTP adapter at files that did not contain them.
+FILES CREATED:
+- apps/backend/app/core/business/facts.py (workspace facts: README features, git history, API routes and app pages found in the code, commands, live URL, completed work, plan objectives, roadmap, KPIs, FAQ)
+- apps/backend/app/core/business/drafting.py (42 document kinds with fixed outlines; written by the model from the facts only, or assembled from the facts; gaps marked [confirm: ...]; saved as drafts (ContentItem, MarketingCampaign, OnboardingFlow, CommunityItem); optional copy in docs/<group>/; never published)
+- apps/backend/app/core/business/support.py (persisted inbox, rule categorisation and priority, severe bugs escalated to the debugging agent as a task, FAQ-grounded reply drafts, send only by workspace support_reply rule or Richard's approval, versioned FAQ, feedback summary, email inbox sync)
+- apps/backend/app/core/business/mailer.py (SMTP send to one recipient; IMAP read with BODY.PEEK; disabled state with the missing settings named)
+- apps/backend/app/core/business/community.py (community inbox; moderation by the workspace rule plus spam/abuse signals: approve, flag or hide, never delete)
+- apps/backend/app/core/business/pipelines.py (partner shortlist scored against criteria and stack; partner pipeline with an active agreement gated on Richard; CRM deal pipeline and totals)
+- apps/backend/app/core/business/onboarding.py (activation friction from flows, tickets, KPIs and launch items; versioned onboarding copy; versioned knowledge base)
+- apps/backend/app/tools/business/__init__.py (the 58 tools: support 7, marketing 7, content 10, onboarding 9, community 9, partnership 10, sales 6), apps/backend/app/core/agents/specialists/business_mode.py, apps/backend/app/api/business.py
+- apps/backend/tests/test_repair12e4a_business.py
+FILES MODIFIED:
+- apps/backend/app/api/v1/support.py (persisted, authenticated, owner-scoped support API)
+- apps/backend/app/core/agents/specialists/customer_support.py (persisted inbox; tool loop or direct draft)
+- apps/backend/app/core/agents/specialists/marketing.py, content.py, onboarding.py, community.py, partnerships.py, sales.py (business tools; tool loop with a provider, matching tool without)
+- apps/backend/app/tools/_scoped.py (approval-aware gated tools)
+- apps/backend/app/core/tools/registry.py, apps/backend/app/main.py, apps/backend/app/core/command/service.py
+FILES DELETED:
+- apps/backend/app/core/support/ (in-memory tickets, knowledge base and templates)
+COMMANDS RUN:
+- python -m py_compile on changed files: passed; route-pattern unit check: passed
+TESTS RUN:
+- Owner run 1 (2026-10-29): 529 passed, 3 failed: the test counted 59 tools where the design lists 58 (42 drafting kinds + 16 others); and the customer support agent reported a ticket id that does not exist as a failure, which broke the all-agents runner and knowledge checks (they pass a task sentence as the id). It now returns a plain no-ticket result.
+- Owner run 2 (2026-10-29, Fix 1): 532 passed. Committed as 30ea562 on pre-repair-11.
+- Written: 58 tools registered; drafts grounded in a real sandbox project (git changelog, curl examples from code routes, README features, setup steps from scripts, pages in the tour, confirm markers, file written to docs/); support escalation, FAQ-grounded draft, unconfigured mail refused, send paused without a rule then sent by rule (SMTP replaced by a recorder); moderation hide/approve, community reply draft, feedback themes; partner shortlist scoring, active agreement gated; deal pipeline and win rate; prospect brief and sales summary from CRM data; activation friction from tickets, onboarding copy and knowledge-base versions; marketing, community and support agents through their tools; owner-scoped business and support APIs.
+RESULT: 532 passed.
+BLOCKERS: None.
+NEXT TASK: REPAIR-12E-4B (revenue tools, payment/review/analytics checks, remaining infrastructure tools, asset tools) then REPAIR-12E-4C (voice).
+
+TASK ID: REPAIR-12E-4B-REVENUE-INFRA-ASSETS
+TASK NAME: Revenue operations, payment/review/analytics checks, remaining infrastructure tools, licence-checked asset tools
+STATUS: COMPLETE
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- None of the 8 design revenue tools, the payment/review/analytics monitoring checks, 5 of the 18 infrastructure tools (nginx and compose generation, cloud config validation, cost estimate, budget-bounded scaling; the SSL/DNS checks existed under other names) or the 7 asset tools existed. The finance, growth and business agents only wrote advisory text; the creation agent could not fetch an asset. web_search was mapped to fetch_url and check_licence to an allowlist lookup. The assets API listed every user's assets without authentication.
+FILES CREATED:
+- apps/backend/app/core/business/revenue.py (Stripe read-only adapter with disabled state; recorded revenue events deduplicated by Stripe event id; revenue, subscriptions/MRR/churn, failed payments, conversion funnel from KPIs, Plausible analytics or traffic KPIs, payment events; the revenue loop records KPIs, findings and next actions and posts to the operations feed; Stripe webhook signature verification)
+- apps/backend/app/core/business/reviews.py (public App Store review feed; reviews stored once as community items; ratings, sentiment, low-rated themes)
+- apps/backend/app/core/infra/__init__.py, apps/backend/app/core/infra/configs.py (nginx and compose generation, compose/Dockerfile/nginx validation, monthly cost estimate against the budget, scaling decision against the budget and replica ceiling)
+- apps/backend/app/core/assets/library.py (licence table and provider inference; https-only, SSRF-guarded, size-capped, type-allowlisted downloads into the workspace; no executables, archives or scripted SVGs; Asset and AssetLicence records with hash, source, author and attribution; ASSETS.json and ASSET-LICENCES.md)
+- apps/backend/app/tools/revenue/__init__.py (10 tools), apps/backend/app/tools/infra_config/__init__.py (7 tools), apps/backend/app/tools/assets_library/__init__.py (6 tools incl. web_search)
+- apps/backend/app/api/revenue.py (owner-scoped metrics, events, loop; signed Stripe webhook)
+- apps/backend/tests/test_repair12e4b_revenue_infra_assets.py
+FILES MODIFIED:
+- apps/backend/app/core/business/drafting.py (create_offer_draft and create_pricing_review grounded in revenue numbers)
+- apps/backend/app/tools/business/__init__.py (revenue drafting group)
+- apps/backend/app/core/deploy/__init__.py (replica count and scale on the deployment server)
+- apps/backend/app/core/internet/__init__.py (web search with result parsing; tool list updated)
+- apps/backend/app/core/config.py, apps/backend/.env.example, .env.production.example (INFRA_*, STRIPE_*, PLAUSIBLE_*, APP_STORE_COUNTRY)
+- apps/backend/app/core/tools/registry.py (registration), apps/backend/app/core/agents/toolbox.py (web_search and check_licence are real tools now)
+- apps/backend/app/core/agents/specialists/business_mode.py, finance.py, growth.py, business.py, creation.py (revenue and asset tools: tool loop with a provider, matching tool without), ops_mode.py (monitoring and infrastructure tools), tool_mode.py (devops infrastructure tools), research.py (web_search)
+- apps/backend/app/api/assets.py (authenticated, owner-scoped; workspace library, licence check, download, source record, manifest)
+- apps/backend/app/main.py, apps/backend/tests/test_repair12e4a_business.py (count excludes the revenue drafts)
+COMMANDS RUN:
+- python -m py_compile on changed files: passed; nginx/compose/validation/scaling-decision and search-parser unit checks: passed
+TESTS RUN:
+- Owner run 1 (2026-10-29): 543 passed, 2 failed. (1) A licence written the usual way ("CC BY-NC 4.0") was not recognised, so a non-commercial asset was refused as "unknown licence" instead of "non-commercial"; licence names are now normalised (spaces, underscores, hyphens, case). (2) An invalid App Store id was only rejected inside the feed fetch; check_reviews now rejects it before any request.
+- Owner run 2 (2026-10-29, Fix 1): 545 passed. Committed as 171ed5b on pre-repair-11.
+- Written: 23 tools registered with categories and authority; agents declare them within authority; recorded revenue metrics, subscriptions/MRR, failed payments, payment events, conversion funnel, the revenue loop's KPIs and findings, experiment baseline, offer and pricing drafts with real numbers; Stripe signature verification (valid, forged, tampered, stale); revenue API and signed webhook recorded once per event, owner scoping; App Store reviews stored once with ratings and themes; analytics fallback; generated nginx and compose validate clean, unsafe configs flagged without echoing secrets; cost estimate from fixed costs and budget; scaling within budget runs, beyond the replica limit or budget pauses for approval, approved scaling runs and is recorded; asset downloads refused for internal hosts, http, unknown and non-commercial licences, executables, folder escape, wrong content type and scripted SVG; Pixabay, CC BY and Google Fonts assets saved with hash and attribution; manifest and credits file; assets API owner scoping; finance, growth and creation agents through their tools.
+RESULT: 545 passed.
+BLOCKERS: None. Live Stripe, Plausible and App Store data need Richard's keys/app id; everything runs on recorded data until then.
+NEXT TASK: REPAIR-12E-4C (voice tools).
+
+TASK ID: REPAIR-12E-4C-VOICE
+TASK NAME: Voice tools (transcribe_voice, speak_response, listen_push_to_talk, wake_word_detect, route_voice_command)
+STATUS: COMPLETE
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- None of the 5 design voice tools existed (the authority test asserted transcribe_voice was absent). app/core/voice/stt.py, tts.py and wake_word.py were adapters whose every provider raised "integration required"; VoiceCommandRouter ran the orchestrator with no database and no approval gate; /api/voice/push-to-talk always failed and /api/voice/health reported fixed strings. The real pieces were the authenticated Voicebox adapter (/api/voicebox) and the local sherpa-onnx wake spotter. The production compose file passed none of the revenue, infrastructure-money or voice settings to the backend or worker.
+FILES CREATED:
+- apps/backend/app/core/voice/engine.py (speech-to-text on Voicebox or OpenAI; speech on Voicebox with the JARV profile, ElevenLabs or OpenAI; replies stored per owner and pruned; wake phrase over a WAV or raw clip with resampling, on the local spotter; spoken commands: status answered from mission records, "cancel the last mission", everything else a Command Center mission under the deterministic approval gate; approvals never taken by voice)
+- apps/backend/app/tools/voice/__init__.py (the 5 tools), apps/backend/tests/test_repair12e4c_voice.py
+FILES MODIFIED:
+- apps/backend/app/api/v1/voice.py (authenticated, owner-scoped push-to-talk, text command, speak, audio, wake detection, providers and health on the engine)
+- apps/backend/app/core/voice/__init__.py, apps/backend/app/core/config.py (STT/TTS backend choice, ElevenLabs voice, OpenAI models, reply storage; unused Google/Azure keys removed)
+- apps/backend/app/core/tools/registry.py, apps/backend/app/agents/orchestrator.py (transcribe_voice, speak_response)
+- apps/backend/tests/conftest.py (ElevenLabs, Stripe and Plausible keys blanked for tests), apps/backend/tests/test_tool_authority_repair6.py (transcribe_voice is now real)
+- docker-compose.yml, docker-compose.prod.yml (reply storage volume; production backend and worker receive the revenue, infrastructure-money and voice settings)
+- .env.example, apps/backend/.env.example, .env.production.example, .gitignore (*.patch)
+FILES DELETED:
+- apps/backend/app/core/voice/stt.py, tts.py, wake_word.py, router.py (adapters that only raised), apps/backend/test_phase21_voice.py (script for them)
+- repair-12e-4b-revenue-infra-assets.patch, repair-12e-4b-fix1.patch (hand-over files committed by mistake)
+COMMANDS RUN:
+- python -m py_compile on changed files: passed; compose files parsed: passed
+TESTS RUN:
+- Written: 5 tools registered with authority, orchestrator wiring; every step names the missing setting when no backend is set; Voicebox transcription and speech (waits for the generation) with replies readable only by their owner; OpenAI transcription and ElevenLabs speech with provider errors reported without the key; spoken commands: status, queued mission, gated mission paused for approval, approval by voice refused, cancel the last mission; push-to-talk from a workspace file and base64, folder escape refused; wake phrase over an 8 kHz stereo WAV resampled to 16 kHz frames and raw float32; voice API authentication and owner scoping.
+RESULT: Owner run 1 (2026-10-29): 553 passed. Committed as 6286395 on pre-repair-11.
+BLOCKERS: None. Live speech needs Voicebox running (local) or an OpenAI/ElevenLabs key; the wake model is installed by an admin from the dashboard.
+NEXT TASK: REPAIR-13 (specialist knowledge).
+
+TASK ID: REPAIR-13-REFRESH
+TASK NAME: Specialist knowledge brought in line with the tools JARV now uses
+STATUS: COMPLETE
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- Repair 13 (REPAIR-13-NONPAID-KNOWLEDGE-RESEARCH) installed one source-attributed brief per agent. Since Repair 12 four briefs described tools JARV does not use: infrastructure and rollback taught Kubernetes Deployments (JARV runs Docker Compose on Richard's VPS with release directories), growth taught the Google Analytics Data API (JARV reads Plausible or recorded KPIs), and creation taught Unsplash API hotlinking (JARV downloads licence-checked assets with credits). The Plausible adapter used the legacy v1 API (current reference is Stats API v2). The licence table had no no-derivatives licences. The catalogue dropped each source's licence field.
+FILES CREATED:
+- apps/backend/tests/test_repair13_knowledge_refresh.py
+FILES MODIFIED:
+- apps/backend/app/core/knowledge/catalog.py (infrastructure from Docker's "Use Compose in production"; rollback from Google Cloud's "Reliable releases and rollbacks"; growth from Plausible's Stats API reference; creation from Creative Commons "About CC Licenses"; all four pages read on 2026-10-29; unused sources removed; source licence carried through). Installed briefs advance to a new version at the next startup.
+- apps/backend/app/core/business/revenue.py (Plausible Stats API v2: POST /api/v2/query)
+- apps/backend/app/core/assets/library.py, apps/backend/app/tools/assets_library/__init__.py (CC BY-ND and BY-NC-ND; adaptations refused for no-derivatives licences, unmodified use allowed)
+COMMANDS RUN:
+- Source pages fetched and read for the four new briefs; python -m py_compile on changed files: passed; catalogue loads with 31 entries, exactly four briefs changed.
+TESTS RUN:
+- Written: every agent has a brief with an https source; the four briefs carry the new sources; a changed brief becomes a new version, re-ingesting is unchanged, retrieval returns the new version; ND licence rules; Plausible v2 request and parsing.
+RESULT: Owner run (2026-10-29): 557 passed. Committed as 4dba287 on pre-repair-11.
+BLOCKERS: None.
+NEXT TASK: REPAIR-14 (dashboard pages on real backend data; voice interface acceptance).
+
+TASK ID: REPAIR-13-EXPERT-KNOWLEDGE
+TASK NAME: Expert knowledge library for every agent's field
+STATUS: COMPLETE
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- Richard's requirement for Repair 13 is that every agent is an expert in its field. Each agent held one short brief (31 in total), retrieved three at a time by plain word overlap, and agents had no way to look anything up mid-task.
+FILES CREATED:
+- apps/backend/app/core/knowledge/library/ (sources.py: 60 sources from 45 publishers, each page fetched and read on 2026-10-29/30; engineering.py, operations.py, orchestration.py, business.py, growth.py, extended.py: 155 original topics; _base.py; __init__.py). Every agent now has its core brief plus 5 field topics (186 entries), e.g. security: secrets management, CWE Top 25 2025, CI hardening, review method, accessible authentication; finance: subscription metrics, disputes, UK tax dates, director duties, budget goals; infrastructure: SSH hardening, PostgreSQL PITR, Redis persistence, USE-method capacity, restart policies.
+- apps/backend/app/tools/knowledge/__init__.py (consult_specialist_knowledge: read-only, authority 1, scoped to the calling agent's field by default, any field by name)
+- apps/backend/tests/test_repair13_expert_knowledge.py
+FILES MODIFIED:
+- apps/backend/app/core/knowledge/catalog.py (catalogue = core briefs + library), apps/backend/app/core/knowledge/service.py (relevance ranks keyword and title matches above body text, with stop words and simple stemming)
+- apps/backend/app/core/agents/base.py, runner.py (four most relevant topics attached to each run), toolbox.py (every agent's toolbox offers consult_specialist_knowledge), apps/backend/app/core/tools/registry.py
+- apps/backend/tests/test_agent_knowledge_runtime.py, test_repair13_knowledge_refresh.py (counts follow the catalogue; core brief selected by key)
+COMMANDS RUN:
+- Source pages fetched and read for every topic; python -m py_compile on changed files: passed; offline ranking check over all 186 entries: every agent has 6, no duplicate keys, no unused sources, sample queries rank the intended topic first.
+TESTS RUN:
+- Written: coverage (31 agents, at least 6 sourced topics each, https sources, no unused sources, at least 25 publishers); ranking for ten field questions; install idempotence; consult tool in own and other fields, unknown field refused, no-match result; every toolbox offers the tool and an agent's run carries its relevant topics.
+RESULT: Owner test run in Docker against PostgreSQL 16 + pgvector: 570 passed. Committed 9d3d74c on pre-repair-11.
+BLOCKERS: None.
+NEXT TASK: REPAIR-14 (resume claude/repair-14a-wip: business, revenue, analytics and permissions pages on real data).
+
+---
+
+TASK ID: REPAIR-14A-DASHBOARD-OPERATIONS-PAGES
+TASK NAME: Business, revenue, analytics, permissions and operations pages on real backend data
+STATUS: COMPLETE
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- Analytics, Business, Community, Content, Marketing, Onboarding, Partnerships, Permissions, Revenue Operations, Sales and Support pages showed static or hard-coded figures, or buttons with no backend call. There was no endpoint for JARV's own performance, the live authority model, the monthly cost against budget, creating deals, shortlisting partners or listing the operator's workspaces.
+FILES CREATED:
+- apps/backend/app/api/analytics.py (GET /api/analytics/{workspace}/overview: missions by status and per day, success rate, duration, tokens; tool runs by tool and agent, failures, approval pauses; monthly cost)
+- apps/backend/app/api/permissions.py (GET /api/permissions/overview: authority levels, every agent's level, tools per level, always and conditionally gated tools, hard boundaries, Command Center gates, sub-agent and voice rules, all read from the registries and safety code)
+- apps/backend/tests/test_repair14a_dashboard_apis.py
+- apps/dashboard/src/components/ops/ui.tsx, workspace.tsx, drafts.tsx, pipeline.tsx, section-nav.tsx (shared data loading, actions, workspace picker, draft review, deal and partner pipeline, section navigation)
+- apps/dashboard/__tests__/ops-pages.test.tsx
+FILES MODIFIED:
+- apps/backend/app/api/business.py (POST deals, partners/shortlist, partners/{id}: the operator's dashboard action is the approval for an agreement becoming active), revenue.py (GET analytics: Plausible when configured, recorded KPIs otherwise), operations.py (GET cost), workspaces.py (GET mine), app/main.py
+- apps/dashboard/src/app/dashboard/: analytics, business, community, content, marketing, onboarding, partnerships, permissions, revenue-operations, sales, support pages; layout.tsx; page.tsx
+COMMANDS RUN:
+- python -m py_compile on changed backend files: passed. The dashboard's npm registry is unreachable from the build container, so tsc and jest run on the owner's machine in Docker (node:20).
+TESTS RUN:
+- Written: authentication on every new endpoint; workspace picker lists only the operator's workspaces; deals created, validated and moved, partners shortlisted and activated, pipeline totals, other users refused; analytics computed from seeded missions and tool runs; cost, traffic and permissions endpoints. Dashboard: pages load from the API, actions post to it, errors shown.
+RESULT: Owner test runs: backend in Docker against PostgreSQL 16 + pgvector, 575 passed; dashboard in node:20, tsc --noEmit clean and jest 15 of 15 passed. Committed on pre-repair-11.
+BLOCKERS: None.
+NEXT TASK: REPAIR-14B (remaining pages audited for real data; voice interface acceptance).
+
+---
+
+TASK ID: REPAIR-14B-SETTINGS-EMAIL-NOTIFICATIONS
+TASK NAME: Settings on live data; one email configuration; real email tools and notifications
+STATUS: COMPLETE
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- Audit of every dashboard page's backend calls against the registered routes: every path the dashboard calls exists.
+- Settings showed Backend, Database and Redis as "Operational / Connected / Active" whatever their state (fake data) and had a dead "Save Changes" button. There was no view of which outside services are configured or a way to check a key.
+- Two email configurations: the mailer read EMAIL_SMTP_* / EMAIL_IMAP_*, while config, .env examples and docs used SMTP_*. docker-compose.prod.yml passed neither, nor GITHUB_TOKEN, UNSPLASH_ACCESS_KEY, PEXELS_API_KEY, ANTHROPIC_API_KEY, PROVIDER_ORDER or DEFAULT_MODEL, so email could not work in production.
+- The agents' email_send / email_read / email_search refused whenever email was configured ("no provider adapter is installed") although the mailer exists; the sales and partnerships agents could never send.
+- /api/integrations/notify never performed a live send, and /api/integrations/list had no authentication.
+- Recorded for Repair 15 (not in any agent's default toolbox): resource_provision, resource_scale, resource_terminate and external calendar sync only refuse; Slack tools only save drafts.
+FILES CREATED:
+- apps/backend/app/core/ops/connections.py (catalogue of 18 outside services: settings needed, configured or not, copied template values such as "your_..._here" treated as unset, what each enables, setup steps; one free, read-only live check each: model lists, account reads, a one-day Plausible query, SMTP/IMAP sign-in, health endpoints; never a value or a response body)
+- apps/backend/app/api/settings.py (GET /api/settings/overview: version, live database and Redis status, failover order with configured providers, services with their last check, voice, notification targets, features, limits, locked safety switches; POST /api/settings/services/{key}/check, audit-logged)
+- apps/backend/tests/test_repair14b_settings_email.py
+FILES MODIFIED:
+- apps/backend/app/core/business/mailer.py (SMTP_* and IMAP_* canonical, EMAIL_* still read; read from the environment or .env; HTML and workspace attachments; read-only mailbox reading and server-side search; sign-in checks)
+- apps/backend/app/tools/company/email.py (email_send: approval, one message per recipient, more than 10 recipients refused as mass email, attachments only from the workspace folder, secrets redacted, sent/failed recorded, draft without SMTP; email_read / email_search: the real mailbox read-only, saved drafts otherwise)
+- apps/backend/app/core/integrations/__init__.py, app/api/integrations.py (live notification by email to the operator's own address or an https webhook; list requires sign-in)
+- apps/backend/app/core/config.py (IMAP_*, NOTIFY_EMAIL, NOTIFY_WEBHOOK_URL), app/main.py, app/core/command/service.py (capability map), tests/conftest.py (mail, GitHub and image-library settings blanked in tests)
+- apps/dashboard/src/app/dashboard/settings/page.tsx (rewritten on /api/settings/overview: Check per service, Send test notification), apps/dashboard/__tests__/ops-pages.test.tsx
+- docker-compose.prod.yml (backend and worker: model routing, SMTP, IMAP, notifications, GitHub, Unsplash, Pexels), .env.example, .env.production.example (email values blank so email stays off until set), docs/CONFIGURATION.md
+COMMANDS RUN:
+- python -m py_compile on changed backend files: passed. Static audit of dashboard API paths against backend routes: all present.
+TESTS RUN:
+- Written: mailer names and fallback; catalogue never returns values and treats template values as unset; overview and checks through the API with a mock transport (accepted, rejected, unknown, not configured, no check), audit record shown as last check; unreachable service reported; email_send per recipient with a workspace attachment, approval required, mass email refused, escape refused; email_read and email_search on the mailbox, with secrets redacted; live notifications to the operator by email and webhook, http webhook refused. Dashboard: Settings shows live readiness and setup, runs a check, sends a test notification.
+RESULT: Owner test runs: backend in Docker against PostgreSQL 16 + pgvector, 582 passed; dashboard in node:20, tsc --noEmit clean and jest 16 of 16 passed. Committed on pre-repair-11.
+BLOCKERS: None.
+NEXT TASK: REPAIR-14C (voice interface acceptance).
+
+---
+
+TASK ID: REPAIR-14C-VOICE-ACCEPTANCE
+TASK NAME: Voice interface acceptance: the dashboard voice panel on the voice engine
+STATUS: COMPLETE
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- The dashboard voice panel worked only with Voicebox: push-to-talk and hands-free were disabled unless Voicebox was connected, although the voice engine (12e-4c) transcribes with OpenAI and speaks with ElevenLabs or OpenAI.
+- The panel sent what it heard to /api/command/execute, bypassing the voice router, so spoken approvals were not refused and voice missions were not marked as voice.
+- The voice router recognised an approval only when "approve" was the first word: "JARV, talk to me, approve the deploy" or "Hey JARV, approve it" became missions instead of being refused.
+- Without Voicebox, the hands-free wake check would have sent every burst of ambient speech to a cloud transcription service.
+FILES CREATED:
+- apps/backend/tests/test_repair14c_voice_acceptance.py
+- apps/dashboard/__tests__/voice-operator.test.tsx
+FILES MODIFIED:
+- apps/backend/app/core/voice/engine.py (strip_wake: the wake phrase and a spoken address, including "Jarvis", are removed before the command is read; polite lead-ins ignored when recognising approval, cancel and status; more approval phrasings refused; questions such as "confirm whether" are not approvals; the bare wake phrase answers "I'm listening")
+- apps/backend/app/api/v1/voice.py (POST /api/voice/transcribe: speech to text with the wake phrase found)
+- apps/dashboard/src/components/voice-operator.tsx (status from /api/voice/providers; push-to-talk on /api/voice/push-to-talk with whichever speech service is set up; spoken replies from /api/voice/audio; a voice mission is followed and its result spoken in short; replies shown when speech output is not set up; ambient wake checks only when recognition runs on JARV's own Voicebox; the local wake detector otherwise)
+- apps/dashboard/src/lib/missions.ts (followMission), apps/dashboard/src/app/dashboard/page.tsx (voice missions shown and followed in the Command Center)
+COMMANDS RUN:
+- python -m py_compile on changed backend files: passed; the router's phrase handling checked offline against approval, cancel, status and question phrasings.
+TESTS RUN:
+- Written: wake phrase and address removal; seven approval phrasings refused with no mission; wake, status, cancel and "confirm whether" questions; end to end with cloud speech only (heard, mission without the wake phrase marked voice, spoken reply served to its owner and refused to others, spoken approval refused and spoken, transcribe finds the wake phrase, mission followable). Dashboard: push-to-talk through the configured service, reply played, mission followed and its result spoken; spoken approval refusal shown with no mission; setup shown and controls disabled with no speech service; spoken summaries.
+RESULT: Owner test runs: backend in Docker against PostgreSQL 16 + pgvector, 597 passed; dashboard in node:20, tsc --noEmit clean and jest 20 of 20 passed. Committed 7c1d6a5 on pre-repair-11. Repair 14 complete.
+BLOCKERS: None.
+NEXT TASK: REPAIR-15 (hardening: tools that only refuse, legacy in-memory business and content APIs, routers without authentication, legacy root scripts, final multi-agent acceptance).
+
+---
+
+TASK ID: REPAIR-15A-ACCESS-CONTROL
+TASK NAME: Every API route requires sign-in; every record is scoped to its owner
+STATUS: COMPLETE
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- About 75 routes answered without sign-in, among them listing every workspace, creating one, changing its authority level and permanently deleting a workspace with all its data (a hard boundary), the audit trail, tasks and mission detail, boundary reports, checkpoints, the live operations feed (including marking and archiving items), standups, company roles, department task, feed and memory views, the scheduler, the tool and model registries, and POST /api/models/test, which calls a real provider.
+- Signed-in routes on those routers read every operator's records: no owner filter.
+- POST /api/agents/{name}/run ran the agent in whichever workspace was first in the database, whoever owned it; workspace creation assigned the first user in the database as owner.
+- GET /version and GET / exposed the environment, Python version, platform, feature switches and limits publicly; /ready returned database error text.
+FILES CREATED:
+- apps/backend/app/core/scoping.py (owned workspaces, sessions and agents as SQL; visible(model, user) for any model by its workspace, session, agent, user or owner link; require_workspace: 404 for another operator's workspace)
+- apps/backend/tests/test_repair15a_access_control.py
+FILES MODIFIED:
+- apps/backend/app/api/workspaces.py (sign-in on every route; list, stats, get, update and delete limited to the owner; the creator owns a new workspace; DELETE archives, reversibly; permanent deletion needs permanent=true and confirm=<slug> and is audit-logged; awaited rollbacks)
+- apps/backend/app/api/tasks.py, agents.py (router-level sign-in; tasks, mission detail and department views limited to the owner's workspaces; agent runs in the operator's chosen or own workspace), audit.py (the operator's entries and ownerless system events), boundary_reports.py, checkpoints.py, operations_feed.py, standups.py, company.py (sign-in and owner scoping), models.py, tools.py, scheduler.py, internet.py (router-level sign-in), health.py and app/main.py (public version and root show the service and version only; readiness reports error types only)
+- apps/backend/tests/conftest.py (signed_in fixture), test_api_agents.py, test_api_tasks.py, test_api_workspaces.py, test_regression.py, test_security_api.py, test_smoke.py (run signed in; delete archives then deletes with the slug; anonymous callers refused), test_health.py (public version carries nothing private)
+- apps/dashboard/src/lib/api.ts (VersionResponse matches the public version)
+- apps/backend/app/api/company.py (fix found by the first owner run: RoleInfo.department is optional like the column, so a role without a department no longer breaks the roles list with a 500)
+COMMANDS RUN:
+- First owner test run: 599 passed, 1 failed (company roles list returned 500 for a role with no department); fixed.
+- Static route audit over app/api: the only routes without sign-in are login, refresh, health, readiness, version, root, metrics (METRICS_TOKEN), alerts (ALERT_WEBHOOK_TOKEN) and the Stripe webhook (signature); the wake socket uses a one-time ticket. python -m py_compile on changed files: passed.
+TESTS RUN:
+- Written: the app's whole route table walked, every non-public route refuses an anonymous caller; two operators seeded, each sees only their own workspaces, tasks, feed, roles and audit entries, and cannot read, rename or delete the other's workspace or read their mission; a new workspace belongs to its creator; delete archives, a wrong slug is refused, restore works, a confirmed permanent delete removes it and is audited.
+RESULT: Owner test run after the fix: 600 passed in Docker against PostgreSQL 16 + pgvector. Committed on pre-repair-11.
+BLOCKERS: None.
+NEXT TASK: REPAIR-15B (tools that only refuse; legacy in-memory business and content APIs; legacy root scripts), then final acceptance.
+
+---
+
+TASK ID: REPAIR-15B-REAL-TOOLS-AND-LEGACY-REMOVAL
+TASK NAME: Tools that only refused now work; legacy in-memory APIs, fake workflows and stale reports removed
+STATUS: COMPLETE
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- /api/v1 business_ops: GET /api/business/metrics/summary returned hard-coded figures (5 campaigns, 125,000 monthly revenue); workflow status always "in_progress"; workflows ran in a random workspace when none was given. It shared the /api/business prefix with the real business API.
+- /api/v1 content_community: in-memory workflows, no persistence. /api/v1 assets: assets held in a Python dictionary ("in-memory storage for demo"), lost on restart, sharing /api/assets with the real owner-scoped asset API. /api/v1 workflows: the coding loop "checked the build" with a random simulation.
+- resource_provision, resource_scale and resource_terminate always refused ("no adapter"); resource_health_check refused anything but the local host.
+- Calendar tools refused whenever a sync flag was set, with no sync built. Slack needed a separate enable flag, and its search used the bot token, which Slack does not allow for search.messages.
+- Legacy one-off scripts in apps/backend (test_*.py outside tests/, verify_*.py) and update_ledger_phase16/17.py; phase reports declaring the system "production ready" in June, contradicted by the repairs since.
+- Recorded for 15C: infra/nginx/conf.d/jarv.conf reflects any request Origin with Access-Control-Allow-Credentials true.
+FILES CREATED:
+- apps/backend/app/api/calendar_feed.py (private iCalendar subscription feed per workspace: link for the owner, rotation, and the feed itself on a secret HMAC link, RFC 5545 escaping, folding and reminders)
+- apps/backend/tests/test_repair15b_real_tools.py
+- docs/history/README.md
+FILES MODIFIED:
+- apps/backend/app/tools/infrastructure/resources.py (resource_provision: starts a service of a deployed app on the deployment server under the budget rules, production or over budget waits for Richard, or records an external resource with its monthly cost; opening cloud accounts and buying resources are refused as Richard's hard boundaries; resource_scale: replicas through the same budget rules; resource_terminate: stops the service and keeps its data, data deletion refused, external resources stop being counted; resource_health_check: running replicas against expected for server services)
+- apps/backend/app/tools/infra_config/__init__.py (scale_service shared by scale_service_with_budget_boundary and the resource tools)
+- apps/backend/app/tools/company/calendar.py (always JARV's own calendar; refusal removed), slack.py (on when SLACK_BOT_TOKEN is set; message text redacted; search uses SLACK_USER_TOKEN, or a named channel's recent history with the bot token)
+- apps/backend/app/core/ops/connections.py (Slack in Settings with an auth.test check), app/core/config.py (SLACK_BOT_TOKEN, SLACK_USER_TOKEN), app/main.py, app/core/assets/__init__.py
+- docker-compose.prod.yml, .env.example, .env.production.example (Slack tokens)
+- apps/backend/tests/conftest.py, test_slack_tools.py, test_infrastructure_runtime_tools.py, test_repair15a_access_control.py (calendar feed on the public list: secret link, 404 otherwise)
+FILES REMOVED:
+- apps/backend/app/api/v1/business_ops.py, content_community.py, assets.py, workflows.py; app/core/workflows/ (business_ops.py, content_community.py, coding_loop.py); app/core/assets/manager.py, storage.py, templates.py
+- apps/backend/test_asset_system.py, test_business_ops.py, test_coding_loop.py, test_infrastructure_tools.py, test_phase17_complete.py, test_phase18_complete.py, test_phase19_infrastructure_tools.py, test_phase20_self_healing.py, test_support_system.py, verify_asset_endpoints.py, verify_phase17_real_implementation.py, verify_support_phase16.py; update_ledger_phase16.py, update_ledger_phase17.py
+- Moved to docs/history/: PHASE16-PHASE25 reports, FINAL_PRODUCTION_READINESS_REPORT.md, AUDIT_AGAINST_DESIGN.md, agent_verification_report.txt
+COMMANDS RUN:
+- References to every removed module and route checked across app, tests, scripts, dashboard, Makefile and CI: none remained. python -m py_compile on changed files: passed.
+TESTS RUN:
+- Written: removed routes answer 404; resources on the deployment-server stand-in (cloud provider refused with no record, production start waits for approval, staging start within budget, external record, scale within budget, health counted, scale over budget waits, stop waits for approval, data deletion refused, stop keeps data, external ended); calendar feed is valid iCalendar (escaping, folding, reminders, attendees); feed link stable, owner-only, served without sign-in on the secret link, forged link refused, rotation retires the old link; Slack search with a bot token uses channel history and asks for a user token otherwise; nothing reaches Slack without a token.
+RESULT: Owner test run: 605 passed in Docker against PostgreSQL 16 + pgvector. Committed on pre-repair-11.
+BLOCKERS: None.
+NEXT TASK: REPAIR-15C (nginx CORS; final multi-agent acceptance; runbook refresh), then merge to master.
+
+---
+
+TASK ID: REPAIR-15C-HARDENING-AND-FINAL-ACCEPTANCE
+TASK NAME: Production hardening, real multi-agent delegation, final acceptance test, runbook
+STATUS: COMPLETE
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- infra/nginx/conf.d/jarv.conf sent every /api path to FastAPI, including the dashboard's own /api/backend proxy and /api/health, so behind production nginx every dashboard call would have failed; it reflected any Origin with credentials and answered preflights itself; uploads were capped at 10 MB (voice clips are allowed 25 MB).
+- docker-compose.prod.yml passed CORS_ORIGINS, which the backend never reads (ALLOWED_ORIGINS), and ALLOWED_ORIGINS could not be given as the documented comma list.
+- Nothing ran database migrations: a fresh server would start on an empty database and upgrades would never apply migrations.
+- The production Redis requires a password but its health check pinged without one; REDIS_PASSWORD was missing from the production example.
+- Command Center missions ran the orchestrator without a database session, so the specialists it delegated to could not use their tools and boundary records could not be saved; delegation results were discarded and the report was written from the plan alone. The "delegate" path was staged (fixed file checks labelled as researcher, QA and verifier, never calling the agents).
+- /api/richard/pending, /api/richard/boundary-reports/{id} and /api/richard/approval-windows/{id} were not owner-scoped.
+- The resource tools made real in 15B were never registered, so no agent could use them.
+- 25 modules (about 9,500 lines) that faked their work were unused by anything: the approval, authority and resume packages, safety detector/reporter/boundaries (an always-pass rate limit), workspace manager/rules/scanner/templates ("In production: query database"), self-healing monitoring/workflows, Richard guidance, an example agent, four code-generation scripts, deployment aliases. Found by an import-reachability analysis from the app, workers, Alembic, scripts and tests.
+- file_watch and file_patch reported success without doing anything; analyze_style refused to fix; the local runner did not stream new log lines; README said installation instructions "will be added" and linked eleven documents that do not exist; the runbook described an Oracle Cloud setup from June.
+FILES CREATED:
+- apps/backend/tests/test_repair15c_final_acceptance.py (end to end through the API: a multi-agent mission is planned and delegated; the coding agent edits the workspace and the verifier compiles it through their own toolboxes; the production step pauses at a hard boundary while the safe steps complete; every handoff is a child task, feed entry and memory; Richard approves and JARV resumes from the checkpoint; another operator sees none of it)
+- apps/backend/tests/test_repair15c_hardening.py
+- docs/RUNBOOK.md (running locally and on the VPS, first sign-in, upgrades, using JARV, health, tests, troubleshooting including the WSL service error)
+FILES MODIFIED:
+- infra/nginx/conf.d/jarv.conf, infra/nginx/nginx.conf (dashboard proxy and health to the dashboard; backend for webhooks, calendar feeds and the wake socket; no nginx CORS; 30 MB uploads; WebSocket upgrade map with upstream keepalive)
+- docker-compose.prod.yml, docker-compose.yml (migrate service before backend, worker and scheduler; Redis health check authenticates; ALLOWED_ORIGINS), .env.production.example (REDIS_PASSWORD)
+- apps/backend/app/core/config.py (ALLOWED_ORIGINS as a comma list or JSON), apps/dashboard/src/app/api/backend/[...path]/route.ts (forwards the public host and scheme)
+- apps/backend/app/core/command/service.py (the orchestrator runs with the mission's session so delegated agents use their tools and boundaries persist; delegation outcome kept and reported; a step at a hard boundary makes the mission wait for approval, all steps failing fails it, some failing makes it partial; the delegate path runs the real orchestrator and records each agent's real result)
+- apps/backend/app/api/richard.py, app/core/richard/workflow.py (owner scoping), app/core/tools/registry.py and app/core/agents/specialists/ops_mode.py (resource tools registered and offered to the infrastructure agent; resource_terminate stays with Richard)
+- apps/backend/app/tools/file/advanced.py (file_watch polls for a real change; file_patch applies unified diffs with context checks and dry runs), app/tools/analysis/quality.py (fix removes trailing whitespace with file authority), app/tools/analysis/code.py, app/tools/command/terminal.py, app/agents/orchestrator.py, app/core/auth.py (unused get_current_user removed), services/local-runner/runner/tasks.py (log streaming follows the task)
+- apps/backend/app/core/safety/__init__.py, app/core/richard/__init__.py, app/core/self_healing/__init__.py, app/core/workspaces/__init__.py, app/tools/infrastructure/__init__.py
+- apps/dashboard/src/app/dashboard/settings/page.tsx (calendar subscription links), apps/dashboard/__tests__/ops-pages.test.tsx
+- README.md (getting started and real documentation links)
+FILES REMOVED:
+- apps/backend/app/core/approval/, app/core/authority/, app/core/resume/, app/core/safety/{boundaries,detector,reporter}.py, app/core/workspaces/{manager,rules,scanner,templates}.py, app/core/self_healing/{monitoring,workflows}.py, app/core/richard/guidance.py, app/core/agents/example_agent.py, app/core/agents/verify_all_agents.py, app/core/agents/specialists/{enhance_agents,generate_agents,verify_agents}.py, app/tools/infrastructure/deployment.py
+- FINAL_RUNBOOK.md moved to docs/history/
+COMMANDS RUN:
+- Import-reachability analysis over app/ from every entry point: no unused modules remain (app/models/tool.py is a migrated table). Every app.* import across app, tests, scripts and Alembic resolves. Compose files parsed as YAML: migrate gates backend, worker and scheduler in both. python -m py_compile on changed files: passed.
+TESTS RUN:
+- Written: final acceptance (above); nginx routing and no CORS; compose migrations and Redis health; ALLOWED_ORIGINS parsing; file watch sees a real change; file patch applies, dry-runs and refuses stale hunks; style fix needs file authority and removes trailing whitespace; resource tools registered and offered to the infrastructure agent; legacy modules gone; Richard reads limited to the owner. Dashboard: calendar links in Settings.
+RESULT: Owner test runs: backend in Docker against PostgreSQL 16 + pgvector, 622 passed (first run, including tests/test_repair15c_final_acceptance.py); dashboard in node:20, tsc --noEmit clean and jest 20 of 20 passed.
+BLOCKERS: None.
+NEXT TASK: Merge pre-repair-11 to master.
+
+---
+
+FINAL ACCEPTANCE STATUS: PASSED (2026-10-30)
+- Backend: 622 tests passed in Docker against PostgreSQL 16 + pgvector, with every provider key blanked (no credit spent).
+- Dashboard: TypeScript clean; 20 of 20 tests passed.
+- End-to-end acceptance (tests/test_repair15c_final_acceptance.py): a mission given through the authenticated API is planned by the orchestrator and delegated to the registered specialists; the coding agent edits the workspace and the verifier compiles it through their own authority-checked, logged toolboxes; the production step pauses at a hard boundary (boundary report, checkpoint, pending approval) while the safe steps complete; every handoff is recorded; Richard approves and JARV resumes from the checkpoint; another operator sees none of it.
+- Every API route requires sign-in and is owner-scoped (the whole route table is checked); no module in app/ is unused; no tool reports work it did not do.
+- Live-service checks against Richard's real accounts (providers, email, Stripe, Plausible, Slack, deploy server) are run from Settings > Check once the keys are set on the server; they are free and read-only.

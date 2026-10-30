@@ -17,7 +17,7 @@ from app.core.security import (
     create_refresh_token,
     verify_token,
 )
-from app.core.auth import CurrentUserId
+from app.core.auth import TokenSubject
 from app.core.config import settings
 from app.schemas.auth import (
     LoginRequest,
@@ -175,7 +175,7 @@ async def refresh_token(
     description="Logout user and revoke tokens"
 )
 async def logout(
-    user_id: CurrentUserId,
+    user_id: TokenSubject,
     request: LogoutRequest,
     redis: Annotated[Redis, Depends(get_redis)]
 ) -> dict:
@@ -213,7 +213,7 @@ async def logout(
     description="Get current authenticated user information"
 )
 async def get_current_user(
-    user_id: CurrentUserId,
+    user_id: TokenSubject,
     redis: Annotated[Redis, Depends(get_redis)]
 ) -> UserResponse:
     """
@@ -231,6 +231,8 @@ async def get_current_user(
 
     # Find user by user_id
     for key in await redis.keys("user:*"):
+        if await redis.type(key) != "hash":
+            continue
         data = await redis.hgetall(key)
         if data.get("user_id") == user_id:
             user_key = key
@@ -260,7 +262,7 @@ async def get_current_user(
     description="Change user password"
 )
 async def change_password(
-    user_id: CurrentUserId,
+    user_id: TokenSubject,
     request: PasswordChangeRequest,
     redis: Annotated[Redis, Depends(get_redis)]
 ) -> dict:

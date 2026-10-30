@@ -9,6 +9,10 @@ from datetime import datetime, timedelta
 import logging
 import ssl
 import socket
+import psutil
+from contextlib import asynccontextmanager
+from uuid import UUID
+import dns.resolver
 
 from sqlalchemy import select
 
@@ -18,6 +22,15 @@ from app.core.database import AsyncSessionLocal
 from app.models.operations import InfrastructureResource
 
 logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def _resource_db(context: ToolContext):
+    if context.db_session is not None:
+        yield context.db_session
+    else:
+        async with AsyncSessionLocal() as session:
+            yield session
 
 
 # ===== SSL CHECK TOOL =====
@@ -241,14 +254,12 @@ class DNSVerifyTool(ToolBase):
                 # Perform DNS lookup based on record type
                 if record_type == "A":
                     # Get A records (IPv4)
-                    import socket
                     addr_info = socket.getaddrinfo(domain, None, socket.AF_INET)
                     records = list(set([addr[4][0] for addr in addr_info]))
                     a_records = records
 
                 elif record_type == "AAAA":
                     # Get AAAA records (IPv6)
-                    import socket
                     try:
                         addr_info = socket.getaddrinfo(domain, None, socket.AF_INET6)
                         records = list(set([addr[4][0] for addr in addr_info]))
@@ -256,10 +267,12 @@ class DNSVerifyTool(ToolBase):
                         warnings.append("No IPv6 records found")
 
                 elif record_type in ["CNAME", "MX", "TXT"]:
-                    # For other record types, would use dnspython or similar
-                    # For now, return placeholder
-                    warnings.append(f"{record_type} lookup requires additional DNS library")
-                    records = []
+                    try:
+                        answers = dns.resolver.resolve(domain, record_type, lifetime=5)
+                        records = [str(answer) for answer in answers]
+                    except dns.resolver.NoAnswer:
+                        warnings.append(f"No {record_type} records found")
+                        records = []
 
                 else:
                     return self.create_result(
@@ -269,12 +282,20 @@ class DNSVerifyTool(ToolBase):
 
                 # Check additional record types if requested
                 if check_mx_records:
-                    mx_records = []  # Placeholder - would use dnspython
-                    warnings.append("MX lookup requires additional DNS library")
+                    try:
+                        mx_records = [str(answer) for answer in
+                                      dns.resolver.resolve(domain, "MX", lifetime=5)]
+                    except dns.resolver.NoAnswer:
+                        mx_records = []
+                        warnings.append("No MX records found")
 
                 if check_txt_records:
-                    txt_records = []  # Placeholder - would use dnspython
-                    warnings.append("TXT lookup requires additional DNS library")
+                    try:
+                        txt_records = [str(answer) for answer in
+                                       dns.resolver.resolve(domain, "TXT", lifetime=5)]
+                    except dns.resolver.NoAnswer:
+                        txt_records = []
+                        warnings.append("No TXT records found")
 
                 # Check against expected value if provided
                 is_valid = True
@@ -387,10 +408,10 @@ class ResourceMetricsTool(ToolBase):
             elif not time_range:
                 time_range = 3600  # Default 1 hour
 
-            # Fetch resource from database to verify it exists
-            async with AsyncSessionLocal() as db:
+            # Fetch resource from the request session to preserve scoped runtime/test connections.
+            async with _resource_db(context) as db:
                 result = await db.execute(
-                    select(InfrastructureResource).where(InfrastructureResource.id == resource_id)
+                    select(InfrastructureResource).where(InfrastructureResource.id == UUID(resource_id))
                 )
                 resource = result.scalar_one_or_none()
 
@@ -400,42 +421,49 @@ class ResourceMetricsTool(ToolBase):
                         error_message=f"Resource not found: {resource_id}",
                     )
 
-            # In real implementation, would fetch from monitoring service (Prometheus, CloudWatch, etc.)
-            # For now, generate sample metrics
+            if resource.provider != "local" or resource.resource_type not in ("host", "local"):
+                return self.create_result(
+                    success=False,
+                    error_message=(f"Metrics provider adapter is unavailable for {resource.provider}; "
+                                   "no cloud metrics were fabricated."),
+                )
+
+            metrics_path = (resource.config or {}).get("metrics_path", "/")
             metrics = {}
 
             if "cpu" in metric_types:
                 metrics["cpu"] = {
-                    "current": 45.2,
-                    "average": 42.8,
-                    "peak": 78.5,
+                    "current": psutil.cpu_percent(interval=0.1),
                     "unit": "percent",
                 }
 
             if "memory" in metric_types:
+                memory = psutil.virtual_memory()
                 metrics["memory"] = {
-                    "current": 62.8,
-                    "average": 58.3,
-                    "peak": 85.2,
+                    "current": memory.percent,
+                    "total_bytes": memory.total,
+                    "available_bytes": memory.available,
                     "unit": "percent",
                 }
 
             if "disk" in metric_types:
+                disk = psutil.disk_usage(metrics_path)
                 metrics["disk"] = {
-                    "current": 38.5,
-                    "average": 37.2,
-                    "peak": 42.1,
+                    "current": disk.percent,
+                    "total_bytes": disk.total,
+                    "used_bytes": disk.used,
+                    "free_bytes": disk.free,
+                    "path": metrics_path,
                     "unit": "percent",
-                    "read_iops": 150,
-                    "write_iops": 85,
                 }
 
             if "network" in metric_types:
+                network = psutil.net_io_counters()
                 metrics["network"] = {
-                    "in_mbps": 12.3,
-                    "out_mbps": 8.7,
-                    "in_packets": 1534,
-                    "out_packets": 987,
+                    "bytes_sent": network.bytes_sent,
+                    "bytes_received": network.bytes_recv,
+                    "packets_sent": network.packets_sent,
+                    "packets_received": network.packets_recv,
                 }
 
             timestamp = datetime.utcnow().isoformat()
@@ -447,6 +475,8 @@ class ResourceMetricsTool(ToolBase):
                 "metrics": metrics,
                 "time_range": time_range,
                 "timestamp": timestamp,
+                "data_source": "host_snapshot",
+                "limitations": ["Point-in-time host metrics only; no historical series or cloud provider telemetry."],
             }
 
             return self.create_result(

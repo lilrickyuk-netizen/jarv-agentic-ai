@@ -1,0 +1,15 @@
+# Secrets are supplied at runtime (env vars or the mounted .env), never baked into the image.
+.env
+.env.*
+!.env.example
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+*.db
+*.sqlite
+*.sqlite3
+test_jarv.db
+.venv
+venv

@@ -1,0 +1,13 @@
+# Keep the build context small and secret-free.
+node_modules
+.next
+out
+coverage
+.env
+.env.*
+!.env.local.example
+npm-debug.log*
+*.tsbuildinfo
+next-env.d.ts
+__tests__
+apps

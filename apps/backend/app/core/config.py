@@ -2,9 +2,10 @@
 JARV Backend Configuration
 Uses Pydantic Settings for environment variable management
 """
-from typing import List, Optional
+import json
+from typing import Annotated, List, Optional
 from pydantic import Field, PostgresDsn, RedisDsn, validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -32,7 +33,18 @@ class Settings(BaseSettings):
     # Server
     BACKEND_HOST: str = "0.0.0.0"
     BACKEND_PORT: int = 8000
-    ALLOWED_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
+    # Browser origins allowed to call the API directly (CORS). The dashboard calls through its own
+    # same-origin proxy, so this only matters for other browser clients. Comma-separated or a JSON list.
+    ALLOWED_ORIGINS: Annotated[List[str], NoDecode] = ["http://localhost:3000", "http://localhost:8000"]
+
+    @validator("ALLOWED_ORIGINS", pre=True)
+    def split_origins(cls, v):
+        if isinstance(v, str):
+            text = v.strip()
+            if text.startswith("["):
+                return [str(o).strip().rstrip("/") for o in json.loads(text) if str(o).strip()]
+            return [o.strip().rstrip("/") for o in text.split(",") if o.strip()]
+        return v
 
     # Database
     POSTGRES_USER: str = "jarv"
@@ -91,6 +103,15 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
     OLLAMA_BASE_URL: str = "http://localhost:11434"
+    # Ollama counts as a provider only when switched on (a local server must be running).
+    OLLAMA_ENABLED: bool = False
+    OLLAMA_MODEL: str = "llama3.1"
+    # Provider preference and failover order (Repair 12e). When an agent's model
+    # belongs to a provider with no key, or that provider fails for an account
+    # reason (no credit, bad key, rate limit, outage), the same tier of model on
+    # the next configured provider is used.
+    PROVIDER_ORDER: str = "claude,openai,gemini,ollama"
+    OPENAI_MODEL: str = "gpt-6-luna"
 
     @validator("CLAUDE_API_KEY", pre=True)
     def claude_key_from_anthropic(cls, v: Optional[str], values: dict) -> Optional[str]:
@@ -116,6 +137,15 @@ class Settings(BaseSettings):
     # Default LLM model used by the command pipeline (Claude is the primary provider).
     DEFAULT_MODEL: str = Field(default="claude-sonnet-4-6")
 
+    # Voicebox is an optional local service; the API remains disabled until
+    # both its URL and a configured speech profile are provided.
+    VOICEBOX_BASE_URL: Optional[str] = None
+    VOICEBOX_PROFILE_ID: Optional[str] = None
+    VOICEBOX_CONNECT_TIMEOUT_SECONDS: float = Field(default=3.0, gt=0, le=30)
+    VOICEBOX_READ_TIMEOUT_SECONDS: float = Field(default=180.0, gt=0, le=600)
+    VOICEBOX_MAX_AUDIO_BYTES: int = Field(default=25 * 1024 * 1024, gt=0, le=100 * 1024 * 1024)
+    WAKEWORD_MODEL_DIR: str = "/data/voice-models/sherpa-kws-gigaspeech"
+
     @validator("APPROVED_FOLDERS", pre=True)
     def parse_folders(cls, v):
         if isinstance(v, str):
@@ -138,6 +168,11 @@ class Settings(BaseSettings):
     MAX_SUBAGENTS_PER_WORKSPACE: int = 10
     MAX_SUBAGENTS_GLOBAL: int = 50
     SUBAGENT_TIMEOUT: int = 3600
+    # Swarm limits (Repair 12e-3b). A workspace policy can only tighten these.
+    SWARM_MAX_CONCURRENT: int = 5
+    SWARM_MAX_SUBAGENTS_PER_SWARM: int = 10
+    SWARM_MAX_TOTAL_SUBAGENTS: int = 50
+    SWARM_MAX_COST_PER_SWARM: float = 5.0
 
     # Self-Evolution
     SELF_EVOLUTION_ENABLED: bool = True
@@ -148,6 +183,57 @@ class Settings(BaseSettings):
 
     # Self-Healing
     SELF_HEALING_ENABLED: bool = True
+
+    # Mission runtime (Repair 12). Mode: celery | background | sync | deferred.
+    # Empty means celery, or deferred inside the unit-test suite.
+    MISSION_EXECUTION_MODE: str = ""
+    MISSION_HEARTBEAT_SECONDS: float = 15.0
+    MISSION_STALE_SECONDS: float = 120.0
+    MISSION_QUEUE_STALE_SECONDS: float = 600.0
+    MISSION_MAX_RECOVERIES: int = 2
+    MISSION_RECOVERY_INTERVAL_SECONDS: float = 60.0
+
+    # Observability (Repair 12b). When set, /metrics requires this bearer token.
+    METRICS_TOKEN: str = ""
+    # When set, Alertmanager must send this bearer token to /api/observability/alerts.
+    # When empty, only private-network callers are accepted.
+    ALERT_WEBHOOK_TOKEN: str = ""
+
+    # Operations (Repair 12d). DOCKER_OPS_URL points at the restricted Docker
+    # socket proxy (never the raw socket); empty disables container operations.
+    DOCKER_OPS_URL: str = ""
+    PROMETHEUS_URL: str = ""
+    BACKUP_DIR: str = "/data/backups"
+    BACKUP_INTERVAL_HOURS: float = 24.0
+    # Company operating layer: the daily operating loop runs on this interval for
+    # every active workspace with company mode enabled.
+    COMPANY_LOOP_INTERVAL_HOURS: float = 24.0
+    # Infrastructure money: fixed monthly costs as JSON ({"vps": 24, "domain": 1.2}), the
+    # approved monthly budget, the monthly cost of one extra replica, and the replica ceiling.
+    # Scaling beyond the budget or ceiling pauses for Richard.
+    INFRA_FIXED_COSTS: str = ""
+    INFRA_MONTHLY_BUDGET: float = 0.0
+    INFRA_REPLICA_MONTHLY_COST: float = 0.0
+    INFRA_MAX_REPLICAS: int = 5
+    # Revenue and analytics adapters (read-only). Unset = disabled; JARV uses recorded data.
+    STRIPE_SECRET_KEY: Optional[str] = None
+    # Signing secret of the Stripe webhook endpoint (/api/revenue/{workspace}/stripe-webhook).
+    STRIPE_WEBHOOK_SECRET: Optional[str] = None
+    PLAUSIBLE_API_KEY: Optional[str] = None
+    PLAUSIBLE_SITE_ID: Optional[str] = None
+    PLAUSIBLE_URL: str = "https://plausible.io"
+    APP_STORE_COUNTRY: str = "us"
+
+    # Deployments to Richard's VPS over SSH (Repair 12e-2). The private key is
+    # the base64 of a dedicated deploy key; the known-hosts line pins the
+    # server's host key. See docs/DEPLOYMENT.md.
+    DEPLOY_SSH_HOST: str = ""
+    DEPLOY_SSH_USER: str = "deploy"
+    DEPLOY_SSH_PORT: int = 22
+    DEPLOY_SSH_PRIVATE_KEY: str = ""
+    DEPLOY_SSH_KNOWN_HOSTS: str = ""
+    DEPLOY_BASE_DIR: str = "/srv/jarv"
+    DEPLOY_COMPOSE_COMMAND: str = "docker compose"
 
     # Logging and Monitoring
     AUDIT_LOGGING_ENABLED: bool = True
@@ -187,18 +273,39 @@ class Settings(BaseSettings):
 
     # Voice
     VOICE_ENABLED: bool = False
-    STT_PROVIDER: str = "whisper"
-    TTS_PROVIDER: str = "elevenlabs"
+    # Backends (Repair 12e-4c). auto = Voicebox when VOICEBOX_BASE_URL is set, otherwise the keyed
+    # cloud service. STT: auto, voicebox, openai. TTS: auto, voicebox, elevenlabs, openai.
+    STT_PROVIDER: str = "auto"
+    TTS_PROVIDER: str = "auto"
     ELEVENLABS_API_KEY: Optional[str] = None
-    GOOGLE_CLOUD_API_KEY: Optional[str] = None
-    AZURE_SPEECH_KEY: Optional[str] = None
+    ELEVENLABS_VOICE_ID: Optional[str] = None
+    ELEVENLABS_MODEL_ID: str = "eleven_multilingual_v2"
+    OPENAI_STT_MODEL: str = "whisper-1"
+    OPENAI_TTS_MODEL: str = "tts-1"
+    OPENAI_TTS_VOICE: str = "onyx"
+    # Spoken replies are stored here for their owner and pruned after the retention period.
+    VOICE_AUDIO_DIR: str = "/data/voice-audio"
+    VOICE_AUDIO_RETENTION_HOURS: float = 24.0
 
-    # Email
+    # Email (app/core/business/mailer.py): SMTP sends one message per recipient after approval;
+    # IMAP is read-only (support inbox sync, the agents' email_read and email_search tools).
     SMTP_HOST: Optional[str] = None
     SMTP_PORT: int = 587
     SMTP_USER: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
     SMTP_FROM: Optional[str] = None
+    IMAP_HOST: Optional[str] = None
+    IMAP_PORT: int = 993
+    IMAP_USER: Optional[str] = None
+    IMAP_PASSWORD: Optional[str] = None
+    IMAP_FOLDER: str = "INBOX"
+    # Where JARV notifies Richard: his own address (defaults to the signed-in operator, then
+    # SMTP_FROM) and an optional https webhook (Slack, Discord, ntfy).
+    NOTIFY_EMAIL: Optional[str] = None
+    NOTIFY_WEBHOOK_URL: Optional[str] = None
+    # Slack (app/tools/company/slack.py): the bot token switches Slack on; message search needs a user token.
+    SLACK_BOT_TOKEN: Optional[str] = None
+    SLACK_USER_TOKEN: Optional[str] = None
 
     # External Services
     SENTRY_DSN: Optional[str] = None

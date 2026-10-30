@@ -13,7 +13,7 @@ import time
 from app import __version__
 from app.core.config import settings
 from app.core.logging import setup_logging
-from app.core.database import close_db
+from app.core.database import AsyncSessionLocal, close_db
 from app.core.redis import init_redis, close_redis
 from app.core.errors import (
     JARVException,
@@ -22,7 +22,7 @@ from app.core.errors import (
     validation_exception_handler,
     general_exception_handler,
 )
-from app.api import health, auth, models, agents, tasks, tools, evolution, swarm, workspaces, company, standups, operations_feed, memory, experience, approvals, boundary_reports, checkpoints, assets
+from app.api import health, auth, models, agents, tasks, tools, evolution, swarm, workspaces, company, company_ops, business, revenue, permissions, analytics, settings as settings_api, calendar_feed, standups, operations_feed, memory, experience, approvals, boundary_reports, checkpoints, assets, agent_knowledge
 
 # Setup logging first
 setup_logging()
@@ -37,11 +37,29 @@ async def lifespan(app: FastAPI):
     logger.info(f"Environment: {settings.ENVIRONMENT}")
     logger.info(f"Debug mode: {settings.DEBUG}")
     logger.info(f"Log level: {settings.LOG_LEVEL}")
-    logger.info(f"Database: {settings.DATABASE_URL}")
+    logger.info("Database connection configured")
+
+    if not settings.TESTING:
+        from app.core.knowledge.catalog import specialist_knowledge
+        from app.core.knowledge.service import knowledge_service
+
+        async with AsyncSessionLocal() as session:
+            await knowledge_service.ingest(session, specialist_knowledge())
+            await session.commit()
 
     # Initialize Redis
     await init_redis()
-    logger.info(f"Redis: {settings.REDIS_URL}")
+    logger.info("Redis connection configured")
+
+    # Recover missions interrupted by a restart (workers also run this every minute).
+    if not settings.TESTING:
+        try:
+            from app.core.runtime.missions import MissionRunner
+
+            recovered = await MissionRunner().recover_stale()
+            logger.info(f"Mission recovery at startup: {recovered}")
+        except Exception as exc:  # noqa: BLE001 - startup must not fail on recovery
+            logger.error(f"Mission recovery at startup failed: {exc}", exc_info=True)
 
     # Log feature status
     logger.info(f"Swarm enabled: {settings.SWARM_ENABLED}")
@@ -82,58 +100,52 @@ if settings.CORS_ENABLED:
     logger.info(f"CORS enabled for origins: {settings.ALLOWED_ORIGINS}")
 
 
-# Request ID Middleware
+# Request tracing, metrics, and logging (Repair 12b)
 @app.middleware("http")
-async def add_request_id(request: Request, call_next):
-    """Add unique request ID to each request"""
+async def trace_and_measure(request: Request, call_next):
+    """One middleware so every log line for a request carries its request id.
+
+    Accepts a well-formed incoming X-Request-ID (so the dashboard and nginx can
+    correlate), records Prometheus metrics by route template, and logs the
+    request with method, route, status, and duration.
+    """
     import uuid
 
-    request_id = str(uuid.uuid4())
+    from app.core.observability.context import accept_request_id, request_id_var
+    from app.core.observability.metrics import http_metrics
+
+    request_id = accept_request_id(request.headers.get("x-request-id")) or str(uuid.uuid4())
     request.state.request_id = request_id
+    token = request_id_var.set(request_id)
+    start_time = time.perf_counter()
+    status_code = 500
+    http_metrics.started()
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        response.headers["X-Request-ID"] = request_id
+        return response
+    finally:
+        duration = time.perf_counter() - start_time
+        route = request.scope.get("route")
+        template = getattr(route, "path", None)
+        if template is None:
+            from starlette.routing import Match
 
-    # Add to response headers
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = request_id
-
-    return response
-
-
-# Logging Middleware
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    """Log all requests"""
-    start_time = time.time()
-
-    # Log request
-    logger.info(
-        f"Request started",
-        extra={
-            "method": request.method,
-            "path": request.url.path,
-            "client": request.client.host if request.client else None,
-            "request_id": getattr(request.state, "request_id", None),
-        }
-    )
-
-    # Process request
-    response = await call_next(request)
-
-    # Calculate duration
-    duration = time.time() - start_time
-
-    # Log response
-    logger.info(
-        f"Request completed",
-        extra={
-            "method": request.method,
-            "path": request.url.path,
-            "status_code": response.status_code,
-            "duration": f"{duration:.3f}s",
-            "request_id": getattr(request.state, "request_id", None),
-        }
-    )
-
-    return response
+            for candidate in request.app.router.routes:
+                if candidate.matches(request.scope)[0] == Match.FULL:
+                    template = getattr(candidate, "path", None)
+                    break
+        template = template or "unmatched"
+        if template != "/metrics":
+            http_metrics.observe(request.method, template, status_code, duration)
+        logger.info(
+            f"{request.method} {template} -> {status_code} in {duration * 1000:.0f}ms",
+            extra={"method": request.method, "path": request.url.path, "route": template,
+                   "status_code": status_code, "duration_ms": round(duration * 1000, 1),
+                   "client": request.client.host if request.client else None},
+        )
+        request_id_var.reset(token)
 
 
 # Exception Handlers
@@ -144,6 +156,12 @@ app.add_exception_handler(Exception, general_exception_handler)
 
 # Include routers
 app.include_router(health.router)
+from app.api import metrics as metrics_api  # noqa: E402
+app.include_router(metrics_api.router)
+from app.api import observability as observability_api  # noqa: E402
+app.include_router(observability_api.router)
+from app.api import operations as operations_api  # noqa: E402
+app.include_router(operations_api.router)
 app.include_router(auth.router)
 app.include_router(models.router, prefix="/api")
 app.include_router(agents.router, prefix="/api")
@@ -153,6 +171,13 @@ app.include_router(evolution.router)
 app.include_router(swarm.router)
 app.include_router(workspaces.router, prefix="/api")
 app.include_router(company.router)
+app.include_router(company_ops.router)
+app.include_router(business.router)
+app.include_router(revenue.router)
+app.include_router(permissions.router)
+app.include_router(analytics.router)
+app.include_router(settings_api.router)
+app.include_router(calendar_feed.router)
 app.include_router(standups.router)
 app.include_router(operations_feed.router)
 app.include_router(memory.router)
@@ -164,30 +189,18 @@ app.include_router(checkpoints.router)
 from app.api import richard as richard_api
 app.include_router(richard_api.router)
 app.include_router(assets.router)
-
-# Import and include workflow router
-from app.api.v1 import workflows
-app.include_router(workflows.router, prefix="/api")
-
-# Import and include assets router
-from app.api.v1 import assets
-app.include_router(assets.router, prefix="/api")
+app.include_router(agent_knowledge.router, prefix="/api")
 
 # Import and include support router
 from app.api.v1 import support
 app.include_router(support.router, prefix="/api")
 
-# Import and include business operations router
-from app.api.v1 import business_ops
-app.include_router(business_ops.router, prefix="/api")
-
-# Import and include content and community router
-from app.api.v1 import content_community
-app.include_router(content_community.router, prefix="/api")
-
 # Import and include voice command router
 from app.api.v1 import voice
 app.include_router(voice.router, prefix="/api")
+
+from app.api.v1 import voicebox
+app.include_router(voicebox.router, prefix="/api")
 
 # Import and include command execution router (live dashboard command pipeline)
 from app.api import command
@@ -215,7 +228,6 @@ async def root():
     return {
         "service": "JARV Agentic AI System - Backend API",
         "version": __version__,
-        "environment": settings.ENVIRONMENT,
         "docs": "/docs",
         "health": "/health",
     }

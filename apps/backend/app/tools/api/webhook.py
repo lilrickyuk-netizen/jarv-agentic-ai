@@ -9,9 +9,14 @@ from typing import Dict, Any, Type, List, Optional
 from pydantic import BaseModel, Field, HttpUrl
 import logging
 from datetime import datetime
+from uuid import UUID, uuid4
+import hashlib
+from sqlalchemy import select
 
 from app.core.tools import ToolBase, ToolConfig, ToolContext, ToolResult
 from app.core.agents.base import AuthorityLevel
+from app.tools.memory.storage import _memory_scope
+from app.models.integrations import WebhookEndpoint
 
 logger = logging.getLogger(__name__)
 
@@ -79,32 +84,26 @@ class WebhookRegisterTool(ToolBase):
         active = input_data.get("active", True)
 
         try:
-            from uuid import uuid4
-            webhook_id = str(uuid4())
-            created_at = datetime.utcnow().isoformat()
-
-            # In production: Insert into Webhook table
-            # from app.models.webhook import Webhook
-            # from app.core.database import get_db
-            # async for session in get_db():
-            #     webhook = Webhook(
-            #         id=webhook_id,
-            #         agent_id=context.agent_id,
-            #         url=url,
-            #         events=events,
-            #         description=description,
-            #         secret=secret,  # Should be hashed
-            #         custom_headers=headers,
-            #         is_active=active,
-            #         created_at=datetime.utcnow(),
-            #         last_triggered_at=None,
-            #         success_count=0,
-            #         failure_count=0,
-            #     )
-            #     session.add(webhook)
-            #     await session.commit()
-
-            logger.info(f"Registered webhook: {webhook_id}, events={events}, url={url}")
+            if not self._has_approval(context):
+                return self.create_result(
+                    success=False, requires_approval=True,
+                    error_message="Webhook registration requires an explicit approved execution context.",
+                )
+            db, agent_id = await _memory_scope(context)
+            if not url.startswith("https://"):
+                return self.create_result(success=False, error_message="Webhook URLs must use HTTPS")
+            record = WebhookEndpoint(
+                id=uuid4(), owner_id=UUID(str(context.user_id)),
+                workspace_id=UUID(str(context.workspace_id)), agent_id=agent_id,
+                url=url, events=events, description=description,
+                secret_hash=hashlib.sha256(secret.encode()).hexdigest() if secret else None,
+                is_active=active,
+            )
+            db.add(record)
+            await db.flush()
+            webhook_id = str(record.id)
+            created_at = record.created_at.isoformat()
+            logger.info(f"Registered webhook {webhook_id} for {len(events)} events; secret omitted")
 
             return self.create_result(
                 success=True,
@@ -115,10 +114,15 @@ class WebhookRegisterTool(ToolBase):
                     "secret_provided": secret is not None,
                     "active": active,
                     "created_at": created_at,
+                    "custom_headers_stored": False,
+                    "delivery_enabled": False,
+                    "limitations": ["Registration is persisted; outbound delivery adapter is not configured."],
                 },
                 output_text=f"Registered webhook {webhook_id} for {len(events)} events",
             )
 
+        except PermissionError as e:
+            return self.create_result(success=False, error_message=str(e))
         except Exception as e:
             return self.create_result(
                 success=False,
@@ -175,16 +179,17 @@ class WebhookUnregisterTool(ToolBase):
         webhook_id = input_data["webhook_id"]
 
         try:
-            # In production: Delete webhook from database
-            # from app.models.webhook import Webhook
-            # from app.core.database import get_db
-            # async for session in get_db():
-            #     webhook = await session.get(Webhook, webhook_id)
-            #     if not webhook or webhook.agent_id != context.agent_id:
-            #         return self.create_result(success=False, error_message="Webhook not found")
-            #     await session.delete(webhook)
-            #     await session.commit()
-
+            db, agent_id = await _memory_scope(context)
+            record = (await db.execute(select(WebhookEndpoint).where(
+                WebhookEndpoint.id == UUID(webhook_id),
+                WebhookEndpoint.owner_id == UUID(str(context.user_id)),
+                WebhookEndpoint.workspace_id == UUID(str(context.workspace_id)),
+                WebhookEndpoint.agent_id == agent_id,
+            ))).scalar_one_or_none()
+            if record is None:
+                return self.create_result(success=False, error_message="Webhook not found in this scope")
+            record.is_active = False
+            await db.flush()
             logger.info(f"Unregistered webhook: {webhook_id}")
 
             return self.create_result(
@@ -196,6 +201,8 @@ class WebhookUnregisterTool(ToolBase):
                 output_text=f"Unregistered webhook {webhook_id}",
             )
 
+        except PermissionError as e:
+            return self.create_result(success=False, error_message=str(e))
         except Exception as e:
             return self.create_result(
                 success=False,
@@ -267,31 +274,24 @@ class WebhookListTool(ToolBase):
         event_filter = input_data.get("event_filter")
 
         try:
-            webhooks = []
-
-            # In production: Query webhook table
-            # from app.models.webhook import Webhook
-            # from app.core.database import get_db
-            # from sqlalchemy import select
-            # async for session in get_db():
-            #     stmt = select(Webhook).filter(Webhook.agent_id == context.agent_id)
-            #     if active_only:
-            #         stmt = stmt.filter(Webhook.is_active == True)
-            #     if event_filter:
-            #         stmt = stmt.filter(Webhook.events.contains([event_filter]))
-            #     result = await session.execute(stmt)
-            #     for webhook in result.scalars():
-            #         webhooks.append({
-            #             "webhook_id": str(webhook.id),
-            #             "url": webhook.url,
-            #             "events": webhook.events,
-            #             "description": webhook.description,
-            #             "active": webhook.is_active,
-            #             "created_at": webhook.created_at.isoformat(),
-            #             "last_triggered_at": webhook.last_triggered_at.isoformat() if webhook.last_triggered_at else None,
-            #             "success_count": webhook.success_count,
-            #             "failure_count": webhook.failure_count,
-            #         })
+            db, agent_id = await _memory_scope(context)
+            stmt = select(WebhookEndpoint).where(
+                WebhookEndpoint.owner_id == UUID(str(context.user_id)),
+                WebhookEndpoint.workspace_id == UUID(str(context.workspace_id)),
+                WebhookEndpoint.agent_id == agent_id,
+            )
+            if active_only:
+                stmt = stmt.where(WebhookEndpoint.is_active.is_(True))
+            rows = (await db.execute(stmt.order_by(WebhookEndpoint.created_at.desc()))).scalars().all()
+            if event_filter:
+                rows = [row for row in rows if event_filter in row.events]
+            webhooks = [{
+                "webhook_id": str(row.id), "url": row.url, "events": row.events,
+                "description": row.description, "active": row.is_active,
+                "created_at": row.created_at.isoformat(),
+                "last_triggered_at": row.last_triggered_at.isoformat() if row.last_triggered_at else None,
+                "success_count": row.success_count, "failure_count": row.failure_count,
+            } for row in rows]
 
             logger.info(f"Listed {len(webhooks)} webhooks")
 
@@ -304,6 +304,8 @@ class WebhookListTool(ToolBase):
                 output_text=f"Found {len(webhooks)} webhooks",
             )
 
+        except PermissionError as e:
+            return self.create_result(success=False, error_message=str(e))
         except Exception as e:
             return self.create_result(
                 success=False,

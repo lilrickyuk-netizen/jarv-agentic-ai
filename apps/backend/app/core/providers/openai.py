@@ -32,6 +32,11 @@ class OpenAIProvider(BaseLLMProvider):
 
     # Available OpenAI models with their pricing (per million tokens)
     MODELS = {
+        "gpt-6-luna": {
+            "input_cost": 0.10,
+            "output_cost": 0.50,
+            "context_window": 1_050_000,
+        },
         "gpt-4-turbo": {
             "input_cost": 10.00,
             "output_cost": 30.00,
@@ -223,15 +228,24 @@ class OpenAIProvider(BaseLLMProvider):
 
             messages.append(message_dict)
 
-        openai_request = {
-            "model": request.model,
-            "messages": messages,
-            "temperature": request.temperature,
-            "max_tokens": request.max_tokens,
-            "top_p": request.top_p,
-            "frequency_penalty": request.frequency_penalty,
-            "presence_penalty": request.presence_penalty,
-        }
+        if request.model == "gpt-6-luna":
+            openai_request = {
+                "model": request.model,
+                "messages": messages,
+                "max_completion_tokens": request.max_tokens,
+                "reasoning_effort": "low",
+                "service_tier": "default",
+            }
+        else:
+            openai_request = {
+                "model": request.model,
+                "messages": messages,
+                "temperature": request.temperature,
+                "max_tokens": request.max_tokens,
+                "top_p": request.top_p,
+                "frequency_penalty": request.frequency_penalty,
+                "presence_penalty": request.presence_penalty,
+            }
 
         if request.stop:
             openai_request["stop"] = request.stop

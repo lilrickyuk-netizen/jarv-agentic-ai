@@ -4,6 +4,9 @@ Security tests for API endpoints
 import pytest
 from fastapi.testclient import TestClient
 
+# Every API route requires sign-in (Repair 15a); these tests run as test_user, the owner of test_workspace.
+pytestmark = pytest.mark.usefixtures("signed_in")
+
 
 @pytest.mark.security
 @pytest.mark.api
@@ -104,18 +107,15 @@ def test_oversized_payload_rejection(client: TestClient):
 @pytest.mark.security
 @pytest.mark.api
 def test_auth_required_endpoints(client: TestClient):
-    """Test endpoints that should require authentication"""
-    # These endpoints should check auth in production
-    sensitive_endpoints = [
-        ("/api/workspaces/create", "post"),
-        ("/api/agents/create", "post"),
-    ]
+    """Sensitive endpoints refuse a caller who has not signed in"""
+    from app.core.auth import get_current_user_id
+    from app.main import app
 
-    for endpoint, method in sensitive_endpoints:
-        if method == "post":
-            response = client.post(endpoint, json={})
-        # In test environment, auth might be bypassed
-        # This documents which endpoints should have auth
+    app.dependency_overrides.pop(get_current_user_id, None)
+    for endpoint, method in (("/api/workspaces/create", "post"), ("/api/workspaces/list", "get"),
+                             ("/api/agents/list", "get"), ("/api/tasks/list", "get")):
+        response = client.post(endpoint, json={}) if method == "post" else client.get(endpoint)
+        assert response.status_code == 401, endpoint
 
 
 @pytest.mark.security

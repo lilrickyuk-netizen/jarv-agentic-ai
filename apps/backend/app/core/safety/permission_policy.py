@@ -105,6 +105,27 @@ TOOL_POLICIES: Dict[str, ToolPolicy] = {p.tool_id: p for p in [
     ToolPolicy("check_package_registry", "network_read", RISK_LOW, 1),
     ToolPolicy("check_cve", "network_read", RISK_LOW, 1),
     ToolPolicy("asset_licence_check", "network_read", RISK_LOW, 1),
+    # Repair 12e-3a workspace tools (paths confined to the mission's folder by the toolbox).
+    ToolPolicy("edit_file", "write", RISK_MEDIUM, 2, workspace_scope_required=True),
+    ToolPolicy("create_folder", "write", RISK_LOW, 2, workspace_scope_required=True),
+    ToolPolicy("move_file", "write", RISK_MEDIUM, 2, workspace_scope_required=True),
+    ToolPolicy("copy_file", "write", RISK_LOW, 2, workspace_scope_required=True),
+    ToolPolicy("delete_file_with_boundary", "write", RISK_HIGH, 2, workspace_scope_required=True,
+               requires_approval=True,
+               hard_boundary_reason="Deleting workspace files is irreversible and needs Richard's approval."),
+    ToolPolicy("get_file_metadata", "read", RISK_LOW, 1, workspace_scope_required=True),
+    ToolPolicy("detect_workspace_type", "read", RISK_LOW, 1, workspace_scope_required=True),
+    ToolPolicy("detect_stack", "read", RISK_LOW, 1, workspace_scope_required=True),
+    ToolPolicy("detect_commands", "read", RISK_LOW, 1, workspace_scope_required=True),
+    ToolPolicy("find_missing_files", "read", RISK_LOW, 1, workspace_scope_required=True),
+    ToolPolicy("check_installed", "read", RISK_LOW, 1, workspace_scope_required=True),
+    ToolPolicy("get_command_log", "read", RISK_LOW, 1),
+    ToolPolicy("git_create_branch", "write", RISK_LOW, 2, workspace_scope_required=True),
+    ToolPolicy("git_push_with_boundary", "external_send", RISK_HIGH, 5, workspace_scope_required=True,
+               requires_approval=True,
+               hard_boundary_reason="Pushing code publishes it to a remote and needs Richard's approval."),
+    ToolPolicy("memory_link_to_workspace", "write", RISK_LOW, 1),
+    ToolPolicy("memory_link_to_task", "write", RISK_LOW, 1),
 ]}
 
 _DEFAULT_POLICY = ToolPolicy("__default__", "execute", RISK_MEDIUM, 1)

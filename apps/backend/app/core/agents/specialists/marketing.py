@@ -69,13 +69,20 @@ class MarketingAgent(AgentBase):
 
     @property
     def default_tools(self) -> list[str]:
-        return ['file_write', 'http_post', 'memory_retrieve']
+        from app.core.agents.specialists.business_mode import tools_for
+
+        return list(dict.fromkeys(tools_for("marketing") + ['file_write', 'http_post', 'memory_retrieve']))
 
     async def run(
         self,
         input_data: Dict[str, Any],
         context: AgentContext,
     ) -> AgentResult:
+        from app.core.agents.specialists import business_mode
+
+        live = await business_mode.run(self, input_data, context)
+        if live is not None:
+            return live
         try:
             campaign_type = input_data.get("campaign_type", "email")
             target_audience = input_data.get("target_audience", "general")

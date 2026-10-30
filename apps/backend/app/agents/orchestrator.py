@@ -112,6 +112,8 @@ class OrchestratorAgent(AgentBase):
             "file_read",
             "workspace_info",
             "memory_search",
+            "transcribe_voice",
+            "speak_response",
         ]
 
     async def run(
@@ -368,6 +370,28 @@ class OrchestratorAgent(AgentBase):
             if task.requires_approval:
                 deferred += 1
                 blocked_ids.add(task.task_id)
+                persisted_task_id = None
+                if can_persist:
+                    from app.models.task import Task
+
+                    task_row = Task(
+                        id=_uuid4(),
+                        workspace_id=context.workspace_id,
+                        title=f"Approval-gated task {task.task_id}"[:500],
+                        description="Paused by the hard-boundary approval gate.",
+                        task_type="orchestrator_plan",
+                        status="pending",
+                        priority=5,
+                        context={
+                            "plan_task_id": task.task_id,
+                            "assigned_agent": agent_name,
+                            "dependencies": list(task.dependencies or []),
+                        },
+                    )
+                    db.add(task_row)
+                    await db.flush()
+                    persisted_task_id = task_row.id
+
                 boundary_type = self._classify_boundary(task.description, detect_hard_boundaries)
                 record = {
                     "task_id": task.task_id,
@@ -402,7 +426,7 @@ class OrchestratorAgent(AgentBase):
                         available_authority_level=int(self.config.authority_level.value),
                         safe_work_continuing=[str(t.task_id) for t in task_plan
                                               if t.task_id != task.task_id and not t.requires_approval],
-                        resume_snapshot=snapshot, task_id=None,
+                        resume_snapshot=snapshot, task_id=persisted_task_id,
                         detection={"boundary_type": boundary_type})
                     record.update({
                         "boundary_report_id": res.get("boundary_report_id"),
@@ -734,9 +758,7 @@ class OrchestratorAgent(AgentBase):
         # Call LLM
         response = await router.complete(completion_request)
 
-        # Parse LLM response into task plan
-        # For now, parse structured output from LLM
-        # In production, use structured output or JSON mode
+        # Parse the model's JSON plan (tolerant of fences and prose; falls back to a simple plan).
         task_plan = self._parse_llm_response(response.content, mission, constraints)
 
         return task_plan

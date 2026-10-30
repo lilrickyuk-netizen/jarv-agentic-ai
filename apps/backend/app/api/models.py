@@ -4,7 +4,8 @@ JARV Backend - Model Management API
 Endpoints for managing LLM providers and models.
 """
 from typing import Dict, List, Any, Optional
-from fastapi import APIRouter, HTTPException, status
+from fastapi import Depends, APIRouter, HTTPException, status
+from app.core.auth import get_current_user_id
 from pydantic import BaseModel, Field
 import logging
 
@@ -16,7 +17,7 @@ from app.core.providers import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/models", tags=["models"])
+router = APIRouter(prefix="/models", tags=["models"], dependencies=[Depends(get_current_user_id)])
 
 
 class ModelTestRequest(BaseModel):
