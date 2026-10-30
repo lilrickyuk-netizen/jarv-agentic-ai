@@ -8,7 +8,7 @@
 
 ## CURRENT STATUS
 - **Current Phase**: REPAIR CONTINUATION (10-15)
-- **Current Task**: FIX-FIXED-TEXT-FILE-WRITE and FIX-AGENTS-READ-WHOLE-FILES (agents read only the first part of long files)
+- **Current Task**: None. Agents write requested files themselves and read long files completely (PostgreSQL suite 645 passed, 1 skipped)
 - **Build Status**: NOT ACCEPTED; Repairs 11-15 remain open under the locked execution order
 - **Build Start Date**: 2026-06-03
 - **Build Completion Date**: 2026-06-03
@@ -12853,15 +12853,15 @@ NEXT TASK: Richard runs the tests, rebuilds backend and worker, and asks JARV fo
 
 TASK ID: FIX-FIXED-TEXT-FILE-WRITE
 TASK NAME: Requests to create or write a file go to the agents
-STATUS: IN_PROGRESS
+STATUS: COMPLETE
 PROBLEM: Richard found BUILD_PLAN.md in the MYCO folder containing only "# JARV Write Test ... created by JARV through the controlled, authority-gated write_file tool". An earlier request to create a build-plan file matched the command service's write_file shortcut, which wrote that fixed text into whatever file was named and reported "File written": a file the request did not ask for, presented as done.
 FILES CREATED: None.
 FILES MODIFIED:
 - apps/backend/app/core/command/service.py (create/write/add/make a file now classifies as agent_task, so the agents write the content the request asks for from the workspace; the fixed-text write handler and its intent are removed)
 - apps/backend/tests/test_voice_live_and_mission_session.py (three file-creation requests classify as agent_task)
 COMMANDS RUN: The intent classifier evaluated on the three requests: agent_task for each. python -m py_compile on the changed files: passed.
-TESTS RUN: Awaiting Richard's PostgreSQL suite.
-RESULT: Awaiting test results.
+TESTS RUN: PostgreSQL suite (owner run): 644 passed, 1 skipped.
+RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: Richard deletes the stray BUILD_PLAN.md from the MYCO folder and runs the next MYCO mission.
 
@@ -12869,7 +12869,7 @@ NEXT TASK: Richard deletes the stray BUILD_PLAN.md from the MYCO folder and runs
 
 TASK ID: FIX-AGENTS-READ-WHOLE-FILES
 TASK NAME: Agents read long files completely
-STATUS: IN_PROGRESS
+STATUS: COMPLETE
 PROBLEM: Myco_design.md is 77,800 characters. Its section 93 fixes the build stack and section 94 the repository layout, and it closes with a dependency-ordered build plan; JARV's Phase 0-1 task list nonetheless left the stack and paths open. Agents' read_file returned at most 20,000 bytes with no way to continue, and the result handed back to the model was clipped further (6,000 characters in the command executor, 8,000 in agent tool loops), so the planning agents saw under a tenth of the design.
 FILES CREATED: None.
 FILES MODIFIED:
@@ -12879,7 +12879,7 @@ FILES MODIFIED:
 - apps/backend/app/core/agents/tool_loop.py (per-tool result limit)
 - apps/backend/tests/test_voice_live_and_mission_session.py (a 106,400-character file with worst-case escaping is read in parts that reassemble exactly, and every part is passed back whole)
 COMMANDS RUN: JSON size of a worst-case 16,000-character part: 16,767 characters (within the 32,000 limit). python -m py_compile on the changed files: passed.
-TESTS RUN: Awaiting Richard's PostgreSQL suite.
-RESULT: Awaiting test results.
+TESTS RUN: PostgreSQL suite (owner run): 645 passed, 1 skipped.
+RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: Richard rebuilds and asks JARV to redo the MYCO architecture and Phase 0-1 tasks from the whole design.
