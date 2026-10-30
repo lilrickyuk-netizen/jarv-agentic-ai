@@ -233,3 +233,26 @@ def test_speech_service_failures_are_reported_not_crashed(voice, monkeypatch):  
     heard = _run(engine.transcribe(wav, filename="a.wav"))
     _request, body = voice["requests"][-1]
     assert heard["text"] == "Talk to me." and b'name="model"\r\n\r\nsmall' in body
+
+
+# ----- worker: consecutive missions share one event loop -----------------------------------------
+
+def test_consecutive_worker_tasks_reuse_clients_bound_to_the_first_loop():
+    """A client created during one task (a database pool, Redis, a provider's HTTP client) is bound to
+    that task's event loop. With asyncio.run per task the second task found it closed: "Event loop is
+    closed". The worker's run_async keeps one loop per process."""
+    from app.workers.tasks import run_async
+
+    cached = {}
+
+    async def task():
+        loop = asyncio.get_running_loop()
+        if "client" not in cached:
+            cached["client"] = asyncio.Queue()  # bound to the loop it is first used on
+            cached["loop"] = loop
+        await cached["client"].put("job")
+        return await cached["client"].get(), loop is cached["loop"]
+
+    assert run_async(task()) == ("job", True)
+    assert run_async(task()) == ("job", True)
+    assert not cached["loop"].is_closed()

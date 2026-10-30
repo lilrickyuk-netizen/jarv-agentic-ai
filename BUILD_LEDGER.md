@@ -8,7 +8,7 @@
 
 ## CURRENT STATUS
 - **Current Phase**: REPAIR CONTINUATION (10-15)
-- **Current Task**: None. FIX-MISSION-SESSION-AND-LIVE-VOICE complete 2026-10-30 (PostgreSQL suite 635 passed, 1 skipped); Richard to try typed missions and live conversation
+- **Current Task**: FIX-WORKER-EVENT-LOOP (the second mission in a worker process failed: "Event loop is closed")
 - **Build Status**: NOT ACCEPTED; Repairs 11-15 remain open under the locked execution order
 - **Build Start Date**: 2026-06-03
 - **Build Completion Date**: 2026-06-03
@@ -12812,3 +12812,20 @@ TESTS RUN: Written: an unregistered agent audited on a mission session leaves th
 RESULT: First owner run: 631 passed, 5 failed. Three Repair 6 tests showed tool_runs.agent_id has no database foreign key (tool runs are kept for in-memory agents), so the agents-table check added to run_logging was removed and only the savepoint kept. Two new tests counted server-set columns, unloaded after any insert, as expired by the audit, and one expected a missing workspace to break the audit entry (that column has no database foreign key either); they now compare against what was unloaded before the write and force the failure with an action name longer than its column. Second owner run: 634 passed, 2 failed (the two new session tests). Finding: the test suite's own database is SQLite (conftest uses TEST_DATABASE_URL, default sqlite; the run sets only DATABASE_URL, used by the migration step), which enforces neither foreign keys nor column lengths; that is why the orchestrator's foreign-key failure was never seen in tests. The two tests now check the fields a mission uses after its agents run and force the failed write with a detail that cannot be stored as JSON, which fails on every database. Owner to run the suite against PostgreSQL as well (TEST_DATABASE_URL set to the test container). Third owner run (SQLite): 635 passed, 1 failed: AuditLog's meta_data validator stores any value as text, so the unstorable detail did not fail; the test now has the database refuse the entry through a before_insert event, on any database. First PostgreSQL run: 636 setup errors, because the suite's schema fixture (drop_all/create_all) ran on the database the migrations had just built; the PostgreSQL run uses its own fresh database with pgvector. Fourth owner run: SQLite 636 passed; PostgreSQL 624 passed, 12 failed. Fixed: the orchestrator now runs as its persisted agents-table row (ensure_orchestrator_agent, in a savepoint) so its audit entries and tool runs link to a real agent; tests that wrote text priorities into the integer priority column, ran tools as agents with no agents-table row, ran the agent runner in a workspace that did not exist, or decided an approval as a user that did not exist now use real rows; the orphan-checkpoint resume test runs only on SQLite (PostgreSQL's foreign key refuses the orphan). The two business tests and the experience test need their PostgreSQL error output. Fifth owner run (PostgreSQL, alone): 632 passed, 1 skipped, 3 failed, all real defects on PostgreSQL: onboarding flows (setup checklists, product tours, onboarding flows) could not be created or edited because version was written as a number into a text column; experience suggestions matched contexts with a JSON containment the json type does not support, which aborted the session's transaction. Fixed: versions are stored as text and reported as numbers; contexts match as text. docs/RUNBOOK.md: the standard backend test run is now PostgreSQL (migrations on one database, the suite on a fresh one). Sixth owner run, the new standard (PostgreSQL 16 + pgvector, migrations then the suite on a fresh database): 635 passed, 1 skipped (the orphan-checkpoint test, SQLite only).
 BLOCKERS: None.
 NEXT TASK: Richard rebuilds, retries a typed mission and opens a live conversation (Talk with JARV) on the local stack.
+
+---
+
+TASK ID: FIX-WORKER-EVENT-LOOP
+TASK NAME: Worker missions run on one event loop per process
+STATUS: IN_PROGRESS
+PROBLEM: Richard's first live-conversation mission on MYCO (a build plan) failed, and every restart failed with "the event loop was closed". Each Celery task ran its coroutine with asyncio.run, which closes the loop when the task ends; clients created once per worker process (the pooled database engine, Redis, the model providers' HTTP clients) stay bound to that first loop, so the next mission reusing them failed.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/backend/app/workers/tasks.py (run_async: one long-lived event loop per worker process, recreated after a fork; every task uses it instead of asyncio.run)
+- apps/backend/tests/test_voice_live_and_mission_session.py (consecutive tasks reuse a client bound to the first loop)
+- apps/backend/app/core/voice/live.py (in conversation JARV reports a mission's error plainly, does not claim to fix its own code, and restarts a failed mission at most once and only when asked; it had restarted the failing mission repeatedly)
+COMMANDS RUN: python -m py_compile on the changed files: passed.
+TESTS RUN: Awaiting Richard's PostgreSQL suite and a mission on the local stack.
+RESULT: Awaiting test results.
+BLOCKERS: None.
+NEXT TASK: Richard runs the tests, rebuilds the worker and retries the MYCO build-plan mission.

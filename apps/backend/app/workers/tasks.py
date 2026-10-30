@@ -5,6 +5,7 @@ Background tasks for async operations.
 """
 import logging
 import asyncio
+import os
 from typing import Any
 from celery import Task
 
@@ -13,13 +14,33 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+_loop: "asyncio.AbstractEventLoop | None" = None
+_loop_pid: "int | None" = None
+
+
+def run_async(coro):
+    """Run a coroutine on this worker process's own long-lived event loop.
+
+    Clients created once per process (the database pool, Redis, the model
+    providers' HTTP clients) stay bound to the loop they first ran on.
+    asyncio.run closes its loop after every task, so the next task reusing
+    those clients failed with "Event loop is closed". One loop per process
+    (recreated after a fork) keeps them valid across tasks.
+    """
+    global _loop, _loop_pid
+    if _loop is None or _loop.is_closed() or _loop_pid != os.getpid():
+        _loop = asyncio.new_event_loop()
+        _loop_pid = os.getpid()
+        asyncio.set_event_loop(_loop)
+    return _loop.run_until_complete(coro)
+
 
 class AsyncTask(Task):
     """Base task class with async support"""
 
     def __call__(self, *args, **kwargs):
         """Execute task with async support"""
-        return asyncio.run(self.run_async(*args, **kwargs))
+        return run_async(self.run_async(*args, **kwargs))
 
     async def run_async(self, *args, **kwargs):
         """Override this method in subclasses"""
@@ -164,7 +185,7 @@ async def _run_scheduled_loop(job_name: str, description: str) -> dict[str, Any]
 @celery_app.task(name="scheduled_status_loop", bind=True)
 def scheduled_status_loop(self: Task) -> dict[str, Any]:
     """Daily operating / heartbeat loop — runs autonomously via Celery Beat."""
-    return asyncio.run(_run_scheduled_loop(
+    return run_async(_run_scheduled_loop(
         "daily_status_check",
         "Autonomous health check and self-healing of JARV's own services (no operator command)."))
 
@@ -178,7 +199,7 @@ def run_mission(self: Task, task_id: str, reason: str = "") -> dict[str, Any]:
     from app.core.runtime.missions import MissionRunner
 
     logger.info(f"run_mission {task_id} ({reason or 'dispatch'}) on {self.request.hostname}")
-    return asyncio.run(MissionRunner().run(task_id))
+    return run_async(MissionRunner().run(task_id))
 
 
 @celery_app.task(name="resume_checkpoint", bind=True, acks_late=True)
@@ -187,7 +208,7 @@ def resume_checkpoint_task(self: Task, checkpoint_id: str, user_id: str) -> dict
     is idempotent, so a redelivered message cannot run the action twice."""
     from app.core.runtime.dispatcher import resume_checkpoint
 
-    return asyncio.run(resume_checkpoint(checkpoint_id, user_id))
+    return run_async(resume_checkpoint(checkpoint_id, user_id))
 
 
 @celery_app.task(name="backup_database", bind=True)
@@ -210,7 +231,7 @@ def backup_database(self: Task) -> dict[str, Any]:
             return {"success": verification["verified"], "backup_id": str(record.id),
                     "file": record.backup_name, "size_bytes": record.backup_size_bytes}
 
-    return asyncio.run(run())
+    return run_async(run())
 
 
 @celery_app.task(name="recover_stale_missions", bind=True)
@@ -228,7 +249,7 @@ def recover_stale_missions(self: Task) -> dict[str, Any]:
             await db.commit()
         return {**summary, "sub_agents_timed_out": [str(i) for i in timed_out]}
 
-    return asyncio.run(run())
+    return run_async(run())
 
 
 @celery_app.task(name="company_daily_loop", bind=True)
@@ -258,4 +279,4 @@ def company_daily_loop(self: Task) -> dict[str, Any]:
                     results[str(ws_id)] = f"failed: {exc}"
         return {"workspaces": len(results), "results": results}
 
-    return asyncio.run(run())
+    return run_async(run())
