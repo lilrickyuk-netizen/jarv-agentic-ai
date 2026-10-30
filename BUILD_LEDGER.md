@@ -12954,3 +12954,23 @@ TESTS RUN: PostgreSQL suite (owner run): 652 passed, 1 skipped. Dashboard (owner
 RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: Richard moves the MYCO workspace to C:\Users\lilri\Projects\MYCO from its workspace page.
+
+---
+
+TASK ID: FIX-WORKSPACE-TOOLCHAIN
+TASK NAME: JARV carries the tools to build projects and installs the rest itself
+STATUS: IN_PROGRESS
+PROBLEM: Before the MYCO Phase 0 mission, the worker had only the distribution's old Node and npm: no pnpm, yarn, uv or Python 3.12, no compiler for native packages, and git init/add/commit each needed approval ("git add ." was even read as the dd command). Each new project would have needed another image change. Richard: JARV should already have every tool it needs.
+FILES CREATED:
+- apps/backend/tests/test_workspace_toolchain.py
+FILES MODIFIED:
+- apps/backend/Dockerfile (Node 22 LTS with npm, pnpm and yarn; uv with Python 3.12 and 3.13; build-essential, jq, unzip, ripgrep; a home for the jarv user with ~/.local/bin on PATH; git author JARV, default branch main, workspace folders marked safe)
+- docker-compose.yml, docker-compose.prod.yml (tool_home volume at /home/jarv for backend and worker, so tools and language versions JARV installs persist across rebuilds)
+- apps/backend/app/core/workspaces/fs_inspector.py (pnpm, uv, yarn and version commands; git init, git add with plain paths and git commit with one double-quoted message run as build commands; installs into the tool home from the official registries: uv tool install, uv python install, uvx, npx, pnpm dlx; push, reset, clean, chaining, sudo and global installs stay blocked; needs_workspace)
+- apps/backend/app/core/command/tool_runtime.py (commands that change the folder they run in run only with a workspace folder as working directory)
+- apps/backend/app/core/command/agent_executor.py (agents are told which tools they have and to install any other tool themselves, never asking the operator)
+COMMANDS RUN: python -m py_compile on the changed files: passed. The 36 classifier cases and needs_workspace evaluated against the changed classifier: all as expected.
+TESTS RUN: Owner run of the PostgreSQL suite.
+RESULT: Awaiting the owner run.
+BLOCKERS: None.
+NEXT TASK: Richard gives JARV the MYCO Phase 0 mission.

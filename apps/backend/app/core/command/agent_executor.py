@@ -9,8 +9,9 @@ the error, fix it, and re-run, scoped to an approved workspace.
 
 Safety is enforced by the tool layer (ToolRuntime + fs_inspector):
   * file writes are scoped to the approved workspace; secrets/out-of-scope blocked,
-  * commands are classified — read-only + build/test run; delete/deploy/push/
-    install/network are blocked,
+  * commands are classified — read-only, build/test, local git and installs from the official
+    registries (inside the workspace or into JARV's tool home) run; delete/deploy/push, chaining,
+    sudo and global installs are blocked,
   * every tool call is authority-checked, logged to audit + the operations feed,
     and recorded on the task (visible in task detail).
 """
@@ -124,14 +125,20 @@ class AgentExecutor:
             "code, run builds and tests — iterating until the mission is genuinely done. "
             f"You operate ONLY inside the approved workspace"
             + (f" rooted at `{self.workspace_root}`. " if self.workspace_root else ". ")
-            + "Use absolute paths inside that workspace. You CANNOT delete, deploy, push, "
-            "or access the network — those are blocked by policy; if the mission needs one, "
-            "explain it and call finish. Make real changes with write_file and verify with "
-            "run_command. "
+            + "Use absolute paths inside that workspace. You CANNOT delete, deploy or push — "
+            "those are blocked by policy; if the mission needs one, explain it and call finish. "
+            "Make real changes with write_file and verify with run_command. "
+            "TOOLS: git, Node 22 with npm, pnpm and yarn, Python 3.11 to 3.13 with uv, gcc and make, "
+            "jq, rg. If a project needs another tool, install it yourself from the official "
+            "registries: `uv tool install <package>` (e.g. semgrep), `uv python install <version>`, "
+            "`pnpm add -D <package>` or `npm install -D <package>` in the project, `npx <tool>`. "
+            "Tools you install stay installed. Never ask the operator to install a tool for you. "
             "COMMAND RULES: run ONE simple command per call. Do NOT use shell chaining or "
             "redirection (&&, ;, |, >, 2>&1, $(...), backticks, `cd X && ...`) — they are "
             "blocked. To verify Python, use `python3 -m py_compile <file>` or `python3 <file>`. "
-            "Allowed: ls, cat, grep, git status, python3, node, npm run build/test, pytest. "
+            "Allowed: ls, cat, grep, git status/log/diff, git init, git add, "
+            "git commit -m \"message\", python3, node, npm/pnpm install and run, "
+            "uv sync/lock/add/run, pytest. Commands run in the workspace folder; give cwd for a sub-folder. "
             "If a command is blocked or 'requires approval', do NOT retry the same command — "
             "switch to write_file or a different allowed command. "
             "Do not claim success without verifying. When the WHOLE mission is done, call finish."
