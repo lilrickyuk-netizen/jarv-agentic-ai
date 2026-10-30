@@ -8,7 +8,7 @@
 
 ## CURRENT STATUS
 - **Current Phase**: REPAIR CONTINUATION (10-15)
-- **Current Task**: REPAIR 15 (hardening and final acceptance); Repair 12 complete 2026-10-29; Repairs 13 and 14 complete 2026-10-30
+- **Current Task**: None. Repairs 11-15 complete 2026-10-30; final acceptance passed; merging pre-repair-11 to master
 - **Build Status**: NOT ACCEPTED; Repairs 11-15 remain open under the locked execution order
 - **Build Start Date**: 2026-06-03
 - **Build Completion Date**: 2026-06-03
@@ -12722,7 +12722,7 @@ NEXT TASK: REPAIR-15C (nginx CORS; final multi-agent acceptance; runbook refresh
 
 TASK ID: REPAIR-15C-HARDENING-AND-FINAL-ACCEPTANCE
 TASK NAME: Production hardening, real multi-agent delegation, final acceptance test, runbook
-STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+STATUS: COMPLETE
 AUDIT FINDINGS THAT DROVE THIS TASK:
 - infra/nginx/conf.d/jarv.conf sent every /api path to FastAPI, including the dashboard's own /api/backend proxy and /api/health, so behind production nginx every dashboard call would have failed; it reflected any Origin with credentials and answered preflights itself; uploads were capped at 10 MB (voice clips are allowed 25 MB).
 - docker-compose.prod.yml passed CORS_ORIGINS, which the backend never reads (ALLOWED_ORIGINS), and ALLOWED_ORIGINS could not be given as the documented comma list.
@@ -12754,6 +12754,15 @@ COMMANDS RUN:
 - Import-reachability analysis over app/ from every entry point: no unused modules remain (app/models/tool.py is a migrated table). Every app.* import across app, tests, scripts and Alembic resolves. Compose files parsed as YAML: migrate gates backend, worker and scheduler in both. python -m py_compile on changed files: passed.
 TESTS RUN:
 - Written: final acceptance (above); nginx routing and no CORS; compose migrations and Redis health; ALLOWED_ORIGINS parsing; file watch sees a real change; file patch applies, dry-runs and refuses stale hunks; style fix needs file authority and removes trailing whitespace; resource tools registered and offered to the infrastructure agent; legacy modules gone; Richard reads limited to the owner. Dashboard: calendar links in Settings.
-RESULT: Pending owner test run.
+RESULT: Owner test runs: backend in Docker against PostgreSQL 16 + pgvector, 622 passed (first run, including tests/test_repair15c_final_acceptance.py); dashboard in node:20, tsc --noEmit clean and jest 20 of 20 passed.
 BLOCKERS: None.
-NEXT TASK: Final acceptance review, then merge pre-repair-11 to master.
+NEXT TASK: Merge pre-repair-11 to master.
+
+---
+
+FINAL ACCEPTANCE STATUS: PASSED (2026-10-30)
+- Backend: 622 tests passed in Docker against PostgreSQL 16 + pgvector, with every provider key blanked (no credit spent).
+- Dashboard: TypeScript clean; 20 of 20 tests passed.
+- End-to-end acceptance (tests/test_repair15c_final_acceptance.py): a mission given through the authenticated API is planned by the orchestrator and delegated to the registered specialists; the coding agent edits the workspace and the verifier compiles it through their own authority-checked, logged toolboxes; the production step pauses at a hard boundary (boundary report, checkpoint, pending approval) while the safe steps complete; every handoff is recorded; Richard approves and JARV resumes from the checkpoint; another operator sees none of it.
+- Every API route requires sign-in and is owner-scoped (the whole route table is checked); no module in app/ is unused; no tool reports work it did not do.
+- Live-service checks against Richard's real accounts (providers, email, Stripe, Plausible, Slack, deploy server) are run from Settings > Check once the keys are set on the server; they are free and read-only.
