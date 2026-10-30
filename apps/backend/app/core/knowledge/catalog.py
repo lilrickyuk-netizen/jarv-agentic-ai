@@ -246,5 +246,7 @@ SPECIALIST_KNOWLEDGE: List[Dict] = [
 
 
 def specialist_knowledge() -> List[Dict]:
-    """Return fresh catalog dictionaries for all registered design agents."""
-    return [dict(item) for item in SPECIALIST_KNOWLEDGE]
+    """Every agent's core brief plus its field library (app.core.knowledge.library), as fresh dictionaries."""
+    from app.core.knowledge.library import library_entries
+
+    return [dict(item) for item in SPECIALIST_KNOWLEDGE] + library_entries()

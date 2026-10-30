@@ -382,7 +382,7 @@ class AgentBase(ABC):
                         context.db_session, agent_name=self.name,
                         query=" ".join(str(value) for value in validated_input.values()
                                        if isinstance(value, (str, list))),
-                        limit=3,
+                        limit=4,
                     )
                 elif settings.TESTING:
                     knowledge = []
@@ -394,7 +394,7 @@ class AgentBase(ABC):
                             knowledge_db, agent_name=self.name,
                             query=" ".join(str(value) for value in validated_input.values()
                                            if isinstance(value, (str, list))),
-                            limit=3,
+                            limit=4,
                         )
                 if not knowledge and not settings.TESTING:
                     raise AgentExecutionError(

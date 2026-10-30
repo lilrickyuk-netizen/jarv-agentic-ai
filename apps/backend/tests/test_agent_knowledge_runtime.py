@@ -32,13 +32,14 @@ def test_knowledge_ingestion_is_idempotent_retrievable_and_versioned():
         async with AsyncTestingSessionLocal() as session:
             installed = await knowledge_service.ingest(session, specialist_knowledge())
             await session.commit()
-            assert installed == {"inserted": 31, "updated": 0, "unchanged": 0}
+            assert installed == {"inserted": len(specialist_knowledge()), "updated": 0, "unchanged": 0}
 
             repeated = await knowledge_service.ingest(session, specialist_knowledge())
-            assert repeated == {"inserted": 0, "updated": 0, "unchanged": 31}
+            assert repeated == {"inserted": 0, "updated": 0, "unchanged": len(specialist_knowledge())}
 
             record = (await session.execute(select(AgentKnowledge).where(
                 AgentKnowledge.agent_name == "security",
+                AgentKnowledge.knowledge_key == "specialist-core",
                 AgentKnowledge.is_active.is_(True),
             ))).scalar_one()
             retrieved = await knowledge_service.retrieve(
@@ -150,7 +151,7 @@ def test_authenticated_knowledge_api_installs_retrieves_and_revises(
     db_session.commit()
     installed = client.post("/api/knowledge/catalog/install")
     assert installed.status_code == 200, installed.text
-    assert installed.json()["inserted"] == 31
+    assert installed.json()["inserted"] == len(specialist_knowledge())
 
     retrieved = client.get(
         "/api/knowledge/agents/security",

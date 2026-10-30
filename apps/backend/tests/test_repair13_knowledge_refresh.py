@@ -27,7 +27,7 @@ from tests.conftest import AsyncTestingSessionLocal
 def test_catalogue_covers_every_agent_with_current_sources():
     from app.core.agents.registry import get_registry
 
-    entries = {e["agent_name"]: e for e in specialist_knowledge()}
+    entries = {e["agent_name"]: e for e in specialist_knowledge() if e["knowledge_key"] == "specialist-core"}
     assert set(entries) == set(get_registry().REQUIRED_AGENTS)
     for entry in entries.values():
         assert entry["url"].startswith("https://") and entry["content"].strip() and entry["keywords"]
@@ -45,7 +45,7 @@ def test_updated_briefs_become_new_versions_and_are_retrieved():
     catalogue = specialist_knowledge()
     stale = [dict(e) for e in catalogue]
     for entry in stale:
-        if entry["agent_name"] == "rollback":
+        if entry["agent_name"] == "rollback" and entry["knowledge_key"] == "specialist-core":
             entry["content"] = "Rollback is available only while the Deployment revision history is retained."
 
     async def run():
@@ -55,7 +55,8 @@ def test_updated_briefs_become_new_versions_and_are_retrieved():
             refreshed = await knowledge_service.ingest(db, catalogue)
             again = await knowledge_service.ingest(db, catalogue)
             await db.commit()
-            rows = (await db.execute(select(AgentKnowledge).where(AgentKnowledge.agent_name == "rollback")
+            rows = (await db.execute(select(AgentKnowledge).where(AgentKnowledge.agent_name == "rollback",
+                                                                  AgentKnowledge.knowledge_key == "specialist-core")
                                      .order_by(AgentKnowledge.version))).scalars().all()
             found = await knowledge_service.retrieve(db, agent_name="rollback",
                                                      query="roll back the release after a schema change")
@@ -67,7 +68,8 @@ def test_updated_briefs_become_new_versions_and_are_retrieved():
     active = [r for r in rows if r.is_active]
     assert len(active) == 1 and "schema" in active[0].content
     assert active[0].previous_version_id == rows[-2].id and not rows[-2].is_active
-    assert found and found[0]["version"] == active[0].version and "schema" in found[0]["content"]
+    core = [f for f in found if f["knowledge_key"] == "specialist-core"]
+    assert core and core[0]["version"] == active[0].version and "schema" in core[0]["content"]
 
 
 def test_no_derivatives_licences_allow_unmodified_use_only():

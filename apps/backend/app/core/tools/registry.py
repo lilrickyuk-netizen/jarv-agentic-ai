@@ -1095,6 +1095,18 @@ def _register_implemented_tools(registry: ToolRegistry) -> None:
     except ImportError as e:
         logger.warning(f"Voice tools not available for registration: {e}")
 
+    # Specialist knowledge lookup (Repair 13): every agent can consult its field's library.
+    try:
+        from app.tools.knowledge import KNOWLEDGE_TOOLS
+
+        for tool in KNOWLEDGE_TOOLS:
+            registry.register(tool, category="knowledge")
+
+        logger.info(f"Registered {len(KNOWLEDGE_TOOLS)} knowledge tool (real, Repair 13)")
+
+    except ImportError as e:
+        logger.warning(f"Knowledge tools not available for registration: {e}")
+
     # Boundary tools (Repair 7): real detection + BoundaryReport persistence.
     try:
         from app.tools.boundary import (

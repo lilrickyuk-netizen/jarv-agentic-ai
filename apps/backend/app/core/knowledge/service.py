@@ -16,6 +16,41 @@ from app.models.agent_knowledge import AgentKnowledge
 
 
 _WORD_RE = re.compile(r"[a-z0-9][a-z0-9_-]{1,}")
+_STOP = frozenset("""a an and are as at be by can do does for from has have how i in into is it its me my of on or our
+should so that the their them then there these this to us was we what when where which who why will with you your
+please about any all also more most not no than too very via""".split())
+
+
+def _stem(word: str) -> str:
+    for suffix in ("ing", "ed", "s"):
+        if len(word) > len(suffix) + 3 and word.endswith(suffix):
+            return word[: -len(suffix)]
+    return word
+
+
+def _terms(text: str) -> set:
+    return {_stem(w) for w in _WORD_RE.findall(text.lower()) if w not in _STOP}
+
+
+def relevance(query: str, title: str, content: str, keywords: List[str], source_title: str = "",
+              publisher: str = "") -> float:
+    """Keyword and title matches count most, then body text; normalised by the query's terms."""
+    query_terms = _terms(query)
+    if not query_terms:
+        return 0.0
+    keyword_terms = _terms(" ".join(keywords))
+    title_terms = _terms(title)
+    body_terms = _terms(" ".join([content, source_title, publisher]))
+    score = 0.0
+    for term in query_terms:
+        if term in keyword_terms:
+            score += 3
+        elif term in title_terms:
+            score += 2
+        elif term in body_terms:
+            score += 1
+    phrase_bonus = 2 if query.lower().strip() in " ".join([title, content]).lower() else 0
+    return (score + phrase_bonus) / (3 * len(query_terms))
 
 
 class KnowledgeService:
@@ -177,17 +212,10 @@ class KnowledgeService:
             AgentKnowledge.agent_name == agent_name,
             AgentKnowledge.is_active.is_(True),
         ).order_by(AgentKnowledge.knowledge_key, AgentKnowledge.version.desc()))).scalars().all()
-        query_terms = set(_WORD_RE.findall(query.lower()))
         ranked = []
         for row in rows:
-            searchable = " ".join([
-                row.title, row.content, " ".join(row.keywords),
-                row.source_title, row.source_publisher,
-            ]).lower()
-            terms = set(_WORD_RE.findall(searchable))
-            overlap = len(query_terms & terms)
-            phrase_bonus = 2 if query.lower().strip() in searchable else 0
-            score = (overlap + phrase_bonus) / max(len(query_terms), 1)
+            score = relevance(query, row.title, row.content, list(row.keywords), row.source_title,
+                              row.source_publisher)
             ranked.append((score, row))
         ranked.sort(key=lambda pair: (pair[0], pair[1].version), reverse=True)
         return [{

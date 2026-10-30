@@ -229,18 +229,18 @@ class AgentRunner:
                         async with async_session_factory() as knowledge_db:
                             knowledge = await knowledge_service.retrieve(
                                 knowledge_db, agent_name=agent_name,
-                                query=task, limit=3,
+                                query=task, limit=4,
                             )
                     finally:
                         await engine.dispose()
                 else:
                     async with AsyncSessionLocal() as knowledge_db:
                         knowledge = await knowledge_service.retrieve(
-                            knowledge_db, agent_name=agent_name, query=task, limit=3,
+                            knowledge_db, agent_name=agent_name, query=task, limit=4,
                         )
             else:
                 knowledge = await knowledge_service.retrieve(
-                    db, agent_name=agent_name, query=task, limit=3,
+                    db, agent_name=agent_name, query=task, limit=4,
                 )
         except Exception as exc:  # noqa: BLE001 - no agent may run without retrieval
             logger.exception("specialist knowledge retrieval failed for %s", agent_name)
