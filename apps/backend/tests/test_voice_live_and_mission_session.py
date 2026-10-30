@@ -13,7 +13,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from sqlalchemy import inspect, select
+from sqlalchemy import event, inspect, select
 
 from app.core.audit import AuditLogger
 from app.core.auth import get_current_user_id
@@ -81,11 +81,18 @@ def test_a_failed_audit_write_undoes_only_itself():
             owner, ws_id = await _seed(db)
             task = await _mission(db, owner, ws_id)
             title = task.title
-            with pytest.raises(Exception):
-                # A detail that cannot be stored as JSON makes the entry itself fail to write.
-                await AuditLogger.log_agent_execution(session=db, agent_name="coding_agent", action="step",
-                                                      result="success", user_id=owner, workspace_id=ws_id,
-                                                      task_id=task.id, details={"unstorable": object()})
+            def refuse(mapper, connection, target):
+                raise RuntimeError("audit row refused by the database")
+
+            # The database refuses the entry itself (as it refused the orchestrator's foreign key).
+            event.listen(AuditLog, "before_insert", refuse)
+            try:
+                with pytest.raises(RuntimeError, match="refused by the database"):
+                    await AuditLogger.log_agent_execution(session=db, agent_name="coding_agent", action="step",
+                                                          result="success", user_id=owner, workspace_id=ws_id,
+                                                          task_id=task.id)
+            finally:
+                event.remove(AuditLog, "before_insert", refuse)
             loaded = _intact(task) and task.title == title
             tool_logged = await write_tool_run(
                 db, tool_name="read_file", tool_group="file", description="Read a file",
