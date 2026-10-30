@@ -118,6 +118,7 @@ async def test_agent_tool_turns_are_sent_in_openai_shape():
 
     payload = sent[0]
     _assert_valid_openai_chat(payload)
+    assert payload["reasoning_effort"] == "none"  # gpt-6-luna refuses function tools with reasoning on
     assert [t["function"]["name"] for t in payload["tools"]] == ["read_file", "finish"]
     assert payload["tools"][0]["function"]["parameters"]["required"] == ["path"]
     assistant = payload["messages"][2]

@@ -317,7 +317,9 @@ class OpenAIProvider(BaseLLMProvider):
                 "model": request.model,
                 "messages": messages,
                 "max_completion_tokens": request.max_tokens,
-                "reasoning_effort": "low",
+                # gpt-6-luna on chat completions takes function tools only with reasoning off
+                # ("Function tools with reasoning_effort are not supported ... set reasoning_effort to 'none'").
+                "reasoning_effort": "none" if request.tools else "low",
                 "service_tier": "default",
             }
         else:
