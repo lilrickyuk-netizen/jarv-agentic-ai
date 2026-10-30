@@ -64,6 +64,14 @@ async def metrics(workspace_id: UUID, user_id: CurrentUserId, days: int = Query(
             "conversion": await _guard(revenue_service.conversion(db, workspace_id, days))}
 
 
+@router.get("/{workspace_id}/analytics")
+async def analytics(workspace_id: UUID, user_id: CurrentUserId, days: int = Query(30, ge=1, le=365),
+                    db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """Traffic from Plausible when configured, otherwise the traffic KPIs recorded for the workspace."""
+    await _owned(db, user_id, workspace_id)
+    return await _guard(revenue_service.analytics(db, workspace_id, days))
+
+
 @router.get("/{workspace_id}/payment-events")
 async def payment_events(workspace_id: UUID, user_id: CurrentUserId, hours: int = Query(24, ge=1, le=720),
                          db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { SectionNav } from "@/components/ops/section-nav";
 import { isAuthenticated } from "@/lib/auth";
 
 export default function DashboardLayout({
@@ -10,6 +11,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
@@ -33,5 +35,11 @@ export default function DashboardLayout({
     );
   }
 
-  return <>{children}</>;
+  // The Command Center has its own cockpit navigation; every other page gets the section bar.
+  return (
+    <>
+      {pathname !== "/dashboard" && <SectionNav />}
+      {children}
+    </>
+  );
 }

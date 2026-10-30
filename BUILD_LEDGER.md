@@ -8,7 +8,7 @@
 
 ## CURRENT STATUS
 - **Current Phase**: REPAIR CONTINUATION (10-15)
-- **Current Task**: REPAIR 13 refresh, then REPAIR 14 (dashboard on real data, voice interface); Repair 12 complete 2026-10-29
+- **Current Task**: REPAIR 14 (dashboard on real data, voice interface); Repair 12 complete 2026-10-29; Repair 13 complete 2026-10-30
 - **Build Status**: NOT ACCEPTED; Repairs 11-15 remain open under the locked execution order
 - **Build Start Date**: 2026-06-03
 - **Build Completion Date**: 2026-06-03
@@ -12555,7 +12555,7 @@ NEXT TASK: REPAIR-14 (dashboard pages on real backend data; voice interface acce
 
 TASK ID: REPAIR-13-EXPERT-KNOWLEDGE
 TASK NAME: Expert knowledge library for every agent's field
-STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+STATUS: COMPLETE
 AUDIT FINDINGS THAT DROVE THIS TASK:
 - Richard's requirement for Repair 13 is that every agent is an expert in its field. Each agent held one short brief (31 in total), retrieved three at a time by plain word overlap, and agents had no way to look anything up mid-task.
 FILES CREATED:
@@ -12570,6 +12570,30 @@ COMMANDS RUN:
 - Source pages fetched and read for every topic; python -m py_compile on changed files: passed; offline ranking check over all 186 entries: every agent has 6, no duplicate keys, no unused sources, sample queries rank the intended topic first.
 TESTS RUN:
 - Written: coverage (31 agents, at least 6 sourced topics each, https sources, no unused sources, at least 25 publishers); ranking for ten field questions; install idempotence; consult tool in own and other fields, unknown field refused, no-match result; every toolbox offers the tool and an agent's run carries its relevant topics.
-RESULT: Pending owner test run.
+RESULT: Owner test run in Docker against PostgreSQL 16 + pgvector: 570 passed. Committed 9d3d74c on pre-repair-11.
 BLOCKERS: None.
 NEXT TASK: REPAIR-14 (resume claude/repair-14a-wip: business, revenue, analytics and permissions pages on real data).
+
+---
+
+TASK ID: REPAIR-14A-DASHBOARD-OPERATIONS-PAGES
+TASK NAME: Business, revenue, analytics, permissions and operations pages on real backend data
+STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- Analytics, Business, Community, Content, Marketing, Onboarding, Partnerships, Permissions, Revenue Operations, Sales and Support pages showed static or hard-coded figures, or buttons with no backend call. There was no endpoint for JARV's own performance, the live authority model, the monthly cost against budget, creating deals, shortlisting partners or listing the operator's workspaces.
+FILES CREATED:
+- apps/backend/app/api/analytics.py (GET /api/analytics/{workspace}/overview: missions by status and per day, success rate, duration, tokens; tool runs by tool and agent, failures, approval pauses; monthly cost)
+- apps/backend/app/api/permissions.py (GET /api/permissions/overview: authority levels, every agent's level, tools per level, always and conditionally gated tools, hard boundaries, Command Center gates, sub-agent and voice rules, all read from the registries and safety code)
+- apps/backend/tests/test_repair14a_dashboard_apis.py
+- apps/dashboard/src/components/ops/ui.tsx, workspace.tsx, drafts.tsx, pipeline.tsx, section-nav.tsx (shared data loading, actions, workspace picker, draft review, deal and partner pipeline, section navigation)
+- apps/dashboard/__tests__/ops-pages.test.tsx
+FILES MODIFIED:
+- apps/backend/app/api/business.py (POST deals, partners/shortlist, partners/{id}: the operator's dashboard action is the approval for an agreement becoming active), revenue.py (GET analytics: Plausible when configured, recorded KPIs otherwise), operations.py (GET cost), workspaces.py (GET mine), app/main.py
+- apps/dashboard/src/app/dashboard/: analytics, business, community, content, marketing, onboarding, partnerships, permissions, revenue-operations, sales, support pages; layout.tsx; page.tsx
+COMMANDS RUN:
+- python -m py_compile on changed backend files: passed. The dashboard's npm registry is unreachable from the build container, so tsc and jest run on the owner's machine in Docker (node:20).
+TESTS RUN:
+- Written: authentication on every new endpoint; workspace picker lists only the operator's workspaces; deals created, validated and moved, partners shortlisted and activated, pipeline totals, other users refused; analytics computed from seeded missions and tool runs; cost, traffic and permissions endpoints. Dashboard: pages load from the API, actions post to it, errors shown.
+RESULT: Pending owner test run.
+BLOCKERS: None.
+NEXT TASK: REPAIR-14B (remaining pages audited for real data; voice interface acceptance).
