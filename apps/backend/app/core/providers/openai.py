@@ -23,6 +23,46 @@ from app.core.providers.base import (
 logger = logging.getLogger(__name__)
 
 
+
+def _openai_tool(tool: Dict[str, Any]) -> Dict[str, Any]:
+    """A tool definition in OpenAI's shape ({"type": "function", "function": {...}}).
+
+    JARV defines tools in the Anthropic shape ({name, description, input_schema});
+    OpenAI rejects those ("Missing required parameter: 'tools[0].type'")."""
+    if tool.get("type") == "function" and isinstance(tool.get("function"), dict):
+        return tool
+    return {"type": "function", "function": {
+        "name": tool["name"],
+        "description": tool.get("description") or tool["name"],
+        "parameters": tool.get("input_schema") or tool.get("parameters") or {"type": "object", "properties": {}},
+    }}
+
+
+def _openai_messages_from_blocks(role: str, blocks: List[Any]) -> List[Dict[str, Any]]:
+    """One Anthropic-shaped message (content blocks) as OpenAI chat messages."""
+    text = "\n".join(str(b.get("text", "")) for b in blocks
+                     if isinstance(b, dict) and b.get("type") == "text" and b.get("text"))
+    if role == "assistant":
+        calls = [{"id": b["id"], "type": "function",
+                  "function": {"name": b["name"], "arguments": json.dumps(b.get("input") or {})}}
+                 for b in blocks if isinstance(b, dict) and b.get("type") == "tool_use"]
+        message: Dict[str, Any] = {"role": "assistant", "content": text or None}
+        if calls:
+            message["tool_calls"] = calls
+        return [message]
+    out: List[Dict[str, Any]] = []
+    for b in blocks:
+        if isinstance(b, dict) and b.get("type") == "tool_result":
+            content = b.get("content")
+            if not isinstance(content, str):
+                content = json.dumps(content, default=str)
+            out.append({"role": "tool", "tool_call_id": b.get("tool_use_id"), "content": content})
+    if text:
+        out.append({"role": role, "content": text})
+    if not out:
+        out.append({"role": role, "content": json.dumps(blocks, default=str)})
+    return out
+
 class OpenAIProvider(BaseLLMProvider):
     """
     OpenAI API provider implementation.
@@ -210,8 +250,13 @@ class OpenAIProvider(BaseLLMProvider):
                 "content": request.system,
             })
 
-        # Add conversation messages
+        # Add conversation messages. JARV's agents speak the Anthropic shape (content
+        # blocks: text, tool_use, tool_result); OpenAI needs assistant tool_calls and
+        # one role "tool" message per result.
         for msg in request.messages:
+            if isinstance(msg.content, list):
+                messages.extend(_openai_messages_from_blocks(msg.role, msg.content))
+                continue
             message_dict = {
                 "role": msg.role,
                 "content": msg.content,
@@ -251,10 +296,10 @@ class OpenAIProvider(BaseLLMProvider):
             openai_request["stop"] = request.stop
 
         if request.tools:
-            openai_request["tools"] = request.tools
+            openai_request["tools"] = [_openai_tool(tool) for tool in request.tools]
 
         if request.tool_choice:
-            openai_request["tool_choice"] = request.tool_choice
+            openai_request["tool_choice"] = {"any": "required"}.get(request.tool_choice, request.tool_choice)
 
         return openai_request
 
@@ -266,7 +311,7 @@ class OpenAIProvider(BaseLLMProvider):
         return CompletionResponse(
             id=data["id"],
             model=data["model"],
-            content=message.get("content", ""),
+            content=message.get("content") or "",  # null when the model only calls tools
             role=message["role"],
             finish_reason=choice.get("finish_reason", "stop"),
             usage={

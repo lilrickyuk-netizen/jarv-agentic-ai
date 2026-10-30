@@ -8,7 +8,7 @@
 
 ## CURRENT STATUS
 - **Current Phase**: REPAIR CONTINUATION (10-15)
-- **Current Task**: FIX-WORKER-EVENT-LOOP (the second mission in a worker process failed: "Event loop is closed")
+- **Current Task**: FIX-WORKER-EVENT-LOOP and FIX-OPENAI-TOOL-FORMAT (missions on OpenAI failed: "Event loop is closed" and "Missing required parameter: tools[0].type")
 - **Build Status**: NOT ACCEPTED; Repairs 11-15 remain open under the locked execution order
 - **Build Start Date**: 2026-06-03
 - **Build Completion Date**: 2026-06-03
@@ -12830,3 +12830,19 @@ TESTS RUN: Awaiting Richard's PostgreSQL suite and a mission on the local stack.
 RESULT: Awaiting test results.
 BLOCKERS: None.
 NEXT TASK: Richard runs the tests, rebuilds the worker and retries the MYCO build-plan mission.
+
+---
+
+TASK ID: FIX-OPENAI-TOOL-FORMAT
+TASK NAME: Agent tool use works on OpenAI
+STATUS: IN_PROGRESS
+PROBLEM: Every agent mission on Richard's stack (OpenAI key, gpt-6-luna) failed. Worker log: "Invalid request to OpenAI API: Missing required parameter: 'tools[0].type'". JARV's agents define tools and record tool turns in the Anthropic shape ({name, description, input_schema}; tool_use and tool_result content blocks); the OpenAI provider passed them through unchanged. Tool use had only been tested with a scripted model, never against the OpenAI request format.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/backend/app/core/providers/openai.py (tools sent as {"type": "function", "function": {name, description, parameters}}; an assistant turn's tool_use blocks sent as tool_calls; each tool_result sent as a role "tool" message with its tool_call_id; "any" tool choice sent as "required"; a reply that only calls tools has empty text instead of null)
+- apps/backend/tests/test_openai_provider.py (an agent's multi-turn tool conversation is sent in a shape OpenAI's chat completions API accepts: every tool typed, every tool message answering a call the assistant made, arguments as JSON text; the reply's tool call comes back to the agent)
+COMMANDS RUN: Worker log read (the OpenAI error on three missions). python -m py_compile on the changed files: passed.
+TESTS RUN: Awaiting Richard's PostgreSQL suite and a mission on the local stack.
+RESULT: Awaiting test results.
+BLOCKERS: None.
+NEXT TASK: Richard runs the tests, rebuilds backend and worker, and asks JARV for the MYCO build plan.
