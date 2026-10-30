@@ -55,13 +55,7 @@ async def write_tool_run(
 
     inserted = False
     try:
-        from app.models.agent import Agent
         from app.models.tool_system import Tool, ToolRun
-
-        # ToolRun.agent_id is a foreign key: an agent run in memory has no row to point at.
-        known = (await session.execute(select(Agent.id).where(Agent.id == agent_id))).scalar_one_or_none()
-        if known is None:
-            return False
 
         # In a savepoint: a failed write undoes only itself, never the caller's work in the session.
         async with session.begin_nested():
