@@ -24,9 +24,9 @@ MODEL_FILES = {
     "bpe": "bpe.model",
     "keywords": "jarv-keywords.txt",
 }
-WAKE_PHRASE = "JARV TALK TO ME"
-WAKE_PHRASE_DISPLAY = "JARV, talk to me."
-WAKE_KEYWORD_ID = "JARV_TALK_TO_ME"
+WAKE_PHRASE = "TALK TO ME"
+WAKE_PHRASE_DISPLAY = "Talk to me."
+WAKE_KEYWORD_ID = "TALK_TO_ME"
 _MODEL_LOCK = threading.Lock()
 _STREAM_LOCK = threading.RLock()
 _INSTALL_LOCK = asyncio.Lock()

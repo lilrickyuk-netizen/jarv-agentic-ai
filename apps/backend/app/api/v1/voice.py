@@ -13,6 +13,10 @@ Authenticated voice endpoints on the voice engine:
 - POST /api/voice/status/speak: a short spoken status phrase.
 - GET /api/voice/providers and /api/voice/health: which backends are ready
   and what to set for the others.
+- POST /api/voice/live/session: a short-lived OpenAI Realtime client secret for a
+  live spoken conversation with JARV (the API key never reaches the browser).
+- POST /api/voice/live/tool: one action JARV takes during that conversation
+  (status, mission start, mission state, cancel, workspaces), run as the operator.
 """
 from __future__ import annotations
 
@@ -27,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import CurrentUserId, get_current_user_id
 from app.core.database import get_db
-from app.core.voice import SpokenStatusReplies, StatusType, engine
+from app.core.voice import SpokenStatusReplies, StatusType, engine, live
 from app.models.workspace import Workspace
 
 router = APIRouter(prefix="/voice", tags=["voice"], dependencies=[Depends(get_current_user_id)])
@@ -44,6 +48,11 @@ class SpeakRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=4000)
     language: str = "en"
     voice: Optional[str] = None
+
+
+class LiveToolRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=64)
+    arguments: Dict[str, Any] = Field(default_factory=dict)
 
 
 class VoiceStatusRequest(BaseModel):
@@ -168,6 +177,8 @@ async def speak_status(request: VoiceStatusRequest) -> Dict[str, Any]:
 @router.get("/providers")
 async def providers() -> Dict[str, Any]:
     return {**engine.status(),
+            "live": {"ready": live.available(), "backend": "openai realtime" if live.available() else None,
+                     "setup": live.setup_hint()},
             "options": {"speech_to_text": ["voicebox (self-hosted, VOICEBOX_BASE_URL)", "openai (OPENAI_API_KEY)"],
                         "text_to_speech": ["voicebox (self-hosted, JARV voice profile)",
                                            "elevenlabs (ELEVENLABS_API_KEY + ELEVENLABS_VOICE_ID)",
@@ -180,3 +191,24 @@ async def voice_health() -> Dict[str, Any]:
     ready = {name: part["ready"] for name, part in state.items()}
     return {"status": "operational" if ready["speech_to_text"] and ready["text_to_speech"] else "degraded",
             "components": ready, "setup": [part["setup"] for part in state.values() if part.get("setup")]}
+
+
+@router.post("/live/session")
+async def live_session(user_id: CurrentUserId, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    try:
+        return await live.create_session(db, UUID(str(user_id)))
+    except live.LiveUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+
+@router.post("/live/tool")
+async def live_tool(request: LiveToolRequest, user_id: CurrentUserId,
+                    db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    try:
+        return await live.run_tool(db, UUID(str(user_id)), request.name, request.arguments)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))

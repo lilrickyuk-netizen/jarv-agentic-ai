@@ -18,6 +18,30 @@ from app.core.security import redact_secrets
 logger = logging.getLogger(__name__)
 
 
+async def _persisted_agent(session: AsyncSession, agent_id: Optional[UUID]) -> Optional[UUID]:
+    """The agent id when an agents-table row has it, otherwise None."""
+    if agent_id is None:
+        return None
+    from app.models.agent import Agent
+
+    return (await session.execute(select(Agent.id).where(Agent.id == agent_id))).scalar_one_or_none()
+
+
+async def _insert(session: AsyncSession, entry: AuditLog) -> None:
+    """Write the entry inside a savepoint: if it fails, only the entry is undone.
+
+    Audit entries are often written on a mission's own session; a failed entry must
+    never roll back (and expire) the mission's other work in that session."""
+    async with session.begin_nested():
+        session.add(entry)
+
+
+async def _recover(session: AsyncSession, inserted: bool) -> None:
+    """After a failure: a failed savepoint is already undone; a failed commit needs a rollback."""
+    if inserted:
+        await session.rollback()
+
+
 class AuditLogger:
     """
     Audit logger for recording all agent actions and system events.
@@ -60,14 +84,18 @@ class AuditLogger:
         Returns:
             Created audit log entry
         """
+        inserted = False
         try:
             safe_agent_name = redact_secrets(agent_name)
             safe_action = redact_secrets(action)
             safe_result = redact_secrets(result)
+            # An agent run in memory (no agents-table row) keeps its id in the details,
+            # so the entry is written instead of breaking the foreign key.
+            recorded_agent = await _persisted_agent(session, agent_id)
             audit_entry = AuditLog(
                 workspace_id=workspace_id,
                 user_id=user_id,
-                agent_id=agent_id,
+                agent_id=recorded_agent,
                 actor_type="agent",
                 action=redact_secrets(f"agent.{safe_agent_name}.{safe_action}"),
                 action_category="agent",
@@ -90,11 +118,13 @@ class AuditLogger:
                     "task_id": str(task_id) if task_id else None,
                     "session_id": str(session_id) if session_id else None,
                     "parent_agent_id": str(parent_agent_id) if parent_agent_id else None,
+                    "agent_instance_id": str(agent_id) if agent_id and recorded_agent is None else None,
                     **(details or {}),
                 }),
             )
 
-            session.add(audit_entry)
+            await _insert(session, audit_entry)
+            inserted = True
             await session.commit()
             await session.refresh(audit_entry)
 
@@ -119,7 +149,7 @@ class AuditLogger:
                     "action": redact_secrets(action),
                 }
             )
-            await session.rollback()
+            await _recover(session, inserted)
             raise
 
     @staticmethod
@@ -354,6 +384,7 @@ class AuditLogger:
         Returns:
             Audit log entry
         """
+        inserted = False
         try:
             safe_action = redact_secrets(action)
             safe_result = redact_secrets(result)
@@ -375,7 +406,8 @@ class AuditLogger:
                 }),
             )
 
-            session.add(audit_entry)
+            await _insert(session, audit_entry)
+            inserted = True
             await session.commit()
             await session.refresh(audit_entry)
 
@@ -383,7 +415,7 @@ class AuditLogger:
 
         except Exception as e:
             logger.error(f"Failed to create audit log: {e}", exc_info=True)
-            await session.rollback()
+            await _recover(session, inserted)
             raise
 
     @staticmethod

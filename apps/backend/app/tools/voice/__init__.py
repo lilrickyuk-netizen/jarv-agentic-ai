@@ -153,7 +153,7 @@ class _Wake(BaseModel):
 
 class WakeWordDetectTool(_VoiceTool):
     _name = "wake_word_detect"
-    _description = "Check a recording for the wake phrase \"JARV, talk to me.\" with the local keyword spotter."
+    _description = "Check a recording for the wake phrase \"Talk to me.\" with the local keyword spotter."
     _input = _Wake
     _authority = AuthorityLevel.LEVEL_1_BASIC_TOOLS
 

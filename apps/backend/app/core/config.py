@@ -3,7 +3,7 @@ JARV Backend Configuration
 Uses Pydantic Settings for environment variable management
 """
 import json
-from typing import Annotated, List, Optional
+from typing import Annotated, List, Literal, Optional
 from pydantic import Field, PostgresDsn, RedisDsn, validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
@@ -144,6 +144,8 @@ class Settings(BaseSettings):
     VOICEBOX_CONNECT_TIMEOUT_SECONDS: float = Field(default=3.0, gt=0, le=30)
     VOICEBOX_READ_TIMEOUT_SECONDS: float = Field(default=180.0, gt=0, le=600)
     VOICEBOX_MAX_AUDIO_BYTES: int = Field(default=25 * 1024 * 1024, gt=0, le=100 * 1024 * 1024)
+    # Whisper size Voicebox transcribes with: base (fastest, least accurate), small, medium, large, turbo.
+    VOICEBOX_STT_MODEL: Literal["base", "small", "medium", "large", "turbo"] = "small"
     WAKEWORD_MODEL_DIR: str = "/data/voice-models/sherpa-kws-gigaspeech"
 
     @validator("APPROVED_FOLDERS", pre=True)
@@ -283,6 +285,10 @@ class Settings(BaseSettings):
     OPENAI_STT_MODEL: str = "whisper-1"
     OPENAI_TTS_MODEL: str = "tts-1"
     OPENAI_TTS_VOICE: str = "onyx"
+    # Live conversation (OpenAI Realtime, speech to speech over WebRTC from the browser).
+    OPENAI_REALTIME_MODEL: str = "gpt-realtime"
+    OPENAI_REALTIME_VOICE: str = "cedar"
+    OPENAI_REALTIME_TRANSCRIBE_MODEL: str = "gpt-4o-mini-transcribe"
     # Spoken replies are stored here for their owner and pruned after the retention period.
     VOICE_AUDIO_DIR: str = "/data/voice-audio"
     VOICE_AUDIO_RETENTION_HOURS: float = 24.0

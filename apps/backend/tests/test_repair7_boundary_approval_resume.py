@@ -24,7 +24,7 @@ from app.models.boundary import BoundaryReport, BoundaryApproval, SafeCheckpoint
 from app.models.tool_system import ToolRun, Tool
 from app.models.session import AgentSession
 
-from tests.conftest import AsyncTestingSessionLocal
+from tests.conftest import _SQLITE, AsyncTestingSessionLocal
 
 
 def _cfg():
@@ -383,6 +383,7 @@ def test_resume_execute_real_restoration_and_blocked_paths():
 
 
 @pytest.mark.integration
+@pytest.mark.skipif(not _SQLITE, reason="PostgreSQL's foreign key already refuses a checkpoint without its session row")
 def test_resume_execute_blocked_when_no_session_row():
     """If the checkpoint's session row doesn't exist, resume.execute blocks truthfully."""
     async def run():
@@ -465,14 +466,14 @@ def test_agentrunner_threads_db_session_and_creates_toolrun():
     try:
         async def run():
             async with AsyncTestingSessionLocal() as session:
-                wid = uuid4()
+                _uid, wid, _aid, sid = await _seed_parents(session)
                 before = int((await session.execute(select(func.count()).select_from(ToolRun))).scalar() or 0)
                 result = await agent_runner.run_agent(
                     "repair7_probe_agent",
                     "delete production database",
                     workspace_id=wid,
                     db=session,
-                    session_id=uuid4(),
+                    session_id=sid,
                 )
                 assert result["success"] is True
             async with AsyncTestingSessionLocal() as s2:

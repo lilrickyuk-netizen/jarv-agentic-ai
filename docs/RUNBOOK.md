@@ -82,6 +82,9 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
   budget, mass email, binding commitments, deleting production data, account security, and
   anything that weakens safety. Safe steps keep running. Decide on the **Approvals** page (or
   **Richard Boundary Operator**); JARV resumes from its checkpoint when you approve.
+- **Talk with JARV** in the voice panel opens a live spoken conversation (OpenAI Realtime, on your
+  OpenAI key, billed per minute while open): talk naturally, interrupt it, ask it to do things; work
+  it starts runs as missions and it tells you the outcome.
 - **Approvals are never taken by voice.** Voice commands become missions under the same gate.
 - **Workspaces**: deleting a workspace archives it (reversible). Permanent deletion asks you to
   type the workspace's slug and is written to the audit log.
@@ -105,16 +108,23 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 ## 7. Tests
 
 Backend, in Docker against PostgreSQL 16 with pgvector (never spends provider credit; every key is
-blanked in tests):
+blanked in tests). The migrations are checked on one database; the suite runs on a second, fresh one,
+because PostgreSQL enforces the foreign keys, column types and lengths that a file database does not.
+Run one test run at a time: two runs on the same database delete each other's tables.
 
 ```bash
 docker build --target test -t jarv-backend-test:latest apps/backend
-docker run -d --rm --name jarv-test-pg -e POSTGRES_PASSWORD=test -e POSTGRES_DB=jarv_test -p 55432:5432 pgvector/pgvector:pg16
+docker run -d --rm --name jarv-test-pg -e POSTGRES_PASSWORD=test -e POSTGRES_DB=jarv_migrations -p 55432:5432 pgvector/pgvector:pg16
 sleep 8
+docker exec jarv-test-pg psql -U postgres -c "CREATE DATABASE jarv_tests"
+docker exec jarv-test-pg psql -U postgres -d jarv_tests -c "CREATE EXTENSION IF NOT EXISTS vector"
+docker run --rm --network host -e DATABASE_URL=postgresql://postgres:test@localhost:55432/jarv_migrations \
+  -e TESTING=1 -e SECRET_KEY=test-secret-key-for-ci-only-32chars jarv-backend-test:latest python -m alembic upgrade head
 docker run --rm --network host -v "$PWD":/repo:ro -e JARV_REPO_ROOT=/repo \
-  -e DATABASE_URL=postgresql://postgres:test@localhost:55432/jarv_test -e TESTING=1 \
+  -e DATABASE_URL=postgresql://postgres:test@localhost:55432/jarv_tests \
+  -e TEST_DATABASE_URL=postgresql://postgres:test@localhost:55432/jarv_tests -e TESTING=1 \
   -e SECRET_KEY=test-secret-key-for-ci-only-32chars jarv-backend-test:latest \
-  sh -c "python -m alembic upgrade head && python -m pytest -q --tb=short -p no:logging"
+  sh -c "python -m pytest -q --tb=short -p no:logging -rf"
 docker stop jarv-test-pg
 ```
 

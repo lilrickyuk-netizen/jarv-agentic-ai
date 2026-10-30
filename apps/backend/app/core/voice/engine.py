@@ -10,7 +10,7 @@ Speech in, speech out, the wake phrase, and voice commands, on real backends:
   (ELEVENLABS_API_KEY) or OpenAI speech. TTS_PROVIDER picks one (auto,
   voicebox, elevenlabs, openai). Audio is written to VOICE_AUDIO_DIR with its
   owner and served only to that owner.
-- Wake phrase: the local sherpa-onnx keyword spotter ("JARV, talk to me.")
+- Wake phrase: the local sherpa-onnx keyword spotter ("Talk to me.")
   run over a recorded clip; the live browser stream uses the same model.
 - Commands: a spoken command becomes a mission through the Command Center
   pipeline, so the same deterministic safety gate applies; status questions
@@ -151,6 +151,13 @@ def _error(response: httpx.Response, what: str) -> RuntimeError:
     return RuntimeError(f"{what} failed ({response.status_code}){': ' + str(detail)[:300] if detail else ''}")
 
 
+def _unreachable(backend: str, exc: Exception) -> str:
+    where = "Voicebox" if backend == "voicebox" else backend.capitalize()
+    if isinstance(exc, httpx.TimeoutException):
+        return f"{where} did not answer in time ({type(exc).__name__})."
+    return f"{where} could not be reached ({type(exc).__name__}: {str(exc)[:160]})."
+
+
 async def transcribe(audio: bytes, *, filename: str = "speech.wav", language: str = "en",
                      content_type: Optional[str] = None) -> Dict[str, Any]:
     check_audio(audio, filename)
@@ -160,16 +167,27 @@ async def transcribe(audio: bytes, *, filename: str = "speech.wav", language: st
     lang = (language or "en").split("-")[0].lower()
     mime = content_type or "audio/wav"
     started = time.monotonic()
-    async with http_client(timeout=_timeout()) as client:
-        if backend == "voicebox":
-            response = await client.post(f"{settings.VOICEBOX_BASE_URL.rstrip('/')}/transcribe", data={"language": lang},
-                                         files={"file": (filename, audio, mime)})
-        else:
-            response = await client.post(f"{OPENAI_API}/audio/transcriptions",
-                                         headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
-                                         data={"model": getattr(settings, "OPENAI_STT_MODEL", "whisper-1"),
-                                               "language": lang, "response_format": "json"},
-                                         files={"file": (filename, audio, mime)})
+    try:
+        async with http_client(timeout=_timeout()) as client:
+            if backend == "voicebox":
+                response = await client.post(f"{settings.VOICEBOX_BASE_URL.rstrip('/')}/transcribe",
+                                             data={"language": lang,
+                                                   "model": getattr(settings, "VOICEBOX_STT_MODEL", "small")},
+                                             files={"file": (filename, audio, mime)})
+            else:
+                response = await client.post(f"{OPENAI_API}/audio/transcriptions",
+                                             headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
+                                             data={"model": getattr(settings, "OPENAI_STT_MODEL", "whisper-1"),
+                                                   "language": lang, "response_format": "json",
+                                                   # Spells JARV's name for the recogniser.
+                                                   "prompt": "JARV, talk to me."},
+                                             files={"file": (filename, audio, mime)})
+    except httpx.HTTPError as exc:
+        raise RuntimeError(_unreachable(backend, exc)) from exc
+    if response.status_code == 202:
+        # Voicebox answers 202 while it downloads the Whisper model it was asked for.
+        raise RuntimeError(f"Voicebox is downloading the Whisper {getattr(settings, 'VOICEBOX_STT_MODEL', 'small')} "
+                           "model for speech recognition; try again in a minute.")
     if response.status_code >= 400:
         raise _error(response, f"Transcription ({backend})")
     payload = response.json()
@@ -251,30 +269,33 @@ async def speak(text: str, *, owner: Optional[UUID] = None, language: str = "en"
         raise VoiceUnavailable(_tts_missing())
     lang = (language or "en").split("-")[0].lower()
     started = time.monotonic()
-    async with http_client(timeout=_timeout()) as client:
-        if backend == "voicebox":
-            audio, fmt = await _voicebox_speech(client, text, lang)
-        elif backend == "elevenlabs":
-            voice_id = voice or getattr(settings, "ELEVENLABS_VOICE_ID", None)
-            if not voice_id:
-                raise VoiceUnavailable("ElevenLabs needs a voice: set ELEVENLABS_VOICE_ID")
-            response = await client.post(f"{ELEVENLABS_API}/text-to-speech/{voice_id}",
-                                         params={"output_format": "mp3_44100_128"},
-                                         headers={"xi-api-key": settings.ELEVENLABS_API_KEY, "accept": "audio/mpeg"},
-                                         json={"text": text, "model_id": getattr(settings, "ELEVENLABS_MODEL_ID",
-                                                                                 "eleven_multilingual_v2")})
-            if response.status_code >= 400:
-                raise _error(response, "Speech generation (elevenlabs)")
-            audio, fmt = response.content, "mp3"
-        else:
-            response = await client.post(f"{OPENAI_API}/audio/speech",
-                                         headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
-                                         json={"model": getattr(settings, "OPENAI_TTS_MODEL", "tts-1"),
-                                               "voice": voice or getattr(settings, "OPENAI_TTS_VOICE", "onyx"),
-                                               "input": text, "response_format": "mp3"})
-            if response.status_code >= 400:
-                raise _error(response, "Speech generation (openai)")
-            audio, fmt = response.content, "mp3"
+    try:
+        async with http_client(timeout=_timeout()) as client:
+            if backend == "voicebox":
+                audio, fmt = await _voicebox_speech(client, text, lang)
+            elif backend == "elevenlabs":
+                voice_id = voice or getattr(settings, "ELEVENLABS_VOICE_ID", None)
+                if not voice_id:
+                    raise VoiceUnavailable("ElevenLabs needs a voice: set ELEVENLABS_VOICE_ID")
+                response = await client.post(f"{ELEVENLABS_API}/text-to-speech/{voice_id}",
+                                             params={"output_format": "mp3_44100_128"},
+                                             headers={"xi-api-key": settings.ELEVENLABS_API_KEY, "accept": "audio/mpeg"},
+                                             json={"text": text, "model_id": getattr(settings, "ELEVENLABS_MODEL_ID",
+                                                                                     "eleven_multilingual_v2")})
+                if response.status_code >= 400:
+                    raise _error(response, "Speech generation (elevenlabs)")
+                audio, fmt = response.content, "mp3"
+            else:
+                response = await client.post(f"{OPENAI_API}/audio/speech",
+                                             headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
+                                             json={"model": getattr(settings, "OPENAI_TTS_MODEL", "tts-1"),
+                                                   "voice": voice or getattr(settings, "OPENAI_TTS_VOICE", "onyx"),
+                                                   "input": text, "response_format": "mp3"})
+                if response.status_code >= 400:
+                    raise _error(response, "Speech generation (openai)")
+                audio, fmt = response.content, "mp3"
+    except httpx.HTTPError as exc:
+        raise RuntimeError(_unreachable(backend, exc)) from exc
     if not audio:
         raise RuntimeError(f"{backend} returned no audio")
     directory = audio_dir()
@@ -375,11 +396,15 @@ async def detect_wake(audio: bytes, *, sample_format: str = "wav") -> Dict[str, 
 
 # ----- commands ---------------------------------------------------------------------------------
 
-# The wake phrase as the dashboard listens for it ("JARV, talk to me"), and a plain spoken address
-# ("JARV, ...", "hey JARV ...", and "Jarvis", a common mishearing). Both are removed before the command is read, so "JARV, talk to me,
+# The wake phrase as the dashboard listens for it ("Talk to me"), and a plain spoken address
+# ("JARV, ...", "hey JARV ...", and "Jarvis", a common mishearing). Both are removed before the command is read, so "Talk to me,
 # approve the release" is recognised as an approval and refused like any other.
-_WAKE = re.compile(r"\b(?:jarv|j[\s-]*a[\s-]*r[\s-]*v|j[\s-]*r[\s-]*v|jarve)\b[\s,.;:!?-]*talk\s+to\s+me\b[\s,.;:!?-]*",
-                   re.I)
+# Saying the name first ("JARV, talk to me") still wakes JARV. "JARV" is not a dictionary word, so speech
+# recognisers write it as the nearest one ("Jarvis", "Java", "Jav") or spell it out ("J.A.R.V."); the
+# name in any of those forms is removed with the phrase.
+_WAKE_NAME = (r"(?:jarv(?:is|ie|ey|e|y)?|java|jav|jaav|jahv|jarb|jarf|"
+              r"j[\s.-]*a[\s.-]*r[\s.-]*v|j[\s.-]*r[\s.-]*v)")
+_WAKE = re.compile(rf"(?:\b{_WAKE_NAME}\b[\s,.;:!?-]*)?\btalk\s+(?:to|with)\s+me\b[\s,.;:!?-]*", re.I)
 _ADDRESS = re.compile(r"^\s*(?:(?:hey|hi|ok|okay)[\s,]+)?(?:jarv|jarve|jarvis|j[\s-]*r[\s-]*v)\b[\s,.;:!?-]*", re.I)
 _LEAD = re.compile(r"^\s*(?:(?:please|now|then|and|so|just)\s+|(?:can|could|would|will)\s+you\s+(?:please\s+)?|"
                    r"i\s+(?:want|need)\s+you\s+to\s+|i'?d\s+like\s+you\s+to\s+)+", re.I)

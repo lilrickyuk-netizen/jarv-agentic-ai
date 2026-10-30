@@ -30,7 +30,7 @@ def test_voicebox_disabled_status_is_explicit(client: TestClient, monkeypatch):
         "configured": False,
         "connected": False,
         "profile_configured": False,
-        "wake_word": "JARV, talk to me.",
+        "wake_word": "Talk to me.",
     }
 
 
@@ -110,15 +110,15 @@ def test_admin_updates_installed_wake_phrase_and_validates_runtime(client: TestC
     monkeypatch.setattr(
         wake_service,
         "_write_keyword_file",
-        lambda directory: (directory / wake_service.MODEL_FILES["keywords"]).write_text("JARV TALK TO ME\n", encoding="utf-8"),
+        lambda directory: (directory / wake_service.MODEL_FILES["keywords"]).write_text("TALK TO ME\n", encoding="utf-8"),
     )
     monkeypatch.setattr(wake_service, "_keyword_spotter", lambda: object())
 
     response = client.post("/api/voicebox/wake/model/install")
 
     assert response.status_code == 200, response.text
-    assert response.json()["phrase"] == "JARV, talk to me."
-    assert keyword_file.read_text(encoding="utf-8") == "JARV TALK TO ME\n"
+    assert response.json()["phrase"] == "Talk to me."
+    assert keyword_file.read_text(encoding="utf-8") == "TALK TO ME\n"
 
 
 def test_wake_status_reports_whether_installed_phrase_is_current(monkeypatch, tmp_path):
@@ -131,7 +131,7 @@ def test_wake_status_reports_whether_installed_phrase_is_current(monkeypatch, tm
         def encode(self, phrase: str, out_type: type):
             assert phrase == wake_service.WAKE_PHRASE
             assert out_type is str
-            return ["JARV", "TALK", "TO", "ME"]
+            return ["TALK", "TO", "ME"]
 
     monkeypatch.setattr(sentencepiece, "SentencePieceProcessor", FakeTokenizer)
     monkeypatch.setattr(wake_service, "model_directory", lambda: tmp_path)
@@ -140,7 +140,7 @@ def test_wake_status_reports_whether_installed_phrase_is_current(monkeypatch, tm
         (tmp_path / filename).touch()
 
     keyword_file = tmp_path / wake_service.MODEL_FILES["keywords"]
-    keyword_file.write_text("JARV TALK TO ME @JARV_TALK_TO_ME\n", encoding="utf-8")
+    keyword_file.write_text("TALK TO ME @TALK_TO_ME\n", encoding="utf-8")
     assert wake_service.install_status()["phrase_current"] is True
 
     keyword_file.write_text("OLD KEYWORD\n", encoding="utf-8")
@@ -166,7 +166,7 @@ def test_wake_websocket_uses_single_use_origin_bound_ticket(client: TestClient, 
     _override_operator(client.app)
     monkeypatch.setattr(wake_service, "model_is_ready", lambda: True)
     monkeypatch.setattr(wake_service, "create_stream", lambda: object())
-    monkeypatch.setattr(wake_service, "process_audio_frame", lambda _stream, _frame: "JARV_TALK_TO_ME")
+    monkeypatch.setattr(wake_service, "process_audio_frame", lambda _stream, _frame: "TALK_TO_ME")
     monkeypatch.setattr(wake_service, "free_stream", lambda _stream: None)
     origin = "http://localhost:3002"
 
@@ -181,7 +181,7 @@ def test_wake_websocket_uses_single_use_origin_bound_ticket(client: TestClient, 
     ) as websocket:
         assert websocket.receive_json()["type"] == "ready"
         websocket.send_bytes(b"\0\0\0\0")
-        assert websocket.receive_json() == {"type": "wake", "keyword": "JARV_TALK_TO_ME"}
+        assert websocket.receive_json() == {"type": "wake", "keyword": "TALK_TO_ME"}
 
 
 def test_admin_provisions_persistent_voicebox_profile_for_speech(client: TestClient, monkeypatch):

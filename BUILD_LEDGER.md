@@ -8,7 +8,7 @@
 
 ## CURRENT STATUS
 - **Current Phase**: REPAIR CONTINUATION (10-15)
-- **Current Task**: None. Repairs 11-15 complete 2026-10-30; final acceptance passed; merging pre-repair-11 to master
+- **Current Task**: None. FIX-MISSION-SESSION-AND-LIVE-VOICE complete 2026-10-30 (PostgreSQL suite 635 passed, 1 skipped); Richard to try typed missions and live conversation
 - **Build Status**: NOT ACCEPTED; Repairs 11-15 remain open under the locked execution order
 - **Build Start Date**: 2026-06-03
 - **Build Completion Date**: 2026-06-03
@@ -12766,3 +12766,49 @@ FINAL ACCEPTANCE STATUS: PASSED (2026-10-30)
 - End-to-end acceptance (tests/test_repair15c_final_acceptance.py): a mission given through the authenticated API is planned by the orchestrator and delegated to the registered specialists; the coding agent edits the workspace and the verifier compiles it through their own authority-checked, logged toolboxes; the production step pauses at a hard boundary (boundary report, checkpoint, pending approval) while the safe steps complete; every handoff is recorded; Richard approves and JARV resumes from the checkpoint; another operator sees none of it.
 - Every API route requires sign-in and is owner-scoped (the whole route table is checked); no module in app/ is unused; no tool reports work it did not do.
 - Live-service checks against Richard's real accounts (providers, email, Stripe, Plausible, Slack, deploy server) are run from Settings > Check once the keys are set on the server; they are free and read-only.
+
+---
+
+TASK ID: FIX-VOICE-WAKE-PHRASE
+TASK NAME: Hands-free voice wakes on "Talk to me"
+STATUS: COMPLETE
+PROBLEM: Richard said "JARV, talk to me" about 20 times; the panel went listening -> thinking -> listening every time. Each burst of speech was transcribed by Voicebox (Whisper), but "JARV" is not a dictionary word, so it comes back as "Jarvis", "Java", "Jav" and the like. The dashboard only accepted "JARV"/"Jarve"/spelled forms in front of "talk to me", so the wake phrase was never found and nothing was shown. Richard chose "Talk to me" as the wake phrase (docs/CONFIGURATION.md already described it).
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/backend/app/core/voice/wake_service.py (wake phrase TALK TO ME, shown as "Talk to me."; the installed detector reports itself out of date until Update wake phrase regenerates its keyword file)
+- apps/backend/app/core/voice/engine.py (the wake phrase is "talk to me" or "talk with me", with the name before it optional in any of the ways recognisers write JARV: Jarvis, Jarvie, Jarvey, Java, Jav, Jaav, Jahv, Jarb, Jarf, J.A.R.V., J-R-V; OpenAI transcription is given JARV's name as a spelling prompt)
+- apps/backend/app/tools/voice/__init__.py (wake check tool description)
+- apps/dashboard/src/components/voice-operator.tsx (the hands-free wake check uses the backend's wake_heard and command from /api/voice/transcribe, one matcher instead of two; speech heard without the wake phrase is shown with the phrase to say; messages name the new phrase and the Update wake phrase step)
+- apps/backend/tests/test_repair14c_voice_acceptance.py, apps/backend/tests/test_voicebox_adapter.py, apps/dashboard/__tests__/voice-operator.test.tsx (new phrase; recogniser spellings; ordinary use of "Java" not woken)
+- apps/dashboard/__tests__/dashboard.test.tsx (the removed dashboard-side matcher's tests; the backend tests cover matching)
+COMMANDS RUN: The 15 wake-phrase cases of test_repair14c evaluated against the new pattern: all as expected. python -m py_compile on the changed backend files: passed.
+TESTS RUN: Included in the runs recorded under FIX-MISSION-SESSION-AND-LIVE-VOICE.
+RESULT: Richard rebuilt and the panel shows the new phrase ("Wake phrase: Talk to me."); it then heard "So, to me.", which led to the next task.
+BLOCKERS: None.
+NEXT TASK: FIX-MISSION-SESSION-AND-LIVE-VOICE
+
+---
+
+TASK ID: FIX-MISSION-SESSION-AND-LIVE-VOICE
+TASK NAME: Typed missions survive a failed log write; live spoken conversation with JARV; speech service errors reported
+STATUS: COMPLETE
+PROBLEM:
+- Every typed mission failed with "Mission runner error: greenlet_spawn has not been called". Worker log: the orchestrator (created in memory with a fresh id, no agents-table row) was audited on the mission's own session since 15c; the audit row broke the audit_logs.agent_id foreign key, the audit logger rolled back the whole session, which expired the mission task, and the status change then needed a database read outside the async context.
+- Hands-free voice: "An unexpected error occurred" (a network error from the speech service escaped as a 500), and Voicebox's default Whisper size (base) heard "Talk to me" as "So, to me". Richard: JARV must hold a natural spoken conversation, as other voice AIs do; a wake-phrase command interface is not that.
+FILES CREATED:
+- apps/backend/app/core/voice/live.py (live conversation: short-lived OpenAI Realtime client secret per operator carrying JARV's instructions and five tools; each tool run by the backend as the signed-in operator and audit-logged: get_status, start_mission through the voice engine's routing (approvals refused), get_mission (owner-scoped), cancel_mission, list_workspaces)
+- apps/dashboard/src/components/voice-conversation.tsx ("Talk with JARV": microphone to OpenAI Realtime over WebRTC, model voice played back, both sides of the conversation shown, tool calls sent to the backend and their results returned, one reply at a time, a started mission followed and its outcome spoken, clean shutdown)
+- apps/backend/tests/test_voice_live_and_mission_session.py, apps/dashboard/__tests__/voice-conversation.test.tsx
+FILES MODIFIED:
+- apps/backend/app/core/audit.py (an agent without an agents-table row is recorded with its id in the details; each entry is written in a savepoint so a failed entry undoes only itself and never the caller's session)
+- apps/backend/app/core/tools/run_logging.py (the tool-run write is in a savepoint, so a failed write undoes only itself)
+- apps/backend/app/core/command/service.py (the mission reloads anything its session expired before its status change)
+- apps/backend/app/core/voice/engine.py (network errors and timeouts from Voicebox, OpenAI or ElevenLabs become a clear message instead of a 500; Voicebox is asked for the configured Whisper size; its 202 "downloading" answer is reported)
+- apps/backend/app/core/config.py (VOICEBOX_STT_MODEL default small; OPENAI_REALTIME_MODEL, OPENAI_REALTIME_VOICE, OPENAI_REALTIME_TRANSCRIBE_MODEL), apps/backend/app/api/v1/voice.py (POST /api/voice/live/session, POST /api/voice/live/tool; providers report live readiness), apps/backend/app/core/voice/__init__.py
+- apps/dashboard/src/components/voice-operator.tsx (live conversation at the top of the voice panel; it releases the microphone from hands-free first), apps/dashboard/src/app/globals.css
+- docker-compose.prod.yml, .env.production.example, apps/backend/.env.example, docs/CONFIGURATION.md, docs/RUNBOOK.md
+COMMANDS RUN: Worker log read (the foreign-key failure and the expired task traceback). Voicebox source at the pinned commit read: /transcribe accepts model (base, small, medium, large, turbo) and answers 202 while downloading. python -m py_compile on every changed backend file: passed.
+TESTS RUN: Written: an unregistered agent audited on a mission session leaves the task loaded and the mission completes; a failed audit write undoes only itself; a tool run logged on the same session leaves the task loaded; live session needs sign-in and OPENAI_API_KEY, returns only the short-lived secret, sends JARV's instructions, tools and voice, is audited; live tools act as the operator (workspaces, mission start, mission state, spoken approval refused, status, cancel, unknown workspace, unknown tool, another operator sees nothing) and every call is audited; speech service unreachable and downloading are reported and the Whisper size is sent. Dashboard: conversation connects with the short-lived secret, shows both sides, runs the tool through the backend, returns its output, follows the mission and speaks the outcome, one reply at a time, ends cleanly; unavailable state; refused connection reported and microphone released.
+RESULT: First owner run: 631 passed, 5 failed. Three Repair 6 tests showed tool_runs.agent_id has no database foreign key (tool runs are kept for in-memory agents), so the agents-table check added to run_logging was removed and only the savepoint kept. Two new tests counted server-set columns, unloaded after any insert, as expired by the audit, and one expected a missing workspace to break the audit entry (that column has no database foreign key either); they now compare against what was unloaded before the write and force the failure with an action name longer than its column. Second owner run: 634 passed, 2 failed (the two new session tests). Finding: the test suite's own database is SQLite (conftest uses TEST_DATABASE_URL, default sqlite; the run sets only DATABASE_URL, used by the migration step), which enforces neither foreign keys nor column lengths; that is why the orchestrator's foreign-key failure was never seen in tests. The two tests now check the fields a mission uses after its agents run and force the failed write with a detail that cannot be stored as JSON, which fails on every database. Owner to run the suite against PostgreSQL as well (TEST_DATABASE_URL set to the test container). Third owner run (SQLite): 635 passed, 1 failed: AuditLog's meta_data validator stores any value as text, so the unstorable detail did not fail; the test now has the database refuse the entry through a before_insert event, on any database. First PostgreSQL run: 636 setup errors, because the suite's schema fixture (drop_all/create_all) ran on the database the migrations had just built; the PostgreSQL run uses its own fresh database with pgvector. Fourth owner run: SQLite 636 passed; PostgreSQL 624 passed, 12 failed. Fixed: the orchestrator now runs as its persisted agents-table row (ensure_orchestrator_agent, in a savepoint) so its audit entries and tool runs link to a real agent; tests that wrote text priorities into the integer priority column, ran tools as agents with no agents-table row, ran the agent runner in a workspace that did not exist, or decided an approval as a user that did not exist now use real rows; the orphan-checkpoint resume test runs only on SQLite (PostgreSQL's foreign key refuses the orphan). The two business tests and the experience test need their PostgreSQL error output. Fifth owner run (PostgreSQL, alone): 632 passed, 1 skipped, 3 failed, all real defects on PostgreSQL: onboarding flows (setup checklists, product tours, onboarding flows) could not be created or edited because version was written as a number into a text column; experience suggestions matched contexts with a JSON containment the json type does not support, which aborted the session's transaction. Fixed: versions are stored as text and reported as numbers; contexts match as text. docs/RUNBOOK.md: the standard backend test run is now PostgreSQL (migrations on one database, the suite on a fresh one). Sixth owner run, the new standard (PostgreSQL 16 + pgvector, migrations then the suite on a fresh database): 635 passed, 1 skipped (the orphan-checkpoint test, SQLite only).
+BLOCKERS: None.
+NEXT TASK: Richard rebuilds, retries a typed mission and opens a live conversation (Talk with JARV) on the local stack.

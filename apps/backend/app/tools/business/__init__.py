@@ -31,7 +31,7 @@ from app.core.agents.base import AuthorityLevel
 from app.core.business import drafting
 from app.core.business.community import community_service, view as community_view
 from app.core.business.onboarding import (
-    analyse_activation_friction, flow_view, update_knowledge_base, update_onboarding_copy,
+    analyse_activation_friction, flow_view, update_knowledge_base, update_onboarding_copy, version_number,
 )
 from app.core.business.pipelines import deal_view, partner_view, pipeline_service
 from app.core.business.support import sentiment, support_service, terms, view as ticket_view
@@ -405,7 +405,7 @@ class UpdateOnboardingCopyTool(_BusinessTool):
         flow = await update_onboarding_copy(db, context.workspace_id, data["flow_id"], step=data.get("step"),
                                             title=data.get("title"), copy=data.get("copy_text"),
                                             description=data.get("description"))
-        return flow_view(flow), f"'{flow.flow_name}' is now v{flow.version}"
+        return flow_view(flow), f"'{flow.flow_name}' is now v{version_number(flow.version)}"
 
 
 class _Kb(BaseModel):

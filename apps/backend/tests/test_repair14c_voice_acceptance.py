@@ -35,6 +35,17 @@ def _run(coro):
     ("Hey JARV, deploy staging", "deploy staging", False),
     ("Jarvis, what's the status?", "what's the status?", False),
     ("Summarise this week", "Summarise this week", False),
+    # How speech recognisers write "JARV" in front of the wake phrase.
+    ("Jarvis, talk to me.", "", True),
+    ("Java, talk to me, check the status", "check the status", True),
+    ("Jav talk to me", "", True),
+    ("J.A.R.V. talk to me. Run the tests", "Run the tests", True),
+    ("Jarvis talk with me", "", True),
+    # The wake phrase is "Talk to me"; the name before it is optional.
+    ("Talk to me, check the weather", "check the weather", True),
+    ("talk to me", "", True),
+    ("Talk with me. Run the tests", "Run the tests", True),
+    ("I use Java at work", "I use Java at work", False),
 ])
 def test_wake_phrase_and_address_are_removed(spoken, command, woke):
     assert engine.strip_wake(spoken) == (command, woke)

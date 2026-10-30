@@ -4,8 +4,12 @@ import { useEffect, useRef, useState } from 'react';
 import { apiClient } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { env } from '@/lib/env';
+import { VoiceConversation } from '@/components/voice-conversation';
 
 type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking';
+
+/** /api/voice/transcribe: what was heard, and the command after the wake phrase when it was said. */
+type WakeCheck = { text: string; command: string; wake_heard: boolean };
 
 interface VoicePart { backend?: string | null; ready: boolean; setup?: string | null; phrase?: string }
 
@@ -13,6 +17,8 @@ export interface VoiceProviders {
   speech_to_text: VoicePart;
   text_to_speech: VoicePart;
   wake_word: VoicePart;
+  /** Live spoken conversation (OpenAI Realtime). */
+  live?: VoicePart;
 }
 
 interface VoiceboxStatus {
@@ -121,12 +127,6 @@ function parseSocketUrl(): string {
   const url = new URL('/api/voicebox/wake', socketBase);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   return url.toString();
-}
-
-export function extractWakeCommand(text: string): string | null {
-  const phrase = /\b(?:jarv|j[\s-]*a[\s-]*r[\s-]*v|j[\s-]*r[\s-]*v|jarve)\b[\s,.;:!?-]*talk\s+to\s+me\b[\s,.;:!?-]*/i;
-  const match = text.match(phrase);
-  return match ? text.slice((match.index ?? 0) + match[0].length).trim() : null;
 }
 
 export function VoiceOperator({ onMission, onStateChange }: Props) {
@@ -406,14 +406,19 @@ export function VoiceOperator({ onMission, onStateChange }: Props) {
       const form = new FormData();
       form.append('audio', new File([pcmToWav(samples, 16000)], 'wake-check.wav', { type: 'audio/wav' }));
       form.append('language', 'en');
-      const transcription = await apiClient.upload<{ text: string }>('/api/voice/transcribe', form);
+      // The backend finds the wake phrase, including the ways speech recognisers write "JARV".
+      const transcription = await apiClient.upload<WakeCheck>('/api/voice/transcribe', form);
       if (transcription.error) {
         setMessage(transcription.error);
         return;
       }
-      const transcript = transcription.data?.text?.trim();
-      const command = transcript ? extractWakeCommand(transcript) : null;
-      if (command === null) return;
+      const heard = transcription.data;
+      if (!heard?.wake_heard) {
+        const said = heard?.text?.trim();
+        if (said) setMessage(`Heard “${said}”. Start with “${wakeModel?.phrase || 'Talk to me.'}”`);
+        return;
+      }
+      const command = (heard.command || '').trim();
       processingRef.current = false;
       setBusy(false);
       if (!command) {
@@ -452,7 +457,7 @@ export function VoiceOperator({ onMission, onStateChange }: Props) {
       return;
     }
     if (!wakeModel.phrase_current) {
-      setMessage('Update the local wake phrase to “JARV, talk to me” before enabling hands-free mode.');
+      setMessage(`Press Update wake phrase to switch the local detector to “${wakeModel.phrase || 'Talk to me.'}” before enabling hands-free mode.`);
       return;
     }
     setBusy(true);
@@ -475,7 +480,7 @@ export function VoiceOperator({ onMission, onStateChange }: Props) {
           if (payload.type === 'ready') {
             handsFreeRef.current = true;
             setHandsFree(true);
-            setMessage(`Hands-free is on. Say “${wakeModel?.phrase || 'JARV, talk to me.'}”`);
+            setMessage(`Hands-free is on. Say “${wakeModel?.phrase || 'Talk to me.'}”`);
             setVoiceState('listening');
             setBusy(false);
           } else if (payload.type === 'wake') {
@@ -592,7 +597,7 @@ export function VoiceOperator({ onMission, onStateChange }: Props) {
       return;
     }
     if (response.data) setWakeModel(response.data);
-    setMessage(`Wake phrase “${response.data?.phrase || 'JARV, talk to me.'}” is ready.`);
+    setMessage(`Wake phrase “${response.data?.phrase || 'Talk to me.'}” is ready.`);
     await loadStatus();
   };
 
@@ -623,8 +628,16 @@ export function VoiceOperator({ onMission, onStateChange }: Props) {
 
   const backendLabel = (part: VoicePart | undefined) => (part?.ready ? part.backend ?? 'ready' : 'not set up');
 
+  /** The live conversation needs the microphone and the speaker to itself. */
+  const releaseForConversation = async () => {
+    if (handsFreeRef.current) await stopHandsFree(false);
+    if (audioRef.current) stopSpeech();
+  };
+
   return (
     <section className="voice-operator" aria-label="Voice interaction">
+      <VoiceConversation ready={Boolean(providers?.live?.ready)} setup={providers?.live?.setup}
+        beforeStart={releaseForConversation} onMission={onMission} onStateChange={setVoiceState} />
       <div className="voice-operator-main">
         <div className="voice-state"><span className={`voice-dot ${handsFree ? 'voice-dot-live' : ''}`} />
           <span>{handsFree ? 'HANDS-FREE READY' : recording ? 'CAPTURING COMMAND' : busy ? 'PROCESSING VOICE' : 'VOICE CONTROL'}</span>

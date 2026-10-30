@@ -175,7 +175,7 @@ def test_query_filtering(db_session: Session, test_user: User):
 def test_ordering(db_session: Session, test_workspace: Workspace):
     """Test database query ordering"""
     # Create tasks with different priorities
-    priorities = ["low", "medium", "high", "critical"]
+    priorities = [2, 5, 8, 10]  # low, medium, high, critical (priority is 1-10)
     for priority in priorities:
         task = Task(
             id=uuid4(),

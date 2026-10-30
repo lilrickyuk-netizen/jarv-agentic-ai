@@ -23,7 +23,7 @@ def test_task_creation_workflow(db_session: Session, test_workspace: Workspace, 
         description="Testing workflow",
         workspace_id=test_workspace.id,
         status="pending",
-        priority="high",
+        priority=8,
     )
     db_session.add(task)
     db_session.commit()
