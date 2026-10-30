@@ -12959,7 +12959,7 @@ NEXT TASK: Richard moves the MYCO workspace to C:\Users\lilri\Projects\MYCO from
 
 TASK ID: FIX-WORKSPACE-TOOLCHAIN
 TASK NAME: JARV carries the tools to build projects and installs the rest itself
-STATUS: IN_PROGRESS
+STATUS: COMPLETE
 PROBLEM: Before the MYCO Phase 0 mission, the worker had only the distribution's old Node and npm: no pnpm, yarn, uv or Python 3.12, no compiler for native packages, and git init/add/commit each needed approval ("git add ." was even read as the dd command). Each new project would have needed another image change. Richard: JARV should already have every tool it needs.
 FILES CREATED:
 - apps/backend/tests/test_workspace_toolchain.py
@@ -12970,7 +12970,7 @@ FILES MODIFIED:
 - apps/backend/app/core/command/tool_runtime.py (commands that change the folder they run in run only with a workspace folder as working directory)
 - apps/backend/app/core/command/agent_executor.py (agents are told which tools they have and to install any other tool themselves, never asking the operator)
 COMMANDS RUN: python -m py_compile on the changed files: passed. The 36 classifier cases and needs_workspace evaluated against the changed classifier: all as expected.
-TESTS RUN: Owner run of the PostgreSQL suite.
-RESULT: Awaiting the owner run.
+TESTS RUN: PostgreSQL suite (owner run): 692 passed, 1 skipped.
+RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: Richard gives JARV the MYCO Phase 0 mission.
