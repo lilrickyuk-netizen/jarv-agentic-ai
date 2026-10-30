@@ -8,7 +8,7 @@
 
 ## CURRENT STATUS
 - **Current Phase**: REPAIR CONTINUATION (10-15)
-- **Current Task**: None. Repairs 11-15 complete 2026-10-30; final acceptance passed; merging pre-repair-11 to master
+- **Current Task**: FIX-VOICE-WAKE-PHRASE (hands-free never woke on the spoken wake phrase)
 - **Build Status**: NOT ACCEPTED; Repairs 11-15 remain open under the locked execution order
 - **Build Start Date**: 2026-06-03
 - **Build Completion Date**: 2026-06-03
@@ -12766,3 +12766,21 @@ FINAL ACCEPTANCE STATUS: PASSED (2026-10-30)
 - End-to-end acceptance (tests/test_repair15c_final_acceptance.py): a mission given through the authenticated API is planned by the orchestrator and delegated to the registered specialists; the coding agent edits the workspace and the verifier compiles it through their own authority-checked, logged toolboxes; the production step pauses at a hard boundary (boundary report, checkpoint, pending approval) while the safe steps complete; every handoff is recorded; Richard approves and JARV resumes from the checkpoint; another operator sees none of it.
 - Every API route requires sign-in and is owner-scoped (the whole route table is checked); no module in app/ is unused; no tool reports work it did not do.
 - Live-service checks against Richard's real accounts (providers, email, Stripe, Plausible, Slack, deploy server) are run from Settings > Check once the keys are set on the server; they are free and read-only.
+
+---
+
+TASK ID: FIX-VOICE-WAKE-PHRASE
+TASK NAME: Hands-free voice recognises the wake phrase as speech recognisers write it
+STATUS: IN_PROGRESS
+PROBLEM: Richard said "JARV, talk to me" about 20 times; the panel went listening -> thinking -> listening every time. Each burst of speech was transcribed by Voicebox (Whisper), but "JARV" is not a dictionary word, so it comes back as "Jarvis", "Java", "Jav" and the like. The dashboard only accepted "JARV"/"Jarve"/spelled forms in front of "talk to me" (and deliberately rejected "Jarvis, talk to me"), so the wake phrase was never found and nothing was shown.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/backend/app/core/voice/engine.py (wake phrase accepts the recognisers' spellings of JARV: Jarvis, Jarvie, Jarvey, Java, Jav, Jaav, Jahv, Jarb, Jarf, J.A.R.V., J-R-V; "talk to/with me"; OpenAI transcription is given the name as a spelling prompt)
+- apps/dashboard/src/components/voice-operator.tsx (the hands-free wake check uses the backend's wake_heard and command from /api/voice/transcribe, one matcher instead of two; when speech is heard without the wake phrase the panel shows what was heard and the phrase to say)
+- apps/backend/tests/test_repair14c_voice_acceptance.py (recogniser spellings woken; "Talk to me" alone and ordinary use of "Java" not woken)
+- apps/dashboard/__tests__/dashboard.test.tsx (the removed dashboard-side matcher's tests; the backend tests cover matching)
+COMMANDS RUN: Wake-phrase cases evaluated against the new pattern: 14 of 14 as expected.
+TESTS RUN: Awaiting Richard's backend and dashboard runs.
+RESULT: Awaiting test results.
+BLOCKERS: None.
+NEXT TASK: Richard tests hands-free on the local stack.

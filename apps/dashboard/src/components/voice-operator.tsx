@@ -7,6 +7,9 @@ import { env } from '@/lib/env';
 
 type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
+/** /api/voice/transcribe: what was heard, and the command after the wake phrase when it was said. */
+type WakeCheck = { text: string; command: string; wake_heard: boolean };
+
 interface VoicePart { backend?: string | null; ready: boolean; setup?: string | null; phrase?: string }
 
 export interface VoiceProviders {
@@ -121,12 +124,6 @@ function parseSocketUrl(): string {
   const url = new URL('/api/voicebox/wake', socketBase);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   return url.toString();
-}
-
-export function extractWakeCommand(text: string): string | null {
-  const phrase = /\b(?:jarv|j[\s-]*a[\s-]*r[\s-]*v|j[\s-]*r[\s-]*v|jarve)\b[\s,.;:!?-]*talk\s+to\s+me\b[\s,.;:!?-]*/i;
-  const match = text.match(phrase);
-  return match ? text.slice((match.index ?? 0) + match[0].length).trim() : null;
 }
 
 export function VoiceOperator({ onMission, onStateChange }: Props) {
@@ -406,14 +403,19 @@ export function VoiceOperator({ onMission, onStateChange }: Props) {
       const form = new FormData();
       form.append('audio', new File([pcmToWav(samples, 16000)], 'wake-check.wav', { type: 'audio/wav' }));
       form.append('language', 'en');
-      const transcription = await apiClient.upload<{ text: string }>('/api/voice/transcribe', form);
+      // The backend finds the wake phrase, including the ways speech recognisers write "JARV".
+      const transcription = await apiClient.upload<WakeCheck>('/api/voice/transcribe', form);
       if (transcription.error) {
         setMessage(transcription.error);
         return;
       }
-      const transcript = transcription.data?.text?.trim();
-      const command = transcript ? extractWakeCommand(transcript) : null;
-      if (command === null) return;
+      const heard = transcription.data;
+      if (!heard?.wake_heard) {
+        const said = heard?.text?.trim();
+        if (said) setMessage(`Heard “${said}”. Start with “${wakeModel?.phrase || 'JARV, talk to me.'}”`);
+        return;
+      }
+      const command = (heard.command || '').trim();
       processingRef.current = false;
       setBusy(false);
       if (!command) {

@@ -168,7 +168,9 @@ async def transcribe(audio: bytes, *, filename: str = "speech.wav", language: st
             response = await client.post(f"{OPENAI_API}/audio/transcriptions",
                                          headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
                                          data={"model": getattr(settings, "OPENAI_STT_MODEL", "whisper-1"),
-                                               "language": lang, "response_format": "json"},
+                                               "language": lang, "response_format": "json",
+                                               # Spells the operator's name for the recogniser.
+                                               "prompt": "JARV, talk to me."},
                                          files={"file": (filename, audio, mime)})
     if response.status_code >= 400:
         raise _error(response, f"Transcription ({backend})")
@@ -378,8 +380,11 @@ async def detect_wake(audio: bytes, *, sample_format: str = "wav") -> Dict[str, 
 # The wake phrase as the dashboard listens for it ("JARV, talk to me"), and a plain spoken address
 # ("JARV, ...", "hey JARV ...", and "Jarvis", a common mishearing). Both are removed before the command is read, so "JARV, talk to me,
 # approve the release" is recognised as an approval and refused like any other.
-_WAKE = re.compile(r"\b(?:jarv|j[\s-]*a[\s-]*r[\s-]*v|j[\s-]*r[\s-]*v|jarve)\b[\s,.;:!?-]*talk\s+to\s+me\b[\s,.;:!?-]*",
-                   re.I)
+# "JARV" is not a dictionary word, so speech recognisers write it as the nearest one ("Jarvis", "Java",
+# "Jav") or spell it out ("J.A.R.V."); in front of "talk to me" every one of those is the wake phrase.
+_WAKE_NAME = (r"(?:jarv(?:is|ie|ey|e|y)?|java|jav|jaav|jahv|jarb|jarf|"
+              r"j[\s.-]*a[\s.-]*r[\s.-]*v|j[\s.-]*r[\s.-]*v)")
+_WAKE = re.compile(rf"\b{_WAKE_NAME}\b[\s,.;:!?-]*talk\s+(?:to|with)\s+me\b[\s,.;:!?-]*", re.I)
 _ADDRESS = re.compile(r"^\s*(?:(?:hey|hi|ok|okay)[\s,]+)?(?:jarv|jarve|jarvis|j[\s-]*r[\s-]*v)\b[\s,.;:!?-]*", re.I)
 _LEAD = re.compile(r"^\s*(?:(?:please|now|then|and|so|just)\s+|(?:can|could|would|will)\s+you\s+(?:please\s+)?|"
                    r"i\s+(?:want|need)\s+you\s+to\s+|i'?d\s+like\s+you\s+to\s+)+", re.I)
