@@ -12979,7 +12979,7 @@ NEXT TASK: Richard gives JARV the MYCO Phase 0 mission.
 
 TASK ID: FIX-WORKSPACE-OWNER-AND-APPROVALS
 TASK NAME: JARV can initialise git in Windows folders; every pending decision shows on Approvals
-STATUS: IN_PROGRESS
+STATUS: COMPLETE
 PROBLEM: The MYCO Phase 0 mission failed at "git init": "chmod on .git/config.lock failed: Operation not permitted". JARV ran as uid 999 while the mounted folder belongs to the WSL user (uid 1000), and only a file's owner may change its mode. The agent then tried "git -c core.filemode=false init", which needed approval; that approval existed (Richard Boundary chain) but the Approvals page showed only blocked tasks and said nothing was waiting.
 FILES CREATED:
 - apps/dashboard/__tests__/approvals-page.test.tsx
@@ -12990,7 +12990,7 @@ FILES MODIFIED:
 - apps/dashboard/src/app/dashboard/approvals/page.tsx (pending Richard Boundary decisions listed with Approve, Reject and View detail; the "nothing blocked" message only when nothing is waiting)
 - apps/backend/tests/test_workspace_toolchain.py (the user's uid/gid arguments are defined and passed by both compose files)
 COMMANDS RUN: In the worker: id gave uid 999; the MYCO folder and its files are owned by 1000:1000 (Richard's WSL user). python -m py_compile on the changed test: passed.
-TESTS RUN: Owner run of the PostgreSQL suite and the dashboard tests.
-RESULT: Awaiting the owner run.
+TESTS RUN: PostgreSQL suite (owner run): 693 passed, 1 skipped. Dashboard (owner run): tsc clean, 19 passed.
+RESULT: Passed.
 BLOCKERS: Existing volumes (tool_home, backups, voice models and audio) hold files owned by uid 999; their ownership is changed once with a root container after the rebuild.
 NEXT TASK: Richard reruns the MYCO Phase 0 mission once.
