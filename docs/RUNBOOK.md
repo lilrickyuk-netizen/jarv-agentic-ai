@@ -82,6 +82,9 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
   budget, mass email, binding commitments, deleting production data, account security, and
   anything that weakens safety. Safe steps keep running. Decide on the **Approvals** page (or
   **Richard Boundary Operator**); JARV resumes from its checkpoint when you approve.
+- **Talk with JARV** in the voice panel opens a live spoken conversation (OpenAI Realtime, on your
+  OpenAI key, billed per minute while open): talk naturally, interrupt it, ask it to do things; work
+  it starts runs as missions and it tells you the outcome.
 - **Approvals are never taken by voice.** Voice commands become missions under the same gate.
 - **Workspaces**: deleting a workspace archives it (reversible). Permanent deletion asks you to
   type the workspace's slug and is written to the audit log.

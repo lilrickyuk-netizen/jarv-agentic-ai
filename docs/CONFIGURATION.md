@@ -149,6 +149,26 @@ BANNED_FOLDERS=/path/to/banking,/path/to/crypto
 
 ### Voice Configuration
 
+**Live conversation** ("Talk with JARV" in the voice panel) is a natural spoken conversation:
+the browser connects the microphone to OpenAI's Realtime model over WebRTC, which hears you,
+decides when you have finished, lets you interrupt and answers in its own voice. JARV's backend
+mints a short-lived session secret (the API key never reaches the browser) carrying JARV's
+instructions and five actions it can take, each run by the backend as you and audit-logged:
+status, start a mission (under the same approval gate as typed missions), a mission's state,
+cancel the mission in progress, and your workspaces. A mission started in conversation is
+followed to its end and its outcome is spoken. Approvals are never taken by voice.
+
+```env
+OPENAI_API_KEY=...                         # required
+OPENAI_REALTIME_MODEL=gpt-realtime
+OPENAI_REALTIME_VOICE=cedar
+OPENAI_REALTIME_TRANSCRIBE_MODEL=gpt-4o-mini-transcribe
+```
+
+OpenAI bills the conversation per minute of audio on your account, only while it is open.
+Push-to-talk and the hands-free wake phrase below remain available without it.
+
+
 ```env
 VOICE_ENABLED=false
 VOICEBOX_BASE_URL=http://voicebox:17493
@@ -156,8 +176,14 @@ VOICEBOX_PROFILE_ID=
 VOICEBOX_CONNECT_TIMEOUT_SECONDS=3
 VOICEBOX_READ_TIMEOUT_SECONDS=180
 VOICEBOX_MAX_AUDIO_BYTES=26214400
+VOICEBOX_STT_MODEL=small
 WAKEWORD_MODEL_DIR=/data/voice-models/sherpa-kws-gigaspeech
 ```
+
+`VOICEBOX_STT_MODEL` is the Whisper size Voicebox transcribes with: `base` is fastest
+but mishears short phrases, `small` (the default) is accurate for commands on a CPU,
+`medium`, `large` and `turbo` are more accurate and slower. Voicebox downloads a size the
+first time it is used; until then transcription answers that the model is downloading.
 
 Voicebox is an optional CPU service in the private Compose network. Start it with
 `docker compose --profile voice up -d --build voicebox`; do not publish its port,

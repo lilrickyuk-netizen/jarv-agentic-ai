@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { apiClient } from '@/lib/api';
 import { getAccessToken } from '@/lib/auth';
 import { env } from '@/lib/env';
+import { VoiceConversation } from '@/components/voice-conversation';
 
 type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
@@ -16,6 +17,8 @@ export interface VoiceProviders {
   speech_to_text: VoicePart;
   text_to_speech: VoicePart;
   wake_word: VoicePart;
+  /** Live spoken conversation (OpenAI Realtime). */
+  live?: VoicePart;
 }
 
 interface VoiceboxStatus {
@@ -625,8 +628,16 @@ export function VoiceOperator({ onMission, onStateChange }: Props) {
 
   const backendLabel = (part: VoicePart | undefined) => (part?.ready ? part.backend ?? 'ready' : 'not set up');
 
+  /** The live conversation needs the microphone and the speaker to itself. */
+  const releaseForConversation = async () => {
+    if (handsFreeRef.current) await stopHandsFree(false);
+    if (audioRef.current) stopSpeech();
+  };
+
   return (
     <section className="voice-operator" aria-label="Voice interaction">
+      <VoiceConversation ready={Boolean(providers?.live?.ready)} setup={providers?.live?.setup}
+        beforeStart={releaseForConversation} onMission={onMission} onStateChange={setVoiceState} />
       <div className="voice-operator-main">
         <div className="voice-state"><span className={`voice-dot ${handsFree ? 'voice-dot-live' : ''}`} />
           <span>{handsFree ? 'HANDS-FREE READY' : recording ? 'CAPTURING COMMAND' : busy ? 'PROCESSING VOICE' : 'VOICE CONTROL'}</span>

@@ -53,57 +53,70 @@ async def write_tool_run(
     if session is None or agent_id is None:
         return False
 
+    inserted = False
     try:
+        from app.models.agent import Agent
         from app.models.tool_system import Tool, ToolRun
 
-        # Get-or-create the catalog Tool row for this tool name (a real catalog
-        # entry, not a fake row).
-        result = await session.execute(select(Tool).where(Tool.tool_name == tool_name))
-        tool = result.scalar_one_or_none()
-        if tool is None:
-            tool = Tool(
-                tool_name=tool_name,
-                tool_group=tool_group or "general",
-                tool_version="1.0",
-                description=description or tool_name,
-                config_schema={},
-                input_schema=input_schema_json or {},
-                output_schema=output_schema_json or {},
-                minimum_authority_level=int(minimum_authority_level),
-                requires_approval=bool(requires_approval),
-                is_active=True,
-                tags=[],
+        # ToolRun.agent_id is a foreign key: an agent run in memory has no row to point at.
+        known = (await session.execute(select(Agent.id).where(Agent.id == agent_id))).scalar_one_or_none()
+        if known is None:
+            return False
+
+        # In a savepoint: a failed write undoes only itself, never the caller's work in the session.
+        async with session.begin_nested():
+            # Get-or-create the catalog Tool row for this tool name (a real catalog
+            # entry, not a fake row).
+            result = await session.execute(select(Tool).where(Tool.tool_name == tool_name))
+            tool = result.scalar_one_or_none()
+            if tool is None:
+                tool = Tool(
+                    tool_name=tool_name,
+                    tool_group=tool_group or "general",
+                    tool_version="1.0",
+                    description=description or tool_name,
+                    config_schema={},
+                    input_schema=input_schema_json or {},
+                    output_schema=output_schema_json or {},
+                    minimum_authority_level=int(minimum_authority_level),
+                    requires_approval=bool(requires_approval),
+                    is_active=True,
+                    tags=[],
+                )
+                session.add(tool)
+                await session.flush()  # assign tool.id
+
+            duration_ms: Optional[int] = None
+            if completed_at is not None:
+                duration_ms = int((completed_at - started_at).total_seconds() * 1000)
+
+            run = ToolRun(
+                tool_id=tool.id,
+                agent_id=agent_id,
+                session_id=session_id,
+                input_params=redact_secrets(input_data or {}),
+                output_result=redact_secrets(output_data) if output_data is not None else None,
+                status=status,
+                success=success,
+                error_message=(error_message[:2000] if error_message else None),
+                started_at=started_at,
+                completed_at=completed_at,
+                duration_ms=duration_ms,
+                authority_level_used=int(authority_level_used),
+                required_approval=bool(requires_approval),
+                meta_data=redact_secrets(meta) if meta else None,
             )
-            session.add(tool)
-            await session.flush()  # assign tool.id
-
-        duration_ms: Optional[int] = None
-        if completed_at is not None:
-            duration_ms = int((completed_at - started_at).total_seconds() * 1000)
-
-        run = ToolRun(
-            tool_id=tool.id,
-            agent_id=agent_id,
-            session_id=session_id,
-            input_params=redact_secrets(input_data or {}),
-            output_result=redact_secrets(output_data) if output_data is not None else None,
-            status=status,
-            success=success,
-            error_message=(error_message[:2000] if error_message else None),
-            started_at=started_at,
-            completed_at=completed_at,
-            duration_ms=duration_ms,
-            authority_level_used=int(authority_level_used),
-            required_approval=bool(requires_approval),
-            meta_data=redact_secrets(meta) if meta else None,
-        )
-        session.add(run)
+            session.add(run)
+            await session.flush()
+        inserted = True
         await session.commit()
         return True
     except Exception as e:  # noqa: BLE001 - logging must never break execution
         logger.warning(f"ToolRun logging failed for {tool_name}: {e}")
-        try:
-            await session.rollback()
-        except Exception:  # noqa: BLE001
-            pass
+        if inserted:
+            # Only a failed commit needs a rollback; a failed write was undone by its savepoint.
+            try:
+                await session.rollback()
+            except Exception:  # noqa: BLE001
+                pass
         return False

@@ -159,6 +159,14 @@
 .voice-controls .voice-interrupt { border-color: rgba(251, 113, 133, .5); color: #fda4af; }
 .voice-operator-details { display: flex; flex-wrap: wrap; gap: 5px 14px; margin-top: 9px; color: #748194; font-size: 8px; }
 .voice-message { margin: 8px 0 0; color: #aab6c4; font-size: 10px; line-height: 1.45; }
+.voice-live { margin-bottom: 11px; padding-bottom: 10px; border-bottom: 1px solid rgba(142, 155, 170, .14); }
+.voice-live-head { display: flex; align-items: center; gap: 7px; color: #b8c2cc; font: 9px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.voice-live-head .voice-controls { margin-left: auto; }
+.voice-live-lines { display: grid; gap: 4px; max-height: 190px; margin: 9px 0 0; padding: 0; overflow-y: auto; list-style: none; font-size: 10px; line-height: 1.45; }
+.voice-live-lines strong { margin-right: 5px; font-weight: 600; }
+.voice-live-you { color: #c7d1db; }
+.voice-live-jarv { color: #7dd3fc; }
+.voice-live-action { color: #748194; font-size: 9px; }
 .inline-error { margin: 12px 0 0; color: #fda4af; font-size: 11px; }
 .mission-result { margin-top: 14px; padding: 12px; border: 1px solid rgba(56, 189, 248, .25); background: rgba(5, 7, 11, .48); color: #ced7e1; font-size: 11px; line-height: 1.55; }
 .mission-result p { margin: 7px 0 0; white-space: pre-wrap; }
