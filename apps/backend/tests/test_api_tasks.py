@@ -8,6 +8,9 @@ from app.models.task import Task
 from app.models.workspace import Workspace
 from app.models.agent import Agent
 
+# Every API route requires sign-in (Repair 15a); these tests run as test_user, the owner of test_workspace.
+pytestmark = pytest.mark.usefixtures("signed_in")
+
 
 @pytest.mark.api
 @pytest.mark.integration

@@ -11,7 +11,9 @@ from pydantic import BaseModel
 from uuid import UUID
 from datetime import datetime
 
+from app.core.auth import CurrentUserId
 from app.core.database import get_db
+from app.core.scoping import visible
 from app.models.boundary import SafeCheckpoint
 
 router = APIRouter(prefix="/api/checkpoints", tags=["checkpoints"])
@@ -47,7 +49,7 @@ class CheckpointStats(BaseModel):
 
 
 @router.get("/list", response_model=List[CheckpointInfo])
-async def list_checkpoints(
+async def list_checkpoints(user_id: CurrentUserId, 
     session_id: Optional[UUID] = None,
     is_safe_state: Optional[bool] = None,
     can_resume_from: Optional[bool] = None,
@@ -57,7 +59,7 @@ async def list_checkpoints(
     """
     List checkpoints with optional filtering.
     """
-    query = select(SafeCheckpoint)
+    query = select(SafeCheckpoint).where(visible(SafeCheckpoint, user_id))
 
     if session_id:
         query = query.where(SafeCheckpoint.session_id == session_id)
@@ -93,11 +95,11 @@ async def list_checkpoints(
 
 
 @router.get("/stats", response_model=CheckpointStats)
-async def get_checkpoint_stats(db: Session = Depends(get_db)):
+async def get_checkpoint_stats(user_id: CurrentUserId, db: Session = Depends(get_db)):
     """
     Get aggregated statistics for checkpoints.
     """
-    result = await db.execute(select(SafeCheckpoint))
+    result = await db.execute(select(SafeCheckpoint).where(visible(SafeCheckpoint, user_id)))
     all_checkpoints = result.scalars().all()
 
     total_checkpoints = len(all_checkpoints)

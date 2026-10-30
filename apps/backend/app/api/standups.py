@@ -11,7 +11,9 @@ from pydantic import BaseModel
 from uuid import UUID
 from datetime import date, datetime
 
+from app.core.auth import CurrentUserId
 from app.core.database import get_db
+from app.core.scoping import visible
 from app.models.company_operations import AIStandup
 
 router = APIRouter(prefix="/api/standups", tags=["standups"])
@@ -62,6 +64,7 @@ class DailyStandupSummary(BaseModel):
 
 @router.get("/list", response_model=List[StandupInfo])
 async def list_standups(
+    user_id: CurrentUserId,
     workspace_id: Optional[UUID] = None,
     agent_id: Optional[UUID] = None,
     start_date: Optional[date] = None,
@@ -84,7 +87,7 @@ async def list_standups(
     Returns:
         List of standup records
     """
-    query = select(AIStandup)
+    query = select(AIStandup).where(visible(AIStandup, user_id))
 
     if workspace_id:
         query = query.where(AIStandup.workspace_id == workspace_id)
@@ -129,6 +132,7 @@ async def list_standups(
 
 @router.get("/stats", response_model=StandupStats)
 async def get_standup_stats(
+    user_id: CurrentUserId,
     workspace_id: Optional[UUID] = None,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
@@ -145,7 +149,7 @@ async def get_standup_stats(
     Returns:
         Standup statistics including counts and metrics
     """
-    query = select(AIStandup)
+    query = select(AIStandup).where(visible(AIStandup, user_id))
     if workspace_id:
         query = query.where(AIStandup.workspace_id == workspace_id)
     if start_date:
@@ -201,6 +205,7 @@ async def get_standup_stats(
 
 @router.get("/daily-summary", response_model=List[DailyStandupSummary])
 async def get_daily_summary(
+    user_id: CurrentUserId,
     workspace_id: Optional[UUID] = None,
     days: int = 7,
     db: Session = Depends(get_db)
@@ -215,7 +220,7 @@ async def get_daily_summary(
     Returns:
         List of daily standup summaries
     """
-    query = select(AIStandup)
+    query = select(AIStandup).where(visible(AIStandup, user_id))
     if workspace_id:
         query = query.where(AIStandup.workspace_id == workspace_id)
 
@@ -257,6 +262,7 @@ async def get_daily_summary(
 
 @router.get("/{standup_id}", response_model=StandupInfo)
 async def get_standup(
+    user_id: CurrentUserId,
     standup_id: UUID,
     db: Session = Depends(get_db)
 ):
@@ -269,7 +275,7 @@ async def get_standup(
     Returns:
         Standup information
     """
-    query = select(AIStandup).where(AIStandup.id == standup_id)
+    query = select(AIStandup).where(visible(AIStandup, user_id)).where(AIStandup.id == standup_id)
     result = await db.execute(query)
     standup = result.scalar_one_or_none()
 

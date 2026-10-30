@@ -4,7 +4,7 @@ JARV Backend - Task Management API
 Endpoints for managing tasks and task state transitions.
 """
 from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, Query, status, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy import func, select
@@ -21,7 +21,9 @@ from app.core.state_machine import (
     get_active_states,
     validate_state_transition,
 )
+from app.core.auth import CurrentUserId, get_current_user_id
 from app.core.database import get_db
+from app.core.scoping import owned_workspaces
 from app.models.task import Task
 from app.models.workspace import Workspace
 from app.models.operations import AuditLog
@@ -29,7 +31,7 @@ from app.models.company_operations import LiveOperationsFeedItem
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/tasks", tags=["tasks"])
+router = APIRouter(prefix="/tasks", tags=["tasks"], dependencies=[Depends(get_current_user_id)])
 
 
 class StateTransitionRequest(BaseModel):
@@ -342,10 +344,11 @@ class TaskStats(BaseModel):
     description="Get list of all tasks from database"
 )
 async def list_tasks(
+    user_id: CurrentUserId,
     workspace_id: Optional[UUID] = None,
     task_status: Optional[str] = None,
     assigned_only: bool = False,
-    limit: int = 100,
+    limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
 ) -> List[TaskInfo]:
     """
@@ -362,7 +365,7 @@ async def list_tasks(
         List of task information
     """
     try:
-        query = select(Task)
+        query = select(Task).where(Task.workspace_id.in_(owned_workspaces(user_id))).where(Task.workspace_id.in_(owned_workspaces(user_id)))
 
         if workspace_id:
             query = query.where(Task.workspace_id == workspace_id)
@@ -415,6 +418,7 @@ async def list_tasks(
     description="Get aggregated task statistics"
 )
 async def get_task_stats(
+    user_id: CurrentUserId,
     workspace_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
 ) -> TaskStats:
@@ -515,6 +519,7 @@ class TaskDetail(BaseModel):
 )
 async def get_task(
     task_id: UUID,
+    user_id: CurrentUserId,
     db: Session = Depends(get_db),
 ) -> TaskDetail:
     """
@@ -525,7 +530,8 @@ async def get_task(
         404: If task not found
     """
     try:
-        result = await db.execute(select(Task).where(Task.id == task_id))
+        result = await db.execute(select(Task).where(Task.id == task_id,
+                                                     Task.workspace_id.in_(owned_workspaces(user_id))))
         task = result.scalar_one_or_none()
 
         if not task:
@@ -636,7 +642,6 @@ async def get_task(
 
 
 # ===== Resume (continue a step-limited / needs_continuation task) =====
-from app.core.auth import CurrentUserId
 from app.core.command.continuation import continue_mission
 from app.core.runtime import lifecycle as _lifecycle
 

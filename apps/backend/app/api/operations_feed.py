@@ -11,7 +11,9 @@ from pydantic import BaseModel
 from uuid import UUID
 from datetime import datetime, timedelta, timezone
 
+from app.core.auth import CurrentUserId
 from app.core.database import get_db
+from app.core.scoping import visible
 from app.models.company_operations import LiveOperationsFeedItem
 
 router = APIRouter(prefix="/api/operations-feed", tags=["operations-feed"])
@@ -50,6 +52,7 @@ class FeedStats(BaseModel):
 
 @router.get("/list", response_model=List[FeedItemInfo])
 async def list_feed_items(
+    user_id: CurrentUserId,
     workspace_id: Optional[UUID] = None,
     item_type: Optional[str] = None,
     severity: Optional[str] = None,
@@ -76,7 +79,7 @@ async def list_feed_items(
     Returns:
         List of feed items
     """
-    query = select(LiveOperationsFeedItem)
+    query = select(LiveOperationsFeedItem).where(visible(LiveOperationsFeedItem, user_id))
 
     if workspace_id:
         query = query.where(LiveOperationsFeedItem.workspace_id == workspace_id)
@@ -124,6 +127,7 @@ async def list_feed_items(
 
 @router.get("/stats", response_model=FeedStats)
 async def get_feed_stats(
+    user_id: CurrentUserId,
     workspace_id: Optional[UUID] = None,
     hours: Optional[int] = 24,
     db: Session = Depends(get_db)
@@ -138,7 +142,7 @@ async def get_feed_stats(
     Returns:
         Feed statistics including counts by severity and type
     """
-    query = select(LiveOperationsFeedItem)
+    query = select(LiveOperationsFeedItem).where(visible(LiveOperationsFeedItem, user_id))
     if workspace_id:
         query = query.where(LiveOperationsFeedItem.workspace_id == workspace_id)
     query = query.where(LiveOperationsFeedItem.is_archived == False)
@@ -185,6 +189,7 @@ async def get_feed_stats(
 
 @router.patch("/{item_id}/mark-read")
 async def mark_feed_item_read(
+    user_id: CurrentUserId,
     item_id: UUID,
     is_read: bool = True,
     db: Session = Depends(get_db)
@@ -199,7 +204,7 @@ async def mark_feed_item_read(
     Returns:
         Success message
     """
-    query = select(LiveOperationsFeedItem).where(LiveOperationsFeedItem.id == item_id)
+    query = select(LiveOperationsFeedItem).where(visible(LiveOperationsFeedItem, user_id)).where(LiveOperationsFeedItem.id == item_id)
     result = await db.execute(query)
     item = result.scalar_one_or_none()
 
@@ -215,6 +220,7 @@ async def mark_feed_item_read(
 
 @router.patch("/{item_id}/archive")
 async def archive_feed_item(
+    user_id: CurrentUserId,
     item_id: UUID,
     is_archived: bool = True,
     db: Session = Depends(get_db)
@@ -229,7 +235,7 @@ async def archive_feed_item(
     Returns:
         Success message
     """
-    query = select(LiveOperationsFeedItem).where(LiveOperationsFeedItem.id == item_id)
+    query = select(LiveOperationsFeedItem).where(visible(LiveOperationsFeedItem, user_id)).where(LiveOperationsFeedItem.id == item_id)
     result = await db.execute(query)
     item = result.scalar_one_or_none()
 
@@ -245,6 +251,7 @@ async def archive_feed_item(
 
 @router.get("/{item_id}", response_model=FeedItemInfo)
 async def get_feed_item(
+    user_id: CurrentUserId,
     item_id: UUID,
     db: Session = Depends(get_db)
 ):
@@ -257,7 +264,7 @@ async def get_feed_item(
     Returns:
         Feed item information
     """
-    query = select(LiveOperationsFeedItem).where(LiveOperationsFeedItem.id == item_id)
+    query = select(LiveOperationsFeedItem).where(visible(LiveOperationsFeedItem, user_id)).where(LiveOperationsFeedItem.id == item_id)
     result = await db.execute(query)
     item = result.scalar_one_or_none()
 

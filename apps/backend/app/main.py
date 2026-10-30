@@ -243,7 +243,6 @@ async def root():
     return {
         "service": "JARV Agentic AI System - Backend API",
         "version": __version__,
-        "environment": settings.ENVIRONMENT,
         "docs": "/docs",
         "health": "/health",
     }

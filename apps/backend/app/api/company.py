@@ -4,6 +4,8 @@ JARV Backend - Company Operations API
 RESTful API endpoints for company organizational structure, roles, and operations.
 """
 from fastapi import APIRouter, Depends, HTTPException
+from app.core.auth import CurrentUserId, get_current_user_id
+from app.core.scoping import owned_workspaces, visible
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
 from typing import List, Optional, Dict, Any
@@ -15,7 +17,7 @@ from app.core.database import get_db
 from app.models.company import CompanyRole
 from app.models.task import Task
 
-router = APIRouter(prefix="/api/company", tags=["company"])
+router = APIRouter(prefix="/api/company", tags=["company"], dependencies=[Depends(get_current_user_id)])
 
 
 class RoleInfo(BaseModel):
@@ -64,6 +66,7 @@ class DepartmentInfo(BaseModel):
 
 @router.get("/roles/list", response_model=List[RoleInfo])
 async def list_company_roles(
+    user_id: CurrentUserId,
     workspace_id: Optional[UUID] = None,
     department: Optional[str] = None,
     role_type: Optional[str] = None,
@@ -84,7 +87,7 @@ async def list_company_roles(
     Returns:
         List of company roles with full details
     """
-    query = select(CompanyRole)
+    query = select(CompanyRole).where(visible(CompanyRole, user_id))
 
     if workspace_id:
         query = query.where(CompanyRole.workspace_id == workspace_id)
@@ -129,6 +132,7 @@ async def list_company_roles(
 
 @router.get("/roles/{role_id}", response_model=RoleInfo)
 async def get_company_role(
+    user_id: CurrentUserId,
     role_id: UUID,
     db: Session = Depends(get_db)
 ):
@@ -141,7 +145,7 @@ async def get_company_role(
     Returns:
         Role information with full details
     """
-    query = select(CompanyRole).where(CompanyRole.id == role_id)
+    query = select(CompanyRole).where(visible(CompanyRole, user_id)).where(CompanyRole.id == role_id)
     result = await db.execute(query)
     role = result.scalar_one_or_none()
 
@@ -172,6 +176,7 @@ async def get_company_role(
 
 @router.get("/stats", response_model=CompanyStats)
 async def get_company_stats(
+    user_id: CurrentUserId,
     workspace_id: Optional[UUID] = None,
     db: Session = Depends(get_db)
 ):
@@ -184,7 +189,7 @@ async def get_company_stats(
     Returns:
         Company statistics including role counts, departments, and performance metrics
     """
-    query = select(CompanyRole)
+    query = select(CompanyRole).where(visible(CompanyRole, user_id))
     if workspace_id:
         query = query.where(CompanyRole.workspace_id == workspace_id)
 
@@ -199,7 +204,7 @@ async def get_company_stats(
     total_tasks_completed = sum(role.tasks_completed for role in all_roles)
     # CompanyRole has no failure counter; derive failed tasks from the Task
     # table by status, applying the same workspace filter used for roles above.
-    failed_query = select(func.count()).select_from(Task).where(Task.status == "failed")
+    failed_query = select(func.count()).select_from(Task).where(Task.status == "failed", Task.workspace_id.in_(owned_workspaces(user_id)))
     if workspace_id:
         failed_query = failed_query.where(Task.workspace_id == workspace_id)
     tasks_failed = (await db.execute(failed_query)).scalar() or 0
@@ -246,6 +251,7 @@ async def get_company_stats(
 
 @router.get("/departments", response_model=List[DepartmentInfo])
 async def list_departments(
+    user_id: CurrentUserId,
     workspace_id: Optional[UUID] = None,
     db: Session = Depends(get_db)
 ):
@@ -258,7 +264,7 @@ async def list_departments(
     Returns:
         List of departments with role and performance statistics
     """
-    query = select(CompanyRole)
+    query = select(CompanyRole).where(visible(CompanyRole, user_id))
     if workspace_id:
         query = query.where(CompanyRole.workspace_id == workspace_id)
 
@@ -289,6 +295,7 @@ async def list_departments(
 
 @router.get("/hierarchy", response_model=List[Dict[str, Any]])
 async def get_role_hierarchy(
+    user_id: CurrentUserId,
     workspace_id: Optional[UUID] = None,
     db: Session = Depends(get_db)
 ):
@@ -301,7 +308,7 @@ async def get_role_hierarchy(
     Returns:
         Hierarchical structure of roles with parent-child relationships
     """
-    query = select(CompanyRole)
+    query = select(CompanyRole).where(visible(CompanyRole, user_id))
     if workspace_id:
         query = query.where(CompanyRole.workspace_id == workspace_id)
 
