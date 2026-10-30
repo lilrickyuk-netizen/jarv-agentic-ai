@@ -101,6 +101,9 @@ services:
     build:
       context: ./apps/backend
       dockerfile: Dockerfile
+      args:
+        JARV_UID: ${JARV_UID:-1000}
+        JARV_GID: ${JARV_GID:-1000}
     container_name: jarv-migrate-prod
     command: python -m alembic upgrade head
     environment:
@@ -118,6 +121,9 @@ services:
     build:
       context: ./apps/backend
       dockerfile: Dockerfile
+      args:
+        JARV_UID: ${JARV_UID:-1000}
+        JARV_GID: ${JARV_GID:-1000}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
@@ -258,6 +264,9 @@ services:
     build:
       context: ./apps/backend
       dockerfile: Dockerfile
+      args:
+        JARV_UID: ${JARV_UID:-1000}
+        JARV_GID: ${JARV_GID:-1000}
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
@@ -357,6 +366,9 @@ services:
     build:
       context: ./apps/backend
       dockerfile: Dockerfile
+      args:
+        JARV_UID: ${JARV_UID:-1000}
+        JARV_GID: ${JARV_GID:-1000}
     container_name: jarv-scheduler-prod
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}

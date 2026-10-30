@@ -104,8 +104,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && apt-get update && apt-get install -y --no-install-recommends postgresql-client-17 \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user for security
-RUN groupadd -r jarv && useradd -r -m -d /home/jarv -g jarv jarv
+# Create non-root user for security. Its uid/gid match the owner of the mounted workspace
+# folders (the WSL user, 1000, by default), so git, pnpm and uv can set file modes there.
+ARG JARV_UID=1000
+ARG JARV_GID=1000
+RUN groupadd -r -g "${JARV_GID}" jarv && useradd -r -m -d /home/jarv -u "${JARV_UID}" -g jarv jarv
 # Package caches and git need a home; commits JARV makes in a workspace are authored as JARV.
 # Workspace folders are mounted from the host with another owner, so git is told they are
 # safe; JARV's own scope checks decide which folders a command may run in.

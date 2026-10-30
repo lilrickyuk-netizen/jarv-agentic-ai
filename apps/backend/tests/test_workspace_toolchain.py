@@ -132,6 +132,15 @@ def test_worker_image_carries_node_pnpm_uv_and_python_312():
     assert "    nodejs \\" not in runtime  # the distribution's old Node is no longer installed
 
 
+def test_jarv_user_matches_the_workspace_owner():
+    dockerfile = repo_path("apps", "backend", "Dockerfile").read_text()
+    assert "ARG JARV_UID=1000" in dockerfile and "ARG JARV_GID=1000" in dockerfile
+    assert 'useradd -r -m -d /home/jarv -u "${JARV_UID}" -g jarv jarv' in dockerfile
+    for name in ("docker-compose.yml", "docker-compose.prod.yml"):
+        compose = repo_path(name).read_text()
+        assert compose.count("JARV_UID: ${JARV_UID:-1000}") == 4, name
+
+
 def test_tool_home_persists_for_backend_and_worker():
     for name in ("docker-compose.yml", "docker-compose.prod.yml"):
         compose = repo_path(name).read_text()
