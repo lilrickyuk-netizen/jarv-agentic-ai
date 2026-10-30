@@ -293,8 +293,8 @@ def test_cut_off_arguments_are_reported_and_long_files_are_written_in_parts(proj
     async def run():
         async with AsyncTestingSessionLocal() as db:
             user_id, ws_id = await _seed(db, root_host)
-            agent = _agent(DocumentationAgent, ws_id, user_id)
-            return await agent.execute({"task": "Write docs/architecture.md"},
+            agent = _agent(CodingAgent, ws_id, user_id)
+            return await agent.execute({"task": "Write docs/architecture.md", "language": "markdown"},
                                        _ctx(db, ws_id, user_id, tools_enabled=True))
 
     result = _run(run())
