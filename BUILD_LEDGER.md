@@ -12536,7 +12536,7 @@ NEXT TASK: REPAIR-13 (specialist knowledge).
 
 TASK ID: REPAIR-13-REFRESH
 TASK NAME: Specialist knowledge brought in line with the tools JARV now uses
-STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+STATUS: COMPLETE
 AUDIT FINDINGS THAT DROVE THIS TASK:
 - Repair 13 (REPAIR-13-NONPAID-KNOWLEDGE-RESEARCH) installed one source-attributed brief per agent. Since Repair 12 four briefs described tools JARV does not use: infrastructure and rollback taught Kubernetes Deployments (JARV runs Docker Compose on Richard's VPS with release directories), growth taught the Google Analytics Data API (JARV reads Plausible or recorded KPIs), and creation taught Unsplash API hotlinking (JARV downloads licence-checked assets with credits). The Plausible adapter used the legacy v1 API (current reference is Stats API v2). The licence table had no no-derivatives licences. The catalogue dropped each source's licence field.
 FILES CREATED:
@@ -12549,6 +12549,27 @@ COMMANDS RUN:
 - Source pages fetched and read for the four new briefs; python -m py_compile on changed files: passed; catalogue loads with 31 entries, exactly four briefs changed.
 TESTS RUN:
 - Written: every agent has a brief with an https source; the four briefs carry the new sources; a changed brief becomes a new version, re-ingesting is unchanged, retrieval returns the new version; ND licence rules; Plausible v2 request and parsing.
-RESULT: Pending owner test run.
+RESULT: Owner run (2026-10-29): 557 passed. Committed as 4dba287 on pre-repair-11.
 BLOCKERS: None.
 NEXT TASK: REPAIR-14 (dashboard pages on real backend data; voice interface acceptance).
+
+TASK ID: REPAIR-13-EXPERT-KNOWLEDGE
+TASK NAME: Expert knowledge library for every agent's field
+STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- Richard's requirement for Repair 13 is that every agent is an expert in its field. Each agent held one short brief (31 in total), retrieved three at a time by plain word overlap, and agents had no way to look anything up mid-task.
+FILES CREATED:
+- apps/backend/app/core/knowledge/library/ (sources.py: 60 sources from 45 publishers, each page fetched and read on 2026-10-29/30; engineering.py, operations.py, orchestration.py, business.py, growth.py, extended.py: 155 original topics; _base.py; __init__.py). Every agent now has its core brief plus 5 field topics (186 entries), e.g. security: secrets management, CWE Top 25 2025, CI hardening, review method, accessible authentication; finance: subscription metrics, disputes, UK tax dates, director duties, budget goals; infrastructure: SSH hardening, PostgreSQL PITR, Redis persistence, USE-method capacity, restart policies.
+- apps/backend/app/tools/knowledge/__init__.py (consult_specialist_knowledge: read-only, authority 1, scoped to the calling agent's field by default, any field by name)
+- apps/backend/tests/test_repair13_expert_knowledge.py
+FILES MODIFIED:
+- apps/backend/app/core/knowledge/catalog.py (catalogue = core briefs + library), apps/backend/app/core/knowledge/service.py (relevance ranks keyword and title matches above body text, with stop words and simple stemming)
+- apps/backend/app/core/agents/base.py, runner.py (four most relevant topics attached to each run), toolbox.py (every agent's toolbox offers consult_specialist_knowledge), apps/backend/app/core/tools/registry.py
+- apps/backend/tests/test_agent_knowledge_runtime.py, test_repair13_knowledge_refresh.py (counts follow the catalogue; core brief selected by key)
+COMMANDS RUN:
+- Source pages fetched and read for every topic; python -m py_compile on changed files: passed; offline ranking check over all 186 entries: every agent has 6, no duplicate keys, no unused sources, sample queries rank the intended topic first.
+TESTS RUN:
+- Written: coverage (31 agents, at least 6 sourced topics each, https sources, no unused sources, at least 25 publishers); ranking for ten field questions; install idempotence; consult tool in own and other fields, unknown field refused, no-match result; every toolbox offers the tool and an agent's run carries its relevant topics.
+RESULT: Pending owner test run.
+BLOCKERS: None.
+NEXT TASK: REPAIR-14 (resume claude/repair-14a-wip: business, revenue, analytics and permissions pages on real data).
