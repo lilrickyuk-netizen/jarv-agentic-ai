@@ -12840,9 +12840,10 @@ PROBLEM: Every agent mission on Richard's stack (OpenAI key, gpt-6-luna) failed.
 FILES CREATED: None.
 FILES MODIFIED:
 - apps/backend/app/core/providers/openai.py (tools sent as {"type": "function", "function": {name, description, parameters}}; an assistant turn's tool_use blocks sent as tool_calls; each tool_result sent as a role "tool" message with its tool_call_id; "any" tool choice sent as "required"; a reply that only calls tools has empty text instead of null)
+- apps/backend/app/core/providers/openai.py, second pass (tool names OpenAI accepts, restored in replies; parameters schemas with array items)
 - apps/backend/tests/test_openai_provider.py (an agent's multi-turn tool conversation is sent in a shape OpenAI's chat completions API accepts: every tool typed, every tool message answering a call the assistant made, arguments as JSON text; the reply's tool call comes back to the agent)
 COMMANDS RUN: Worker log read (the OpenAI error on three missions). python -m py_compile on the changed files: passed.
 TESTS RUN: Awaiting Richard's PostgreSQL suite and a mission on the local stack.
-RESULT: Awaiting test results.
+RESULT: After the fix the MYCO build-plan mission reached OpenAI and was refused again (JARV reported an unsupported function). Registry tools offered to agents include dotted names (boundary.detect, checkpoint.create, approval.status), which OpenAI's function names do not allow, and tool schemas may contain arrays without items. Fixed: names are sent in OpenAI's alphabet (boundary__detect) and restored on the way back, in definitions, history and replies; every array in a parameters schema states its items and every object its properties. Tests: dotted names round-trip; every registered tool converts to a valid OpenAI function. Awaiting the owner's run.
 BLOCKERS: None.
 NEXT TASK: Richard runs the tests, rebuilds backend and worker, and asks JARV for the MYCO build plan.
