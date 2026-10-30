@@ -12822,7 +12822,8 @@ PROBLEM: Richard's first live-conversation mission on MYCO (a build plan) failed
 FILES CREATED: None.
 FILES MODIFIED:
 - apps/backend/app/workers/tasks.py (run_async: one long-lived event loop per worker process, recreated after a fork; every task uses it instead of asyncio.run)
-- apps/backend/tests/test_voice_live_and_mission_session.py (consecutive tasks reuse a client bound to the first loop)
+- apps/backend/tests/test_voice_live_and_mission_session.py (consecutive tasks reuse a client bound to the first loop; the conversation lists and reads a workspace folder, refuses paths outside it, and reports a workspace with no folder)
+- apps/backend/app/core/voice/live.py (JARV told Richard it could not access his files when he pointed it at the MYCO design: the conversation now has list_workspace_files and read_workspace_file, read-only, inside each workspace's registered folder through the same scope and secret checks as the agents; its instructions name each workspace's folder and tell it to look and to start missions that name where to look)
 - apps/backend/app/core/voice/live.py (in conversation JARV reports a mission's error plainly, does not claim to fix its own code, and restarts a failed mission at most once and only when asked; it had restarted the failing mission repeatedly)
 COMMANDS RUN: python -m py_compile on the changed files: passed.
 TESTS RUN: Awaiting Richard's PostgreSQL suite and a mission on the local stack.

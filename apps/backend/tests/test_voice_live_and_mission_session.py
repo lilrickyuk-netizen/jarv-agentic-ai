@@ -151,7 +151,9 @@ def test_live_conversation_needs_the_openai_key_and_never_hands_it_to_the_browse
     session = sent["session"]
     assert session["type"] == "realtime" and session["model"] == settings.OPENAI_REALTIME_MODEL
     assert {t["name"] for t in session["tools"]} == {"get_status", "start_mission", "get_mission",
-                                                     "cancel_mission", "list_workspaces"}
+                                                     "cancel_mission", "list_workspaces", "list_workspace_files",
+                                                     "read_workspace_file"}
+    assert "Never tell him you cannot access his files" in session["instructions"]
     assert "MYCO" in session["instructions"] and "Approvals page" in session["instructions"]
     assert session["audio"]["output"]["voice"] == settings.OPENAI_REALTIME_VOICE
 
@@ -256,3 +258,46 @@ def test_consecutive_worker_tasks_reuse_clients_bound_to_the_first_loop():
     assert run_async(task()) == ("job", True)
     assert run_async(task()) == ("job", True)
     assert not cached["loop"].is_closed()
+
+
+@pytest.mark.api
+def test_live_conversation_reads_the_workspace_folder_and_stays_inside_it(client, voice):  # noqa: F811
+    """JARV told Richard it could not access his files; it can look in each workspace's own folder."""
+    import shutil
+    from pathlib import Path
+
+    name = f"live-{uuid4().hex[:8]}"
+    root = Path("/tmp/jarv_sandbox") / name
+    (root / "docs").mkdir(parents=True)
+    (root / "docs" / "MYCO-V3-spec.md").write_text("# MYCO V3\nAutonomous software engineering platform.\n")
+
+    async def seed():
+        async with AsyncTestingSessionLocal() as db:
+            owner, _ws = await _seed(db, host=f"/test_workspaces/{name}")
+            bare, _other = await _seed(db)
+            return owner, bare
+
+    owner, bare = _run(seed())
+
+    def call(name_, **arguments):
+        return client.post("/api/voice/live/tool", json={"name": name_, "arguments": arguments}).json()
+
+    try:
+        app.dependency_overrides[get_current_user_id] = lambda: str(owner)
+        top = call("list_workspace_files", workspace="MYCO")
+        docs = call("list_workspace_files", workspace="MYCO", path="docs")
+        spec = call("read_workspace_file", workspace="MYCO", path="docs/MYCO-V3-spec.md")
+        escape = call("read_workspace_file", workspace="MYCO", path="../../etc/passwd")
+        missing = call("read_workspace_file", workspace="MYCO", path="docs/nothing.md")
+        app.dependency_overrides[get_current_user_id] = lambda: str(bare)
+        no_folder = call("list_workspace_files", workspace="MYCO")
+    finally:
+        app.dependency_overrides.pop(get_current_user_id, None)
+        shutil.rmtree(root, ignore_errors=True)
+
+    assert top["entries"] == [{"name": "docs", "folder": True}]
+    assert docs["entries"] == [{"name": "MYCO-V3-spec.md", "folder": False}]
+    assert spec["content"].startswith("# MYCO V3") and spec["truncated"] is False
+    assert escape == {"error": "That path is outside the workspace."}
+    assert "error" in missing
+    assert no_folder == {"error": "MYCO has no folder registered."}
