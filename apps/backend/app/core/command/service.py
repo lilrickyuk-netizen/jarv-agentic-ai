@@ -255,7 +255,7 @@ class CommandService:
         # (delete/deploy/push/spend) match NO controlled intent and stay blocked.
         _controlled = {
             "remember_memory", "recall_memory", "register_workspace",
-            "scan_workspace", "verify_last_scan", "write_file", "run_command",
+            "scan_workspace", "verify_last_scan", "run_command",
             "send_notification", "delegate", "agent_task",
             "launch_readiness", "infra_readiness",
             "self_healing", "self_evolution", "swarm", "company_workflow",
@@ -465,11 +465,6 @@ class CommandService:
                     await self._handle_company_workflow(db, runtime, command_text)
                 )
                 total_tokens = result_extra.pop("wf_tokens", 0)
-            elif intent == "write_file":
-                answer, plan_steps, selected_agents, result_extra = (
-                    await self._handle_write_file(db, runtime, command_text)
-                )
-                total_tokens = 0
             elif intent == "run_command":
                 answer, plan_steps, selected_agents, result_extra = (
                     await self._handle_run_command(runtime, command_text)
@@ -843,7 +838,7 @@ class CommandService:
             return "send_notification"
         # Autonomous engineering mission -> tool-using agent loop (inspect, edit,
         # build, test, iterate). Checked AFTER specific ops intents so it does not
-        # swallow them, but BEFORE single-op run_command/write_file.
+        # swallow them, but BEFORE single-op run_command.
         # Launch/deploy are intentionally NOT here: they hit the approval gate.
         if (re.search(r"\b(fix|debug|refactor|implement|develop|integrate|migrate|rewrite|optimi[sz]e|finish)\b", text)
                 or re.search(r"\bbuild\b.*\b(the|my|this|project|app|feature|it|out)\b", text)
@@ -853,9 +848,11 @@ class CommandService:
         # Controlled command execution.
         if re.search(r"\b(run|execute)\b.*\b(command|cmd|ls|dir|git|build|test|script)\b", text):
             return "run_command"
-        # Controlled file write/create.
+        # Creating or writing a file is real work: the agents decide its content from the
+        # request and the workspace (a fixed-text shortcut once wrote "JARV Write Test" into
+        # whatever file was named, e.g. a requested BUILD_PLAN.md).
         if re.search(r"\b(create|write|add|make)\b.*\b(file|\.md|\.txt|\.json|\.py|\.ts)\b", text):
-            return "write_file"
+            return "agent_task"
         if re.search(r"\b(recall|retrieve|what did you remember|do you remember)\b", text):
             return "recall_memory"
         if re.search(r"\bremember\b", text):
@@ -896,7 +893,7 @@ class CommandService:
             return "failed", f
 
         # 1) Explicit boundary / approval signals -> not a failure, but not completed.
-        for key in ("package_install", "self_healing", "run_command", "write_file"):
+        for key in ("package_install", "self_healing", "run_command"):
             v = extra.get(key)
             if isinstance(v, dict) and v.get("blocked"):
                 return "blocked", {"reason": f"{key} action blocked by safety policy.",
@@ -1987,49 +1984,6 @@ class CommandService:
             if cfg.get("root_path"):
                 return cfg["root_path"]
         return None
-
-    async def _handle_write_file(
-        self, db: AsyncSession, runtime: ToolRuntime, command_text: str
-    ) -> tuple[str, List[str], List[str], Dict[str, Any]]:
-        """Controlled, authority-gated file write inside an approved workspace."""
-        steps = [
-            "Coding Agent: resolve the approved target path (scope-checked).",
-            "Security: confirm target is not a secret and is in scope.",
-            "Coding Agent: call write_file (Level 2) and record the FileChange.",
-        ]
-        agents = self._validate_agents(["orchestrator", "coding", "security"])
-        # Resolve filename + workspace.
-        fn_match = re.search(r"([\w.\-]+\.[A-Za-z0-9]{1,8})", command_text)
-        filename = fn_match.group(1) if fn_match else "JARV_WRITE_TEST.md"
-        full = self._extract_path(command_text)
-        sep = "\\" if (full and "\\" in full) or "\\" in settings.WORKSPACE_HOST_ROOT else "/"
-        if full and re.search(r"\.[A-Za-z0-9]{1,8}$", full):
-            target = full  # already a file path
-        else:
-            root = full or await self._resolve_ws_root(db, command_text)
-            if not root:
-                return ("No approved workspace to write into. Register one first.",
-                        steps, agents, {"write_error": "no_workspace"})
-            target = root.rstrip("\\/") + sep + filename
-        content = (
-            "# JARV Write Test\n\n"
-            "This file was created by JARV through the controlled, authority-gated "
-            "write_file tool (Level 2), scoped to an approved workspace.\n"
-        )
-        res = await runtime.write_file(target, content, overwrite=False)
-        if not res["success"]:
-            return (f"Write blocked for `{target}`.\n\n{res.get('reason')}",
-                    steps, agents, {"target": target, "written": False, "reason": res.get("reason")})
-        answer = (
-            f"**File written (controlled, Level 2).**\n\n"
-            f"- Path: `{target}`\n"
-            f"- Created: {res['data'].get('created')}\n"
-            f"- Bytes: {res['data'].get('bytes_written')}\n"
-            f"- A FileChange record + audit entry were logged. Writes outside the "
-            f"approved workspace or to secret files are blocked."
-        )
-        return answer, steps, agents, {"target": target, "written": True,
-                                       "created": res["data"].get("created")}
 
     async def _handle_run_command(
         self, runtime: ToolRuntime, command_text: str

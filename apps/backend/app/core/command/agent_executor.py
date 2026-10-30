@@ -38,10 +38,13 @@ def _tool_schemas() -> List[Dict[str, Any]]:
         },
         {
             "name": "read_file",
-            "description": "Read a file's contents (secret files are redacted).",
+            "description": ("Read a file (secret files are redacted), up to 16,000 characters from offset. When "
+                            "next_offset is not null the file continues: call again with that offset until it is "
+                            "null, and read the whole file before relying on it."),
             "input_schema": {
                 "type": "object",
-                "properties": {"path": {"type": "string"}},
+                "properties": {"path": {"type": "string"},
+                               "offset": {"type": "integer", "description": "Character offset (0 = start)"}},
                 "required": ["path"],
             },
         },
@@ -189,7 +192,8 @@ class AgentExecutor:
                 else:
                     out = await self._dispatch(call["name"], call["args"])
                 result_blocks.append({"type": "tool_result", "tool_use_id": call["id"],
-                                      "content": json.dumps(out)[:6000]})
+                                      # A read_file part is passed back whole; other results are clipped.
+                                      "content": json.dumps(out, ensure_ascii=False)[:32000 if call["name"] == "read_file" else 6000]})
             messages.append(Message(role="user", content=result_blocks))
 
         needs_continuation = not finished
@@ -218,7 +222,11 @@ class AgentExecutor:
             if name == "list_files":
                 return await self.runtime.list_files(args.get("path", self.workspace_root or ""))
             if name == "read_file":
-                return await self.runtime.read_file(args.get("path", ""))
+                try:
+                    offset = max(0, int(args.get("offset") or 0))
+                except (TypeError, ValueError):
+                    offset = 0
+                return await self.runtime.read_file(args.get("path", ""), offset=offset)
             if name == "write_file":
                 return await self.runtime.write_file(args.get("path", ""), args.get("content", ""),
                                                      overwrite=True)

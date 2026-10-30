@@ -349,10 +349,14 @@ def list_dir(host_path: str) -> FsResult:
                     exists=True, is_dir=root.is_dir(), data={"entries": entries})
 
 
-def read_file(host_path: str, max_bytes: int = 20000) -> FsResult:
+def read_file(host_path: str, max_bytes: int = 20000, offset: int = 0) -> FsResult:
     """
     Real read-only file read (scope + banned enforced). Secret-bearing files
     (.env / key files) are reported as present but their contents are redacted.
+
+    Returns up to ``max_bytes`` characters starting at character ``offset``;
+    ``next_offset`` is where the file continues (None at the end), so a long
+    file is read completely in parts.
     """
     chk = path_exists(host_path)
     if not chk.accessible or not chk.exists:
@@ -369,12 +373,17 @@ def read_file(host_path: str, max_bytes: int = 20000) -> FsResult:
                             exists=True, is_dir=False,
                             data={"redacted": True, "size_bytes": _safe_size(p),
                                   "content": "[REDACTED — secret-bearing file; values never read]"})
+        start = max(0, int(offset or 0))
         with open(p, "r", encoding="utf-8", errors="replace") as fh:
+            if start:
+                fh.read(start)
             content = fh.read(max_bytes)
+            more = bool(fh.read(1))
         return FsResult(accessible=True, host_path=host_path, container_path=chk.container_path,
                         exists=True, is_dir=False,
                         data={"redacted": False, "size_bytes": _safe_size(p), "content": content,
-                              "truncated": (_safe_size(p) or 0) > max_bytes})
+                              "offset": start, "next_offset": start + len(content) if more else None,
+                              "truncated": more})
     except Exception as exc:  # noqa: BLE001
         return FsResult(accessible=False, host_path=host_path,
                         container_path=chk.container_path, reason=str(exc))
