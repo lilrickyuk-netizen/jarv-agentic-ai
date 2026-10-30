@@ -119,8 +119,14 @@ _PATH_PROP = {"type": "string", "description": "Path inside the workspace (relat
 WORKSPACE_TOOLS: Dict[str, ToolSpec] = {
     "list_files": ToolSpec("list_files", "List files and folders at a path in the workspace.",
                            _schema({"path": _PATH_PROP}), "workspace"),
-    "read_file": ToolSpec("read_file", "Read a text file in the workspace (secret files are redacted).",
-                          _schema({"path": _PATH_PROP}, ["path"]), "workspace"),
+    "read_file": ToolSpec(
+        "read_file",
+        "Read a text file in the workspace (secret files are redacted), up to 16,000 characters from offset. "
+        "When the result's next_offset is not null the file continues: call again with that offset until it "
+        "is null, and read the whole file before relying on it.",
+        _schema({"path": _PATH_PROP,
+                 "offset": {"type": "integer", "description": "Character offset to read from (0 = start)"}},
+                ["path"]), "workspace"),
     "search_files": ToolSpec(
         "search_files",
         "Find files in the workspace by name pattern (glob, e.g. '*.py') and/or by text they contain.",
@@ -227,8 +233,23 @@ _FILESYSTEM_TOOLS = {"list_files", "read_file", "search_files", "scan_workspace"
                      "git_push_with_boundary"}
 
 
+# A read_file part (16,000 characters, plus JSON escaping) is passed back whole; other results are clipped.
+READ_RESULT_CHARS = 32000
+
+
+def _offset(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def result_limit(tool: str) -> int:
+    return READ_RESULT_CHARS if tool == "read_file" else _RESULT_CHARS
+
+
 def _clip(value: Any, limit: int = _RESULT_CHARS) -> str:
-    text = value if isinstance(value, str) else json.dumps(value, default=str)
+    text = value if isinstance(value, str) else json.dumps(value, default=str, ensure_ascii=False)
     return text if len(text) <= limit else text[:limit] + f"… [truncated {len(text) - limit} chars]"
 
 
@@ -417,7 +438,7 @@ class AgentToolbox:
             if name == "list_files":
                 return await rt.list_files(host)
             if name == "read_file":
-                return await rt.read_file(host)
+                return await rt.read_file(host, offset=_offset(args.get("offset")))
             if name == "scan_workspace":
                 return await rt.scan_workspace(host)
             if name == "write_file":

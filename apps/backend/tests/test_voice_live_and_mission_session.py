@@ -316,3 +316,41 @@ def test_requests_to_create_a_file_go_to_the_agents(request_text):
     from app.core.command.service import CommandService
 
     assert CommandService._detect_intent(request_text) == "agent_task"
+
+
+# ----- agents read a long design completely ---------------------------------------------------------
+
+def test_agents_read_a_long_file_completely_in_parts():
+    """The MYCO design is 77,800 characters; agents saw only its first part, so their build plan missed the
+    design's own build stack and repository layout. read_file now returns parts with next_offset, and each
+    part is passed back to the model whole."""
+    import json
+    import shutil
+    from pathlib import Path
+
+    from app.core.agents.toolbox import _clip, result_limit
+    from app.core.command.tool_runtime import READ_CHUNK_CHARS
+    from app.core.workspaces import fs_inspector
+
+    name = f"long-{uuid4().hex[:8]}"
+    root = Path("/tmp/jarv_sandbox") / name
+    root.mkdir(parents=True)
+    line = '│   ├── services/engineering-brain/ → "Software World Model" — détail\n'
+    design = "".join(f"{i:05d} {line}" for i in range(1400))  # ~100k characters, worst-case escaping
+    (root / "design.md").write_text(design, encoding="utf-8")
+    try:
+        parts, offset = [], 0
+        while offset is not None:
+            found = fs_inspector.read_file(f"/test_workspaces/{name}/design.md", max_bytes=READ_CHUNK_CHARS,
+                                           offset=offset)
+            assert found.accessible and found.exists
+            chunk = found.data["content"]
+            assert len(chunk) <= READ_CHUNK_CHARS
+            passed_back = _clip({"success": True, "data": found.data}, result_limit("read_file"))
+            assert "[truncated" not in passed_back and json.loads(passed_back)["data"]["content"] == chunk
+            parts.append(chunk)
+            offset = found.data["next_offset"]
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+    assert "".join(parts) == design and len(parts) == -(-len(design) // READ_CHUNK_CHARS)

@@ -39,6 +39,9 @@ from app.models.operations import AuditLog
 
 logger = logging.getLogger(__name__)
 
+# A file is read in parts of this many characters (next_offset says where it continues).
+READ_CHUNK_CHARS = 16000
+
 # Authority level required per tool (kept in sync with the central policy in
 # app.core.safety.permission_policy; that policy is the enforcement source).
 _TOOL_AUTHORITY = {
@@ -396,15 +399,15 @@ class ToolRuntime:
         )
         return {"success": ok, "entries": entries, "reason": res.reason}
 
-    async def read_file(self, path: str) -> Dict[str, Any]:
+    async def read_file(self, path: str, offset: int = 0) -> Dict[str, Any]:
         denied = await self._enforce("read_file", path=path)
         if denied:
             return denied
-        res = fs_inspector.read_file(path)
+        res = fs_inspector.read_file(path, max_bytes=READ_CHUNK_CHARS, offset=offset)
         ok = res.accessible and res.exists
         redacted = res.data.get("redacted") if ok else None
         await self._record(
-            "read_file", {"path": path}, ok,
+            "read_file", {"path": path, "offset": offset}, ok,
             ("read (redacted)" if redacted else "read") if ok else (res.reason or "not accessible"),
             output={"redacted": redacted, "bytes": res.data.get("size_bytes")},
         )

@@ -8,7 +8,7 @@
 
 ## CURRENT STATUS
 - **Current Phase**: REPAIR CONTINUATION (10-15)
-- **Current Task**: FIX-FIXED-TEXT-FILE-WRITE (a request to create a file was answered with fixed test text)
+- **Current Task**: FIX-FIXED-TEXT-FILE-WRITE and FIX-AGENTS-READ-WHOLE-FILES (agents read only the first part of long files)
 - **Build Status**: NOT ACCEPTED; Repairs 11-15 remain open under the locked execution order
 - **Build Start Date**: 2026-06-03
 - **Build Completion Date**: 2026-06-03
@@ -12864,3 +12864,22 @@ TESTS RUN: Awaiting Richard's PostgreSQL suite.
 RESULT: Awaiting test results.
 BLOCKERS: None.
 NEXT TASK: Richard deletes the stray BUILD_PLAN.md from the MYCO folder and runs the next MYCO mission.
+
+---
+
+TASK ID: FIX-AGENTS-READ-WHOLE-FILES
+TASK NAME: Agents read long files completely
+STATUS: IN_PROGRESS
+PROBLEM: Myco_design.md is 77,800 characters. Its section 93 fixes the build stack and section 94 the repository layout, and it closes with a dependency-ordered build plan; JARV's Phase 0-1 task list nonetheless left the stack and paths open. Agents' read_file returned at most 20,000 bytes with no way to continue, and the result handed back to the model was clipped further (6,000 characters in the command executor, 8,000 in agent tool loops), so the planning agents saw under a tenth of the design.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/backend/app/core/workspaces/fs_inspector.py (read_file takes an offset and reports next_offset, None at the end)
+- apps/backend/app/core/command/tool_runtime.py (read_file reads 16,000-character parts from the given offset; the offset is recorded with the call)
+- apps/backend/app/core/agents/toolbox.py and app/core/command/agent_executor.py (read_file takes offset and tells the model to continue until next_offset is null; a read_file part is handed back whole, up to 32,000 characters, without ASCII escaping; other results keep their limits)
+- apps/backend/app/core/agents/tool_loop.py (per-tool result limit)
+- apps/backend/tests/test_voice_live_and_mission_session.py (a 106,400-character file with worst-case escaping is read in parts that reassemble exactly, and every part is passed back whole)
+COMMANDS RUN: JSON size of a worst-case 16,000-character part: 16,767 characters (within the 32,000 limit). python -m py_compile on the changed files: passed.
+TESTS RUN: Awaiting Richard's PostgreSQL suite.
+RESULT: Awaiting test results.
+BLOCKERS: None.
+NEXT TASK: Richard rebuilds and asks JARV to redo the MYCO architecture and Phase 0-1 tasks from the whole design.

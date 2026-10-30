@@ -21,7 +21,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from app.core.agents.toolbox import AgentToolbox, _clip
+from app.core.agents.toolbox import AgentToolbox, _clip, result_limit
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +144,8 @@ async def run_tool_loop(
                 out: Dict[str, Any] = {"acknowledged": True}
             else:
                 out = await toolbox.call(name, args)
-            results.append({"type": "tool_result", "tool_use_id": call_id, "content": _clip(out)})
+            results.append({"type": "tool_result", "tool_use_id": call_id,
+                            "content": _clip(out, result_limit(name))})
         messages.append(Message(role="user", content=results))
 
     trail = toolbox.summary()
