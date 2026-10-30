@@ -459,10 +459,21 @@ class ToolRuntime:
     # ----- write tool (authority-gated, scope + secret enforced) -----
 
     async def write_file(self, host_path: str, content: str,
-                         overwrite: bool = False) -> Dict[str, Any]:
+                         overwrite: bool = False, append: bool = False) -> Dict[str, Any]:
         denied = await self._enforce("write_file", path=host_path, content=content)
         if denied:
             return denied
+        if append:
+            # A long file written in parts: this part goes after what the file already holds.
+            existing, offset = [], 0
+            while offset is not None:
+                found = fs_inspector.read_file(host_path, max_bytes=READ_CHUNK_CHARS, offset=offset)
+                if not (found.accessible and found.exists) or found.data.get("redacted"):
+                    break
+                existing.append(found.data.get("content", ""))
+                offset = found.data.get("next_offset")
+            content = "".join(existing) + content
+            overwrite = True
         res = fs_inspector.write_file(host_path, content, overwrite=overwrite)
         ok = res.accessible and res.exists
         await self._record(

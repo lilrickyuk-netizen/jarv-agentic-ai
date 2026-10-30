@@ -258,3 +258,48 @@ def test_tool_mode_is_off_in_tests_unless_requested_and_keys_are_blank():
             return agent.tools_enabled(_ctx(db, ws_id, user_id))
 
     assert _run(run()) is False
+
+
+@pytest.mark.integration
+def test_cut_off_arguments_are_reported_and_long_files_are_written_in_parts(project, monkeypatch):
+    """A whole document written in one write_file hit the 4,096-token output limit; the cut-off arguments
+    were read as {} and the write was refused as a write to the workspace folder itself. The model now has
+    room (AGENT_MAX_OUTPUT_TOKENS), is told plainly when its arguments were cut off, and can append parts."""
+    root_host, root, _ = project
+
+    class Router(ScriptedRouter):
+        async def complete(self, request):
+            self.max_tokens = getattr(self, "max_tokens", []) + [request.max_tokens]
+            if not getattr(self, "sent_broken", False):
+                self.sent_broken = True
+                self.offered.append([t["name"] for t in (request.tools or [])])
+                return SimpleNamespace(content="", usage={"total_tokens": 10}, provider="test", model="test",
+                                       tool_calls=[{"id": "call-cut", "function": {
+                                           "name": "write_file",
+                                           "arguments": '{"path": "docs/architecture.md", "content": "# MYCO arch'}}])
+            self.last_results = [b for m in request.messages if isinstance(m.content, list)
+                                 for b in m.content if isinstance(b, dict) and b.get("type") == "tool_result"]
+            return await super().complete(request)
+
+    router = Router([
+        {"tools": [("write_file", {"path": "docs/architecture.md", "content": "# MYCO architecture\n\nPart one.\n"})]},
+        {"tools": [("write_file", {"path": "docs/architecture.md", "content": "Part two.\n", "append": True})]},
+        {"tools": [("finish", {"summary": "Wrote docs/architecture.md in two parts.", "success": True,
+                               "outputs": ["docs/architecture.md"]})]},
+    ])
+    monkeypatch.setattr("app.core.providers.get_router", lambda: router)
+    monkeypatch.setattr(settings, "CLAUDE_API_KEY", "test-key-not-real")
+
+    async def run():
+        async with AsyncTestingSessionLocal() as db:
+            user_id, ws_id = await _seed(db, root_host)
+            agent = _agent(DocumentationAgent, ws_id, user_id)
+            return await agent.execute({"task": "Write docs/architecture.md"},
+                                       _ctx(db, ws_id, user_id, tools_enabled=True))
+
+    result = _run(run())
+    assert result.success is True, result.error_message
+    assert (root / "docs" / "architecture.md").read_text() == "# MYCO architecture\n\nPart one.\nPart two.\n"
+    first_result = router.last_results[0]
+    assert first_result["tool_use_id"] == "call-cut" and "cut off" in first_result["content"]
+    assert set(router.max_tokens) == {settings.AGENT_MAX_OUTPUT_TOKENS}
