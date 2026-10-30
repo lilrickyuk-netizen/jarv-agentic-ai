@@ -22,6 +22,7 @@ from app.core.runtime import lifecycle
 from app.core.tools.run_logging import write_tool_run
 from app.core.voice import engine, live
 from app.main import app
+from app.models.agent import Agent
 from app.models.operations import AuditLog
 from app.models.task import Task
 from tests.conftest import AsyncTestingSessionLocal
@@ -80,6 +81,10 @@ def test_a_failed_audit_write_undoes_only_itself():
         async with AsyncTestingSessionLocal() as db:
             owner, ws_id = await _seed(db)
             task = await _mission(db, owner, ws_id)
+            runner = uuid4()
+            db.add(Agent(id=runner, name="coding_agent runtime", agent_type="coding_agent", workspace_id=ws_id,
+                         is_active=True, config={}, allowed_tools=[], blocked_tools=[]))
+            await db.commit()
             title = task.title
             def refuse(mapper, connection, target):
                 raise RuntimeError("audit row refused by the database")
@@ -99,7 +104,7 @@ def test_a_failed_audit_write_undoes_only_itself():
                 input_schema_json={}, output_schema_json={}, minimum_authority_level=1,
                 requires_approval=False, status="completed", success=True, input_data={"path": "a.py"},
                 output_data={"ok": True}, error_message=None, started_at=datetime.now(timezone.utc),
-                completed_at=datetime.now(timezone.utc), authority_level_used=1, agent_id=uuid4())
+                completed_at=datetime.now(timezone.utc), authority_level_used=1, agent_id=runner)
             still_loaded = _intact(task)
             lifecycle.transition(task, lifecycle.COMPLETED, reason="done", actor="orchestrator")
             await db.commit()

@@ -95,6 +95,24 @@ def test_approved_tools_allowlist_permits_execution(tmp_path):
 
 # ---------------- ToolRun logging ----------------
 
+
+async def _agent_row(session):
+    """A real agents-table row to run tools as (tool_runs.agent_id is a foreign key)."""
+    from app.models.agent import Agent
+    from app.models.user import User
+    from app.models.workspace import Workspace
+
+    user, workspace, agent = uuid4(), uuid4(), uuid4()
+    session.add(User(id=user, username=f"r6{user.hex[:8]}", email=f"r6{user.hex[:8]}@t.io", password_hash="x",
+                     is_active=True, is_admin=False))
+    session.add(Workspace(id=workspace, owner_id=user, name="R6", slug=f"r6-{workspace.hex[:8]}", description="",
+                          workspace_type="project", authority_level=5, is_active=True, config={}))
+    await session.flush()
+    session.add(Agent(id=agent, name="r6 tool runner", agent_type="test", workspace_id=workspace, is_active=True,
+                      config={}, allowed_tools=[], blocked_tools=[]))
+    await session.commit()
+    return agent
+
 async def _toolrun_count(session) -> int:
     result = await session.execute(select(func.count()).select_from(ToolRun))
     return int(result.scalar() or 0)
@@ -105,10 +123,9 @@ def test_toolrun_logged_when_session_available(tmp_path):
     """A real ToolRun row is written when a db session + agent_id are present."""
     f = tmp_path / "r.txt"
     f.write_text("data")
-    agent_id = uuid4()
-
     async def run():
         async with AsyncTestingSessionLocal() as session:
+            agent_id = await _agent_row(session)
             before = await _toolrun_count(session)
             tool = create_tool("file_read", _cfg())
             ctx = ToolContext(db_session=session, agent_id=agent_id)
@@ -131,10 +148,9 @@ def test_toolrun_blocked_status_logged(tmp_path):
     """A blocked (requires-approval) execution logs a ToolRun with status=blocked."""
     target = tmp_path / "k.txt"
     target.write_text("k")
-    agent_id = uuid4()
-
     async def run():
         async with AsyncTestingSessionLocal() as session:
+            agent_id = await _agent_row(session)
             tool = create_tool("file_delete", _cfg())
             ctx = ToolContext(db_session=session, agent_id=agent_id)  # no approval
             res = await tool.execute({"path": str(target), "missing_ok": False}, ctx)
@@ -196,11 +212,11 @@ def test_redaction_masks_common_secret_forms():
 @pytest.mark.integration
 def test_toolrun_input_is_redacted():
     """Secrets in tool input are redacted before being stored in ToolRun."""
-    agent_id = uuid4()
     from datetime import datetime
 
     async def run():
         async with AsyncTestingSessionLocal() as session:
+            agent_id = await _agent_row(session)
             ok = await write_tool_run(
                 session,
                 tool_name="redaction_probe_tool",

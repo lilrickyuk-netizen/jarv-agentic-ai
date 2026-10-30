@@ -238,7 +238,12 @@ def test_mismatched_authenticated_user_cannot_decide():
     async def run():
         async with AsyncTestingSessionLocal() as session:
             wf, res, uid, wid, sid, aid = await _seed_boundary(session)
-            attacker = uuid4()  # a different authenticated user
+            from app.models.user import User
+
+            attacker = uuid4()  # a different, real, authenticated operator
+            session.add(User(id=attacker, username=f"x{attacker.hex[:8]}", email=f"x{attacker.hex[:8]}@t.io",
+                             password_hash="x", is_active=True, is_admin=False))
+            await session.commit()
             dec = await wf.record_richard_decision(
                 approval_id=UUID(res["approval_id"]),
                 authenticated_user_id=attacker, approve=True)
