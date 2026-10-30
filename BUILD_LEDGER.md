@@ -12940,7 +12940,7 @@ NEXT TASK: Richard renames myco-decisions.md to docs/decisions.md and reruns the
 
 TASK ID: FIX-WORKSPACE-PAGE
 TASK NAME: Workspace page: open, move folder, archive, restore
-STATUS: IN_PROGRESS
+STATUS: COMPLETE
 PROBLEM: Clicking a workspace on the Workspaces page opened /dashboard/workspaces/<id>, which did not exist (404), so a workspace could not be archived from the dashboard. After MYCO moved out of OneDrive to C:\Users\lilri\Projects\MYCO there was also no way to point the existing workspace (with its tasks, memory and history) at the new folder.
 FILES CREATED:
 - apps/dashboard/src/app/dashboard/workspaces/[id]/page.tsx (details, folder, save a new folder, archive, restore)
@@ -12950,7 +12950,7 @@ FILES MODIFIED:
 - apps/dashboard/src/lib/api.ts (patch and delete)
 - apps/backend/tests/test_api_workspaces.py (folder shown; missing, outside and taken folders refused; move saved and audited)
 COMMANDS RUN: python -m py_compile apps/backend/app/api/workspaces.py: passed. tsc: no errors in the changed source files.
-TESTS RUN: Owner run of the PostgreSQL suite and the dashboard tests.
-RESULT: Awaiting the owner run.
+TESTS RUN: PostgreSQL suite (owner run): 652 passed, 1 skipped. Dashboard (owner run): tsc clean, 17 passed.
+RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: Richard moves the MYCO workspace to C:\Users\lilri\Projects\MYCO from its workspace page.
