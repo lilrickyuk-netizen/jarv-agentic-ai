@@ -412,7 +412,7 @@ export function VoiceOperator({ onMission, onStateChange }: Props) {
       const heard = transcription.data;
       if (!heard?.wake_heard) {
         const said = heard?.text?.trim();
-        if (said) setMessage(`Heard “${said}”. Start with “${wakeModel?.phrase || 'JARV, talk to me.'}”`);
+        if (said) setMessage(`Heard “${said}”. Start with “${wakeModel?.phrase || 'Talk to me.'}”`);
         return;
       }
       const command = (heard.command || '').trim();
@@ -454,7 +454,7 @@ export function VoiceOperator({ onMission, onStateChange }: Props) {
       return;
     }
     if (!wakeModel.phrase_current) {
-      setMessage('Update the local wake phrase to “JARV, talk to me” before enabling hands-free mode.');
+      setMessage(`Press Update wake phrase to switch the local detector to “${wakeModel.phrase || 'Talk to me.'}” before enabling hands-free mode.`);
       return;
     }
     setBusy(true);
@@ -477,7 +477,7 @@ export function VoiceOperator({ onMission, onStateChange }: Props) {
           if (payload.type === 'ready') {
             handsFreeRef.current = true;
             setHandsFree(true);
-            setMessage(`Hands-free is on. Say “${wakeModel?.phrase || 'JARV, talk to me.'}”`);
+            setMessage(`Hands-free is on. Say “${wakeModel?.phrase || 'Talk to me.'}”`);
             setVoiceState('listening');
             setBusy(false);
           } else if (payload.type === 'wake') {
@@ -594,7 +594,7 @@ export function VoiceOperator({ onMission, onStateChange }: Props) {
       return;
     }
     if (response.data) setWakeModel(response.data);
-    setMessage(`Wake phrase “${response.data?.phrase || 'JARV, talk to me.'}” is ready.`);
+    setMessage(`Wake phrase “${response.data?.phrase || 'Talk to me.'}” is ready.`);
     await loadStatus();
   };
 

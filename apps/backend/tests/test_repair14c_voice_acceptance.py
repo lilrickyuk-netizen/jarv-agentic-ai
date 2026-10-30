@@ -41,7 +41,10 @@ def _run(coro):
     ("Jav talk to me", "", True),
     ("J.A.R.V. talk to me. Run the tests", "Run the tests", True),
     ("Jarvis talk with me", "", True),
-    ("Talk to me, check the weather", "Talk to me, check the weather", False),
+    # The wake phrase is "Talk to me"; the name before it is optional.
+    ("Talk to me, check the weather", "check the weather", True),
+    ("talk to me", "", True),
+    ("Talk with me. Run the tests", "Run the tests", True),
     ("I use Java at work", "I use Java at work", False),
 ])
 def test_wake_phrase_and_address_are_removed(spoken, command, woke):

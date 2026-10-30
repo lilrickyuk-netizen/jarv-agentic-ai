@@ -59,7 +59,7 @@ beforeEach(() => {
   mockPosts.length = 0;
   mockUploads.length = 0;
   played.length = 0;
-  mockGets['/api/voicebox/wake/status'] = { installed: false, phrase_current: false, phrase: 'JARV, talk to me.', model: 'kws', license: 'Apache-2.0' };
+  mockGets['/api/voicebox/wake/status'] = { installed: false, phrase_current: false, phrase: 'Talk to me.', model: 'kws', license: 'Apache-2.0' };
   mockGets['/api/voicebox/status'] = { configured: false, connected: false, profile_configured: false };
   mockGets['/auth/me'] = { is_admin: false };
   (globalThis as unknown as { MediaRecorder: unknown }).MediaRecorder = FakeRecorder;
@@ -77,7 +77,7 @@ describe('VoiceOperator', () => {
   it('hears a command through the configured speech service, answers aloud and reports the mission result', async () => {
     mockGets['/api/voice/providers'] = {
       speech_to_text: { backend: 'openai', ready: true }, text_to_speech: { backend: 'elevenlabs', ready: true },
-      wake_word: { ready: false, phrase: 'JARV, talk to me.' },
+      wake_word: { ready: false, phrase: 'Talk to me.' },
     };
     mockTurn = { heard: 'run the backend tests', intent: 'mission', reply: "On it. I've started that as a mission.",
       task_id: 'task-1', status: 'queued', requires_approval: false,

@@ -12770,17 +12770,19 @@ FINAL ACCEPTANCE STATUS: PASSED (2026-10-30)
 ---
 
 TASK ID: FIX-VOICE-WAKE-PHRASE
-TASK NAME: Hands-free voice recognises the wake phrase as speech recognisers write it
+TASK NAME: Hands-free voice wakes on "Talk to me"
 STATUS: IN_PROGRESS
-PROBLEM: Richard said "JARV, talk to me" about 20 times; the panel went listening -> thinking -> listening every time. Each burst of speech was transcribed by Voicebox (Whisper), but "JARV" is not a dictionary word, so it comes back as "Jarvis", "Java", "Jav" and the like. The dashboard only accepted "JARV"/"Jarve"/spelled forms in front of "talk to me" (and deliberately rejected "Jarvis, talk to me"), so the wake phrase was never found and nothing was shown.
+PROBLEM: Richard said "JARV, talk to me" about 20 times; the panel went listening -> thinking -> listening every time. Each burst of speech was transcribed by Voicebox (Whisper), but "JARV" is not a dictionary word, so it comes back as "Jarvis", "Java", "Jav" and the like. The dashboard only accepted "JARV"/"Jarve"/spelled forms in front of "talk to me", so the wake phrase was never found and nothing was shown. Richard chose "Talk to me" as the wake phrase (docs/CONFIGURATION.md already described it).
 FILES CREATED: None.
 FILES MODIFIED:
-- apps/backend/app/core/voice/engine.py (wake phrase accepts the recognisers' spellings of JARV: Jarvis, Jarvie, Jarvey, Java, Jav, Jaav, Jahv, Jarb, Jarf, J.A.R.V., J-R-V; "talk to/with me"; OpenAI transcription is given the name as a spelling prompt)
-- apps/dashboard/src/components/voice-operator.tsx (the hands-free wake check uses the backend's wake_heard and command from /api/voice/transcribe, one matcher instead of two; when speech is heard without the wake phrase the panel shows what was heard and the phrase to say)
-- apps/backend/tests/test_repair14c_voice_acceptance.py (recogniser spellings woken; "Talk to me" alone and ordinary use of "Java" not woken)
+- apps/backend/app/core/voice/wake_service.py (wake phrase TALK TO ME, shown as "Talk to me."; the installed detector reports itself out of date until Update wake phrase regenerates its keyword file)
+- apps/backend/app/core/voice/engine.py (the wake phrase is "talk to me" or "talk with me", with the name before it optional in any of the ways recognisers write JARV: Jarvis, Jarvie, Jarvey, Java, Jav, Jaav, Jahv, Jarb, Jarf, J.A.R.V., J-R-V; OpenAI transcription is given JARV's name as a spelling prompt)
+- apps/backend/app/tools/voice/__init__.py (wake check tool description)
+- apps/dashboard/src/components/voice-operator.tsx (the hands-free wake check uses the backend's wake_heard and command from /api/voice/transcribe, one matcher instead of two; speech heard without the wake phrase is shown with the phrase to say; messages name the new phrase and the Update wake phrase step)
+- apps/backend/tests/test_repair14c_voice_acceptance.py, apps/backend/tests/test_voicebox_adapter.py, apps/dashboard/__tests__/voice-operator.test.tsx (new phrase; recogniser spellings; ordinary use of "Java" not woken)
 - apps/dashboard/__tests__/dashboard.test.tsx (the removed dashboard-side matcher's tests; the backend tests cover matching)
-COMMANDS RUN: Wake-phrase cases evaluated against the new pattern: 14 of 14 as expected.
+COMMANDS RUN: The 15 wake-phrase cases of test_repair14c evaluated against the new pattern: all as expected. python -m py_compile on the changed backend files: passed.
 TESTS RUN: Awaiting Richard's backend and dashboard runs.
 RESULT: Awaiting test results.
 BLOCKERS: None.
-NEXT TASK: Richard tests hands-free on the local stack.
+NEXT TASK: Richard presses Update wake phrase in the voice panel and tests hands-free on the local stack.
