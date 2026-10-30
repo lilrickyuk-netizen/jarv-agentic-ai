@@ -301,3 +301,18 @@ def test_live_conversation_reads_the_workspace_folder_and_stays_inside_it(client
     assert escape == {"error": "That path is outside the workspace."}
     assert "error" in missing
     assert no_folder == {"error": "MYCO has no folder registered."}
+
+
+# ----- a requested file is written by the agents, never with fixed text ----------------------------
+
+@pytest.mark.parametrize("request_text", [
+    "Create a file BUILD_PLAN.md with the build plan for MYCO",
+    "Write the MYCO build plan to docs/BUILD_PLAN.md",
+    "Make a notes.txt file summarising the design",
+])
+def test_requests_to_create_a_file_go_to_the_agents(request_text):
+    """A fixed-text shortcut once answered these by writing "JARV Write Test" into the named file and
+    reporting it written; the agents now write the content the request asks for."""
+    from app.core.command.service import CommandService
+
+    assert CommandService._detect_intent(request_text) == "agent_task"

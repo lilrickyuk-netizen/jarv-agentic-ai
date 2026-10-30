@@ -8,7 +8,7 @@
 
 ## CURRENT STATUS
 - **Current Phase**: REPAIR CONTINUATION (10-15)
-- **Current Task**: None. Missions run end to end on OpenAI and Claude (2026-10-30: MYCO build plan written by JARV's agents)
+- **Current Task**: FIX-FIXED-TEXT-FILE-WRITE (a request to create a file was answered with fixed test text)
 - **Build Status**: NOT ACCEPTED; Repairs 11-15 remain open under the locked execution order
 - **Build Start Date**: 2026-06-03
 - **Build Completion Date**: 2026-06-03
@@ -12848,3 +12848,19 @@ TESTS RUN: PostgreSQL suite (owner run): 641 passed, 1 skipped.
 RESULT: After the fix the MYCO build-plan mission reached OpenAI and was refused again (JARV reported an unsupported function). Registry tools offered to agents include dotted names (boundary.detect, checkpoint.create, approval.status), which OpenAI's function names do not allow, and tool schemas may contain arrays without items. Fixed: names are sent in OpenAI's alphabet (boundary__detect) and restored on the way back, in definitions, history and replies; every array in a parameters schema states its items and every object its properties. Tests: dotted names round-trip; every registered tool converts to a valid OpenAI function. Richard: JARV must work on OpenAI or Anthropic. Claude's tool names have the same alphabet, so the Claude provider now sends names Claude accepts and restores them, and accepts tool definitions in either shape; test: the same agent turns go to Claude in Claude's shape and come back with JARV's names. Richard's next OpenAI error: "Function tools with reasoning_effort are not supported for gpt-6-luna in /v1/chat/completions ... set reasoning_effort to 'none'". Fixed: with tools, gpt-6-luna is sent reasoning_effort none (low without tools, as before). Owner run: 641 passed, 1 skipped; the MYCO build-plan mission then completed on OpenAI (5 steps, 4 tool calls, MYCO_Build_Plan.md written and read back).
 BLOCKERS: None.
 NEXT TASK: Richard runs the tests, rebuilds backend and worker, and asks JARV for the MYCO build plan.
+
+---
+
+TASK ID: FIX-FIXED-TEXT-FILE-WRITE
+TASK NAME: Requests to create or write a file go to the agents
+STATUS: IN_PROGRESS
+PROBLEM: Richard found BUILD_PLAN.md in the MYCO folder containing only "# JARV Write Test ... created by JARV through the controlled, authority-gated write_file tool". An earlier request to create a build-plan file matched the command service's write_file shortcut, which wrote that fixed text into whatever file was named and reported "File written": a file the request did not ask for, presented as done.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/backend/app/core/command/service.py (create/write/add/make a file now classifies as agent_task, so the agents write the content the request asks for from the workspace; the fixed-text write handler and its intent are removed)
+- apps/backend/tests/test_voice_live_and_mission_session.py (three file-creation requests classify as agent_task)
+COMMANDS RUN: The intent classifier evaluated on the three requests: agent_task for each. python -m py_compile on the changed files: passed.
+TESTS RUN: Awaiting Richard's PostgreSQL suite.
+RESULT: Awaiting test results.
+BLOCKERS: None.
+NEXT TASK: Richard deletes the stray BUILD_PLAN.md from the MYCO folder and runs the next MYCO mission.
