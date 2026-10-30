@@ -2469,8 +2469,19 @@ class CommandService:
         that reaches a hard boundary is paused with a persisted boundary report,
         checkpoint and approval request while independent steps continue.
         """
+        # The orchestrator's own agents-table row (shared with the mission sessions it owns), so its
+        # audit entries and tool runs link to a real agent.
+        orchestrator_id = uuid4()
+        if db is not None and workspace_id is not None:
+            try:
+                from app.core.richard.workflow import RichardBoundaryWorkflow
+
+                async with db.begin_nested():  # a failure undoes only this, never the mission's work
+                    orchestrator_id = (await RichardBoundaryWorkflow(db).ensure_orchestrator_agent(workspace_id)).id
+            except Exception as exc:  # noqa: BLE001 - the mission runs; its entries then name the agent in details
+                logger.warning(f"orchestrator agent row unavailable: {exc}")
         config = AgentConfig(
-            agent_id=uuid4(),
+            agent_id=orchestrator_id,
             workspace_id=workspace_id,
             user_id=user_id,
             authority_level=AuthorityLevel.LEVEL_9_SWARM_CREATION,
