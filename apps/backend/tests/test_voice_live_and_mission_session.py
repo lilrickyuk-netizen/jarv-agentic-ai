@@ -32,6 +32,14 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+# What a mission reads and writes after its agents run; none of it may be expired by a log write.
+_MISSION_FIELDS = {"title", "status", "meta_data", "workspace_id", "result", "error_message"}
+
+
+def _intact(task) -> bool:
+    return not (_MISSION_FIELDS & set(inspect(task).expired_attributes))
+
+
 async def _mission(db, owner, ws_id) -> Task:
     task = Task(workspace_id=ws_id, title="Add a sub function", description="Add a sub function",
                 task_type="command", status=lifecycle.RUNNING, priority=5, meta_data={"channel": "typed"})
@@ -50,14 +58,12 @@ def test_an_unregistered_agent_is_audited_on_the_mission_session_without_breakin
             owner, ws_id = await _seed(db)
             task = await _mission(db, owner, ws_id)
             task.meta_data = {**task.meta_data, "step": "planned"}  # unsaved work on the same session
-            # Server-set columns are unloaded after an insert; the audit must not expire anything more.
-            unloaded = set(inspect(task).expired_attributes)
             instance = uuid4()
             entry = await AuditLogger.log_agent_complete(
                 session=db, agent_name="orchestrator", result="success", execution_time=1.0,
                 tokens_used={"total": 10}, cost_estimate=0.0, user_id=owner, workspace_id=ws_id,
                 agent_id=instance, task_id=task.id)
-            loaded = set(inspect(task).expired_attributes) <= unloaded and "meta_data" not in unloaded
+            loaded = _intact(task)
             lifecycle.transition(task, lifecycle.COMPLETED, reason="done", actor="orchestrator")
             await db.commit()
             stored = (await db.execute(select(Task).where(Task.id == task.id))).scalar_one()
@@ -75,19 +81,19 @@ def test_a_failed_audit_write_undoes_only_itself():
             owner, ws_id = await _seed(db)
             task = await _mission(db, owner, ws_id)
             title = task.title
-            unloaded = set(inspect(task).expired_attributes)
             with pytest.raises(Exception):
-                # An action name longer than its column makes the entry itself fail to write.
-                await AuditLogger.log_agent_start(session=db, agent_name="x" * 200, user_id=owner,
-                                                  workspace_id=ws_id, task_id=task.id)
-            loaded = set(inspect(task).expired_attributes) <= unloaded and task.title == title
+                # A detail that cannot be stored as JSON makes the entry itself fail to write.
+                await AuditLogger.log_agent_execution(session=db, agent_name="coding_agent", action="step",
+                                                      result="success", user_id=owner, workspace_id=ws_id,
+                                                      task_id=task.id, details={"unstorable": object()})
+            loaded = _intact(task) and task.title == title
             tool_logged = await write_tool_run(
                 db, tool_name="read_file", tool_group="file", description="Read a file",
                 input_schema_json={}, output_schema_json={}, minimum_authority_level=1,
                 requires_approval=False, status="completed", success=True, input_data={"path": "a.py"},
                 output_data={"ok": True}, error_message=None, started_at=datetime.now(timezone.utc),
                 completed_at=datetime.now(timezone.utc), authority_level_used=1, agent_id=uuid4())
-            still_loaded = set(inspect(task).expired_attributes) <= unloaded
+            still_loaded = _intact(task)
             lifecycle.transition(task, lifecycle.COMPLETED, reason="done", actor="orchestrator")
             await db.commit()
             return loaded, title, tool_logged, still_loaded, task.status
