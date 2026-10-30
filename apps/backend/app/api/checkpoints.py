@@ -49,7 +49,7 @@ class CheckpointStats(BaseModel):
 
 
 @router.get("/list", response_model=List[CheckpointInfo])
-async def list_checkpoints(user_id: CurrentUserId, 
+async def list_checkpoints(user_id: CurrentUserId,
     session_id: Optional[UUID] = None,
     is_safe_state: Optional[bool] = None,
     can_resume_from: Optional[bool] = None,

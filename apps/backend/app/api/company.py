@@ -25,7 +25,7 @@ class RoleInfo(BaseModel):
     workspace_id: str
     role_name: str
     role_type: str
-    department: str
+    department: str | None  # nullable in company_roles; grouped as "Unassigned" in stats
     description: str | None
     responsibilities: List[str]
     kpis: Dict[str, Any]

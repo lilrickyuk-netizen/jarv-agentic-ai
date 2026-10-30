@@ -53,7 +53,7 @@ class BoundaryReportStats(BaseModel):
 
 
 @router.get("/list", response_model=List[BoundaryReportInfo])
-async def list_boundary_reports(user_id: CurrentUserId, 
+async def list_boundary_reports(user_id: CurrentUserId,
     severity: Optional[str] = None,
     report_type: Optional[str] = None,
     was_blocked: Optional[bool] = None,
