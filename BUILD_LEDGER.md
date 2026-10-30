@@ -8,7 +8,7 @@
 
 ## CURRENT STATUS
 - **Current Phase**: REPAIR CONTINUATION (10-15)
-- **Current Task**: FIX-AGENT-OUTPUT-LIMIT (a whole document written in one tool call was cut off)
+- **Current Task**: None. Agents write whole documents (PostgreSQL suite 651 passed, 1 skipped)
 - **Build Status**: NOT ACCEPTED; Repairs 11-15 remain open under the locked execution order
 - **Build Start Date**: 2026-06-03
 - **Build Completion Date**: 2026-06-03
@@ -12921,7 +12921,7 @@ NEXT TASK: Richard reruns the MYCO architecture and Phase 0-1 mission.
 
 TASK ID: FIX-AGENT-OUTPUT-LIMIT
 TASK NAME: Agents can write whole documents
-STATUS: IN_PROGRESS
+STATUS: COMPLETE
 PROBLEM: The MYCO mission read the whole design and the decisions record, then every write_file failed: "no file path/content was supplied (the tool rejected the workspace directory as a file)". Each agent turn was limited to 4,096 output tokens; a whole architecture document inside one write_file call was cut off, its JSON arguments did not parse, they were silently replaced by {}, and the empty path resolved to the workspace folder itself.
 FILES CREATED: None.
 FILES MODIFIED:
@@ -12931,7 +12931,7 @@ FILES MODIFIED:
 - apps/backend/app/core/command/tool_runtime.py (append: the part is written after the file's whole current content)
 - apps/backend/tests/test_repair12c_agent_tools.py (a cut-off call is reported and nothing written; a document written in two parts is exact; agent turns request AGENT_MAX_OUTPUT_TOKENS)
 COMMANDS RUN: python -m py_compile on the changed files: passed.
-TESTS RUN: Awaiting Richard's PostgreSQL suite.
-RESULT: Awaiting test results.
+TESTS RUN: PostgreSQL suite (owner run): 650 passed, 1 failed (the new test gave the documentation agent input its schema rejects; switched to the coding agent); rerun: 651 passed, 1 skipped.
+RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: Richard renames myco-decisions.md to docs/decisions.md and reruns the MYCO mission.
