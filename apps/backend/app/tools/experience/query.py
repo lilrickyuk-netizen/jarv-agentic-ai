@@ -7,7 +7,7 @@ from typing import Dict, Any, Type, List, Optional
 from pydantic import BaseModel, Field
 import logging
 from uuid import UUID
-from sqlalchemy import or_, select
+from sqlalchemy import String, cast, or_, select
 from app.tools.memory.storage import _memory_scope
 from app.models.self_evolution import ExperienceRecord
 
@@ -230,7 +230,8 @@ class ExperienceGetSuggestionsTool(ToolBase):
                     for condition in (
                         ExperienceRecord.situation.ilike(f"%{term}%"),
                         ExperienceRecord.lesson_learned.ilike(f"%{term}%"),
-                        ExperienceRecord.applicable_contexts.contains([term]),
+                        # A JSON list: matched as text so it works on PostgreSQL's json type as well.
+                        cast(ExperienceRecord.applicable_contexts, String).ilike(f'%"{term}"%'),
                     )
                 ]))
             stmt = stmt.order_by(

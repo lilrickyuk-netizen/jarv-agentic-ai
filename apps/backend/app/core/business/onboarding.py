@@ -29,9 +29,18 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def version_number(value: Any) -> int:
+    """A flow's version as a number (the column stores text: "1", "2", or "1.0" on older rows)."""
+    try:
+        return max(1, int(float(str(value))))
+    except (TypeError, ValueError):
+        return 1
+
+
 def flow_view(f: OnboardingFlow) -> Dict[str, Any]:
     return {"id": str(f.id), "name": f.flow_name, "type": f.flow_type, "audience": f.target_audience,
-            "steps": f.steps, "total_steps": f.total_steps, "version": f.version, "active": f.is_active,
+            "steps": f.steps, "total_steps": f.total_steps, "version": version_number(f.version),
+            "active": f.is_active,
             "starts": f.total_starts, "completions": f.total_completions, "completion_rate": f.completion_rate}
 
 
@@ -91,7 +100,7 @@ async def update_onboarding_copy(db: AsyncSession, workspace_id: UUID, flow_id: 
     if flow is None:
         raise LookupError("Onboarding flow not found in this workspace")
     meta = dict(flow.meta_data or {})
-    meta["history"] = list(meta.get("history", [])) + [{"version": flow.version, "steps": flow.steps,
+    meta["history"] = list(meta.get("history", [])) + [{"version": version_number(flow.version), "steps": flow.steps,
                                                          "description": flow.description, "at": _now().isoformat()}][-20:]
     steps = [dict(s) for s in flow.steps or []]
     if step is not None:
@@ -105,7 +114,7 @@ async def update_onboarding_copy(db: AsyncSession, workspace_id: UUID, flow_id: 
     if description:
         flow.description = description
     flow.steps = steps
-    flow.version = int(flow.version or 1) + 1
+    flow.version = str(version_number(flow.version) + 1)
     flow.meta_data = meta
     flow.updated_at = _now()
     await db.flush()

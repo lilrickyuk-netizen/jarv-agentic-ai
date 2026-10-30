@@ -425,7 +425,7 @@ async def _store(db: AsyncSession, workspace_id: UUID, kind: DraftKind, title: s
         row = OnboardingFlow(
             id=uuid4(), workspace_id=workspace_id, flow_name=title[:255], flow_type=kind.tool.replace("create_", "")[:50],
             description=inputs.get("topic") or kind.label, target_audience=inputs.get("audience") or "new users",
-            steps=steps, total_steps=len(steps), is_active=False, version=1, total_starts=0, total_completions=0,
+            steps=steps, total_steps=len(steps), is_active=False, version="1", total_starts=0, total_completions=0,
             created_by=owner, tags=["jarv-draft"], meta_data={**meta, "body": body}, created_at=now, updated_at=now)
         db.add(row)
         await db.flush()
