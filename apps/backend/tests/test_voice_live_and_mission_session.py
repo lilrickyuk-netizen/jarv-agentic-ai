@@ -383,3 +383,19 @@ def test_a_mission_works_in_its_own_workspace_folder():
     assert named == "/test_workspaces/named-folder"
     assert fallback == "/test_workspaces/myco-root"  # the operator's own workspace, never another's
     assert stranger is None
+
+
+@pytest.mark.parametrize("given,expected", [
+    ("docs/architecture.md", r"C:\Users\lilri\OneDrive\Desktop\MYCO\docs\architecture.md"),
+    ("/docs/planning/later-phases.md", r"C:\Users\lilri\OneDrive\Desktop\MYCO\docs\planning\later-phases.md"),
+    (r"C:\Users\lilri\OneDrive\Desktop\MYCO\Phase_0_1_Tasks.md", r"C:\Users\lilri\OneDrive\Desktop\MYCO\Phase_0_1_Tasks.md"),
+    ("", r"C:\Users\lilri\OneDrive\Desktop\MYCO"),
+])
+def test_mission_file_paths_resolve_inside_the_workspace_folder(given, expected):
+    """The mission read the design but its writes to docs/architecture.md and docs/planning/... were refused as
+    out of scope: relative paths were passed to the runtime unresolved."""
+    from app.core.command.agent_executor import AgentExecutor
+
+    executor = object.__new__(AgentExecutor)
+    executor.workspace_root = r"C:\Users\lilri\OneDrive\Desktop\MYCO"
+    assert executor._host(given) == expected

@@ -8,7 +8,7 @@
 
 ## CURRENT STATUS
 - **Current Phase**: REPAIR CONTINUATION (10-15)
-- **Current Task**: None. Missions work in their own workspace folder (PostgreSQL suite 646 passed, 1 skipped)
+- **Current Task**: FIX-MISSION-RELATIVE-PATHS (a mission's writes to docs/... were refused as out of scope)
 - **Build Status**: NOT ACCEPTED; Repairs 11-15 remain open under the locked execution order
 - **Build Start Date**: 2026-06-03
 - **Build Completion Date**: 2026-06-03
@@ -12897,5 +12897,22 @@ FILES MODIFIED:
 COMMANDS RUN: Path pattern checked on four requests (relative path: no match; absolute sandbox paths: matched). python -m py_compile on the changed files: passed.
 TESTS RUN: PostgreSQL suite (owner run): 646 passed, 1 skipped.
 RESULT: Passed.
+BLOCKERS: None.
+NEXT TASK: Richard reruns the MYCO architecture and Phase 0-1 mission.
+
+---
+
+TASK ID: FIX-MISSION-RELATIVE-PATHS
+TASK NAME: Mission file paths resolve inside the workspace folder
+STATUS: IN_PROGRESS
+PROBLEM: After FIX-MISSION-WORKSPACE-ROOT the MYCO mission read the design but its writes were refused as out of scope. The command executor passed the model's paths to the runtime unresolved, so "docs/architecture.md" (or "/docs/..." under a Windows folder) was not a path inside the workspace; the agent toolbox treated a leading slash or backslash under a Windows folder as absolute.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/backend/app/core/command/agent_executor.py (list_files, read_file, write_file and run_command's cwd resolve relative paths, and leading-slash paths under a Windows folder, from the workspace root; absolute paths pass through for the runtime's scope check; the path description says relative paths are accepted)
+- apps/backend/app/core/agents/toolbox.py (a leading slash or backslash under a Windows workspace folder is inside the folder)
+- apps/backend/tests/test_voice_live_and_mission_session.py (four path forms resolve inside the MYCO folder)
+COMMANDS RUN: Path resolution evaluated for Windows and sandbox roots: all inside the workspace. python -m py_compile on the changed files: passed.
+TESTS RUN: Awaiting Richard's PostgreSQL suite.
+RESULT: Awaiting test results.
 BLOCKERS: None.
 NEXT TASK: Richard reruns the MYCO architecture and Phase 0-1 mission.
