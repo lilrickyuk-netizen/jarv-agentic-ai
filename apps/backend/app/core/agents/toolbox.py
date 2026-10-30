@@ -396,10 +396,11 @@ class AgentToolbox:
         windows_root = ":" in self.root_host[:3] or "\\" in self.root_host
         if not raw or raw in (".", "./"):
             candidate = self.root_host
-        elif (windows_root and (":" in raw[:3] or raw.startswith("\\"))) or raw.startswith("/"):
+        elif (windows_root and ":" in raw[:3]) or (not windows_root and raw.startswith("/")):
             candidate = raw
         elif windows_root:
-            candidate = str(PureWindowsPath(self.root_host) / PureWindowsPath(raw.replace("/", "\\")))
+            # "docs/x.md", "/docs/x.md" and "\\docs\\x.md" all mean a path inside the workspace folder.
+            candidate = str(PureWindowsPath(self.root_host) / PureWindowsPath(raw.replace("/", "\\").lstrip("\\")))
         else:
             candidate = str(PurePosixPath(self.root_host) / raw)
         container = fs_inspector.host_to_container(candidate)

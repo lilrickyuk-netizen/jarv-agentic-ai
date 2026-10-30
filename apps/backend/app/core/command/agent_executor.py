@@ -17,6 +17,7 @@ Safety is enforced by the tool layer (ToolRuntime + fs_inspector):
 from __future__ import annotations
 
 import json
+from pathlib import PurePosixPath, PureWindowsPath
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -32,7 +33,7 @@ def _tool_schemas() -> List[Dict[str, Any]]:
             "description": "List files and folders at a path inside the approved workspace.",
             "input_schema": {
                 "type": "object",
-                "properties": {"path": {"type": "string", "description": "Absolute path inside the workspace"}},
+                "properties": {"path": {"type": "string", "description": "Path inside the workspace, relative to its folder (e.g. docs) or absolute"}},
                 "required": ["path"],
             },
         },
@@ -217,22 +218,40 @@ class AgentExecutor:
             "messages": messages,  # checkpoint payload for resume
         }
 
+    def _host(self, value: Any) -> str:
+        """A tool path as a host path: relative paths ("docs/x.md", "/docs/x.md" under a Windows folder)
+        resolve from the workspace root, absolute paths are used as given (the runtime enforces scope)."""
+        raw = str(value or "").strip().strip('"').strip("'")
+        root = self.workspace_root
+        if not root:
+            return raw
+        windows_root = ":" in root[:3] or "\\" in root
+        if not raw or raw in (".", "./"):
+            return root
+        if windows_root:
+            if ":" in raw[:3]:
+                return raw
+            return str(PureWindowsPath(root) / PureWindowsPath(raw.replace("/", "\\").lstrip("\\")))
+        if raw.startswith("/"):
+            return raw
+        return str(PurePosixPath(root) / raw)
+
     async def _dispatch(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         try:
             if name == "list_files":
-                return await self.runtime.list_files(args.get("path", self.workspace_root or ""))
+                return await self.runtime.list_files(self._host(args.get("path")))
             if name == "read_file":
                 try:
                     offset = max(0, int(args.get("offset") or 0))
                 except (TypeError, ValueError):
                     offset = 0
-                return await self.runtime.read_file(args.get("path", ""), offset=offset)
+                return await self.runtime.read_file(self._host(args.get("path")), offset=offset)
             if name == "write_file":
-                return await self.runtime.write_file(args.get("path", ""), args.get("content", ""),
+                return await self.runtime.write_file(self._host(args.get("path")), args.get("content", ""),
                                                      overwrite=True)
             if name == "run_command":
                 return await self.runtime.run_command(
-                    args.get("command", ""), cwd_host=args.get("cwd") or self.workspace_root,
+                    args.get("command", ""), cwd_host=self._host(args.get("cwd")),
                     allow_build=True)
             return {"error": f"unknown tool '{name}'"}
         except Exception as exc:  # noqa: BLE001
