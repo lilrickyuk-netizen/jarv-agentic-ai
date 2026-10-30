@@ -154,7 +154,7 @@ async def get_current_admin_user(
     Raises:
         HTTPException: If user is not an admin
     """
-    # Check if user is admin (stored in Redis for now, will use DB in Phase 2)
+    # The admin flag lives in the Redis user store beside the operator's credentials.
     is_admin = await redis.get(f"user:{user_id}:admin")
 
     if not is_admin or is_admin != "true":
@@ -170,51 +170,3 @@ async def get_current_admin_user(
 CurrentUserId = Annotated[str, Depends(get_current_user_id)]
 TokenSubject = Annotated[str, Depends(get_token_subject)]
 CurrentAdminUserId = Annotated[str, Depends(get_current_admin_user)]
-
-
-# Simple User model for API dependencies
-from pydantic import BaseModel
-from uuid import UUID
-
-
-class User(BaseModel):
-    """Simple user model for API dependencies"""
-    id: UUID
-    email: str
-    username: str
-    workspace_id: Optional[UUID] = None
-
-
-async def get_current_user(
-    user_id: Annotated[str, Depends(get_current_user_id)],
-) -> User:
-    """
-    Get current authenticated user object.
-
-    Args:
-        user_id: Current user ID from token
-
-    Returns:
-        User object with basic info
-
-    Note:
-        In production, this would fetch user from database.
-        For now, returns a simple user object with ID.
-    """
-    from uuid import UUID, uuid5, NAMESPACE_DNS
-
-    # Operators authenticate via the Redis user store, where the token subject is
-    # a username-derived id (e.g. "admin_richard"), not a UUID. Coerce it to a
-    # stable UUID (uuid5) so endpoints that type user.id as UUID work for any
-    # authenticated operator instead of 500-ing.
-    try:
-        uid = UUID(user_id)
-    except (ValueError, AttributeError, TypeError):
-        uid = uuid5(NAMESPACE_DNS, f"jarv-user-{user_id}")
-
-    return User(
-        id=uid,
-        email=f"user-{str(user_id)[:8]}@jarv.ai",
-        username=f"user-{str(user_id)[:8]}",
-        workspace_id=None,
-    )

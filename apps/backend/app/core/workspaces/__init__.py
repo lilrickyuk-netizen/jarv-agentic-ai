@@ -1,21 +1,8 @@
 """
 JARV Backend - Workspace System
 
-Dynamic workspace management with rules, templates, and lifecycle management.
+fs_inspector: scope-checked reads, writes, scans and command classification inside a
+workspace's registered folder. lifecycle: creating workspaces from a folder or a repository.
+Workspace records, rules and runbooks are database models (app.models) managed through the
+workspace tools and the /api/workspaces routes.
 """
-from app.core.workspaces.manager import WorkspaceManager, create_workspace, get_workspace
-from app.core.workspaces.rules import RulesEngine, evaluate_rule
-from app.core.workspaces.templates import TemplateManager, create_from_template
-from app.core.workspaces.scanner import WorkspaceScanner, scan_workspace
-
-__all__ = [
-    "WorkspaceManager",
-    "create_workspace",
-    "get_workspace",
-    "RulesEngine",
-    "evaluate_rule",
-    "TemplateManager",
-    "create_from_template",
-    "WorkspaceScanner",
-    "scan_workspace",
-]

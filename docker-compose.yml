@@ -55,6 +55,26 @@ services:
     restart: unless-stopped
 
   # FastAPI Backend
+  # Database migrations: runs `alembic upgrade head` once and exits; the backend, worker and
+  # scheduler start only after it succeeds.
+  migrate:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    container_name: jarv-migrate
+    command: python -m alembic upgrade head
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-jarv}:${POSTGRES_PASSWORD:-jarv_password}@postgres:5432/${POSTGRES_DB:-jarv}
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
+    volumes:
+      - ./apps/backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - jarv-network
+    restart: "no"
+
   backend:
     build:
       context: ./apps/backend
@@ -87,6 +107,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     volumes:
       - ./apps/backend:/app
       - voice_models:/data/voice-models
@@ -192,6 +214,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     volumes:
       - ./apps/backend:/app
       - backups:/data/backups
@@ -230,6 +254,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     volumes:
       - ./apps/backend:/app
     networks:

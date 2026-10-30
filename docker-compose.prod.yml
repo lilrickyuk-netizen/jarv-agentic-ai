@@ -41,6 +41,8 @@ services:
   redis:
     image: redis:7-alpine
     container_name: jarv-redis-prod
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
     command: >
       redis-server
       --appendonly yes
@@ -50,7 +52,8 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      # Redis requires the password, so the health check authenticates too.
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -91,6 +94,26 @@ services:
     restart: always
 
   # FastAPI Backend
+  # Database migrations: runs `alembic upgrade head` once and exits. The backend, worker,
+  # scheduler and cloud runner start only after it succeeds, so a fresh server gets its schema
+  # and every upgrade applies its migrations before new code serves requests.
+  migrate:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    container_name: jarv-migrate-prod
+    command: python -m alembic upgrade head
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      SECRET_KEY: ${SECRET_KEY}
+      ENVIRONMENT: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - jarv-network
+    restart: "no"
+
   backend:
     build:
       context: ./apps/backend
@@ -104,7 +127,7 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       ENVIRONMENT: production
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
-      CORS_ORIGINS: ${CORS_ORIGINS}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       MAX_WORKERS: 4
       SENTRY_DSN: ${SENTRY_DSN:-}
       DOCKER_OPS_URL: http://docker-proxy:2375
@@ -159,6 +182,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     volumes:
       - backups:/data/backups
       - voice_audio:/data/voice-audio
@@ -292,6 +317,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     volumes:
       - backups:/data/backups
       - voice_audio:/data/voice-audio
@@ -334,6 +361,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     networks:
       - jarv-network
     restart: always

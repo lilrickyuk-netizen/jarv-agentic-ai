@@ -253,7 +253,8 @@ class ToolRegistry:
             "analyze_style", "analyze_types", "analyze_imports", "analyze_architecture"
         ],
         "infrastructure": [
-            "ssl_check", "dns_verify", "resource_metrics", "cost_estimate"
+            "ssl_check", "dns_verify", "resource_metrics", "cost_estimate", "resource_provision",
+            "resource_scale", "resource_health_check", "resource_status", "resource_terminate"
         ],
         "boundary": [
             "boundary.detect", "boundary.report.create", "boundary.report.get",
@@ -937,21 +938,28 @@ def _register_implemented_tools(registry: ToolRegistry) -> None:
         logger.warning(f"Analysis tools not available for registration: {e}")
 
     # Infrastructure tools (Repair 6): the real read-only/compute tools.
-    # Provision/scale/terminate tools are not registered: they have no real
-    # cloud backend wired. Backups, restarts, and monitoring are the operations
-    # tools (Repair 12d); deployments are the deployment tools (Repair 12e-2).
+    # Resource tools (Repair 15b): services on the deployment server under the budget
+    # rules, external resources tracked for cost. Backups, restarts and monitoring are
+    # the operations tools (Repair 12d); deployments are the deployment tools (12e-2).
     try:
         from app.tools.infrastructure import (
             SSLCheckTool,
             DNSVerifyTool,
             ResourceMetricsTool,
             CostEstimateTool,
+            ResourceProvisionTool,
+            ResourceScaleTool,
+            ResourceHealthCheckTool,
+            ResourceStatusTool,
+            ResourceTerminateTool,
         )
 
-        for tool in [SSLCheckTool, DNSVerifyTool, ResourceMetricsTool, CostEstimateTool]:
+        infrastructure = [SSLCheckTool, DNSVerifyTool, ResourceMetricsTool, CostEstimateTool, ResourceProvisionTool,
+                          ResourceScaleTool, ResourceHealthCheckTool, ResourceStatusTool, ResourceTerminateTool]
+        for tool in infrastructure:
             registry.register(tool, category="infrastructure")
 
-        logger.info("Registered 4 infrastructure tools (real, read-only/compute)")
+        logger.info(f"Registered {len(infrastructure)} infrastructure tools")
 
     except ImportError as e:
         logger.warning(f"Infrastructure tools not available for registration: {e}")

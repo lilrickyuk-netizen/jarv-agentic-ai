@@ -2,9 +2,10 @@
 JARV Backend Configuration
 Uses Pydantic Settings for environment variable management
 """
-from typing import List, Optional
+import json
+from typing import Annotated, List, Optional
 from pydantic import Field, PostgresDsn, RedisDsn, validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -32,7 +33,18 @@ class Settings(BaseSettings):
     # Server
     BACKEND_HOST: str = "0.0.0.0"
     BACKEND_PORT: int = 8000
-    ALLOWED_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8000"]
+    # Browser origins allowed to call the API directly (CORS). The dashboard calls through its own
+    # same-origin proxy, so this only matters for other browser clients. Comma-separated or a JSON list.
+    ALLOWED_ORIGINS: Annotated[List[str], NoDecode] = ["http://localhost:3000", "http://localhost:8000"]
+
+    @validator("ALLOWED_ORIGINS", pre=True)
+    def split_origins(cls, v):
+        if isinstance(v, str):
+            text = v.strip()
+            if text.startswith("["):
+                return [str(o).strip().rstrip("/") for o in json.loads(text) if str(o).strip()]
+            return [o.strip().rstrip("/") for o in text.split(",") if o.strip()]
+        return v
 
     # Database
     POSTGRES_USER: str = "jarv"

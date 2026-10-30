@@ -12,6 +12,9 @@ async function forward(request: NextRequest, { params }: RouteContext) {
     const value = request.headers.get(name);
     if (value) headers.set(name, value);
   }
+  // The public address the operator used, so links the backend builds (such as calendar feed links) point at it.
+  headers.set('x-forwarded-host', request.headers.get('x-forwarded-host') || request.headers.get('host') || request.nextUrl.host);
+  headers.set('x-forwarded-proto', request.headers.get('x-forwarded-proto') || request.nextUrl.protocol.replace(':', ''));
 
   try {
     const body = ['GET', 'HEAD'].includes(request.method) ? undefined : await request.arrayBuffer();

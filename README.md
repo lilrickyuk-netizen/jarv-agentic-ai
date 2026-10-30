@@ -145,43 +145,30 @@ JARV can autonomously:
 
 ## Getting Started
 
-### Prerequisites
+You need Docker (Docker Desktop with WSL on Windows) and Git.
 
-- Python 3.11+
-- Node.js 18+
-- Docker and Docker Compose
-- PostgreSQL 15+
-- Redis 7+
+```bash
+git clone https://github.com/lilrickyuk-netizen/jarv-agentic-ai.git
+cd jarv-agentic-ai
+cp apps/backend/.env.example apps/backend/.env    # add CLAUDE_API_KEY (and any other services)
+docker compose up -d                              # migrations run first, then everything else
+docker compose exec backend python scripts/setup_admin.py --username richard
+```
 
-### Installation
-
-(Installation instructions will be added as build progresses)
-
-### Configuration
-
-(Configuration instructions will be added as build progresses)
-
-### Running JARV
-
-(Run instructions will be added as build progresses)
+Open http://localhost:3000 and sign in. The **Settings** page shows which services are configured
+and checks each one. Production on a VPS, upgrades, tests and troubleshooting are in the
+[runbook](./docs/RUNBOOK.md).
 
 ## Documentation
 
-Detailed documentation is available in the `/docs` directory:
-
-- [JARV Final System Spec](./docs/JARV_FINAL_SYSTEM_SPEC.md) - Complete system specification
-- [Implementation Checklist](./docs/IMPLEMENTATION_CHECKLIST.md) - Detailed build checklist
-- [Authority Model](./docs/AUTHORITY_MODEL.md) - Authority levels and safety boundaries
-- [Dynamic Workspaces](./docs/DYNAMIC_WORKSPACES.md) - Workspace system documentation
-- [Autonomous Company Operating Layer](./docs/AUTONOMOUS_COMPANY_OPERATING_LAYER.md) - Company operations
-- [Self-Evolution Layer](./docs/SELF_EVOLUTION_LAYER.md) - Self-improvement system
-- [Swarm System](./docs/SWARM_SYSTEM.md) - Swarm management documentation
-- [Approval and Resume](./docs/APPROVAL_AND_RESUME.md) - Boundary handling system
-- [Richard Boundary Operator](./docs/RICHARD_BOUNDARY_OPERATOR.md) - Boundary operator workflow
-- [Agents](./docs/AGENTS.md) - All 31 agents documentation
-- [Tool Registry](./docs/TOOL_REGISTRY.md) - Complete tool documentation
-- [Local Runner Setup](./docs/LOCAL_RUNNER_SETUP.md) - Local runner installation
-- [Cloud Deployment](./docs/CLOUD_DEPLOYMENT.md) - Cloud deployment guide
+- [Runbook](./docs/RUNBOOK.md) - running, using, upgrading, testing and troubleshooting JARV
+- [Configuration](./docs/CONFIGURATION.md) - every setting
+- [Deployment](./docs/DEPLOYMENT.md) - how JARV deploys your projects to your VPS
+- [Operations](./docs/OPERATIONS.md) - self-healing, container operations, backups and restores
+- [JARV Final System Spec](./docs/JARV_FINAL_SYSTEM_SPEC.md) - the complete system specification
+- [Implementation Checklist](./docs/IMPLEMENTATION_CHECKLIST.md) - the build checklist
+- [Build Ledger](./BUILD_LEDGER.md) - what was built, how it was tested, and the results
+- [Build history](./docs/history/README.md) - superseded phase reports from the original build
 
 ## Project Structure
 

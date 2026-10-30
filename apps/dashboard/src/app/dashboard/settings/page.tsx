@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { apiClient } from '@/lib/api';
 import { Button, Loading, Note, Panel, Pill, Stat, useAction, useLoad, when } from '@/components/ops/ui';
 
 interface Check { ok: boolean; detail: string | null; at: string | null }
@@ -27,6 +28,45 @@ interface Overview {
 }
 
 interface CheckResult { service: string; ok: boolean; detail: string; at: string }
+interface WorkspaceRow { id: string; name: string }
+interface FeedLink { url: string; webcal_url: string; how_to_add: string[]; note: string }
+
+function CalendarLinks() {
+  const { data: workspaces } = useLoad<WorkspaceRow[]>('/api/workspaces/mine');
+  const action = useAction<FeedLink>();
+  const [links, setLinks] = useState<Record<string, FeedLink>>({});
+  const fetchLink = async (id: string, rotate: boolean) => {
+    const link = rotate
+      ? await action.run(`/api/calendar/${id}/feed/rotate`)
+      : await (async () => {
+        const response = await apiClient.get<FeedLink>(`/api/calendar/${id}/feed`);
+        return response.data ?? null;
+      })();
+    if (link) setLinks((current) => ({ ...current, [id]: link }));
+  };
+  if (!workspaces?.length) return <p className="text-sm text-muted-foreground">No workspaces yet.</p>;
+  return (
+    <ul className="divide-y">
+      {workspaces.map((w) => (
+        <li key={w.id} className="py-3 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-medium">{w.name}</span>
+            <span className="ml-auto flex gap-2">
+              <Button kind="secondary" onClick={() => void fetchLink(w.id, false)}>Get link</Button>
+              {links[w.id] && <Button kind="secondary" disabled={action.busy} onClick={() => void fetchLink(w.id, true)}>New link</Button>}
+            </span>
+          </div>
+          {links[w.id] && (
+            <div className="mt-2 space-y-1">
+              <code className="block break-all text-xs bg-muted rounded px-2 py-1">{links[w.id].url}</code>
+              <p className="text-xs text-muted-foreground">{links[w.id].how_to_add.join(' ')} {links[w.id].note}</p>
+            </div>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
 interface NotifyResult { ok: boolean; sent: boolean; summary: string }
 
 const LABELS: Record<string, string> = {
@@ -191,6 +231,11 @@ export default function SettingsPage() {
                 <p className="text-xs text-muted-foreground mt-3">{data.safety.note}</p>
               </Panel>
             </div>
+
+            <Panel title="Calendar subscription" eyebrow="CALENDAR">
+              <p className="text-sm text-muted-foreground mb-2">Events the agents schedule appear in your own calendar app. Add a workspace&apos;s private link once; a new link stops the old one working.</p>
+              <CalendarLinks />
+            </Panel>
 
             <Panel title="System" eyebrow="SYSTEM">
               <dl className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
