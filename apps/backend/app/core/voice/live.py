@@ -52,6 +52,18 @@ TOOLS: List[Dict[str, Any]] = [
     {"type": "function", "name": "cancel_mission",
      "description": "Cancel the mission in progress. Only when Richard clearly asks to stop or cancel it.",
      "parameters": {"type": "object", "properties": {"workspace": _NO_WORKSPACE}, "additionalProperties": False}},
+    {"type": "function", "name": "list_workspace_files",
+     "description": "What is in a workspace's folder on Richard's computer (one level; give path for a subfolder).",
+     "parameters": {"type": "object", "properties": {
+         "workspace": {"type": "string", "description": "Workspace name."},
+         "path": {"type": "string", "description": "Subfolder inside the workspace, e.g. docs. Omit for the top."}},
+         "required": ["workspace"], "additionalProperties": False}},
+    {"type": "function", "name": "read_workspace_file",
+     "description": "Read a text file in a workspace's folder (the first part of a long file), e.g. a design or spec.",
+     "parameters": {"type": "object", "properties": {
+         "workspace": {"type": "string", "description": "Workspace name."},
+         "path": {"type": "string", "description": "File path inside the workspace, e.g. docs/MYCO-V3-spec.md."}},
+         "required": ["workspace", "path"], "additionalProperties": False}},
     {"type": "function", "name": "list_workspaces",
      "description": "Richard's workspaces (projects) by name.",
      "parameters": {"type": "object", "properties": {}, "additionalProperties": False}},
@@ -79,8 +91,14 @@ async def _workspaces(db: AsyncSession, user_id: UUID):
                              .order_by(Workspace.name))).scalars().all()
 
 
-def instructions(names: List[str]) -> str:
-    projects = ", ".join(names) if names else "none yet"
+def _root(workspace) -> Optional[str]:
+    config = workspace.config if isinstance(workspace.config, dict) else {}
+    return config.get("root_path") or None
+
+
+def instructions(spaces: List[Any]) -> str:
+    projects = "; ".join(f"{w.name} (folder {_root(w)})" if _root(w) else f"{w.name} (no folder registered)"
+                         for w in spaces) or "none yet"
     return (
         "You are JARV, Richard Curley's autonomous AI operating system, talking with him by voice. "
         "Speak naturally and warmly, like a capable chief of staff: short spoken sentences, no lists or markdown, "
@@ -91,6 +109,14 @@ def instructions(names: List[str]) -> str:
         "be done, say in one sentence what you'll do and call start_mission with his full request; JARV's agents "
         "then do the work and you'll receive a message beginning [mission update] when it finishes or pauses; "
         "tell him the outcome in a sentence or two.\n"
+        "Each workspace is a folder on his computer that JARV and its agents work in. Never tell him you cannot "
+        "access his files: use list_workspace_files and read_workspace_file to look at what is there, and "
+        "start_mission for work on it, naming where to look, e.g. 'Read the design in the MYCO workspace's docs "
+        "folder and write a build plan to docs/BUILD_PLAN.md'. If a workspace has no folder registered, say so "
+        "and offer to register one when he gives the path.\n"
+        "If a mission fails, tell him plainly what the error says. Do not claim you will fix it behind the "
+        "scenes: you cannot change JARV's own code from a conversation. Restart a failed mission at most once, "
+        "and only if he asks.\n"
         "You never approve anything, publish, spend money or send messages for him by voice: those wait on the "
         "Approvals page, because anyone near the microphone could speak. If he asks you to approve, say so and "
         "point him to the Approvals page. Never read out keys, passwords or secrets."
@@ -103,10 +129,10 @@ async def create_session(db: AsyncSession, user_id: UUID) -> Dict[str, Any]:
         raise LiveUnavailable(setup_hint())
     from app.core.audit import AuditLogger
 
-    names = [w.name for w in await _workspaces(db, user_id)]
+    spaces = await _workspaces(db, user_id)
     model, voice = settings.OPENAI_REALTIME_MODEL, settings.OPENAI_REALTIME_VOICE
     body = {"session": {
-        "type": "realtime", "model": model, "instructions": instructions(names),
+        "type": "realtime", "model": model, "instructions": instructions(spaces),
         "tools": TOOLS, "tool_choice": "auto",
         "audio": {"input": {"transcription": {"model": settings.OPENAI_REALTIME_TRANSCRIBE_MODEL},
                             "turn_detection": {"type": "semantic_vad"}},
@@ -145,6 +171,46 @@ async def _resolve_workspace(db: AsyncSession, user_id: UUID, name: Optional[str
     return match.id, None
 
 
+def _inside(root: str, relative: Optional[str]) -> Optional[str]:
+    """root joined with a relative path that stays inside it (None if it would leave)."""
+    rel = (relative or "").strip().replace("\\", "/").strip("/")
+    parts = [p for p in rel.split("/") if p and p != "."]
+    if any(p == ".." for p in parts) or (rel and (":" in parts[0] if parts else False)):
+        return None
+    if not parts:
+        return root
+    sep = "\\" if ("\\" in root or ":" in root[:3]) else "/"
+    return root.rstrip("\\/") + sep + sep.join(parts)
+
+
+async def _workspace_files(db: AsyncSession, user_id: UUID, name: str, args: Dict[str, Any],
+                           read: bool) -> Dict[str, Any]:
+    from app.core.workspaces import fs_inspector
+
+    workspace_id, problem = await _resolve_workspace(db, user_id, name)
+    if problem or workspace_id is None:
+        return {"error": problem or "Name the workspace."}
+    workspace = next(w for w in await _workspaces(db, user_id) if w.id == workspace_id)
+    root = _root(workspace)
+    if not root:
+        return {"error": f"{workspace.name} has no folder registered."}
+    target = _inside(root, args.get("path"))
+    if target is None:
+        return {"error": "That path is outside the workspace."}
+    if read:
+        found = fs_inspector.read_file(target, max_bytes=12000)
+        if not found.accessible or not found.exists:
+            return {"error": found.reason or f"No file at {args.get('path')}."}
+        return {"path": args.get("path"), "content": found.data.get("content", ""),
+                "truncated": bool(found.data.get("truncated")), "size_bytes": found.data.get("size_bytes")}
+    listed = fs_inspector.list_dir(target)
+    if not listed.accessible or not listed.exists:
+        return {"error": listed.reason or f"No folder at {args.get('path') or 'the top of the workspace'}."}
+    entries = listed.data.get("entries", [])
+    return {"workspace": workspace.name, "folder": target, "count": len(entries),
+            "entries": [{"name": e["name"], "folder": e["is_dir"]} for e in entries[:200]]}
+
+
 async def _mission(db: AsyncSession, user_id: UUID, task_id: Optional[str]) -> Dict[str, Any]:
     from app.core.scoping import owned_workspaces
     from app.models.task import Task
@@ -171,6 +237,9 @@ async def run_tool(db: AsyncSession, user_id: UUID, name: str, arguments: Dict[s
     args = arguments if isinstance(arguments, dict) else {}
     if name == "list_workspaces":
         output: Dict[str, Any] = {"workspaces": [w.name for w in await _workspaces(db, user_id)]}
+    elif name in ("list_workspace_files", "read_workspace_file"):
+        output = await _workspace_files(db, user_id, str(args.get("workspace") or ""), args,
+                                        read=name == "read_workspace_file")
     elif name == "get_mission":
         output = await _mission(db, user_id, args.get("task_id"))
     elif name in ("get_status", "start_mission", "cancel_mission"):

@@ -6,6 +6,7 @@ Implementation of Claude API provider for LLM completions.
 from typing import List, Optional, AsyncIterator, Dict, Any
 import httpx
 import json
+import re
 import logging
 
 from app.core.providers.base import (
@@ -22,6 +23,24 @@ from app.core.providers.base import (
 
 logger = logging.getLogger(__name__)
 
+
+
+_UNSAFE_NAME = re.compile(r"[^a-zA-Z0-9_-]")
+
+
+def _claude_name(name: str) -> str:
+    """A tool name Claude accepts (letters, digits, _ and -, at most 64): "boundary.detect" -> "boundary__detect"."""
+    return _UNSAFE_NAME.sub("__", name)[:64]
+
+
+def _claude_tool(tool: Dict[str, Any]) -> Dict[str, Any]:
+    """A tool definition in Claude's shape ({name, description, input_schema}), from either shape."""
+    if tool.get("type") == "function" and isinstance(tool.get("function"), dict):
+        function = tool["function"]
+        return {"name": _claude_name(function["name"]), "description": function.get("description") or function["name"],
+                "input_schema": function.get("parameters") or {"type": "object", "properties": {}}}
+    return {**tool, "name": _claude_name(tool["name"]),
+            "input_schema": tool.get("input_schema") or {"type": "object", "properties": {}}}
 
 class ClaudeProvider(BaseLLMProvider):
     """
@@ -104,9 +123,18 @@ class ClaudeProvider(BaseLLMProvider):
             if response.status_code != 200:
                 await self._handle_error(response)
 
-            # Parse response
+            # Parse response; tool names come back as sent, so restore JARV's own names.
             data = response.json()
-            return self._convert_response(data, request.model)
+            result = self._convert_response(data, request.model)
+            original = {}
+            for tool in request.tools or []:
+                name = (tool.get("function") or {}).get("name") or tool.get("name") or ""
+                original[_claude_name(name)] = name
+            for call in result.tool_calls or []:
+                function = call.get("function") or {}
+                if function.get("name") in original:
+                    function["name"] = original[function["name"]]
+            return result
 
         except httpx.HTTPError as e:
             raise ProviderError(
@@ -217,9 +245,13 @@ class ClaudeProvider(BaseLLMProvider):
             if msg.role == "system":
                 system = msg.content
             else:
+                content = msg.content
+                if isinstance(content, list):
+                    content = [{**b, "name": _claude_name(b["name"])}
+                               if isinstance(b, dict) and b.get("type") == "tool_use" else b for b in content]
                 messages.append({
                     "role": msg.role,
-                    "content": msg.content,
+                    "content": content,
                 })
 
         # Use explicit system parameter if provided
@@ -252,7 +284,7 @@ class ClaudeProvider(BaseLLMProvider):
             claude_request["stop_sequences"] = request.stop
 
         if request.tools:
-            claude_request["tools"] = request.tools
+            claude_request["tools"] = [_claude_tool(tool) for tool in request.tools]
 
         if request.tool_choice:
             claude_request["tool_choice"] = {"type": request.tool_choice}

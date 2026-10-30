@@ -7,6 +7,7 @@ from typing import List, Optional, AsyncIterator, Dict, Any
 import httpx
 import json
 import logging
+import re
 
 from app.core.providers.base import (
     BaseLLMProvider,
@@ -22,6 +23,78 @@ from app.core.providers.base import (
 
 logger = logging.getLogger(__name__)
 
+
+
+_UNSAFE_NAME = re.compile(r"[^a-zA-Z0-9_-]")
+
+
+def _openai_name(name: str) -> str:
+    """A tool name OpenAI accepts (letters, digits, _ and -, at most 64): "boundary.detect" -> "boundary__detect"."""
+    return _UNSAFE_NAME.sub("__", name)[:64]
+
+
+def _openai_tool(tool: Dict[str, Any]) -> Dict[str, Any]:
+    """A tool definition in OpenAI's shape ({"type": "function", "function": {...}}).
+
+    JARV defines tools in the Anthropic shape ({name, description, input_schema});
+    OpenAI rejects those ("Missing required parameter: 'tools[0].type'")."""
+    if tool.get("type") == "function" and isinstance(tool.get("function"), dict):
+        function = tool["function"]
+        return {**tool, "function": {**function, "name": _openai_name(function["name"]),
+                                     "parameters": _openai_schema(function.get("parameters")
+                                                                  or {"type": "object", "properties": {}})}}
+    return {"type": "function", "function": {
+        "name": _openai_name(tool["name"]),
+        "description": tool.get("description") or tool["name"],
+        "parameters": _openai_schema(tool.get("input_schema") or tool.get("parameters")
+                                     or {"type": "object", "properties": {}}),
+    }}
+
+
+def _openai_schema(schema: Any) -> Any:
+    """A parameters schema OpenAI accepts: every array names its items, every object its properties."""
+    if isinstance(schema, list):
+        return [_openai_schema(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+    cleaned = {key: _openai_schema(value) for key, value in schema.items()}
+    kind = cleaned.get("type")
+    kinds = kind if isinstance(kind, list) else [kind]
+    if "array" in kinds and "items" not in cleaned:
+        cleaned["items"] = {}
+    if "object" in kinds and "properties" not in cleaned and "additionalProperties" not in cleaned:
+        cleaned["properties"] = {}
+    return cleaned
+
+
+def _tool_name(tool: Dict[str, Any]) -> str:
+    return (tool.get("function") or {}).get("name") or tool.get("name") or ""
+
+
+def _openai_messages_from_blocks(role: str, blocks: List[Any]) -> List[Dict[str, Any]]:
+    """One Anthropic-shaped message (content blocks) as OpenAI chat messages."""
+    text = "\n".join(str(b.get("text", "")) for b in blocks
+                     if isinstance(b, dict) and b.get("type") == "text" and b.get("text"))
+    if role == "assistant":
+        calls = [{"id": b["id"], "type": "function",
+                  "function": {"name": _openai_name(b["name"]), "arguments": json.dumps(b.get("input") or {})}}
+                 for b in blocks if isinstance(b, dict) and b.get("type") == "tool_use"]
+        message: Dict[str, Any] = {"role": "assistant", "content": text or None}
+        if calls:
+            message["tool_calls"] = calls
+        return [message]
+    out: List[Dict[str, Any]] = []
+    for b in blocks:
+        if isinstance(b, dict) and b.get("type") == "tool_result":
+            content = b.get("content")
+            if not isinstance(content, str):
+                content = json.dumps(content, default=str)
+            out.append({"role": "tool", "tool_call_id": b.get("tool_use_id"), "content": content})
+    if text:
+        out.append({"role": role, "content": text})
+    if not out:
+        out.append({"role": role, "content": json.dumps(blocks, default=str)})
+    return out
 
 class OpenAIProvider(BaseLLMProvider):
     """
@@ -97,9 +170,15 @@ class OpenAIProvider(BaseLLMProvider):
             if response.status_code != 200:
                 await self._handle_error(response)
 
-            # Parse response
+            # Parse response; tool names come back as sent, so restore JARV's own names.
             data = response.json()
-            return self._convert_response(data)
+            result = self._convert_response(data)
+            original = {_openai_name(_tool_name(t)): _tool_name(t) for t in (request.tools or [])}
+            for call in result.tool_calls or []:
+                function = call.get("function") or {}
+                if function.get("name") in original:
+                    function["name"] = original[function["name"]]
+            return result
 
         except httpx.HTTPError as e:
             raise ProviderError(
@@ -210,8 +289,13 @@ class OpenAIProvider(BaseLLMProvider):
                 "content": request.system,
             })
 
-        # Add conversation messages
+        # Add conversation messages. JARV's agents speak the Anthropic shape (content
+        # blocks: text, tool_use, tool_result); OpenAI needs assistant tool_calls and
+        # one role "tool" message per result.
         for msg in request.messages:
+            if isinstance(msg.content, list):
+                messages.extend(_openai_messages_from_blocks(msg.role, msg.content))
+                continue
             message_dict = {
                 "role": msg.role,
                 "content": msg.content,
@@ -233,7 +317,9 @@ class OpenAIProvider(BaseLLMProvider):
                 "model": request.model,
                 "messages": messages,
                 "max_completion_tokens": request.max_tokens,
-                "reasoning_effort": "low",
+                # gpt-6-luna on chat completions takes function tools only with reasoning off
+                # ("Function tools with reasoning_effort are not supported ... set reasoning_effort to 'none'").
+                "reasoning_effort": "none" if request.tools else "low",
                 "service_tier": "default",
             }
         else:
@@ -251,10 +337,10 @@ class OpenAIProvider(BaseLLMProvider):
             openai_request["stop"] = request.stop
 
         if request.tools:
-            openai_request["tools"] = request.tools
+            openai_request["tools"] = [_openai_tool(tool) for tool in request.tools]
 
         if request.tool_choice:
-            openai_request["tool_choice"] = request.tool_choice
+            openai_request["tool_choice"] = {"any": "required"}.get(request.tool_choice, request.tool_choice)
 
         return openai_request
 
@@ -266,7 +352,7 @@ class OpenAIProvider(BaseLLMProvider):
         return CompletionResponse(
             id=data["id"],
             model=data["model"],
-            content=message.get("content", ""),
+            content=message.get("content") or "",  # null when the model only calls tools
             role=message["role"],
             finish_reason=choice.get("finish_reason", "stop"),
             usage={
