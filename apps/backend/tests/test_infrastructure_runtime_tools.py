@@ -102,7 +102,7 @@ def test_cloud_resource_metrics_fail_without_provider_adapter():
 
 
 @pytest.mark.integration
-def test_cloud_provision_fails_without_provider_adapter_and_creates_no_resource():
+def test_cloud_provision_is_left_to_richard_and_creates_no_resource():
     async def run():
         async with AsyncTestingSessionLocal() as session:
             user_id, workspace_id, agent_id = uuid4(), uuid4(), uuid4()
@@ -133,8 +133,8 @@ def test_cloud_provision_fails_without_provider_adapter_and_creates_no_resource(
             return result, resources
 
     result, resources = asyncio.run(run())
-    assert result.success is False
-    assert "provider adapter" in result.error_message.lower()
+    assert result.success is False  # JARV does not open cloud accounts or buy resources: Richard's boundary
+    assert "account setup and spending are hard boundaries" in result.error_message
     assert resources == []
 
 

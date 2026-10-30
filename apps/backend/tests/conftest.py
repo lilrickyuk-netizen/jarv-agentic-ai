@@ -28,7 +28,8 @@ for _provider_key in ("CLAUDE_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
                       "PLAUSIBLE_API_KEY", "GITHUB_TOKEN", "UNSPLASH_ACCESS_KEY", "PEXELS_API_KEY",
                       "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM", "IMAP_HOST", "IMAP_USER",
                       "IMAP_PASSWORD", "EMAIL_SMTP_HOST", "EMAIL_SMTP_USER", "EMAIL_SMTP_PASSWORD", "EMAIL_FROM",
-                      "EMAIL_IMAP_HOST", "EMAIL_IMAP_USER", "EMAIL_IMAP_PASSWORD", "NOTIFY_EMAIL", "NOTIFY_WEBHOOK_URL"):
+                      "EMAIL_IMAP_HOST", "EMAIL_IMAP_USER", "EMAIL_IMAP_PASSWORD", "NOTIFY_EMAIL", "NOTIFY_WEBHOOK_URL",
+                      "SLACK_BOT_TOKEN", "SLACK_USER_TOKEN"):
     os.environ[_provider_key] = ""
 
 import pytest

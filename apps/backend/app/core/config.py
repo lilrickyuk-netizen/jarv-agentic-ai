@@ -291,6 +291,9 @@ class Settings(BaseSettings):
     # SMTP_FROM) and an optional https webhook (Slack, Discord, ntfy).
     NOTIFY_EMAIL: Optional[str] = None
     NOTIFY_WEBHOOK_URL: Optional[str] = None
+    # Slack (app/tools/company/slack.py): the bot token switches Slack on; message search needs a user token.
+    SLACK_BOT_TOKEN: Optional[str] = None
+    SLACK_USER_TOKEN: Optional[str] = None
 
     # External Services
     SENTRY_DSN: Optional[str] = None

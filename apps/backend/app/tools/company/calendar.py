@@ -1,22 +1,16 @@
 """
 JARV Backend - Calendar Tools
 
-Real calendar operations with local event storage when unconfigured.
-
-SETUP INSTRUCTIONS:
-- Set CALENDAR_SERVICE_ENABLED=true in environment
-- Configure calendar service credentials:
-  - Google Calendar: GOOGLE_CALENDAR_API_KEY, GOOGLE_CALENDAR_ID
-  - Microsoft Graph: MICROSOFT_GRAPH_CLIENT_ID, MICROSOFT_GRAPH_CLIENT_SECRET
-  - CalDAV: CALDAV_URL, CALDAV_USERNAME, CALDAV_PASSWORD
-
-When unconfigured, events are stored locally in database (CalendarEvent table).
+JARV's own calendar: events are stored in the database (calendar_events), scoped to the
+workspace and the agent that created them. Richard sees them in his own calendar app by
+subscribing to the workspace's private feed (GET /api/calendar/{workspace_id}/feed gives the
+link; Google Calendar, Apple Calendar and Outlook all accept it), so no calendar password or
+OAuth grant is needed.
 """
 from typing import Dict, Any, Type, List, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
 import logging
-import os
 from uuid import UUID, uuid4
 from sqlalchemy import select
 
@@ -26,11 +20,6 @@ from app.tools.memory.storage import _memory_scope
 from app.models.integrations import CalendarEvent
 
 logger = logging.getLogger(__name__)
-
-
-def is_calendar_configured() -> bool:
-    """Check if calendar service is configured"""
-    return os.getenv("CALENDAR_SERVICE_ENABLED", "false").lower() == "true"
 
 
 # ===== CALENDAR CREATE EVENT TOOL =====
@@ -92,8 +81,6 @@ class CalendarCreateEventTool(ToolBase):
             end = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
             if end <= start:
                 return self.create_result(success=False, error_message="Event end_time must be after start_time")
-            if is_calendar_configured():
-                return self.create_result(success=False, error_message="External calendar sync is enabled but no provider adapter is configured")
             db, agent_id = await _memory_scope(context)
             event = CalendarEvent(
                 id=uuid4(), owner_id=UUID(str(context.user_id)),
@@ -182,8 +169,6 @@ class CalendarListEventsTool(ToolBase):
         limit = input_data["limit"]
 
         try:
-            if is_calendar_configured():
-                return self.create_result(success=False, error_message="External calendar sync is enabled but no provider adapter is configured")
             db, agent_id = await _memory_scope(context)
             stmt = select(CalendarEvent).where(
                 CalendarEvent.owner_id == UUID(str(context.user_id)),
@@ -263,8 +248,6 @@ class CalendarUpdateEventTool(ToolBase):
         event_id = input_data["event_id"]
 
         try:
-            if is_calendar_configured():
-                return self.create_result(success=False, error_message="External calendar sync is enabled but no provider adapter is configured")
             db, agent_id = await _memory_scope(context)
             event = (await db.execute(select(CalendarEvent).where(
                 CalendarEvent.id == UUID(event_id),
@@ -343,8 +326,6 @@ class CalendarDeleteEventTool(ToolBase):
         event_id = input_data["event_id"]
 
         try:
-            if is_calendar_configured():
-                return self.create_result(success=False, error_message="External calendar sync is enabled but no provider adapter is configured")
             db, agent_id = await _memory_scope(context)
             event = (await db.execute(select(CalendarEvent).where(
                 CalendarEvent.id == UUID(event_id),

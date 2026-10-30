@@ -121,6 +121,12 @@ SERVICES: List[Service] = [
             ["NOTIFY_WEBHOOK_URL"], "Create an incoming webhook in Slack or Discord, or pick an ntfy.sh topic, and set "
             "NOTIFY_WEBHOOK_URL to its https URL.",
             check_note="Use Send test notification: a check would itself post a message."),
+    Service("slack", "Slack", "Notifications",
+            "The agents' Slack tools: post updates (after approval), read channels and search messages.",
+            ["SLACK_BOT_TOKEN"], "Create an app at api.slack.com/apps, add the bot scopes chat:write, channels:read and "
+            "channels:history, install it to your workspace and set SLACK_BOT_TOKEN (xoxb-). For workspace-wide search "
+            "also set SLACK_USER_TOKEN (xoxp-) with the search:read scope.", optional=["SLACK_USER_TOKEN"],
+            check="slack"),
     Service("stripe", "Stripe", "Revenue",
             "Revenue, subscriptions, failed payments and conversion read directly from Stripe.",
             ["STRIPE_SECRET_KEY"], "Create a restricted key with read access in the Stripe Dashboard > Developers > "
@@ -255,6 +261,18 @@ async def _check_prometheus() -> Tuple[bool, str]:
     return await _get(f"{value('PROMETHEUS_URL').rstrip('/')}/-/ready", "Prometheus")
 
 
+async def _check_slack() -> Tuple[bool, str]:
+    async with http_client(timeout=httpx.Timeout(15.0)) as client:
+        response = await client.post("https://slack.com/api/auth.test",
+                                     headers={"Authorization": f"Bearer {value('SLACK_BOT_TOKEN')}"})
+    if response.status_code != 200:
+        return _verdict(response, "Slack")
+    body = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
+    if body.get("ok") is True:
+        return True, f"Slack accepted the bot token for the {body.get('team', 'workspace')} workspace"
+    return False, f"Slack rejected the bot token ({body.get('error', 'unknown error')})"
+
+
 async def _check_smtp() -> Tuple[bool, str]:
     from app.core.business import mailer
 
@@ -273,7 +291,7 @@ CHECKS: Dict[str, CheckFn] = {
     "claude": _check_claude, "openai": _check_openai, "gemini": _check_gemini, "ollama": _check_ollama,
     "elevenlabs": _check_elevenlabs, "stripe": _check_stripe, "plausible": _check_plausible,
     "github": _check_github, "unsplash": _check_unsplash, "pexels": _check_pexels, "voicebox": _check_voicebox,
-    "docker_ops": _check_docker_ops, "prometheus": _check_prometheus, "smtp": _check_smtp, "imap": _check_imap,
+    "slack": _check_slack, "docker_ops": _check_docker_ops, "prometheus": _check_prometheus, "smtp": _check_smtp, "imap": _check_imap,
 }
 
 

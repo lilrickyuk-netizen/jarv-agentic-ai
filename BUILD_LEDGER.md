@@ -12659,7 +12659,7 @@ NEXT TASK: REPAIR-15 (hardening: tools that only refuse, legacy in-memory busine
 
 TASK ID: REPAIR-15A-ACCESS-CONTROL
 TASK NAME: Every API route requires sign-in; every record is scoped to its owner
-STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+STATUS: COMPLETE
 AUDIT FINDINGS THAT DROVE THIS TASK:
 - About 75 routes answered without sign-in, among them listing every workspace, creating one, changing its authority level and permanently deleting a workspace with all its data (a hard boundary), the audit trail, tasks and mission detail, boundary reports, checkpoints, the live operations feed (including marking and archiving items), standups, company roles, department task, feed and memory views, the scheduler, the tool and model registries, and POST /api/models/test, which calls a real provider.
 - Signed-in routes on those routers read every operator's records: no owner filter.
@@ -12679,6 +12679,41 @@ COMMANDS RUN:
 - Static route audit over app/api: the only routes without sign-in are login, refresh, health, readiness, version, root, metrics (METRICS_TOKEN), alerts (ALERT_WEBHOOK_TOKEN) and the Stripe webhook (signature); the wake socket uses a one-time ticket. python -m py_compile on changed files: passed.
 TESTS RUN:
 - Written: the app's whole route table walked, every non-public route refuses an anonymous caller; two operators seeded, each sees only their own workspaces, tasks, feed, roles and audit entries, and cannot read, rename or delete the other's workspace or read their mission; a new workspace belongs to its creator; delete archives, a wrong slug is refused, restore works, a confirmed permanent delete removes it and is audited.
-RESULT: Pending owner test run.
+RESULT: Owner test run after the fix: 600 passed in Docker against PostgreSQL 16 + pgvector. Committed on pre-repair-11.
 BLOCKERS: None.
 NEXT TASK: REPAIR-15B (tools that only refuse; legacy in-memory business and content APIs; legacy root scripts), then final acceptance.
+
+---
+
+TASK ID: REPAIR-15B-REAL-TOOLS-AND-LEGACY-REMOVAL
+TASK NAME: Tools that only refused now work; legacy in-memory APIs, fake workflows and stale reports removed
+STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- /api/v1 business_ops: GET /api/business/metrics/summary returned hard-coded figures (5 campaigns, 125,000 monthly revenue); workflow status always "in_progress"; workflows ran in a random workspace when none was given. It shared the /api/business prefix with the real business API.
+- /api/v1 content_community: in-memory workflows, no persistence. /api/v1 assets: assets held in a Python dictionary ("in-memory storage for demo"), lost on restart, sharing /api/assets with the real owner-scoped asset API. /api/v1 workflows: the coding loop "checked the build" with a random simulation.
+- resource_provision, resource_scale and resource_terminate always refused ("no adapter"); resource_health_check refused anything but the local host.
+- Calendar tools refused whenever a sync flag was set, with no sync built. Slack needed a separate enable flag, and its search used the bot token, which Slack does not allow for search.messages.
+- Legacy one-off scripts in apps/backend (test_*.py outside tests/, verify_*.py) and update_ledger_phase16/17.py; phase reports declaring the system "production ready" in June, contradicted by the repairs since.
+- Recorded for 15C: infra/nginx/conf.d/jarv.conf reflects any request Origin with Access-Control-Allow-Credentials true.
+FILES CREATED:
+- apps/backend/app/api/calendar_feed.py (private iCalendar subscription feed per workspace: link for the owner, rotation, and the feed itself on a secret HMAC link, RFC 5545 escaping, folding and reminders)
+- apps/backend/tests/test_repair15b_real_tools.py
+- docs/history/README.md
+FILES MODIFIED:
+- apps/backend/app/tools/infrastructure/resources.py (resource_provision: starts a service of a deployed app on the deployment server under the budget rules, production or over budget waits for Richard, or records an external resource with its monthly cost; opening cloud accounts and buying resources are refused as Richard's hard boundaries; resource_scale: replicas through the same budget rules; resource_terminate: stops the service and keeps its data, data deletion refused, external resources stop being counted; resource_health_check: running replicas against expected for server services)
+- apps/backend/app/tools/infra_config/__init__.py (scale_service shared by scale_service_with_budget_boundary and the resource tools)
+- apps/backend/app/tools/company/calendar.py (always JARV's own calendar; refusal removed), slack.py (on when SLACK_BOT_TOKEN is set; message text redacted; search uses SLACK_USER_TOKEN, or a named channel's recent history with the bot token)
+- apps/backend/app/core/ops/connections.py (Slack in Settings with an auth.test check), app/core/config.py (SLACK_BOT_TOKEN, SLACK_USER_TOKEN), app/main.py, app/core/assets/__init__.py
+- docker-compose.prod.yml, .env.example, .env.production.example (Slack tokens)
+- apps/backend/tests/conftest.py, test_slack_tools.py, test_infrastructure_runtime_tools.py, test_repair15a_access_control.py (calendar feed on the public list: secret link, 404 otherwise)
+FILES REMOVED:
+- apps/backend/app/api/v1/business_ops.py, content_community.py, assets.py, workflows.py; app/core/workflows/ (business_ops.py, content_community.py, coding_loop.py); app/core/assets/manager.py, storage.py, templates.py
+- apps/backend/test_asset_system.py, test_business_ops.py, test_coding_loop.py, test_infrastructure_tools.py, test_phase17_complete.py, test_phase18_complete.py, test_phase19_infrastructure_tools.py, test_phase20_self_healing.py, test_support_system.py, verify_asset_endpoints.py, verify_phase17_real_implementation.py, verify_support_phase16.py; update_ledger_phase16.py, update_ledger_phase17.py
+- Moved to docs/history/: PHASE16-PHASE25 reports, FINAL_PRODUCTION_READINESS_REPORT.md, AUDIT_AGAINST_DESIGN.md, agent_verification_report.txt
+COMMANDS RUN:
+- References to every removed module and route checked across app, tests, scripts, dashboard, Makefile and CI: none remained. python -m py_compile on changed files: passed.
+TESTS RUN:
+- Written: removed routes answer 404; resources on the deployment-server stand-in (cloud provider refused with no record, production start waits for approval, staging start within budget, external record, scale within budget, health counted, scale over budget waits, stop waits for approval, data deletion refused, stop keeps data, external ended); calendar feed is valid iCalendar (escaping, folding, reminders, attendees); feed link stable, owner-only, served without sign-in on the secret link, forged link refused, rotation retires the old link; Slack search with a bot token uses channel history and asks for a user token otherwise; nothing reaches Slack without a token.
+RESULT: Pending owner test run.
+BLOCKERS: None.
+NEXT TASK: REPAIR-15C (nginx CORS; final multi-agent acceptance; runbook refresh), then merge to master.

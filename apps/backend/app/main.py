@@ -22,7 +22,7 @@ from app.core.errors import (
     validation_exception_handler,
     general_exception_handler,
 )
-from app.api import health, auth, models, agents, tasks, tools, evolution, swarm, workspaces, company, company_ops, business, revenue, permissions, analytics, settings as settings_api, standups, operations_feed, memory, experience, approvals, boundary_reports, checkpoints, assets, agent_knowledge
+from app.api import health, auth, models, agents, tasks, tools, evolution, swarm, workspaces, company, company_ops, business, revenue, permissions, analytics, settings as settings_api, calendar_feed, standups, operations_feed, memory, experience, approvals, boundary_reports, checkpoints, assets, agent_knowledge
 
 # Setup logging first
 setup_logging()
@@ -177,6 +177,7 @@ app.include_router(revenue.router)
 app.include_router(permissions.router)
 app.include_router(analytics.router)
 app.include_router(settings_api.router)
+app.include_router(calendar_feed.router)
 app.include_router(standups.router)
 app.include_router(operations_feed.router)
 app.include_router(memory.router)
@@ -190,25 +191,9 @@ app.include_router(richard_api.router)
 app.include_router(assets.router)
 app.include_router(agent_knowledge.router, prefix="/api")
 
-# Import and include workflow router
-from app.api.v1 import workflows
-app.include_router(workflows.router, prefix="/api")
-
-# Import and include assets router
-from app.api.v1 import assets
-app.include_router(assets.router, prefix="/api")
-
 # Import and include support router
 from app.api.v1 import support
 app.include_router(support.router, prefix="/api")
-
-# Import and include business operations router
-from app.api.v1 import business_ops
-app.include_router(business_ops.router, prefix="/api")
-
-# Import and include content and community router
-from app.api.v1 import content_community
-app.include_router(content_community.router, prefix="/api")
 
 # Import and include voice command router
 from app.api.v1 import voice
