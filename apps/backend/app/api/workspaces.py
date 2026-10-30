@@ -47,6 +47,21 @@ class WorkspaceInfo(BaseModel):
     total_tokens_used: int
     created_at: datetime
     updated_at: datetime
+    folder: Optional[str] = None
+
+
+def _info(ws: Workspace) -> WorkspaceInfo:
+    config = ws.config if isinstance(ws.config, dict) else {}
+    return WorkspaceInfo(
+        id=str(ws.id), name=ws.name, description=ws.description, slug=ws.slug, owner_id=str(ws.owner_id),
+        is_active=ws.is_active, is_archived=ws.is_archived, workspace_type=ws.workspace_type,
+        authority_level=ws.authority_level, max_subagents=ws.max_subagents,
+        active_subagent_count=ws.active_subagent_count, swarm_enabled=ws.swarm_enabled,
+        self_evolution_enabled=ws.self_evolution_enabled, company_mode_enabled=ws.company_mode_enabled,
+        company_name=ws.company_name, total_tasks=ws.total_tasks, completed_tasks=ws.completed_tasks,
+        total_tokens_used=ws.total_tokens_used, created_at=ws.created_at, updated_at=ws.updated_at,
+        folder=config.get("root_path") or None,
+    )
 
 
 class WorkspaceStats(BaseModel):
@@ -80,6 +95,8 @@ class WorkspaceUpdate(BaseModel):
     authority_level: Optional[int] = Field(None, ge=0, le=10)
     swarm_enabled: Optional[bool] = None
     company_mode_enabled: Optional[bool] = None
+    folder: Optional[str] = Field(None, min_length=1, max_length=1000,
+                                  description="Move the workspace to another existing folder inside the approved root")
 
 
 @router.get(
@@ -120,28 +137,7 @@ async def list_workspaces(
         workspaces = result.scalars().all()
 
         return [
-            WorkspaceInfo(
-                id=str(ws.id),
-                name=ws.name,
-                description=ws.description,
-                slug=ws.slug,
-                owner_id=str(ws.owner_id),
-                is_active=ws.is_active,
-                is_archived=ws.is_archived,
-                workspace_type=ws.workspace_type,
-                authority_level=ws.authority_level,
-                max_subagents=ws.max_subagents,
-                active_subagent_count=ws.active_subagent_count,
-                swarm_enabled=ws.swarm_enabled,
-                self_evolution_enabled=ws.self_evolution_enabled,
-                company_mode_enabled=ws.company_mode_enabled,
-                company_name=ws.company_name,
-                total_tasks=ws.total_tasks,
-                completed_tasks=ws.completed_tasks,
-                total_tokens_used=ws.total_tokens_used,
-                created_at=ws.created_at,
-                updated_at=ws.updated_at,
-            )
+            _info(ws)
             for ws in workspaces
         ]
 
@@ -269,28 +265,7 @@ async def get_workspace(
                 detail=f"Workspace '{workspace_id}' not found"
             )
 
-        return WorkspaceInfo(
-            id=str(workspace.id),
-            name=workspace.name,
-            description=workspace.description,
-            slug=workspace.slug,
-            owner_id=str(workspace.owner_id),
-            is_active=workspace.is_active,
-            is_archived=workspace.is_archived,
-            workspace_type=workspace.workspace_type,
-            authority_level=workspace.authority_level,
-            max_subagents=workspace.max_subagents,
-            active_subagent_count=workspace.active_subagent_count,
-            swarm_enabled=workspace.swarm_enabled,
-            self_evolution_enabled=workspace.self_evolution_enabled,
-            company_mode_enabled=workspace.company_mode_enabled,
-            company_name=workspace.company_name,
-            total_tasks=workspace.total_tasks,
-            completed_tasks=workspace.completed_tasks,
-            total_tokens_used=workspace.total_tokens_used,
-            created_at=workspace.created_at,
-            updated_at=workspace.updated_at,
-        )
+        return _info(workspace)
 
     except HTTPException:
         raise
@@ -362,28 +337,7 @@ async def create_workspace(
         await db.commit()
         await db.refresh(new_workspace)
 
-        return WorkspaceInfo(
-            id=str(new_workspace.id),
-            name=new_workspace.name,
-            description=new_workspace.description,
-            slug=new_workspace.slug,
-            owner_id=str(new_workspace.owner_id),
-            is_active=new_workspace.is_active,
-            is_archived=new_workspace.is_archived,
-            workspace_type=new_workspace.workspace_type,
-            authority_level=new_workspace.authority_level,
-            max_subagents=new_workspace.max_subagents,
-            active_subagent_count=new_workspace.active_subagent_count,
-            swarm_enabled=new_workspace.swarm_enabled,
-            self_evolution_enabled=new_workspace.self_evolution_enabled,
-            company_mode_enabled=new_workspace.company_mode_enabled,
-            company_name=new_workspace.company_name,
-            total_tasks=new_workspace.total_tasks,
-            completed_tasks=new_workspace.completed_tasks,
-            total_tokens_used=new_workspace.total_tokens_used,
-            created_at=new_workspace.created_at,
-            updated_at=new_workspace.updated_at,
-        )
+        return _info(new_workspace)
 
     except HTTPException:
         raise
@@ -447,32 +401,21 @@ async def update_workspace(
             workspace.swarm_enabled = workspace_update.swarm_enabled
         if workspace_update.company_mode_enabled is not None:
             workspace.company_mode_enabled = workspace_update.company_mode_enabled
+        moved_from = None
+        if workspace_update.folder is not None:
+            moved_from = await _move_folder(db, workspace, workspace_update.folder.strip())
 
         await db.commit()
+        if moved_from is not None:
+            from app.core.audit import AuditLogger
+
+            await AuditLogger.log_system_event(
+                db, action="workspace.folder_moved", result="success", resource_type="workspace",
+                resource_id=workspace.id, user_id=as_uuid(user_id),
+                details={"from": moved_from or None, "to": (workspace.config or {}).get("root_path")})
         await db.refresh(workspace)
 
-        return WorkspaceInfo(
-            id=str(workspace.id),
-            name=workspace.name,
-            description=workspace.description,
-            slug=workspace.slug,
-            owner_id=str(workspace.owner_id),
-            is_active=workspace.is_active,
-            is_archived=workspace.is_archived,
-            workspace_type=workspace.workspace_type,
-            authority_level=workspace.authority_level,
-            max_subagents=workspace.max_subagents,
-            active_subagent_count=workspace.active_subagent_count,
-            swarm_enabled=workspace.swarm_enabled,
-            self_evolution_enabled=workspace.self_evolution_enabled,
-            company_mode_enabled=workspace.company_mode_enabled,
-            company_name=workspace.company_name,
-            total_tasks=workspace.total_tasks,
-            completed_tasks=workspace.completed_tasks,
-            total_tokens_used=workspace.total_tokens_used,
-            created_at=workspace.created_at,
-            updated_at=workspace.updated_at,
-        )
+        return _info(workspace)
 
     except HTTPException:
         raise
@@ -483,6 +426,28 @@ async def update_workspace(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update workspace: {str(e)}"
         )
+
+
+async def _move_folder(db: Any, workspace: Workspace, folder: str) -> str:
+    """Point the workspace at another existing folder in the approved root. Returns the previous folder."""
+    from app.core.workspaces import fs_inspector
+    from app.core.workspaces.lifecycle import workspace_lifecycle
+
+    check = fs_inspector.path_exists(folder)
+    if not check.accessible:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=check.reason or "That folder is not allowed")
+    if not check.exists or not check.is_dir:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"'{folder}' is not an existing folder that JARV can see")
+    other = await workspace_lifecycle.by_root(db, workspace.owner_id, folder)
+    if other is not None and other.id != workspace.id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                            detail=f"That folder is already the workspace '{other.name}'")
+    config = dict(workspace.config or {})
+    previous = config.get("root_path") or ""
+    config.update({"root_path": folder, "container_path": check.container_path})
+    workspace.config = config
+    return previous
 
 
 @router.delete(

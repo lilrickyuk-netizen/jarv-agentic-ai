@@ -85,6 +85,14 @@ class ApiClient {
     });
   }
 
+  async patch<T = unknown>(path: string, body: unknown): Promise<ApiResponse<T>> {
+    return this.request<T>(path, { method: 'PATCH', body: JSON.stringify(body) });
+  }
+
+  async delete<T = unknown>(path: string): Promise<ApiResponse<T>> {
+    return this.request<T>(path, { method: 'DELETE' });
+  }
+
   async upload<T>(path: string, body: FormData): Promise<ApiResponse<T>> {
     const send = () => {
       const headers = new Headers({ Accept: 'application/json' });

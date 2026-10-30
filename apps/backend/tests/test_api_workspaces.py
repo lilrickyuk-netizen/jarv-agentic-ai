@@ -176,3 +176,44 @@ def test_delete_workspace(client: TestClient, db_session: Session, test_user: Us
     db_session.expire_all()
     deleted = db_session.query(Workspace).filter(Workspace.id == workspace_id).first()
     assert deleted is None
+
+
+@pytest.mark.api
+@pytest.mark.integration
+def test_move_workspace_folder(client: TestClient, db_session: Session, test_user: User):
+    """A workspace can be pointed at a folder it was moved to; its history stays with it."""
+    from pathlib import Path
+    from uuid import uuid4
+    from app.core.workspaces.fs_inspector import SANDBOX_CONTAINER_ROOT
+    from app.models.operations import AuditLog
+
+    tag = uuid4().hex[:8]
+    for name in (f"old-{tag}", f"new-{tag}", f"taken-{tag}"):
+        (Path(SANDBOX_CONTAINER_ROOT) / name).mkdir(parents=True, exist_ok=True)
+    moving = Workspace(id=uuid4(), name="Moving", slug=f"moving-{tag}", owner_id=test_user.id, is_active=True,
+                       config={"root_path": f"/test_workspaces/old-{tag}", "registered_via": "command_center"})
+    taken = Workspace(id=uuid4(), name="Taken", slug=f"taken-{tag}", owner_id=test_user.id, is_active=True,
+                      config={"root_path": f"/test_workspaces/taken-{tag}"})
+    db_session.add_all([moving, taken])
+    db_session.commit()
+
+    shown = client.get(f"/api/workspaces/{moving.id}").json()
+    assert shown["folder"] == f"/test_workspaces/old-{tag}"
+
+    missing = client.patch(f"/api/workspaces/{moving.id}", json={"folder": f"/test_workspaces/gone-{tag}"})
+    assert missing.status_code == 400 and "not an existing folder" in missing.json()["detail"]
+    outside = client.patch(f"/api/workspaces/{moving.id}", json={"folder": "/etc"})
+    assert outside.status_code == 400 and "outside the approved workspace root" in outside.json()["detail"]
+    clash = client.patch(f"/api/workspaces/{moving.id}", json={"folder": f"/test_workspaces/taken-{tag}"})
+    assert clash.status_code == 409 and "Taken" in clash.json()["detail"]
+
+    moved = client.patch(f"/api/workspaces/{moving.id}", json={"folder": f"/test_workspaces/new-{tag}"})
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["folder"] == f"/test_workspaces/new-{tag}"
+    db_session.expire_all()
+    row = db_session.query(Workspace).filter(Workspace.id == moving.id).one()
+    assert row.config["root_path"] == f"/test_workspaces/new-{tag}"
+    assert row.config["container_path"].endswith(f"new-{tag}")
+    assert row.config["registered_via"] == "command_center"
+    audit = db_session.query(AuditLog).filter(AuditLog.action == "workspace.folder_moved").all()
+    assert any(a.target_id == str(moving.id) and a.meta_data["to"] == f"/test_workspaces/new-{tag}" for a in audit)
