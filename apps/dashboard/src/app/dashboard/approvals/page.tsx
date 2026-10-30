@@ -14,6 +14,16 @@ interface CommandBlock {
   created_at: string | null;
 }
 
+interface PendingDecision {
+  approval_id: string;
+  action_description: string;
+  boundary_type: string | null;
+  boundary_report_id: string | null;
+  task_id: string | null;
+  expires_at?: string | null;
+  created_at: string | null;
+}
+
 interface Approval {
   id: string;
   user_id: string;
@@ -50,6 +60,8 @@ export default function ApprovalsPage() {
   const router = useRouter();
   const [approvals, setApprovals] = useState<Approval[]>([]);
   const [blocks, setBlocks] = useState<CommandBlock[]>([]);
+  const [pending, setPending] = useState<PendingDecision[]>([]);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
   const [stats, setStats] = useState<ApprovalStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +81,12 @@ export default function ApprovalsPage() {
       const blocksResponse = await apiClient.get<CommandBlock[]>('/api/approvals/command-blocks');
       if (!blocksResponse.error && blocksResponse.data) {
         setBlocks(blocksResponse.data);
+      }
+
+      // Boundary decisions JARV paused an action for (the Richard Boundary chain).
+      const pendingResponse = await apiClient.get<PendingDecision[]>('/api/richard/pending');
+      if (!pendingResponse.error && pendingResponse.data) {
+        setPending(pendingResponse.data);
       }
 
       const params = new URLSearchParams();
@@ -99,6 +117,19 @@ export default function ApprovalsPage() {
     await apiClient.post(`/api/approvals/command-blocks/${taskId}/${action}`, {
       note: `${action} from approvals page`,
     });
+    setActing(null);
+    fetchData();
+  };
+
+  const decideBoundary = async (item: PendingDecision, approve: boolean) => {
+    if (!item.boundary_report_id) return;
+    setActing(item.approval_id + (approve ? 'approve' : 'reject'));
+    setDecisionError(null);
+    const res = await apiClient.post(`/api/richard/reports/${item.boundary_report_id}/decision`, {
+      approve,
+      reason: `${approve ? 'Approved' : 'Rejected'} from the approvals page`,
+    });
+    if (res.error) setDecisionError(`Decision failed: ${res.error}`);
     setActing(null);
     fetchData();
   };
@@ -140,13 +171,60 @@ export default function ApprovalsPage() {
           <div className="mb-8">
             <h2 className="text-xl font-semibold mb-3">
               Boundary actions awaiting your decision
-              {blocks.length > 0 && (
+              {blocks.length + pending.length > 0 && (
                 <span className="ml-2 text-sm bg-yellow-200 text-yellow-900 px-2 py-0.5 rounded-full">
-                  {blocks.length}
+                  {blocks.length + pending.length}
                 </span>
               )}
             </h2>
-            {blocks.length === 0 ? (
+            {decisionError && (
+              <div role="alert" className="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded-lg mb-4">
+                {decisionError}
+              </div>
+            )}
+            {pending.length > 0 && (
+              <div className="space-y-4 mb-4">
+                {pending.map((item) => (
+                  <div key={item.approval_id} className="bg-yellow-50 border border-yellow-300 rounded-lg p-6">
+                    <div className="flex items-start justify-between gap-4 mb-2">
+                      <div className="flex-1">
+                        <p className="font-medium">{item.action_description}</p>
+                        <p className="text-sm text-yellow-800 mt-1">
+                          JARV paused only this action and is waiting for your decision.
+                          {item.expires_at && ` Expires ${new Date(item.expires_at).toLocaleString()}.`}
+                        </p>
+                      </div>
+                      <span className="px-2 py-1 text-xs rounded bg-yellow-200 text-yellow-900 whitespace-nowrap">
+                        {item.boundary_type || 'hard boundary'}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-3 mt-3">
+                      <button
+                        disabled={!item.boundary_report_id || acting === item.approval_id + 'approve'}
+                        onClick={() => decideBoundary(item, true)}
+                        className="px-4 py-2 rounded-md bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        disabled={!item.boundary_report_id || acting === item.approval_id + 'reject'}
+                        onClick={() => decideBoundary(item, false)}
+                        className="px-4 py-2 rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                      >
+                        Reject
+                      </button>
+                      <button
+                        onClick={() => router.push('/dashboard/richard-boundary')}
+                        className="px-4 py-2 rounded-md bg-card border hover:border-primary"
+                      >
+                        View detail
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {blocks.length === 0 && pending.length === 0 ? (
               <div className="bg-card border rounded-lg p-6 text-sm text-muted-foreground">
                 No actions are currently blocked. JARV is operating within approved boundaries.
               </div>
