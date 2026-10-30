@@ -1,5 +1,5 @@
 /**
- * Repair 14a: the business, revenue, analytics and permissions pages render backend data and call the backend.
+ * Repair 14a: the business, revenue, analytics and permissions pages, and (14b) Settings, render backend data and call the backend.
  * The API client is replaced by a router of recorded backend mockResponses; the pages, hooks and components are real.
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -112,5 +112,52 @@ describe('Workspace picker', () => {
     const Page = (await import('@/app/dashboard/marketing/page')).default;
     render(<Page />);
     expect(await screen.findByText('No workspace yet')).toBeInTheDocument();
+  });
+});
+
+describe('Settings', () => {
+  const service = (over: Record<string, unknown>) => ({
+    key: 'claude', name: 'Claude (Anthropic)', group: 'AI models', enables: 'Primary model.', configured: true,
+    settings: ['CLAUDE_API_KEY'], optional_settings: [], missing: [], example_values: [], setup: null, flag: null,
+    flag_on: null, checkable: true, check_note: null, last_check: null, ...over,
+  });
+
+  it('shows live readiness and service setup, runs a check and sends a test notification', async () => {
+    mockResponses['/api/settings/overview'] = {
+      system: { service: 'jarv-backend', version: '1.0.0', environment: 'production', python_version: '3.11.9',
+                platform: 'Linux', checked_at: '2026-10-30T01:00:00Z' },
+      readiness: { ready: false, database: { status: 'healthy' }, redis: { status: 'unhealthy', error: 'ConnectionError' } },
+      features: { swarm: true, voice: false }, limits: { monthly_budget: 50 },
+      safety: { audit_logging: true, boundary_reporting: true, note: 'Cannot be switched off from the dashboard.' },
+      routing: { order: [{ provider: 'claude', configured: true }, { provider: 'openai', configured: false }],
+                 primary: 'claude', default_model: 'claude-sonnet-4-6', openai_model: 'gpt-6-luna', note: null },
+      services: [
+        service({}),
+        service({ key: 'stripe', name: 'Stripe', group: 'Revenue', configured: false, checkable: false,
+                  missing: ['STRIPE_SECRET_KEY'], setup: 'Create a restricted key and set STRIPE_SECRET_KEY.',
+                  example_values: ['STRIPE_SECRET_KEY'] }),
+        service({ key: 'notify_webhook', name: 'Notification webhook', group: 'Notifications', checkable: false,
+                  check_note: 'Use Send test notification.' }),
+      ],
+      voice: { speech_to_text: { backend: 'openai', ready: true }, text_to_speech: { backend: null, ready: false, setup: 'Set ELEVENLABS_API_KEY' },
+               wake_word: { ready: false, phrase: 'Hey JARV', setup: 'Install the model' }, commands: { ready: true, route: 'missions' } },
+      notifications: [{ name: 'email_smtp', status: 'disabled_no_creds', message: 'Set SMTP_HOST' },
+                      { name: 'webhook', status: 'enabled', message: null }, { name: 'local_mock', status: 'enabled', message: null }],
+    };
+    mockResponses['POST /api/settings/services/claude/check'] = { service: 'claude', ok: true, detail: 'Anthropic accepted the credentials (HTTP 200)', at: '2026-10-30T01:01:00Z' };
+    mockResponses['POST /api/integrations/notify'] = { ok: true, sent: true, summary: 'webhook accepted the notification (HTTP 200)' };
+    const Page = (await import('@/app/dashboard/settings/page')).default;
+    render(<Page />);
+    expect(await screen.findByText('unhealthy')).toBeInTheDocument();
+    expect(screen.getByText('skipped: no key')).toBeInTheDocument();
+    expect(screen.getByText('Create a restricted key and set STRIPE_SECRET_KEY.')).toBeInTheDocument();
+    expect(screen.getByText(/Still the example value/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send test email' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Check' }));
+    expect(await screen.findByText(/Anthropic accepted the credentials/)).toBeInTheDocument();
+    expect(mockPosts[0].path).toBe('/api/settings/services/claude/check');
+    fireEvent.click(screen.getByRole('button', { name: 'Send test webhook' }));
+    expect(await screen.findByText('webhook accepted the notification (HTTP 200)')).toBeInTheDocument();
+    expect(mockPosts[1]).toEqual(expect.objectContaining({ path: '/api/integrations/notify', body: expect.objectContaining({ target: 'webhook', dry_run: false }) }));
   });
 });

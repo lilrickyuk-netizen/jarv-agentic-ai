@@ -5,6 +5,7 @@ Authenticated voice endpoints on the voice engine:
 - POST /api/voice/push-to-talk: recording in; transcript, the action taken
   (status answer, cancellation, or a Command Center mission under the approval
   gate) and the spoken reply out.
+- POST /api/voice/transcribe: speech to text only, with the wake phrase found.
 - POST /api/voice/command/text: the same for a typed command.
 - POST /api/voice/speak: speech for a reply; GET /api/voice/audio/{id} serves
   it to its owner.
@@ -97,6 +98,20 @@ async def push_to_talk(user_id: CurrentUserId, audio: UploadFile = File(...), la
         raise _http(exc)
     return {"heard": heard["text"], "stt_backend": heard["backend"],
             **await _reply(db, user_id, heard["text"], scope, language, speak)}
+
+
+@router.post("/transcribe")
+async def transcribe(user_id: CurrentUserId, audio: UploadFile = File(...),
+                     language: str = Form("en")) -> Dict[str, Any]:
+    """Speech to text only (the dashboard's local wake-phrase check); nothing is acted on or stored."""
+    data = await audio.read(engine.max_audio_bytes() + 1)
+    try:
+        heard = await engine.transcribe(data, filename=audio.filename or "speech.wav", language=language,
+                                        content_type=audio.content_type)
+    except (engine.VoiceUnavailable, RuntimeError, ValueError) as exc:
+        raise _http(exc)
+    return {"text": heard["text"], "backend": heard["backend"],
+            "command": engine.strip_wake(heard["text"])[0], "wake_heard": engine.strip_wake(heard["text"])[1]}
 
 
 @router.post("/command/text")

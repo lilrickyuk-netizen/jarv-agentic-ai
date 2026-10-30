@@ -375,7 +375,32 @@ async def detect_wake(audio: bytes, *, sample_format: str = "wav") -> Dict[str, 
 
 # ----- commands ---------------------------------------------------------------------------------
 
-_APPROVE = re.compile(r"^\s*(please\s+)?(approve|authori[sz]e|grant|confirm|sign off|go ahead with|accept)\b", re.I)
+# The wake phrase as the dashboard listens for it ("JARV, talk to me"), and a plain spoken address
+# ("JARV, ...", "hey JARV ...", and "Jarvis", a common mishearing). Both are removed before the command is read, so "JARV, talk to me,
+# approve the release" is recognised as an approval and refused like any other.
+_WAKE = re.compile(r"\b(?:jarv|j[\s-]*a[\s-]*r[\s-]*v|j[\s-]*r[\s-]*v|jarve)\b[\s,.;:!?-]*talk\s+to\s+me\b[\s,.;:!?-]*",
+                   re.I)
+_ADDRESS = re.compile(r"^\s*(?:(?:hey|hi|ok|okay)[\s,]+)?(?:jarv|jarve|jarvis|j[\s-]*r[\s-]*v)\b[\s,.;:!?-]*", re.I)
+_LEAD = re.compile(r"^\s*(?:(?:please|now|then|and|so|just)\s+|(?:can|could|would|will)\s+you\s+(?:please\s+)?|"
+                   r"i\s+(?:want|need)\s+you\s+to\s+|i'?d\s+like\s+you\s+to\s+)+", re.I)
+_APPROVE = re.compile(r"^\s*(please\s+)?(approve|authori[sz]e|grant|sign off|go ahead with|accept|ok(ay)? the|"
+                      r"green ?light|confirm(?!\s+(whether|if|that|how|what|when|where|who|why|the status)\b))\b",
+                      re.I)
+
+
+def strip_wake(text: str) -> tuple[str, bool]:
+    """The command after the wake phrase (or a spoken address), and whether the wake phrase was heard."""
+    text = re.sub(r"\s+", " ", text or "").strip()
+    match = _WAKE.search(text)
+    if match:
+        return text[match.end():].strip(), True
+    address = _ADDRESS.match(text)
+    return (text[address.end():].strip(), False) if address else (text, False)
+
+
+def _intent_text(text: str) -> str:
+    """The command with polite and filler lead-ins removed, for recognising what it asks for."""
+    return _LEAD.sub("", text).strip()
 _STATUS = re.compile(r"\b(status|what('?s| is) (going on|happening)|what are you (working on|doing)|"
                      r"any(thing)? (need|waiting)|update me|progress|how('?s| is) (it|everything) going)\b", re.I)
 _CANCEL = re.compile(r"^\s*(please\s+)?(cancel|stop|abort)\s+(the\s+)?(last|current|latest)\s+(mission|task|job)\b",
@@ -429,16 +454,22 @@ async def route(db: AsyncSession, text: str, *, user_id: UUID, workspace_id: Opt
     from app.core.runtime import lifecycle
     from app.models.task import Task
 
-    text = re.sub(r"\s+", " ", (text or "")).strip()
-    if not text:
+    raw = re.sub(r"\s+", " ", (text or "")).strip()
+    if not raw:
         raise ValueError("The command is empty")
-    if len(text) > 2000:
+    if len(raw) > 2000:
         raise ValueError("Spoken commands are limited to 2000 characters")
-    if _APPROVE.search(text):
+    text, woke = strip_wake(raw)
+    if not text:
+        if woke:
+            return {"intent": "wake", "reply": "I'm listening.", "task_id": None}
+        raise ValueError("The command is empty")
+    intent = _intent_text(text)
+    if _APPROVE.search(intent):
         return {"intent": "approval_refused", "reply": (
             "I can't take approvals by voice, because anyone near the microphone could give one. "
             "Approve it on the Approvals page and I'll carry on from where I paused."), "task_id": None}
-    if _CANCEL.search(text):
+    if _CANCEL.search(intent):
         from app.core.runtime.missions import cancel_mission
 
         scope = [workspace_id] if workspace_id else await _owned_workspaces(db, user_id)
@@ -452,7 +483,7 @@ async def route(db: AsyncSession, text: str, *, user_id: UUID, workspace_id: Opt
         title = (task.title or "the mission")[:80]
         return {"intent": "cancel", "task_id": str(task.id), "cancelled": cancelled,
                 "reply": f"Cancelled: {title}." if cancelled else f"{title} has already finished."}
-    if _STATUS.search(text) and len(text.split()) <= 14:
+    if _STATUS.search(intent) and len(intent.split()) <= 14:
         return await _status_reply(db, user_id, workspace_id)
     service = CommandService()
     submitted = await service.submit(f"{text}", db, workspace_id=workspace_id, user_id=user_id, operator=str(user_id))

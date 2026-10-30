@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { CockpitCore } from '@/components/cockpit-core';
 import { VoiceOperator } from '@/components/voice-operator';
 import { apiClient, HealthResponse } from '@/lib/api';
-import { runMission } from '@/lib/missions';
+import { followMission, runMission } from '@/lib/missions';
 import { clearTokens, getAccessToken } from '@/lib/auth';
 
 type CockpitState = 'idle' | 'listening' | 'thinking' | 'planning' | 'executing' | 'speaking' | 'approval' | 'completed' | 'failed' | 'recovery';
@@ -170,6 +170,20 @@ export default function CommandCenterPage() {
     return null;
   };
 
+  /** A mission started by voice: shown here like a typed one, followed until it finishes or pauses. */
+  const followVoiceMission = async (taskId: string): Promise<CommandResult | null> => {
+    setCommandError(null);
+    try {
+      const mission = await followMission(taskId, { onUpdate: setCommandResult });
+      setCommandResult(mission);
+      void refresh();
+      return mission;
+    } catch (error) {
+      setCommandError(error instanceof Error ? error.message : 'The voice mission could not be followed');
+      return null;
+    }
+  };
+
   const handleLogout = async () => {
     try {
       const accessToken = getAccessToken();
@@ -249,7 +263,7 @@ export default function CommandCenterPage() {
                   <button type="submit" className="primary-button" disabled={commandLoading || !command.trim()}>{commandLoading ? 'Working…' : 'Send instruction ↗'}</button>
                 </div>
               </form>
-              <VoiceOperator onCommand={sendCommand} onStateChange={setVoiceState} />
+              <VoiceOperator onMission={followVoiceMission} onStateChange={setVoiceState} />
               {commandError && <p className="inline-error" role="alert">{commandError}</p>}
               {commandResult && <div className={`mission-result result-${commandResult.status}`}>
                 <div className="result-heading"><span>{commandResult.status.toUpperCase()}</span>{commandResult.requires_approval && <b>APPROVAL REQUIRED</b>}</div>

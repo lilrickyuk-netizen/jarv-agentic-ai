@@ -17,14 +17,18 @@ os.environ.setdefault(
     "jarv-test-secret-key-only-not-for-production-2026",
 )
 
-# Never spend real provider credit from the test suite. Settings also read
+# Never spend real provider credit or reach a real account (mail, GitHub, image
+# libraries) from the test suite. Settings also read
 # apps/backend/.env, which on a developer machine holds real keys; environment
 # variables take precedence over that file, so blank every provider key here,
 # before Settings() is created. Tests that exercise providers inject a fake
 # router or set a test key explicitly.
 for _provider_key in ("CLAUDE_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
                       "GEMINI_API_KEY", "GROQ_API_KEY", "ELEVENLABS_API_KEY", "STRIPE_SECRET_KEY",
-                      "PLAUSIBLE_API_KEY"):
+                      "PLAUSIBLE_API_KEY", "GITHUB_TOKEN", "UNSPLASH_ACCESS_KEY", "PEXELS_API_KEY",
+                      "SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM", "IMAP_HOST", "IMAP_USER",
+                      "IMAP_PASSWORD", "EMAIL_SMTP_HOST", "EMAIL_SMTP_USER", "EMAIL_SMTP_PASSWORD", "EMAIL_FROM",
+                      "EMAIL_IMAP_HOST", "EMAIL_IMAP_USER", "EMAIL_IMAP_PASSWORD", "NOTIFY_EMAIL", "NOTIFY_WEBHOOK_URL"):
     os.environ[_provider_key] = ""
 
 import pytest
