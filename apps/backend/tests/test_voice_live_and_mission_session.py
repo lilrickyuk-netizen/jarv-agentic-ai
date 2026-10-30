@@ -354,3 +354,32 @@ def test_agents_read_a_long_file_completely_in_parts():
         shutil.rmtree(root, ignore_errors=True)
 
     assert "".join(parts) == design and len(parts) == -(-len(design) // READ_CHUNK_CHARS)
+
+
+# ----- a mission works in its own workspace's folder -----------------------------------------------
+
+def test_a_mission_works_in_its_own_workspace_folder():
+    """"...move the other tasks to a new docs/planning/later-phases.md" made "/planning/later-phases.md" the
+    mission's workspace root, so every read and write was refused as outside the workspace."""
+    from app.core.command.service import CommandService
+
+    async def run():
+        async with AsyncTestingSessionLocal() as db:
+            owner, ws_id = await _seed(db, host="/test_workspaces/myco-root")
+            other, _other_ws = await _seed(db, host="/test_workspaces/someone-else")
+            service = CommandService()
+            service._mission_workspace_id, service._mission_user_id = ws_id, owner
+            inside = await service._resolve_ws_root(
+                db, "Rewrite Phase_0_1_Tasks.md and move the rest to a new docs/planning/later-phases.md")
+            service._mission_workspace_id, service._mission_user_id = None, owner
+            named = await service._resolve_ws_root(db, "Scan /test_workspaces/named-folder for me")
+            fallback = await service._resolve_ws_root(db, "Summarise the project")
+            service._mission_workspace_id, service._mission_user_id = None, uuid4()
+            stranger = await service._resolve_ws_root(db, "Summarise the project")
+            return inside, named, fallback, stranger, other
+
+    inside, named, fallback, stranger, _other = _run(run())
+    assert inside == "/test_workspaces/myco-root"
+    assert named == "/test_workspaces/named-folder"
+    assert fallback == "/test_workspaces/myco-root"  # the operator's own workspace, never another's
+    assert stranger is None

@@ -371,6 +371,9 @@ class CommandService:
         task_id = str(task.id)
         user_id = _maybe_uuid(meta.get("user_id"))
         attempt = int(task.retry_count or 0)
+        # The mission's own workspace decides where its agents work (see _resolve_ws_root).
+        self._mission_workspace_id = ws_id
+        self._mission_user_id = user_id
 
         await self._feed(
             db, ws_id, task.id,
@@ -774,7 +777,8 @@ class CommandService:
             return m.group(1).rstrip(".,;:")
         # POSIX absolute path (e.g. the sandbox /test_workspaces/...). Require at
         # least two segments so a bare "/" or single word in prose is not matched.
-        pm = re.search(r"(/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_.-]+)+)", command_text)
+        # Not the tail of a relative path: "docs/planning/x.md" holds no absolute path.
+        pm = re.search(r"(?<![\w.\-/\\])(/[A-Za-z0-9_][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_.-]+)+)", command_text)
         if pm:
             return pm.group(1).rstrip(".,;:")
         return None
@@ -1974,11 +1978,28 @@ class CommandService:
         return head + result["answer"], steps, agents, extra
 
     async def _resolve_ws_root(self, db: AsyncSession, command_text: str) -> Optional[str]:
-        """Resolve a workspace root path from the command, else the latest registered."""
+        """The folder a mission works in.
+
+        The mission's own workspace comes first: a path named in the request ("write
+        docs/planning/later-phases.md") is a file inside it, not a new root. Without a
+        workspace folder, an absolute path in the request is used (registering or
+        scanning a named folder). Otherwise the operator's most recent workspace with a
+        folder; never another operator's.
+        """
+        workspace_id = getattr(self, "_mission_workspace_id", None)
+        if workspace_id is not None:
+            ws = (await db.execute(select(Workspace).where(Workspace.id == workspace_id))).scalar_one_or_none()
+            cfg = ws.config if ws is not None and isinstance(ws.config, dict) else {}
+            if cfg.get("root_path"):
+                return cfg["root_path"]
         p = self._extract_path(command_text)
         if p:
             return p
-        res = await db.execute(select(Workspace).order_by(Workspace.created_at.desc()))
+        user_id = getattr(self, "_mission_user_id", None)
+        if user_id is None:
+            return None
+        res = await db.execute(select(Workspace).where(Workspace.owner_id == user_id)
+                               .order_by(Workspace.created_at.desc()))
         for ws in res.scalars().all():
             cfg = ws.config if isinstance(ws.config, dict) else {}
             if cfg.get("root_path"):
