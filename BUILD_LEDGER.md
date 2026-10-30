@@ -12578,7 +12578,7 @@ NEXT TASK: REPAIR-14 (resume claude/repair-14a-wip: business, revenue, analytics
 
 TASK ID: REPAIR-14A-DASHBOARD-OPERATIONS-PAGES
 TASK NAME: Business, revenue, analytics, permissions and operations pages on real backend data
-STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+STATUS: COMPLETE
 AUDIT FINDINGS THAT DROVE THIS TASK:
 - Analytics, Business, Community, Content, Marketing, Onboarding, Partnerships, Permissions, Revenue Operations, Sales and Support pages showed static or hard-coded figures, or buttons with no backend call. There was no endpoint for JARV's own performance, the live authority model, the monthly cost against budget, creating deals, shortlisting partners or listing the operator's workspaces.
 FILES CREATED:
@@ -12594,6 +12594,37 @@ COMMANDS RUN:
 - python -m py_compile on changed backend files: passed. The dashboard's npm registry is unreachable from the build container, so tsc and jest run on the owner's machine in Docker (node:20).
 TESTS RUN:
 - Written: authentication on every new endpoint; workspace picker lists only the operator's workspaces; deals created, validated and moved, partners shortlisted and activated, pipeline totals, other users refused; analytics computed from seeded missions and tool runs; cost, traffic and permissions endpoints. Dashboard: pages load from the API, actions post to it, errors shown.
-RESULT: Pending owner test run.
+RESULT: Owner test runs: backend in Docker against PostgreSQL 16 + pgvector, 575 passed; dashboard in node:20, tsc --noEmit clean and jest 15 of 15 passed. Committed on pre-repair-11.
 BLOCKERS: None.
 NEXT TASK: REPAIR-14B (remaining pages audited for real data; voice interface acceptance).
+
+---
+
+TASK ID: REPAIR-14B-SETTINGS-EMAIL-NOTIFICATIONS
+TASK NAME: Settings on live data; one email configuration; real email tools and notifications
+STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- Audit of every dashboard page's backend calls against the registered routes: every path the dashboard calls exists.
+- Settings showed Backend, Database and Redis as "Operational / Connected / Active" whatever their state (fake data) and had a dead "Save Changes" button. There was no view of which outside services are configured or a way to check a key.
+- Two email configurations: the mailer read EMAIL_SMTP_* / EMAIL_IMAP_*, while config, .env examples and docs used SMTP_*. docker-compose.prod.yml passed neither, nor GITHUB_TOKEN, UNSPLASH_ACCESS_KEY, PEXELS_API_KEY, ANTHROPIC_API_KEY, PROVIDER_ORDER or DEFAULT_MODEL, so email could not work in production.
+- The agents' email_send / email_read / email_search refused whenever email was configured ("no provider adapter is installed") although the mailer exists; the sales and partnerships agents could never send.
+- /api/integrations/notify never performed a live send, and /api/integrations/list had no authentication.
+- Recorded for Repair 15 (not in any agent's default toolbox): resource_provision, resource_scale, resource_terminate and external calendar sync only refuse; Slack tools only save drafts.
+FILES CREATED:
+- apps/backend/app/core/ops/connections.py (catalogue of 18 outside services: settings needed, configured or not, copied template values such as "your_..._here" treated as unset, what each enables, setup steps; one free, read-only live check each: model lists, account reads, a one-day Plausible query, SMTP/IMAP sign-in, health endpoints; never a value or a response body)
+- apps/backend/app/api/settings.py (GET /api/settings/overview: version, live database and Redis status, failover order with configured providers, services with their last check, voice, notification targets, features, limits, locked safety switches; POST /api/settings/services/{key}/check, audit-logged)
+- apps/backend/tests/test_repair14b_settings_email.py
+FILES MODIFIED:
+- apps/backend/app/core/business/mailer.py (SMTP_* and IMAP_* canonical, EMAIL_* still read; read from the environment or .env; HTML and workspace attachments; read-only mailbox reading and server-side search; sign-in checks)
+- apps/backend/app/tools/company/email.py (email_send: approval, one message per recipient, more than 10 recipients refused as mass email, attachments only from the workspace folder, secrets redacted, sent/failed recorded, draft without SMTP; email_read / email_search: the real mailbox read-only, saved drafts otherwise)
+- apps/backend/app/core/integrations/__init__.py, app/api/integrations.py (live notification by email to the operator's own address or an https webhook; list requires sign-in)
+- apps/backend/app/core/config.py (IMAP_*, NOTIFY_EMAIL, NOTIFY_WEBHOOK_URL), app/main.py, app/core/command/service.py (capability map), tests/conftest.py (mail, GitHub and image-library settings blanked in tests)
+- apps/dashboard/src/app/dashboard/settings/page.tsx (rewritten on /api/settings/overview: Check per service, Send test notification), apps/dashboard/__tests__/ops-pages.test.tsx
+- docker-compose.prod.yml (backend and worker: model routing, SMTP, IMAP, notifications, GitHub, Unsplash, Pexels), .env.example, .env.production.example (email values blank so email stays off until set), docs/CONFIGURATION.md
+COMMANDS RUN:
+- python -m py_compile on changed backend files: passed. Static audit of dashboard API paths against backend routes: all present.
+TESTS RUN:
+- Written: mailer names and fallback; catalogue never returns values and treats template values as unset; overview and checks through the API with a mock transport (accepted, rejected, unknown, not configured, no check), audit record shown as last check; unreachable service reported; email_send per recipient with a workspace attachment, approval required, mass email refused, escape refused; email_read and email_search on the mailbox, with secrets redacted; live notifications to the operator by email and webhook, http webhook refused. Dashboard: Settings shows live readiness and setup, runs a check, sends a test notification.
+RESULT: Pending owner test run.
+BLOCKERS: None.
+NEXT TASK: REPAIR-14C (voice interface acceptance).

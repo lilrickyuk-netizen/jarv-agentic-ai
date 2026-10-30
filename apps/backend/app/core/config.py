@@ -275,12 +275,22 @@ class Settings(BaseSettings):
     VOICE_AUDIO_DIR: str = "/data/voice-audio"
     VOICE_AUDIO_RETENTION_HOURS: float = 24.0
 
-    # Email
+    # Email (app/core/business/mailer.py): SMTP sends one message per recipient after approval;
+    # IMAP is read-only (support inbox sync, the agents' email_read and email_search tools).
     SMTP_HOST: Optional[str] = None
     SMTP_PORT: int = 587
     SMTP_USER: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
     SMTP_FROM: Optional[str] = None
+    IMAP_HOST: Optional[str] = None
+    IMAP_PORT: int = 993
+    IMAP_USER: Optional[str] = None
+    IMAP_PASSWORD: Optional[str] = None
+    IMAP_FOLDER: str = "INBOX"
+    # Where JARV notifies Richard: his own address (defaults to the signed-in operator, then
+    # SMTP_FROM) and an optional https webhook (Slack, Discord, ntfy).
+    NOTIFY_EMAIL: Optional[str] = None
+    NOTIFY_WEBHOOK_URL: Optional[str] = None
 
     # External Services
     SENTRY_DSN: Optional[str] = None

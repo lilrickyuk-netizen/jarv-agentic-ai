@@ -201,13 +201,28 @@ BACKUP_RETENTION_DAYS=30
 
 ### Email Configuration
 
+Sending (support replies, the agents' `email_send` after approval, notifications to you) uses SMTP;
+reading (the support inbox, `email_read`, `email_search`) uses IMAP, opened read-only. Leave them blank
+to keep email off: messages are then saved as drafts. The older `EMAIL_SMTP_*` / `EMAIL_IMAP_*` names
+are still read when these are unset.
+
 ```env
-SMTP_HOST=smtp.gmail.com
+SMTP_HOST=smtp.your-provider.com
 SMTP_PORT=587
-SMTP_USER=your_email
-SMTP_PASSWORD=your_password
-SMTP_FROM=noreply@your-domain.com
+SMTP_USER=you@your-domain.com
+SMTP_PASSWORD=app-password-from-your-provider
+SMTP_FROM=you@your-domain.com
+IMAP_HOST=imap.your-provider.com
+IMAP_PORT=993
+IMAP_USER=you@your-domain.com
+IMAP_PASSWORD=app-password-from-your-provider
+IMAP_FOLDER=INBOX
+NOTIFY_EMAIL=you@your-domain.com        # where JARV notifies you (defaults to your login email)
+NOTIFY_WEBHOOK_URL=https://ntfy.sh/your-topic   # optional: Slack, Discord or ntfy webhook
 ```
+
+The dashboard's Settings page shows which services are configured (never their values) and has a
+Check button per service that tests the connection without sending or spending anything.
 
 ## Backend Configuration
 
