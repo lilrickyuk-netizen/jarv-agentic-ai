@@ -12602,7 +12602,7 @@ NEXT TASK: REPAIR-14B (remaining pages audited for real data; voice interface ac
 
 TASK ID: REPAIR-14B-SETTINGS-EMAIL-NOTIFICATIONS
 TASK NAME: Settings on live data; one email configuration; real email tools and notifications
-STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+STATUS: COMPLETE
 AUDIT FINDINGS THAT DROVE THIS TASK:
 - Audit of every dashboard page's backend calls against the registered routes: every path the dashboard calls exists.
 - Settings showed Backend, Database and Redis as "Operational / Connected / Active" whatever their state (fake data) and had a dead "Save Changes" button. There was no view of which outside services are configured or a way to check a key.
@@ -12625,6 +12625,32 @@ COMMANDS RUN:
 - python -m py_compile on changed backend files: passed. Static audit of dashboard API paths against backend routes: all present.
 TESTS RUN:
 - Written: mailer names and fallback; catalogue never returns values and treats template values as unset; overview and checks through the API with a mock transport (accepted, rejected, unknown, not configured, no check), audit record shown as last check; unreachable service reported; email_send per recipient with a workspace attachment, approval required, mass email refused, escape refused; email_read and email_search on the mailbox, with secrets redacted; live notifications to the operator by email and webhook, http webhook refused. Dashboard: Settings shows live readiness and setup, runs a check, sends a test notification.
-RESULT: Pending owner test run.
+RESULT: Owner test runs: backend in Docker against PostgreSQL 16 + pgvector, 582 passed; dashboard in node:20, tsc --noEmit clean and jest 16 of 16 passed. Committed on pre-repair-11.
 BLOCKERS: None.
 NEXT TASK: REPAIR-14C (voice interface acceptance).
+
+---
+
+TASK ID: REPAIR-14C-VOICE-ACCEPTANCE
+TASK NAME: Voice interface acceptance: the dashboard voice panel on the voice engine
+STATUS: IN_PROGRESS (code complete; tests written; awaiting owner test run)
+AUDIT FINDINGS THAT DROVE THIS TASK:
+- The dashboard voice panel worked only with Voicebox: push-to-talk and hands-free were disabled unless Voicebox was connected, although the voice engine (12e-4c) transcribes with OpenAI and speaks with ElevenLabs or OpenAI.
+- The panel sent what it heard to /api/command/execute, bypassing the voice router, so spoken approvals were not refused and voice missions were not marked as voice.
+- The voice router recognised an approval only when "approve" was the first word: "JARV, talk to me, approve the deploy" or "Hey JARV, approve it" became missions instead of being refused.
+- Without Voicebox, the hands-free wake check would have sent every burst of ambient speech to a cloud transcription service.
+FILES CREATED:
+- apps/backend/tests/test_repair14c_voice_acceptance.py
+- apps/dashboard/__tests__/voice-operator.test.tsx
+FILES MODIFIED:
+- apps/backend/app/core/voice/engine.py (strip_wake: the wake phrase and a spoken address, including "Jarvis", are removed before the command is read; polite lead-ins ignored when recognising approval, cancel and status; more approval phrasings refused; questions such as "confirm whether" are not approvals; the bare wake phrase answers "I'm listening")
+- apps/backend/app/api/v1/voice.py (POST /api/voice/transcribe: speech to text with the wake phrase found)
+- apps/dashboard/src/components/voice-operator.tsx (status from /api/voice/providers; push-to-talk on /api/voice/push-to-talk with whichever speech service is set up; spoken replies from /api/voice/audio; a voice mission is followed and its result spoken in short; replies shown when speech output is not set up; ambient wake checks only when recognition runs on JARV's own Voicebox; the local wake detector otherwise)
+- apps/dashboard/src/lib/missions.ts (followMission), apps/dashboard/src/app/dashboard/page.tsx (voice missions shown and followed in the Command Center)
+COMMANDS RUN:
+- python -m py_compile on changed backend files: passed; the router's phrase handling checked offline against approval, cancel, status and question phrasings.
+TESTS RUN:
+- Written: wake phrase and address removal; seven approval phrasings refused with no mission; wake, status, cancel and "confirm whether" questions; end to end with cloud speech only (heard, mission without the wake phrase marked voice, spoken reply served to its owner and refused to others, spoken approval refused and spoken, transcribe finds the wake phrase, mission followable). Dashboard: push-to-talk through the configured service, reply played, mission followed and its result spoken; spoken approval refusal shown with no mission; setup shown and controls disabled with no speech service; spoken summaries.
+RESULT: Pending owner test run.
+BLOCKERS: None.
+NEXT TASK: REPAIR-15 (hardening: tools that only refuse, legacy in-memory business and content APIs, routers without authentication, legacy root scripts, final multi-agent acceptance).

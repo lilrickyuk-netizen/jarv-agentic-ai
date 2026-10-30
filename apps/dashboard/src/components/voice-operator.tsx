@@ -7,11 +7,18 @@ import { env } from '@/lib/env';
 
 type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
+interface VoicePart { backend?: string | null; ready: boolean; setup?: string | null; phrase?: string }
+
+export interface VoiceProviders {
+  speech_to_text: VoicePart;
+  text_to_speech: VoicePart;
+  wake_word: VoicePart;
+}
+
 interface VoiceboxStatus {
   configured: boolean;
   connected: boolean;
   profile_configured: boolean;
-  wake_word: string;
 }
 
 interface WakeModelStatus {
@@ -22,15 +29,39 @@ interface WakeModelStatus {
   license: string;
 }
 
-interface VoiceCommandResult {
-  response_text?: string;
+interface Speech { url: string; audio_id: string }
+
+/** One spoken turn as the voice engine answers it (POST /api/voice/push-to-talk or /command/text). */
+export interface VoiceTurn {
+  heard: string;
+  intent: 'mission' | 'status' | 'cancel' | 'approval_refused' | 'wake' | string;
+  reply: string;
+  task_id: string | null;
   status?: string;
   requires_approval?: boolean;
+  speech: Speech | null;
+  speech_note: string | null;
 }
 
+export interface MissionReport { status: string; response_text: string; finished?: boolean; requires_approval?: boolean }
+
 interface Props {
-  onCommand: (text: string) => Promise<VoiceCommandResult | null>;
+  /** Follow a mission started by voice (shown in the Command Center) and resolve with its final state. */
+  onMission: (taskId: string) => Promise<MissionReport | null>;
   onStateChange: (state: VoiceState) => void;
+}
+
+/** The part of a long result worth saying aloud; the full text stays on screen. */
+export function spokenSummary(text: string, limit = 400): string {
+  const clean = text.replace(/[#*_`>|]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (clean.length <= limit) return clean;
+  const sentences = clean.match(/[^.!?]+[.!?]+/g) ?? [clean];
+  let out = '';
+  for (const sentence of sentences) {
+    if ((out + sentence).length > limit) break;
+    out += sentence;
+  }
+  return `${(out || clean.slice(0, limit)).trim()} The full result is on screen.`;
 }
 
 function resampleAudio(samples: Float32Array, sourceRate: number, targetRate: number): Float32Array {
@@ -98,7 +129,9 @@ export function extractWakeCommand(text: string): string | null {
   return match ? text.slice((match.index ?? 0) + match[0].length).trim() : null;
 }
 
-export function VoiceOperator({ onCommand, onStateChange }: Props) {
+export function VoiceOperator({ onMission, onStateChange }: Props) {
+  const [providers, setProviders] = useState<VoiceProviders | null>(null);
+  const [providersError, setProvidersError] = useState<string | null>(null);
   const [voicebox, setVoicebox] = useState<VoiceboxStatus | null>(null);
   const [wakeModel, setWakeModel] = useState<WakeModelStatus | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -108,8 +141,10 @@ export function VoiceOperator({ onCommand, onStateChange }: Props) {
   const [busy, setBusy] = useState(false);
   const [speechActive, setSpeechActive] = useState(false);
   const [message, setMessage] = useState('');
-  const onCommandRef = useRef(onCommand);
+  const [heard, setHeard] = useState('');
+  const onMissionRef = useRef(onMission);
   const onStateChangeRef = useRef(onStateChange);
+  const providersRef = useRef<VoiceProviders | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
@@ -128,23 +163,35 @@ export function VoiceOperator({ onCommand, onStateChange }: Props) {
   const processingRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
-  const generationIdRef = useRef<string | null>(null);
   const speechAbortRef = useRef<AbortController | null>(null);
   const mountedRef = useRef(true);
 
-  onCommandRef.current = onCommand;
+  onMissionRef.current = onMission;
   onStateChangeRef.current = onStateChange;
+  providersRef.current = providers;
 
   const setVoiceState = (state: VoiceState) => onStateChangeRef.current(state);
+  const hearingReady = Boolean(providers?.speech_to_text.ready);
+  const speakingReady = Boolean(providers?.text_to_speech.ready);
+  const wakeReady = Boolean(wakeModel?.installed && wakeModel.phrase_current);
+  // Ambient speech is only transcribed to look for the wake phrase when recognition runs on JARV's own server.
+  const localHearing = providers?.speech_to_text.backend === 'voicebox';
 
   const loadStatus = async () => {
-    const [voiceResponse, wakeResponse, userResponse] = await Promise.all([
-      apiClient.get<VoiceboxStatus>('/api/voicebox/status'),
+    const [providerResponse, wakeResponse, voiceboxResponse, userResponse] = await Promise.all([
+      apiClient.get<VoiceProviders>('/api/voice/providers'),
       apiClient.get<WakeModelStatus>('/api/voicebox/wake/status'),
+      apiClient.get<VoiceboxStatus>('/api/voicebox/status'),
       apiClient.get<{ is_admin?: boolean }>('/auth/me'),
     ]);
-    if (voiceResponse.data) setVoicebox(voiceResponse.data);
+    if (providerResponse.data) {
+      setProviders(providerResponse.data);
+      setProvidersError(null);
+    } else {
+      setProvidersError(providerResponse.error || 'Voice status is unavailable.');
+    }
     if (wakeResponse.data) setWakeModel(wakeResponse.data);
+    if (voiceboxResponse.data) setVoicebox(voiceboxResponse.data);
     if (userResponse.data) setIsAdmin(Boolean(userResponse.data.is_admin));
   };
 
@@ -154,11 +201,11 @@ export function VoiceOperator({ onCommand, onStateChange }: Props) {
     return () => {
       mountedRef.current = false;
       void stopHandsFree(false);
-      void stopSpeech();
+      stopSpeech();
     };
   }, []);
 
-  const stopSpeech = async () => {
+  const stopSpeech = () => {
     speechAbortRef.current?.abort();
     speechAbortRef.current = null;
     if (audioRef.current) {
@@ -170,60 +217,23 @@ export function VoiceOperator({ onCommand, onStateChange }: Props) {
       URL.revokeObjectURL(audioUrlRef.current);
       audioUrlRef.current = null;
     }
-    const generationId = generationIdRef.current;
-    generationIdRef.current = null;
-    if (generationId) await apiClient.post(`/api/voicebox/generate/${generationId}/cancel`).catch(() => undefined);
     setSpeechActive(false);
   };
 
-  const speak = async (text: string) => {
-    if (!voicebox?.connected || !voicebox.profile_configured || !text.trim()) return;
-    setBusy(true);
-    setSpeechActive(true);
-    setVoiceState('thinking');
-    const generation = await apiClient.post<{ id: string }>('/api/voicebox/speak', { text: text.slice(0, 4000), language: 'en' });
-    if (generation.error || !generation.data?.id) {
-      setMessage(generation.error || 'Voicebox did not start speech generation.');
-      setBusy(false);
-      setSpeechActive(false);
-      return;
-    }
-
-    const generationId = generation.data.id;
-    generationIdRef.current = generationId;
+  /** Play speech the voice engine stored for this operator (GET /api/voice/audio/{id}). */
+  const play = async (speech: Speech) => {
+    stopSpeech();
     const abortController = new AbortController();
     speechAbortRef.current = abortController;
+    setSpeechActive(true);
     const token = getAccessToken();
     try {
-      const response = await fetch(`/api/backend/api/voicebox/generate/${generationId}/status`, {
-        headers: { Accept: 'text/event-stream', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        signal: abortController.signal,
-      });
-      if (!response.ok || !response.body) throw new Error('Voicebox status stream is unavailable.');
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let pending = '';
-      let completed = false;
-      while (!completed) {
-        const { value, done } = await reader.read();
-        if (done) throw new Error('Voicebox status stream ended before speech completed.');
-        pending += decoder.decode(value, { stream: true });
-        const blocks = pending.split('\n\n');
-        pending = blocks.pop() || '';
-        for (const block of blocks) {
-          const dataLine = block.split('\n').find((line) => line.startsWith('data:'));
-          if (!dataLine) continue;
-          const payload = JSON.parse(dataLine.slice(5).trim()) as { status?: string; error?: string };
-          if (payload.status === 'failed' || payload.status === 'not_found') throw new Error(payload.error || 'Voicebox speech generation failed.');
-          if (payload.status === 'completed') completed = true;
-        }
-      }
-      const audioResponse = await fetch(`/api/backend/api/voicebox/audio/${generationId}`, {
+      const response = await fetch(`/api/backend${speech.url}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         signal: abortController.signal,
       });
-      if (!audioResponse.ok) throw new Error('Generated audio could not be retrieved.');
-      const audioUrl = URL.createObjectURL(await audioResponse.blob());
+      if (!response.ok) throw new Error('The spoken reply could not be retrieved.');
+      const audioUrl = URL.createObjectURL(await response.blob());
       audioUrlRef.current = audioUrl;
       const audio = new Audio(audioUrl);
       audioRef.current = audio;
@@ -231,22 +241,56 @@ export function VoiceOperator({ onCommand, onStateChange }: Props) {
       await audio.play();
       await new Promise<void>((resolve, reject) => {
         audio.onended = () => resolve();
-        audio.onerror = () => reject(new Error('Generated audio could not be played.'));
+        audio.onerror = () => reject(new Error('The spoken reply could not be played.'));
       });
     } catch (error) {
-      if (!abortController.signal.aborted) setMessage(error instanceof Error ? error.message : 'Spoken response failed.');
+      if (!abortController.signal.aborted) setMessage(error instanceof Error ? error.message : 'Spoken reply failed.');
     } finally {
-      if (generationIdRef.current === generationId) generationIdRef.current = null;
       if (speechAbortRef.current === abortController) speechAbortRef.current = null;
-      if (audioRef.current) audioRef.current = null;
+      audioRef.current = null;
       if (audioUrlRef.current) {
         URL.revokeObjectURL(audioUrlRef.current);
         audioUrlRef.current = null;
       }
       setSpeechActive(false);
-      setBusy(false);
       if (mountedRef.current) setVoiceState(handsFreeRef.current ? 'listening' : 'idle');
     }
+  };
+
+  /** Say a line with whichever speech service is configured; the text stays on screen either way. */
+  const speak = async (text: string) => {
+    if (!providersRef.current?.text_to_speech.ready || !text.trim()) return;
+    const generated = await apiClient.post<Speech>('/api/voice/speak', { text: text.slice(0, 4000), language: 'en' });
+    if (generated.error || !generated.data?.url) {
+      setMessage(generated.error || 'The reply could not be spoken.');
+      return;
+    }
+    await play(generated.data);
+  };
+
+  /** Report back when a mission started by voice finishes or pauses. */
+  const followAndReport = async (taskId: string) => {
+    try {
+      const final = await onMissionRef.current(taskId);
+      if (!final || !mountedRef.current) return;
+      const text = final.requires_approval || final.status === 'waiting_on_approval' || final.status === 'blocked'
+        ? 'That mission is paused for your approval. Approve it on the Approvals page and I will carry on.'
+        : final.response_text;
+      if (!text) return;
+      setMessage(text);
+      await speak(spokenSummary(text));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'The mission could not be followed.');
+    }
+  };
+
+  const handleTurn = async (turn: VoiceTurn) => {
+    setHeard(turn.heard);
+    setMessage(turn.reply);
+    if (turn.speech) await play(turn.speech);
+    else if (turn.speech_note && speakingReady) setMessage(`${turn.reply} (${turn.speech_note})`);
+    if (turn.intent === 'mission' && turn.task_id && !turn.requires_approval) void followAndReport(turn.task_id);
+    if (turn.intent === 'wake' && handsFreeRef.current && !recordingRef.current) startPcmCapture();
   };
 
   const finishCapture = () => {
@@ -260,6 +304,8 @@ export function VoiceOperator({ onCommand, onStateChange }: Props) {
     pcmCaptureRef.current = false;
     recordingRef.current = false;
     setRecording(false);
+    if (captureTimerRef.current) window.clearTimeout(captureTimerRef.current);
+    captureTimerRef.current = null;
     const chunks = pcmCommandRef.current;
     pcmCommandRef.current = [];
     const totalSamples = chunks.reduce((total, chunk) => total + chunk.length, 0);
@@ -267,13 +313,7 @@ export function VoiceOperator({ onCommand, onStateChange }: Props) {
       setVoiceState(handsFreeRef.current ? 'listening' : 'idle');
       return;
     }
-    const samples = new Float32Array(totalSamples);
-    let offset = 0;
-    chunks.forEach((chunk) => {
-      samples.set(chunk, offset);
-      offset += chunk.length;
-    });
-    void processCapture(pcmToWav(samples, 16000), 'voice-command.wav');
+    void processCapture(pcmToWav(mergeAudioFrames(chunks), 16000), 'voice-command.wav');
   };
 
   const startPcmCapture = () => {
@@ -286,7 +326,7 @@ export function VoiceOperator({ onCommand, onStateChange }: Props) {
     preRollRef.current = [];
     lastVoiceAtRef.current = Date.now();
     setRecording(true);
-    setMessage('Wake phrase detected. Listening for your instruction…');
+    setMessage('Listening for your instruction…');
     setVoiceState('listening');
     captureTimerRef.current = window.setTimeout(finishPcmCapture, 30000);
   };
@@ -297,7 +337,6 @@ export function VoiceOperator({ onCommand, onStateChange }: Props) {
       .find((type) => MediaRecorder.isTypeSupported(type));
     const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
     captureChunksRef.current = [];
-    lastVoiceAtRef.current = Date.now();
     recorder.ondataavailable = (event) => {
       if (event.data.size) captureChunksRef.current.push(event.data);
     };
@@ -311,100 +350,86 @@ export function VoiceOperator({ onCommand, onStateChange }: Props) {
       }
       if (captureTimerRef.current) window.clearTimeout(captureTimerRef.current);
       captureTimerRef.current = null;
-      const blob = new Blob(captureChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+      const type = recorder.mimeType || 'audio/webm';
+      const blob = new Blob(captureChunksRef.current, { type });
       captureChunksRef.current = [];
       if (blob.size < 1500) {
-        processingRef.current = false;
-        setVoiceState(handsFree ? 'listening' : 'idle');
+        setMessage('That was too short to hear. Hold on a moment longer and try again.');
+        setVoiceState(handsFreeRef.current ? 'listening' : 'idle');
         return;
       }
-      void processCapture(blob);
+      void processCapture(blob, type.includes('ogg') ? 'voice-command.ogg' : 'voice-command.webm');
     };
     recorder.start(250);
     recorderRef.current = recorder;
     recordingRef.current = true;
     setRecording(true);
-    setMessage('Listening for your instruction…');
+    setMessage('Listening… press Finish when you are done.');
     setVoiceState('listening');
     captureTimerRef.current = window.setTimeout(finishCapture, 30000);
   };
 
-  const processCapture = async (blob: Blob, filename = 'voice-command.webm') => {
+  /** Recording in; transcript, the action taken and the spoken reply out (POST /api/voice/push-to-talk). */
+  const processCapture = async (blob: Blob, filename: string) => {
     processingRef.current = true;
     setBusy(true);
     setVoiceState('thinking');
+    setMessage('Working out what you said…');
     try {
       const form = new FormData();
-      form.append('file', new File([blob], filename, { type: blob.type || 'audio/webm' }));
+      form.append('audio', new File([blob], filename, { type: blob.type || 'audio/webm' }));
       form.append('language', 'en');
-      const transcription = await apiClient.upload<{ text: string }>('/api/voicebox/transcribe', form);
-      if (transcription.error || !transcription.data?.text) throw new Error(transcription.error || 'No speech was recognized.');
-      const command = extractWakeCommand(transcription.data.text)
-        ?? transcription.data.text.replace(/^\s*jarv[, ]+talk to me[\s,.;:!?-]*/i, '').trim();
-      if (!command) throw new Error('Wake phrase detected, but no instruction was heard.');
-      setMessage(`Heard: ${command}`);
-      const result = await onCommandRef.current(command);
-      if (result?.response_text) await speak(result.response_text);
+      form.append('speak', speakingReady ? 'true' : 'false');
+      const turn = await apiClient.upload<VoiceTurn>('/api/voice/push-to-talk', form);
+      if (turn.error || !turn.data) throw new Error(turn.error || 'No speech was recognized.');
+      processingRef.current = false;
+      setBusy(false);
+      await handleTurn(turn.data);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Voice command failed.');
     } finally {
       processingRef.current = false;
       setBusy(false);
-      if (mountedRef.current) setVoiceState(handsFreeRef.current ? 'listening' : 'idle');
+      if (mountedRef.current && !recordingRef.current && !audioRef.current) setVoiceState(handsFreeRef.current ? 'listening' : 'idle');
     }
   };
 
+  /** Without a wake event, a burst of speech is checked for the wake phrase on JARV's own speech service. */
   const processWakePhrase = async (frames: Float32Array[]) => {
-    if (processingRef.current || recordingRef.current || !handsFreeRef.current) return;
+    if (processingRef.current || recordingRef.current || !handsFreeRef.current || !localHearing) return;
     const samples = mergeAudioFrames(frames);
     if (samples.length < 16000 * 0.35) return;
-
     processingRef.current = true;
     setBusy(true);
     setVoiceState('thinking');
-    setMessage('Checking speech locally…');
-    let listenForInstruction = false;
     try {
       const form = new FormData();
-      form.append('file', new File([pcmToWav(samples, 16000)], 'wake-check.wav', { type: 'audio/wav' }));
+      form.append('audio', new File([pcmToWav(samples, 16000)], 'wake-check.wav', { type: 'audio/wav' }));
       form.append('language', 'en');
-      const transcription = await apiClient.upload<{ text: string }>('/api/voicebox/transcribe', form);
+      const transcription = await apiClient.upload<{ text: string }>('/api/voice/transcribe', form);
       if (transcription.error) {
-        const detail = transcription.error.toLowerCase();
-        setMessage(detail.includes('whisper') && detail.includes('download')
-          ? 'Local speech recognition is starting. Say the wake phrase again shortly.'
-          : transcription.error);
+        setMessage(transcription.error);
         return;
       }
       const transcript = transcription.data?.text?.trim();
-      if (!transcript) return;
-      const command = extractWakeCommand(transcript);
-      if (command === null) {
-        const wakeCue = /talk|jarv|j[\s-]*r[\s-]*v/i.test(transcript);
-        setMessage(wakeCue
-          ? `Heard “${transcript.slice(0, 120)}”; wake phrase not recognized.`
-          : 'Speech heard, but the wake phrase was not recognized.');
-        return;
-      }
+      const command = transcript ? extractWakeCommand(transcript) : null;
+      if (command === null) return;
+      processingRef.current = false;
+      setBusy(false);
       if (!command) {
-        listenForInstruction = true;
-        setMessage('Wake phrase detected. Responding…');
         await speak("I'm listening.");
+        startPcmCapture();
         return;
       }
-      setMessage(`Heard: ${command}`);
-      const result = await onCommandRef.current(command);
-      if (result?.response_text) await speak(result.response_text);
+      const turn = await apiClient.post<VoiceTurn>('/api/voice/command/text', { command, speak: speakingReady });
+      if (turn.error || !turn.data) throw new Error(turn.error || 'The command could not be sent.');
+      await handleTurn(turn.data);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Local wake recognition failed.');
+      setMessage(error instanceof Error ? error.message : 'Wake phrase check failed.');
     } finally {
       processingRef.current = false;
       setBusy(false);
-      if (listenForInstruction && handsFreeRef.current) {
-        startPcmCapture();
-      } else if (mountedRef.current) {
-        setVoiceState(handsFreeRef.current ? 'listening' : 'idle');
-      }
+      if (mountedRef.current && !recordingRef.current && !audioRef.current) setVoiceState(handsFreeRef.current ? 'listening' : 'idle');
     }
   };
 
@@ -418,8 +443,8 @@ export function VoiceOperator({ onCommand, onStateChange }: Props) {
   };
 
   const startHandsFree = async () => {
-    if (!voicebox?.connected || !voicebox.profile_configured) {
-      setMessage('Voicebox must be connected with a speech profile before hands-free mode can start.');
+    if (!hearingReady) {
+      setMessage(providers?.speech_to_text.setup || 'Set up speech recognition before enabling hands-free mode.');
       return;
     }
     if (!wakeModel?.installed) {
@@ -441,19 +466,24 @@ export function VoiceOperator({ onCommand, onStateChange }: Props) {
       await context.resume();
       const source = context.createMediaStreamSource(stream);
       const processor = context.createScriptProcessor(4096, 1, 1);
-      const wsUrl = parseSocketUrl();
-      const socket = new WebSocket(wsUrl, ['jarv-wake', `ticket.${ticketResponse.data.ticket}`]);
+      const socket = new WebSocket(parseSocketUrl(), ['jarv-wake', `ticket.${ticketResponse.data.ticket}`]);
       socket.binaryType = 'arraybuffer';
       wakeSocketRef.current = socket;
       socket.onmessage = async (event) => {
         try {
           const payload = JSON.parse(String(event.data)) as { type?: string };
-          if (payload.type === 'wake') {
+          if (payload.type === 'ready') {
+            handsFreeRef.current = true;
+            setHandsFree(true);
+            setMessage(`Hands-free is on. Say “${wakeModel?.phrase || 'JARV, talk to me.'}”`);
+            setVoiceState('listening');
+            setBusy(false);
+          } else if (payload.type === 'wake') {
             if (recordingRef.current || processingRef.current) return;
-            if (audioRef.current || generationIdRef.current) await stopSpeech();
+            if (audioRef.current) stopSpeech();
             wakeProbeActiveRef.current = false;
             wakeProbeFramesRef.current = [];
-            setMessage('Wake phrase detected. Responding…');
+            setMessage('Wake phrase heard.');
             await speak("I'm listening.");
             preRollRef.current = [];
             startPcmCapture();
@@ -478,7 +508,7 @@ export function VoiceOperator({ onCommand, onStateChange }: Props) {
           while (preRollRef.current.length > 1 && retainedSamples > 16000 * 1.5) {
             retainedSamples -= preRollRef.current.shift()?.length ?? 0;
           }
-          if (!processingRef.current) {
+          if (!processingRef.current && localHearing) {
             if (rms > 0.018) {
               lastVoiceAtRef.current = Date.now();
               if (!wakeProbeActiveRef.current) {
@@ -504,20 +534,10 @@ export function VoiceOperator({ onCommand, onStateChange }: Props) {
           if (rms > 0.018) lastVoiceAtRef.current = Date.now();
           else if (Date.now() - lastVoiceAtRef.current > 1300) finishPcmCapture();
         }
-        if (socket.readyState !== WebSocket.OPEN) return;
-        socket.send(samples.buffer);
+        if (socket.readyState === WebSocket.OPEN) socket.send(samples.buffer);
       };
       source.connect(processor);
       processor.connect(context.destination);
-      socket.addEventListener('message', (event) => {
-        if (typeof event.data === 'string' && event.data.includes('"ready"')) {
-          handsFreeRef.current = true;
-          setHandsFree(true);
-          setMessage(`Wake phrase ready. Say “${wakeModel?.phrase || 'JARV, talk to me.'}”.`);
-          setVoiceState('listening');
-          setBusy(false);
-        }
-      }, { once: true });
       sourceRef.current = source;
       processorRef.current = processor;
       audioContextRef.current = context;
@@ -573,11 +593,12 @@ export function VoiceOperator({ onCommand, onStateChange }: Props) {
     }
     if (response.data) setWakeModel(response.data);
     setMessage(`Wake phrase “${response.data?.phrase || 'JARV, talk to me.'}” is ready.`);
+    await loadStatus();
   };
 
   const provisionVoice = async () => {
     setBusy(true);
-    setMessage('Creating JARV’s local speech profile…');
+    setMessage('Creating JARV’s speech profile on Voicebox…');
     const response = await apiClient.post<{ profile_id: string; voice: string }>('/api/voicebox/profile/provision');
     setBusy(false);
     if (response.error) {
@@ -585,55 +606,56 @@ export function VoiceOperator({ onCommand, onStateChange }: Props) {
       return;
     }
     await loadStatus();
-    setMessage('JARV’s British male speech profile is ready.');
+    setMessage('JARV’s Voicebox speech profile is ready.');
   };
 
   const startPushToTalk = async () => {
-    if (!voicebox?.connected) {
-      setMessage('Voicebox is not connected. Configure the local speech service before using voice input.');
+    if (!hearingReady) {
+      setMessage(providers?.speech_to_text.setup || 'Speech recognition is not set up.');
       return;
     }
     try {
-      const stream = await ensureMicrophone();
-      startCapture(stream);
+      startCapture(await ensureMicrophone());
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Microphone access was denied.');
     }
   };
+
+  const backendLabel = (part: VoicePart | undefined) => (part?.ready ? part.backend ?? 'ready' : 'not set up');
 
   return (
     <section className="voice-operator" aria-label="Voice interaction">
       <div className="voice-operator-main">
         <div className="voice-state"><span className={`voice-dot ${handsFree ? 'voice-dot-live' : ''}`} />
           <span>{handsFree ? 'HANDS-FREE READY' : recording ? 'CAPTURING COMMAND' : busy ? 'PROCESSING VOICE' : 'VOICE CONTROL'}</span>
-          <small>{voicebox === null
-            ? 'CONNECTING TO VOICEBOX'
-            : voicebox.connected && voicebox.profile_configured ? 'VOICEBOX ONLINE' : 'VOICEBOX UNAVAILABLE'}</small>
+          <small>{providers === null
+            ? providersError ? 'VOICE UNAVAILABLE' : 'CHECKING VOICE'
+            : hearingReady ? `HEARING: ${backendLabel(providers.speech_to_text).toUpperCase()} · SPEAKING: ${backendLabel(providers.text_to_speech).toUpperCase()}` : 'VOICE NOT SET UP'}</small>
         </div>
         <div className="voice-controls">
-          {!handsFree && <button type="button" className="voice-ptt" onClick={recording ? finishCapture : startPushToTalk} disabled={busy || !voicebox?.connected} aria-label={recording ? 'Finish voice instruction' : 'Start push-to-talk voice instruction'}>{recording ? 'Finish' : 'Push to talk'}</button>}
+          {!handsFree && <button type="button" className="voice-ptt" onClick={recording ? finishCapture : startPushToTalk} disabled={(busy && !recording) || !hearingReady} aria-label={recording ? 'Finish voice instruction' : 'Start push-to-talk voice instruction'}>{recording ? 'Finish' : 'Push to talk'}</button>}
           {handsFree
             ? <button type="button" className="voice-toggle voice-toggle-on" onClick={() => void stopHandsFree()}>Disable hands-free</button>
-            : <button type="button" className="voice-toggle" onClick={() => void startHandsFree()} disabled={busy || !voicebox?.connected || !voicebox.profile_configured || !wakeModel?.installed || !wakeModel.phrase_current}>Enable hands-free</button>}
+            : <button type="button" className="voice-toggle" onClick={() => void startHandsFree()} disabled={busy || !hearingReady || !wakeReady}>Enable hands-free</button>}
           {isAdmin && !wakeModel?.installed && <button type="button" className="voice-install" onClick={() => void installWakeModel()} disabled={busy}>Install wake model</button>}
           {isAdmin && wakeModel?.installed && !wakeModel.phrase_current && <button type="button" className="voice-install" onClick={() => void installWakeModel()} disabled={busy || handsFree}>Update wake phrase</button>}
-          {isAdmin && voicebox?.connected && !voicebox.profile_configured && <button type="button" className="voice-install" onClick={() => void provisionVoice()} disabled={busy}>Set up JARV voice</button>}
-          {speechActive && <button type="button" className="voice-interrupt" onClick={() => void stopSpeech()}>Interrupt speech</button>}
+          {isAdmin && voicebox?.connected && !voicebox.profile_configured && <button type="button" className="voice-install" onClick={() => void provisionVoice()} disabled={busy}>Set up Voicebox voice</button>}
+          {speechActive && <button type="button" className="voice-interrupt" onClick={stopSpeech}>Interrupt speech</button>}
         </div>
       </div>
       <div className="voice-operator-details" role="status">
-        <span>{voicebox === null
-          ? 'Checking the local speech service…'
-          : voicebox.connected && voicebox.profile_configured
-            ? 'Local speech service ready'
-            : voicebox.configured
-              ? 'Voicebox is unreachable or has no speech profile'
-              : 'Set VOICEBOX_BASE_URL and VOICEBOX_PROFILE_ID to enable speech'}</span>
+        <span>{providers === null
+          ? providersError ?? 'Checking voice services…'
+          : hearingReady
+            ? speakingReady ? 'Voice ready: speak a command and JARV answers aloud' : `Voice ready; replies are shown, not spoken. ${providers.text_to_speech.setup ?? ''}`
+            : providers.speech_to_text.setup ?? 'Speech recognition is not set up.'}</span>
         <span>{wakeModel?.installed
           ? wakeModel.phrase_current ? `Wake phrase: “${wakeModel.phrase}”` : 'Wake phrase update required'
           : wakeModel === null ? 'Checking the local wake phrase…' : 'Wake phrase model not installed'}</span>
-        {handsFree && <span>Wake detection and speech recognition run on your self-hosted JARV services. Temporary clips are deleted after processing; wake-cue transcripts appear briefly on screen and are not saved.</span>}
+        <span>Approvals are never taken by voice: approve on the Approvals page.</span>
+        {handsFree && <span>The wake phrase is detected on JARV&apos;s own server. {localHearing ? 'Speech is also transcribed there.' : `Only what you say after the wake phrase is sent to ${providers?.speech_to_text.backend ?? 'the speech service'}.`}</span>}
       </div>
+      {heard && <p className="voice-message"><strong>Heard:</strong> {heard}</p>}
       {message && <p className="voice-message" aria-live="polite">{message}</p>}
     </section>
   );

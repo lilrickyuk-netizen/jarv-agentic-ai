@@ -57,7 +57,19 @@ export async function runMission(command: string, options: RunMissionOptions = {
   if (submitted.error || !submitted.data) {
     throw new Error(submitted.error || 'The command could not be submitted');
   }
-  let mission = submitted.data;
+  return followMission(submitted.data, options);
+}
+
+/** Follow a submitted mission (by its record or its id) until it finishes or pauses for approval. */
+export async function followMission(start: MissionResult | string, options: RunMissionOptions = {}): Promise<MissionResult> {
+  let mission: MissionResult;
+  if (typeof start === 'string') {
+    const first = await apiClient.get<MissionResult>(`/api/command/tasks/${start}`);
+    if (first.error || !first.data) throw new Error(first.error || 'The mission could not be found');
+    mission = first.data;
+  } else {
+    mission = start;
+  }
   options.onUpdate?.(mission);
   const started = Date.now();
   while (!mission.finished) {
