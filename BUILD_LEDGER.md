@@ -8,7 +8,7 @@
 
 ## CURRENT STATUS
 - **Current Phase**: REPAIR CONTINUATION (10-15)
-- **Current Task**: FIX-MISSION-RELATIVE-PATHS (a mission's writes to docs/... were refused as out of scope)
+- **Current Task**: FIX-AGENT-OUTPUT-LIMIT (a whole document written in one tool call was cut off)
 - **Build Status**: NOT ACCEPTED; Repairs 11-15 remain open under the locked execution order
 - **Build Start Date**: 2026-06-03
 - **Build Completion Date**: 2026-06-03
@@ -12904,7 +12904,7 @@ NEXT TASK: Richard reruns the MYCO architecture and Phase 0-1 mission.
 
 TASK ID: FIX-MISSION-RELATIVE-PATHS
 TASK NAME: Mission file paths resolve inside the workspace folder
-STATUS: IN_PROGRESS
+STATUS: COMPLETE
 PROBLEM: After FIX-MISSION-WORKSPACE-ROOT the MYCO mission read the design but its writes were refused as out of scope. The command executor passed the model's paths to the runtime unresolved, so "docs/architecture.md" (or "/docs/..." under a Windows folder) was not a path inside the workspace; the agent toolbox treated a leading slash or backslash under a Windows folder as absolute.
 FILES CREATED: None.
 FILES MODIFIED:
@@ -12912,7 +12912,26 @@ FILES MODIFIED:
 - apps/backend/app/core/agents/toolbox.py (a leading slash or backslash under a Windows workspace folder is inside the folder)
 - apps/backend/tests/test_voice_live_and_mission_session.py (four path forms resolve inside the MYCO folder)
 COMMANDS RUN: Path resolution evaluated for Windows and sandbox roots: all inside the workspace. python -m py_compile on the changed files: passed.
+TESTS RUN: PostgreSQL suite (owner run): 650 passed, 1 skipped.
+RESULT: Passed.
+BLOCKERS: None.
+NEXT TASK: Richard reruns the MYCO architecture and Phase 0-1 mission.
+
+---
+
+TASK ID: FIX-AGENT-OUTPUT-LIMIT
+TASK NAME: Agents can write whole documents
+STATUS: IN_PROGRESS
+PROBLEM: The MYCO mission read the whole design and the decisions record, then every write_file failed: "no file path/content was supplied (the tool rejected the workspace directory as a file)". Each agent turn was limited to 4,096 output tokens; a whole architecture document inside one write_file call was cut off, its JSON arguments did not parse, they were silently replaced by {}, and the empty path resolved to the workspace folder itself.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/backend/app/core/config.py (AGENT_MAX_OUTPUT_TOKENS, default 16,000)
+- apps/backend/app/core/command/agent_executor.py and app/core/agents/tool_loop.py (agent turns use AGENT_MAX_OUTPUT_TOKENS; a call whose arguments are cut off or not valid JSON is not run and the model is told why and how to write in parts; write_file without a path is refused with that reason; write_file takes append)
+- apps/backend/app/core/agents/toolbox.py (the cut-off message; write_file append and missing-path refusal for agents' toolboxes)
+- apps/backend/app/core/command/tool_runtime.py (append: the part is written after the file's whole current content)
+- apps/backend/tests/test_repair12c_agent_tools.py (a cut-off call is reported and nothing written; a document written in two parts is exact; agent turns request AGENT_MAX_OUTPUT_TOKENS)
+COMMANDS RUN: python -m py_compile on the changed files: passed.
 TESTS RUN: Awaiting Richard's PostgreSQL suite.
 RESULT: Awaiting test results.
 BLOCKERS: None.
-NEXT TASK: Richard reruns the MYCO architecture and Phase 0-1 mission.
+NEXT TASK: Richard renames myco-decisions.md to docs/decisions.md and reruns the MYCO mission.

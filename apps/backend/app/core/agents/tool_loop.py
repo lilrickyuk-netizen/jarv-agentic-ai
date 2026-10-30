@@ -21,7 +21,8 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from app.core.agents.toolbox import AgentToolbox, _clip, result_limit
+from app.core.config import settings
+from app.core.agents.toolbox import BROKEN_ARGUMENTS, AgentToolbox, _clip, result_limit
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ async def run_tool_loop(
     *,
     instructions: str = "",
     max_steps: int = 12,
-    max_tokens: int = 4096,
+    max_tokens: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Run ``task`` with ``agent``'s tools. Returns the outcome and the tool trail."""
     from app.core.providers import CompletionRequest, Message, get_router
@@ -112,7 +113,7 @@ async def run_tool_loop(
         steps += 1
         response = await router.complete(CompletionRequest(
             model=agent.config.model, messages=messages, system=system,
-            tools=tools, max_tokens=max_tokens, temperature=0.0,
+            tools=tools, max_tokens=max_tokens or settings.AGENT_MAX_OUTPUT_TOKENS, temperature=0.0,
         ))
         tokens += int((response.usage or {}).get("total_tokens", 0) or 0)
         calls = list(response.tool_calls or [])
@@ -128,15 +129,19 @@ async def run_tool_loop(
             name = call["function"]["name"]
             try:
                 args = json.loads(call["function"].get("arguments") or "{}")
+                broken = not isinstance(args, dict)
             except (TypeError, ValueError):
-                args = {}
+                args, broken = {}, True
+            args = args if isinstance(args, dict) else {}
             assistant.append({"type": "tool_use", "id": call["id"], "name": name, "input": args})
-            parsed.append((call["id"], name, args))
+            parsed.append((call["id"], name, args, broken))
         messages.append(Message(role="assistant", content=assistant))
 
         results: List[Dict[str, Any]] = []
-        for call_id, name, args in parsed:
-            if name == "finish":
+        for call_id, name, args, broken in parsed:
+            if broken:
+                out = {"success": False, "error": BROKEN_ARGUMENTS.format(name=name)}
+            elif name == "finish":
                 finished = True
                 success = bool(args.get("success"))
                 summary = str(args.get("summary") or "").strip()

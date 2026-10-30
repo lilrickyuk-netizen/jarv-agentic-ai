@@ -21,9 +21,12 @@ from pathlib import PurePosixPath, PureWindowsPath
 import logging
 from typing import Any, Dict, List, Optional
 
+from app.core.agents.toolbox import BROKEN_ARGUMENTS
+from app.core.config import settings
 from app.core.providers import CompletionRequest, Message, get_router
 
 logger = logging.getLogger(__name__)
+
 
 
 def _tool_schemas() -> List[Dict[str, Any]]:
@@ -52,12 +55,14 @@ def _tool_schemas() -> List[Dict[str, Any]]:
         {
             "name": "write_file",
             "description": ("Create or edit a file inside the approved workspace (Level 2). "
-                            "Writes outside scope or to secret files are blocked."),
+                            "Writes outside scope or to secret files are blocked. Write a long file in parts: "
+                            "the first part without append, each further part with append=true."),
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "path": {"type": "string"},
-                    "content": {"type": "string", "description": "Full new file contents"},
+                    "path": {"type": "string", "description": "File path inside the workspace (e.g. docs/x.md)"},
+                    "content": {"type": "string", "description": "The file contents, or the part to add"},
+                    "append": {"type": "boolean", "description": "Add content to the end of the file"},
                 },
                 "required": ["path", "content"],
             },
@@ -158,7 +163,7 @@ class AgentExecutor:
                     f"Do the remaining work and call finish when the whole mission is verified.")))
             resp = await router.complete(CompletionRequest(
                 model=self.model, messages=messages, system=system,
-                tools=tools, max_tokens=4096, temperature=0.0,
+                tools=tools, max_tokens=settings.AGENT_MAX_OUTPUT_TOKENS, temperature=0.0,
             ))
             self.tokens += (resp.usage or {}).get("total_tokens", 0)
 
@@ -176,16 +181,21 @@ class AgentExecutor:
                 name = tc["function"]["name"]
                 try:
                     args = json.loads(tc["function"]["arguments"] or "{}")
+                    broken = not isinstance(args, dict)
                 except Exception:  # noqa: BLE001
-                    args = {}
-                assistant_blocks.append({"type": "tool_use", "id": tc["id"], "name": name, "input": args})
-                parsed.append({"id": tc["id"], "name": name, "args": args})
+                    args, broken = {}, True
+                assistant_blocks.append({"type": "tool_use", "id": tc["id"], "name": name,
+                                         "input": args if isinstance(args, dict) else {}})
+                parsed.append({"id": tc["id"], "name": name, "args": args if isinstance(args, dict) else {},
+                               "broken": broken})
             messages.append(Message(role="assistant", content=assistant_blocks))
 
             result_blocks: List[Dict[str, Any]] = []
             for call in parsed:
                 last_tool = call["id"]
-                if call["name"] == "finish":
+                if call.get("broken"):
+                    out = {"success": False, "error": BROKEN_ARGUMENTS.format(name=call["name"])}
+                elif call["name"] == "finish":
                     final_summary = call["args"].get("summary", "Mission complete.")
                     success = bool(call["args"].get("success", True))
                     finished = True
@@ -247,8 +257,10 @@ class AgentExecutor:
                     offset = 0
                 return await self.runtime.read_file(self._host(args.get("path")), offset=offset)
             if name == "write_file":
+                if not str(args.get("path") or "").strip():
+                    return {"success": False, "error": "write_file needs the path of the file to write."}
                 return await self.runtime.write_file(self._host(args.get("path")), args.get("content", ""),
-                                                     overwrite=True)
+                                                     overwrite=True, append=bool(args.get("append")))
             if name == "run_command":
                 return await self.runtime.run_command(
                     args.get("command", ""), cwd_host=self._host(args.get("cwd")),

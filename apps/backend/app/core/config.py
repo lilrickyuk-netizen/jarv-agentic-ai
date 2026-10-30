@@ -289,6 +289,8 @@ class Settings(BaseSettings):
     OPENAI_REALTIME_MODEL: str = "gpt-realtime"
     OPENAI_REALTIME_VOICE: str = "cedar"
     OPENAI_REALTIME_TRANSCRIBE_MODEL: str = "gpt-4o-mini-transcribe"
+    # Output budget for one agent turn; a whole document written through write_file needs room.
+    AGENT_MAX_OUTPUT_TOKENS: int = Field(default=16000, ge=1024, le=128000)
     # Spoken replies are stored here for their owner and pruned after the retention period.
     VOICE_AUDIO_DIR: str = "/data/voice-audio"
     VOICE_AUDIO_RETENTION_HOURS: float = 24.0

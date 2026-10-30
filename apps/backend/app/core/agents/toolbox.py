@@ -135,9 +135,14 @@ WORKSPACE_TOOLS: Dict[str, ToolSpec] = {
                  "path": _PATH_PROP}), "workspace"),
     "scan_workspace": ToolSpec("scan_workspace", "Summarise the workspace: stack, package manager, entry points, build files.",
                                _schema({"path": _PATH_PROP}), "workspace"),
-    "write_file": ToolSpec("write_file", "Create or replace a file in the workspace with the full new content.",
-                           _schema({"path": _PATH_PROP, "content": {"type": "string"}}, ["path", "content"]),
-                           "workspace"),
+    "write_file": ToolSpec(
+        "write_file",
+        "Create or replace a file in the workspace with the full new content. Write a long file in parts: "
+        "the first part without append, each further part with append=true.",
+        _schema({"path": _PATH_PROP, "content": {"type": "string"},
+                 "append": {"type": "boolean", "description": "Add content to the end of the file"}},
+                ["path", "content"]),
+        "workspace"),
     "run_command": ToolSpec(
         "run_command",
         "Run ONE command in the workspace (no &&, ;, |, > or $(...)). Read-only, build and test commands "
@@ -231,6 +236,10 @@ _FILESYSTEM_TOOLS = {"list_files", "read_file", "search_files", "scan_workspace"
                      "detect_workspace_type", "detect_stack", "detect_commands", "find_missing_files",
                      "run_build", "run_tests", "install_package", "check_installed", "git_create_branch",
                      "git_push_with_boundary"}
+
+
+# Told to the model when a tool call's arguments were cut off (output limit) or are not valid JSON.
+BROKEN_ARGUMENTS = ("Your arguments for {name} were cut off or are not valid JSON, most likely because the reply hit its output limit. Nothing was done. Write a long file in parts: the first part with write_file, then the rest with append set to true.")
 
 
 # A read_file part (16,000 characters, plus JSON escaping) is passed back whole; other results are clipped.
@@ -443,7 +452,10 @@ class AgentToolbox:
             if name == "scan_workspace":
                 return await rt.scan_workspace(host)
             if name == "write_file":
-                return await rt.write_file(host, str(args.get("content", "")), overwrite=True)
+                if not str(args.get("path") or "").strip():
+                    return {"success": False, "error": "write_file needs the path of the file to write."}
+                return await rt.write_file(host, str(args.get("content", "")), overwrite=True,
+                                           append=bool(args.get("append")))
             if name == "search_files":
                 return await self._search(host, args.get("pattern"), args.get("contains"))
             if name == "run_command":
