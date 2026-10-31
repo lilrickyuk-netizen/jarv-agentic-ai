@@ -149,7 +149,7 @@ def test_agent_initialises_stages_and_commits_inside_the_workspace(monkeypatch):
 
 def test_worker_image_carries_the_build_toolchain():
     dockerfile = repo_path("apps", "backend", "Dockerfile").read_text()
-    header, _, rest = dockerfile.partition("FROM ")
+    header = dockerfile.split("\nFROM ", 1)[0]
     runtime = dockerfile.split("# Production stage", 1)[1]
     assert "ARG NODE_IMAGE=node:24.21.0-bookworm-slim" in header  # usable in FROM lines
     assert "ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.17" in header
