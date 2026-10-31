@@ -29,6 +29,47 @@ from app.models.task import Task
 logger = logging.getLogger(__name__)
 
 MAX_AUTO_CONTINUATIONS = 6
+PROGRESS_CHARS = 14000
+PROGRESS_CALLS = 300
+
+
+def progress_note(result: Dict[str, Any]) -> str:
+    """What earlier rounds of this mission already did, for the next round's agent.
+
+    Each round starts a new conversation, so without this the agent sees only the request and
+    the files on disk, and cannot tell its own finished work from anything else in the folder.
+    Built from the task's recorded tool calls (inputs are already redacted) and the last summary.
+    """
+    calls = [c for c in (result.get("tool_calls") or []) if isinstance(c, dict)][-PROGRESS_CALLS:]
+    written: Dict[str, bool] = {}
+    commands: list = []
+    for call in calls:
+        inputs = call.get("inputs") if isinstance(call.get("inputs"), dict) else {}
+        tool = call.get("tool")
+        if tool == "write_file" and inputs.get("path"):
+            written[str(inputs["path"])] = bool(call.get("success"))
+        elif tool == "run_command" and inputs.get("command"):
+            output = call.get("output") if isinstance(call.get("output"), dict) else {}
+            exit_code = output.get("exit_code")
+            outcome = f"exit {exit_code}" if exit_code is not None else ("ok" if call.get("success") else "not run")
+            commands.append(f"- `{str(inputs['command'])[:200]}`: {outcome}")
+    lines = ["PROGRESS FROM EARLIER ROUNDS OF THIS SAME MISSION (your own work; it is on disk):"]
+    if written:
+        lines.append("Files written:")
+        lines += [f"- {path}{'' if ok else ' (write failed)'}" for path, ok in written.items()]
+    if commands:
+        lines.append("Commands run (latest last):")
+        lines += commands[-80:]
+    summary = str(result.get("response") or "").strip()
+    if summary:
+        lines.append("Last round's summary:")
+        lines.append(summary[:3000])
+    if len(lines) == 1:
+        return ""
+    lines.append("Continue from here: check what is still missing against the mission, do it, verify it, "
+                 "and call finish. Do not redo finished work and do not stop just because this is a new round.")
+    note = "\n".join(lines)
+    return note if len(note) <= PROGRESS_CHARS else note[:PROGRESS_CHARS - 40] + "\n(earlier entries omitted)"
 
 
 def continuation_count(task: Task) -> int:
@@ -54,9 +95,12 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
     await db.flush()
 
     runtime = ToolRuntime(db, task.workspace_id, task.id, operator=operator)
-    executor = AgentExecutor(runtime, getattr(settings, "DEFAULT_MODEL", "claude-sonnet-4-6"), root)
-    result = await executor.run(mission, steps_per_round=8, max_continuations=max_cont,
-                                start_continuation=prior)
+    # The same model that started the mission continues it.
+    model = res.get("model") or getattr(settings, "DEFAULT_MODEL", "claude-sonnet-4-6")
+    executor = AgentExecutor(runtime, model, root)
+    note = progress_note(res)
+    result = await executor.run(f"{mission}\n\n{note}" if note else mission, steps_per_round=8,
+                                max_continuations=max_cont, start_continuation=prior)
 
     if result["needs_continuation"]:
         outcome, reason = lifecycle.NEEDS_CONTINUATION, "Reached the step limit again; checkpoint saved."
