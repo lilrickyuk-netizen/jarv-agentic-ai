@@ -889,7 +889,13 @@ class OrchestratorAgent(AgentBase):
             "",
             "Create a detailed, ordered task plan. Assign each task to the most "
             "appropriate agent from the AVAILABLE AGENTS list. Mark requires_approval "
-            "true for any task that modifies files, deploys, deletes data, or spends money.",
+            "true ONLY for a task that crosses a hard boundary Richard must clear: spending "
+            "money, deleting production data, an irreversible database change, a public live "
+            "release, sending mass email or posting publicly from Richard's accounts, signing or "
+            "sending a binding legal or commercial commitment, entering passwords or payment "
+            "details, or changing account security. Writing and editing files, installing "
+            "packages, building, testing, fixing errors and committing inside the workspace are "
+            "normal work: requires_approval false. Every tool action is still checked when it runs.",
             "",
             "Respond with ONLY a JSON object in exactly this shape (no prose, no markdown):",
             "{",

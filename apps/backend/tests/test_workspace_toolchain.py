@@ -10,7 +10,7 @@ import asyncio
 import shutil
 import subprocess
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -56,6 +56,19 @@ from tests.repo_paths import repo_path
     ("git push origin main", "dangerous"),
     ("git reset --hard", "dangerous"),
     ("pnpm add -g left-pad", "dangerous"),
+    ("pnpm type-check", "build"),
+    ("pnpm format", "build"),
+    ("pnpm run e2e", "build"),
+    ("yarn lint", "build"),
+    ("yarn", "install"),
+    ("yarn publish", "risky"),
+    ("pnpm publish", "risky"),
+    ("pnpm run publish", "risky"),
+    ("npm run deploy", "risky"),
+    ("pnpm run deploy:prod", "risky"),
+    ("pnpm release", "risky"),
+    ("pnpm config set registry x", "risky"),
+    ("pnpm type-check; rm x", "dangerous"),
     ("git clean -fd", "risky"),
     ("git commit -m 'single quotes'", "risky"),
 ])
@@ -146,3 +159,76 @@ def test_tool_home_persists_for_backend_and_worker():
         compose = repo_path(name).read_text()
         assert compose.count("- tool_home:/home/jarv") == 2, name
         assert "\n  tool_home:\n    driver: local\n" in compose, name
+
+
+@pytest.mark.integration
+def test_an_approved_command_runs_exactly_in_its_workspace_folder():
+    """Approving a paused command runs that command in the workspace folder, not a new agent mission."""
+    from sqlalchemy import select
+    from app.core.richard.workflow import COMPLETED, RichardBoundaryWorkflow
+    from app.models.boundary import ResumeAction
+    from app.models.workspace import Workspace
+
+    name = f"approved-{uuid4().hex[:8]}"
+    folder = Path(SANDBOX_CONTAINER_ROOT) / name
+    shutil.rmtree(folder, ignore_errors=True)
+    folder.mkdir(parents=True)
+    host = f"/test_workspaces/{name}"
+    subprocess.run(["git", "init", "-q"], cwd=folder, check=True)
+    (folder / "stray.txt").write_text("left over")
+
+    async def run():
+        async with AsyncTestingSessionLocal() as session:
+            rt = await _runtime(session)
+            workspace = (await session.execute(
+                select(Workspace).where(Workspace.id == rt.workspace_id))).scalar_one()
+            workspace.config = {"root_path": host}
+            await session.commit()
+            paused = await rt.run_command("git clean -n", cwd_host=host)
+            workflow = RichardBoundaryWorkflow(session)
+            await workflow.record_richard_decision(
+                approval_id=UUID(paused["approval_id"]), authenticated_user_id=rt.user_id,
+                approve=True, authority_granted=5, expiry_seconds=3600)
+            resumed = await workflow.resume_mission(checkpoint_id=UUID(paused["checkpoint_id"]),
+                                                    authenticated_user_id=rt.user_id)
+            action = (await session.execute(select(ResumeAction).where(
+                ResumeAction.checkpoint_id == UUID(paused["checkpoint_id"])))).scalar_one()
+            return paused, resumed, action.action_details
+
+    paused, resumed, details = asyncio.run(run())
+    assert paused["requires_approval"] is True and paused["boundary_chain_opened"] is True
+    assert resumed["resumed"] is True and resumed["status"] == COMPLETED, resumed
+    ran = details["ran"][0]
+    assert ran["success"] is True
+    assert ran["output_preview"].startswith("Ran the approved command `git clean -n` (exit 0)")
+    assert "Would remove stray.txt" in ran["output_preview"]
+    assert (folder / "stray.txt").exists()  # git clean -n only lists; nothing was removed
+    shutil.rmtree(folder, ignore_errors=True)
+
+
+@pytest.mark.integration
+def test_an_approved_command_needs_a_workspace_folder():
+    from app.core.richard.workflow import RichardBoundaryWorkflow
+
+    async def run():
+        async with AsyncTestingSessionLocal() as session:
+            rt = await _runtime(session)
+            paused = await rt.run_command("git clean -n")
+            workflow = RichardBoundaryWorkflow(session)
+            await workflow.record_richard_decision(
+                approval_id=UUID(paused["approval_id"]), authenticated_user_id=rt.user_id,
+                approve=True, authority_granted=5, expiry_seconds=3600)
+            return await workflow.resume_mission(checkpoint_id=UUID(paused["checkpoint_id"]),
+                                                 authenticated_user_id=rt.user_id)
+
+    resumed = asyncio.run(run())
+    assert resumed["resumed"] is False
+    assert "no folder" in str(resumed)
+
+
+def test_the_planner_keeps_normal_work_away_from_richard():
+    from app.agents import orchestrator
+
+    source = Path(orchestrator.__file__).read_text()
+    assert "true for any task that modifies files" not in source
+    assert "Writing and editing files, installing" in source
