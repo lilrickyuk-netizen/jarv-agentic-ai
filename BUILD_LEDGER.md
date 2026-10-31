@@ -13082,3 +13082,22 @@ TESTS RUN: PostgreSQL suite (owner run): 737 passed, 1 skipped (one toolchain te
 RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: Richard copies the V3.2 specification into MYCO as MYCO_V3_SPEC.md; JARV rebuilds Phase 0 against V3.2.
+
+---
+
+TASK ID: FIX-MISSION-PAUSE
+TASK NAME: A paused command never stops the mission that is still working
+STATUS: COMPLETE
+PROBLEM: The V3.2 Phase 0 mission asked for approval on "task --version" (version flags were not in the safe list). Opening that approval moved the whole mission to waiting_on_approval while its agent kept working; Richard's approval then ran the command and marked the mission completed; when the agent reached its step limit, its own "needs_continuation" and then "failed" were refused as illegal transitions from completed, so the mission stopped after one round with no report. The Approvals page showed the approval done and nothing else happened.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/backend/app/core/command/tool_runtime.py (pause_task_on_boundary, on by default, passed to the boundary chain)
+- apps/backend/app/core/command/agent_executor.py (a mission's agent loop turns it off: only the blocked action waits)
+- apps/backend/app/core/richard/workflow.py (handle_hard_boundary takes pause_task; when off, the task's status is recorded but not changed)
+- apps/backend/app/core/workspaces/fs_inspector.py (task --version/--list/--list-all, terraform version and helm version are safe)
+- apps/backend/tests/test_workspace_toolchain.py (a paused command and its approved resume leave a running mission running; a paused command outside a mission still pauses its task; version commands are safe)
+COMMANDS RUN: python -m py_compile on the changed files: passed.
+TESTS RUN: PostgreSQL suite (owner run): 740 passed, 2 failed (terraform version was read as containing 'rm '; the approval test read the status after deciding); both fixed, the 83 toolchain tests rerun and passed.
+RESULT: Passed.
+BLOCKERS: None.
+NEXT TASK: Richard reruns the V3.2 Phase 0 mission.

@@ -456,6 +456,8 @@ SAFE_COMMAND_PREFIXES = (
     "git ls-files", "git ls-tree", "git describe", "git check-ignore", "git cat-file",
     "git shortlog", "git blame", "git grep", "git stash list", "git tag -l", "git tag --list",
     "yarn --version", "jq --version", "rg --version", "gcc --version", "make --version",
+    "task --version", "task --list", "task --list-all", "terraform version", "terraform -version",
+    "helm version",
 )
 # Build / test commands — allowed at Level 3 (build & test) inside an approved
 # workspace. These compile/test a project (JARV's core job) but do not delete,
@@ -565,8 +567,11 @@ def classify_command(command: str) -> str:
         return "install"
     terraform = _TERRAFORM_RE.match(c)
     if terraform:
-        return "install" if terraform.group(1) == "init" else "build"
+        # Matched before the destructive-token check: "terraform " itself contains "rm ".
+        return {"init": "install", "version": "safe"}.get(terraform.group(1), "build")
     if _HELM_RE.match(c):
+        if c.startswith("helm version"):
+            return "safe"
         return "install" if c.startswith("helm dependency") else "build"
     task = _TASK_RE.match(c)
     if task and not _RELEASE_SCRIPT_RE.match(f"npm run {task.group(1)}"):

@@ -232,6 +232,13 @@ class RichardBoundaryWorkflow:
             task.failed_at = datetime.utcnow()
         return prior
 
+    async def _task_status(self, task_id: Optional[UUID]) -> Optional[str]:
+        if task_id is None:
+            return None
+        from app.models.task import Task
+
+        return (await self.db.execute(select(Task.status).where(Task.id == task_id))).scalar_one_or_none()
+
     async def _settle_resumed_task(self, task_id: Optional[UUID], status: str) -> Optional[str]:
         """Record a resume's outcome on its task, unless the task's own mission has moved on.
 
@@ -272,6 +279,7 @@ class RichardBoundaryWorkflow:
         input_prompt: Optional[str] = None,
         detection: Optional[Dict[str, Any]] = None,
         request_ttl_seconds: Optional[int] = DEFAULT_APPROVAL_REQUEST_TTL_SECONDS,
+        pause_task: bool = True,
     ) -> Dict[str, Any]:
         """Persist the pause: BoundaryReport + SafeCheckpoint + pending approval.
 
@@ -406,8 +414,11 @@ class RichardBoundaryWorkflow:
 
             # Repair 10: pause ONLY the linked blocked task (unrelated tasks
             # keep running); remember its prior state so resume can restore it.
-            prior_task_status = await self._set_task_status(
-                task_id, TASK_WAITING_ON_APPROVAL)
+            if pause_task:
+                prior_task_status = await self._set_task_status(task_id, TASK_WAITING_ON_APPROVAL)
+            else:
+                # The task's own runner keeps working and owns its status.
+                prior_task_status = await self._task_status(task_id)
 
             # 3) SafeCheckpoint - captures exactly how to resume the blocked action.
             snap = dict(resume_snapshot or {})

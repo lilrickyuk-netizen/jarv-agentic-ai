@@ -105,6 +105,9 @@ class ToolRuntime:
         # Folder a paused command was to run in, kept with its checkpoint so the approved
         # command runs in the same folder (a mission's folder is not always its workspace's).
         self._command_cwd: Optional[str] = None
+        # Whether opening a boundary pauses this runtime's task. A mission's agent loop turns
+        # this off: only the blocked action waits, the mission keeps going.
+        self.pause_task_on_boundary = True
         self.calls: List[Dict[str, Any]] = []
 
     # ----- recording -----
@@ -362,6 +365,7 @@ class ToolRuntime:
                 task_id=self.task_id,
                 resume_snapshot=snapshot,
                 detection=decision.audit_metadata.get("detection") or {},
+                pause_task=self.pause_task_on_boundary,
             )
             if res.get("status") == "needs_operator_review":
                 return {"boundary_chain_opened": False,
