@@ -13013,3 +13013,19 @@ TESTS RUN: PostgreSQL suite (owner run): 709 passed, 1 skipped.
 RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: Richard sends the Phase 0 mission report.
+
+---
+
+TASK ID: FIX-MISSION-ROUTING
+TASK NAME: A written mission goes to the agents whole
+STATUS: COMPLETE
+PROBLEM: The "finish MYCO Phase 0" mission named "pnpm install" in its second step. The keyword router sent the whole mission to the package-install shortcut, which guessed "npm run typecheck" from the word "type-check", ran it, and reported the mission failed ("Missing script: typecheck") without doing any of its steps.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/backend/app/core/command/service.py (a request introduced as a mission, or set out in two or more numbered steps, is an agent_task before any one-step handler is considered)
+- apps/backend/tests/test_voice_live_and_mission_session.py (four mission forms go to the agents; one-step install, research and scan requests keep their handlers)
+COMMANDS RUN: Mission detection evaluated on the failing mission and on one-step requests: as expected. python -m py_compile on the changed files: passed.
+TESTS RUN: PostgreSQL suite (owner run): 716 passed, 1 skipped.
+RESULT: Passed.
+BLOCKERS: None.
+NEXT TASK: Richard reruns the finishing Phase 0 mission.

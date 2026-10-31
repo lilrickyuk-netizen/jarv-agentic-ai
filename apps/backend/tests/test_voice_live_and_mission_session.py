@@ -399,3 +399,32 @@ def test_mission_file_paths_resolve_inside_the_workspace_folder(given, expected)
     executor = object.__new__(AgentExecutor)
     executor.workspace_root = r"C:\Users\lilri\OneDrive\Desktop\MYCO"
     assert executor._host(given) == expected
+
+
+# ----- a written mission goes to the agents whole ---------------------------------------------------
+
+@pytest.mark.parametrize("request_text", [
+    "Start a mission in the MYCO workspace: finish MYCO Phase 0. 1) Make sure .gitignore excludes node_modules. "
+    "2) Run pnpm install --frozen-lockfile, pnpm lint, pnpm type-check and pnpm test. 3) Commit. Do not push.",
+    "Mission: research the market and draft the onboarding email for MYCO.",
+    "Please begin a mission: run pnpm install in MYCO and report.",
+    "In MYCO: 1. pnpm install 2. pnpm build 3. report the result",
+])
+def test_a_written_mission_goes_to_the_agents_whole(request_text):
+    """The finishing Phase 0 mission named "pnpm install" in its second step, so the whole mission went to the
+    package-install shortcut, which ran a guessed "npm run typecheck" and failed. A mission introduced as one, or
+    set out in numbered steps, now goes to the agents, which carry out every step."""
+    from app.core.command.service import CommandService
+
+    assert CommandService._detect_intent(request_text) == "agent_task"
+
+
+@pytest.mark.parametrize("request_text, intent", [
+    ("npm install in C:\\Users\\lilri\\Projects\\MYCO", "package_install"),
+    ("research the npm package left-pad", "research"),
+    ("scan the workspace", "scan_workspace"),
+])
+def test_one_step_requests_keep_their_handlers(request_text, intent):
+    from app.core.command.service import CommandService
+
+    assert CommandService._detect_intent(request_text) == intent
