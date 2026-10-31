@@ -13118,3 +13118,26 @@ TESTS RUN: PostgreSQL suite (owner run): 744 passed, 1 skipped.
 RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: Richard resumes the V3.2 Phase 0 mission.
+
+---
+
+TASK ID: FIX-MISSION-RESUME
+TASK NAME: Long missions keep going; resuming carries on the same mission on the worker; the dashboard shows a running mission when you come back
+STATUS: IN_PROGRESS
+PROBLEM: The V3.2 Phase 0 continuation mission ran two rounds (four minutes) and stopped at needs_continuation: the automatic-continuation cap (6) was compared with continuation_count, which also counts the pauses inside each run (13 after one long round). Asked by voice to "resume the mission", JARV started a new mission instead; it went to the specialist agents under MYCO's authority level 2, so git status and pnpm build each needed approval and the agents could not do the work. Resume from the task page ran the next round inside the web request. The Command Center page did not pick up a running mission when Richard came back to it, so missions looked stopped.
+FILES CREATED:
+- apps/dashboard/__tests__/command-page.test.tsx
+FILES MODIFIED:
+- apps/backend/app/core/command/continuation.py (automatic_rounds counts only the runner's own re-queues; queue_resume puts a paused or partial mission back on the worker with a fresh allowance of automatic rounds)
+- apps/backend/app/core/runtime/missions.py (the cap applies to automatic rounds; each re-queue records one)
+- apps/backend/app/api/tasks.py (POST /api/tasks/{id}/resume queues the mission on the worker instead of running it inside the request)
+- apps/backend/app/core/voice/live.py (resume_mission tool: carries on with the latest paused mission, or a given one; JARV is told never to start a new mission to continue an old one)
+- apps/dashboard/src/components/voice-conversation.tsx (a resumed mission is followed and its outcome spoken)
+- apps/dashboard/src/app/dashboard/command/page.tsx (on opening, the page follows the mission that is still pending, queued, running or recovering)
+- apps/backend/tests/test_repair12_mission_runtime.py (the cap ignores in-run pauses; resume queues the same mission with progress kept; a completed mission cannot be resumed; voice resume queues the paused mission and creates none)
+- apps/backend/tests/test_voice_live_and_mission_session.py (the live session offers resume_mission and the instruction)
+COMMANDS RUN: python -m py_compile on the changed backend files: passed. tsc: no errors in the changed dashboard source files.
+TESTS RUN: Owner run of the PostgreSQL suite and the dashboard tests.
+RESULT: Awaiting the owner run.
+BLOCKERS: None.
+NEXT TASK: Richard sets MYCO's authority level and resumes the V3.2 Phase 0 mission.

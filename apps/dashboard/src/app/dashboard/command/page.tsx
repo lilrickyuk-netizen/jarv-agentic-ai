@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api';
-import { cancelMission, MissionResult, retryMission, runMission } from '@/lib/missions';
+import { cancelMission, followMission, MissionResult, retryMission, runMission } from '@/lib/missions';
+
+// A mission in one of these states is still being worked on by JARV's worker.
+const IN_FLIGHT = new Set(['pending', 'queued', 'running', 'recovering']);
 
 type CommandResponse = MissionResult;
 
@@ -30,9 +33,13 @@ export default function CommandPage() {
   const [voiceSupported, setVoiceSupported] = useState(false);
   const recognitionRef = useRef<any>(null);
 
-  const loadHistory = async () => {
+  const loadHistory = async (): Promise<HistoryItem[]> => {
     const res = await apiClient.get<HistoryItem[]>('/api/command/history?limit=15');
-    if (!res.error && res.data) setHistory(res.data);
+    if (!res.error && res.data) {
+      setHistory(res.data);
+      return res.data;
+    }
+    return [];
   };
 
   useEffect(() => {
@@ -40,11 +47,28 @@ export default function CommandPage() {
     apiClient.get<{ provider: string; model: string }>('/api/command/info').then((res) => {
       if (!res.error && res.data) setInfo(res.data);
     });
-    loadHistory();
+    // Missions run in JARV's worker, not in this page: coming back to the page picks up the
+    // mission that is still running and follows it again.
+    const following = new AbortController();
+    loadHistory().then((items) => {
+      const running = items.find((item) => IN_FLIGHT.has(item.status));
+      if (!running || following.signal.aborted) return;
+      setLoading(true);
+      followMission(running.task_id, { onUpdate: setResult, signal: following.signal })
+        .then((mission) => {
+          setResult(mission);
+          loadHistory();
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          if (!following.signal.aborted) setLoading(false);
+        });
+    });
     if (typeof window !== 'undefined') {
       const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       setVoiceSupported(Boolean(SR));
     }
+    return () => following.abort();
   }, []);
 
   const runCommand = async (text: string) => {
