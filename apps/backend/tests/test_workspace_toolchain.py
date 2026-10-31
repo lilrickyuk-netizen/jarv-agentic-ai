@@ -301,3 +301,29 @@ def test_read_only_git_commands_never_need_approval():
     for command in ("git ls-files", "git ls-tree HEAD", "git describe --tags", "git check-ignore dist",
                     "git show HEAD", "git grep SERVICE_NAME", "git blame README.md", "git tag -l"):
         assert classify_command(command) == "safe", command
+
+
+@pytest.mark.integration
+def test_env_templates_are_project_files_and_real_env_files_stay_protected():
+    """Phase 0 asks for .env.example (setting names only); JARV refused to write it as a secret file."""
+    name = f"envtpl-{uuid4().hex[:8]}"
+    folder = Path(SANDBOX_CONTAINER_ROOT) / name
+    shutil.rmtree(folder, ignore_errors=True)
+    folder.mkdir(parents=True)
+    host = f"/test_workspaces/{name}"
+
+    async def run():
+        async with AsyncTestingSessionLocal() as session:
+            rt = await _runtime(session)
+            template = await rt.write_file(f"{host}/.env.example", "DATABASE_URL=\nANTHROPIC_API_KEY=\n")
+            read = await rt.read_file(f"{host}/.env.example")
+            real = await rt.write_file(f"{host}/.env", "DATABASE_URL=\n")
+            leaked = await rt.write_file(f"{host}/.env.sample", "OPENAI_API_KEY=sk-REPAIR10SECRETKEY1234567890\n")
+            return template, read, real, leaked
+
+    template, read, real, leaked = asyncio.run(run())
+    assert template["success"] is True, template
+    assert "ANTHROPIC_API_KEY=" in read["data"]["content"]
+    assert real["success"] is False
+    assert leaked["success"] is False and not (folder / ".env.sample").exists()
+    shutil.rmtree(folder, ignore_errors=True)

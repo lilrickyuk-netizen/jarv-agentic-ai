@@ -350,6 +350,17 @@ def list_dir(host_path: str) -> FsResult:
                     exists=True, is_dir=root.is_dir(), data={"entries": entries})
 
 
+# Templates that list a project's settings by name only (.env.example and the like) are
+# ordinary project files: JARV reads and writes them. Their content still passes the secret
+# check, so a real key written into one is refused like anywhere else.
+_ENV_TEMPLATE_SUFFIXES = (".example", ".sample", ".template", ".dist")
+
+
+def is_env_template(name: str) -> bool:
+    low = (name or "").lower()
+    return ".env" in low and low.endswith(_ENV_TEMPLATE_SUFFIXES)
+
+
 def read_file(host_path: str, max_bytes: int = 20000, offset: int = 0) -> FsResult:
     """
     Real read-only file read (scope + banned enforced). Secret-bearing files
@@ -367,7 +378,8 @@ def read_file(host_path: str, max_bytes: int = 20000, offset: int = 0) -> FsResu
         return FsResult(accessible=False, host_path=host_path,
                         container_path=chk.container_path, reason="Path is a directory, not a file.")
     name = p.name.lower()
-    is_secret = name.startswith(".env") or name.endswith(".env") or "secret" in name or "key" in name
+    is_secret = (name.startswith(".env") or name.endswith(".env") or "secret" in name or "key" in name) \
+        and not is_env_template(name)
     try:
         if is_secret:
             return FsResult(accessible=True, host_path=host_path, container_path=chk.container_path,
@@ -407,7 +419,8 @@ def write_file(host_path: str, content: str, overwrite: bool = False) -> FsResul
                         reason=(f"Path is outside the approved workspace root "
                                 f"({settings.WORKSPACE_HOST_ROOT}); write blocked."))
     name = container.name.lower()
-    if name.startswith(".env") or name.endswith(".env") or "secret" in name or "id_rsa" in name:
+    if (name.startswith(".env") or name.endswith(".env") or "secret" in name or "id_rsa" in name) \
+            and not is_env_template(name):
         return FsResult(accessible=False, host_path=host_path, container_path=str(container),
                         reason="Target is a secret-bearing file; write blocked.")
     try:

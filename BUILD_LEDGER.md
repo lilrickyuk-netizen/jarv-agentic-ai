@@ -13047,3 +13047,20 @@ TESTS RUN: PostgreSQL suite (owner run): 719 passed, 1 skipped.
 RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: Richard reruns the finishing Phase 0 mission.
+
+---
+
+TASK ID: FIX-ENV-TEMPLATES
+TASK NAME: JARV reads and writes .env.example templates
+STATUS: IN_PROGRESS
+PROBLEM: The MYCO Phase 0 mission completed (commit 35bdf34; lint, type-check, build, 4 TypeScript and 2 Python tests, and the 94-section requirements check all pass) but could not create .env.example, which Phase 0 requires: every file whose name starts with .env was treated as secret-bearing, including templates that list setting names only.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/backend/app/core/workspaces/fs_inspector.py (is_env_template: .env files ending .example, .sample, .template or .dist are read and written like other project files; .env and other secret files stay protected)
+- apps/backend/app/core/agents/toolbox.py (file search reads templates)
+- apps/backend/tests/test_workspace_toolchain.py (a names-only .env.example is written and read; .env stays refused; a template holding a real key is refused by the secret check)
+COMMANDS RUN: python -m py_compile on the changed files: passed.
+TESTS RUN: Owner run of the PostgreSQL suite.
+RESULT: Awaiting the owner run.
+BLOCKERS: None.
+NEXT TASK: JARV adds .env.example to MYCO; Richard pushes MYCO to its private GitHub repository.

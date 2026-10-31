@@ -537,7 +537,8 @@ class AgentToolbox:
                     continue
                 path = Path(dirpath) / filename
                 lower = filename.lower()
-                secret = lower.startswith(".env") or lower.endswith(".env") or "secret" in lower or "key" in lower
+                secret = (lower.startswith(".env") or lower.endswith(".env") or "secret" in lower
+                          or "key" in lower) and not fs_inspector.is_env_template(lower)
                 if fs_inspector._is_banned(str(path)) or (needle and secret):
                     continue
                 line_hits: List[str] = []
