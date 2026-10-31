@@ -13029,3 +13029,21 @@ TESTS RUN: Owner run of the PostgreSQL suite.
 RESULT: Awaiting the owner run.
 BLOCKERS: None.
 NEXT TASK: Richard reruns the finishing Phase 0 mission.
+
+---
+
+TASK ID: FIX-APPROVED-COMMAND-FOLDER
+TASK NAME: An approved command runs in the folder it was paused in, and never overwrites its mission
+STATUS: IN_PROGRESS
+PROBLEM: The finishing Phase 0 mission's first command, "git ls-files", needed approval (read-only git commands were not in the safe list). Richard approved it; the resume failed with "the workspace has no folder to run the approved command in", because the mission works in the MYCO folder while its task belongs to another workspace, and the folder was not kept with the checkpoint. The failed resume then marked the whole mission failed although its agents were still working.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/backend/app/core/workspaces/fs_inspector.py (read-only git commands are safe: ls-files, ls-tree, describe, check-ignore, cat-file, shortlog, blame, grep, stash list, tag -l)
+- apps/backend/app/core/command/tool_runtime.py (the folder a paused command was to run in is kept in its checkpoint)
+- apps/backend/app/core/richard/workflow.py (the approved command runs in that folder, falling back to the workspace folder; a resume's outcome is recorded on its task only when no mission owns the task's state: running, completed, partial, needs_continuation, resuming or cancelled are left alone)
+- apps/backend/tests/test_workspace_toolchain.py (approved command runs in the paused folder when the workspace has none; a failed approved command leaves a running mission running; read-only git commands are safe)
+COMMANDS RUN: Classifier cases evaluated: as expected. python -m py_compile on the changed files: passed.
+TESTS RUN: Owner run of the PostgreSQL suite.
+RESULT: Awaiting the owner run.
+BLOCKERS: None.
+NEXT TASK: Richard reruns the finishing Phase 0 mission.

@@ -70,6 +70,8 @@ NEEDS_OPERATOR_REVIEW = "needs_operator_review"
 # "waiting_on_approval" matches the existing task API gate (resume refuses
 # blocked/waiting_on_approval tasks), so the whole system agrees on one value.
 TASK_WAITING_ON_APPROVAL = "waiting_on_approval"
+# Task states a running or finished mission owns (see _settle_resumed_task).
+_MISSION_OWNED_STATES = ("running", "completed", "partial", "needs_continuation", "resuming", "cancelled")
 TASK_REJECTED = "rejected"
 TASK_EXPIRED = "expired"
 
@@ -229,6 +231,22 @@ class RichardBoundaryWorkflow:
         if status == TASK_REJECTED:
             task.failed_at = datetime.utcnow()
         return prior
+
+    async def _settle_resumed_task(self, task_id: Optional[UUID], status: str) -> Optional[str]:
+        """Record a resume's outcome on its task, unless the task's own mission has moved on.
+
+        A mission's agent loop keeps working while one command waits for Richard, and records
+        its own outcome when it ends. The outcome of the single approved command then never
+        overwrites a mission that is running or has finished.
+        """
+        if task_id is None:
+            return None
+        from app.models.task import Task
+
+        current = (await self.db.execute(select(Task.status).where(Task.id == task_id))).scalar_one_or_none()
+        if current in _MISSION_OWNED_STATES:
+            return current
+        return await self._set_task_status(task_id, status)
 
     # ------------------------------------------------------------------ #
     # STEP 3 - hard-boundary interception
@@ -1022,7 +1040,7 @@ class RichardBoundaryWorkflow:
                 sess.ended_at = datetime.utcnow()
             sess.current_step = f"resumed:{mission_status}"
             # Repair 10: clear the linked task's waiting state honestly.
-            await self._set_task_status(
+            await self._settle_resumed_task(
                 approval.task_id or task_uuid,
                 "completed" if mission_status == COMPLETED else mission_status)
         else:
@@ -1036,7 +1054,7 @@ class RichardBoundaryWorkflow:
             sess.status = "active"
             sess.current_step = f"resume_failed_retryable:{blocked_action[:60]}"
             # Repair 10: the linked task failed honestly (retryable from checkpoint).
-            await self._set_task_status(approval.task_id or task_uuid, FAILED)
+            await self._settle_resumed_task(approval.task_id or task_uuid, FAILED)
 
         await self.db.commit()
 
@@ -1109,8 +1127,8 @@ class RichardBoundaryWorkflow:
         if workspace_id is not None:
             workspace = (await self.db.execute(
                 select(Workspace).where(Workspace.id == workspace_id))).scalar_one_or_none()
-        folder = (workspace.config or {}).get("root_path") if workspace is not None and isinstance(
-            workspace.config, dict) else None
+        folder = step.get("cwd") or ((workspace.config or {}).get("root_path") if workspace is not None
+                                     and isinstance(workspace.config, dict) else None)
         if not folder:
             return {"success": False, "output_text": "",
                     "error": "the workspace has no folder to run the approved command in"}

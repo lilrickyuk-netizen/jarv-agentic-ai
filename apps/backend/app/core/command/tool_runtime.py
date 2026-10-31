@@ -102,6 +102,9 @@ class ToolRuntime:
         self.agent_id = agent_id
         self.open_boundary_flows = open_boundary_flows
         self._block_counts: Dict[str, int] = {}
+        # Folder a paused command was to run in, kept with its checkpoint so the approved
+        # command runs in the same folder (a mission's folder is not always its workspace's).
+        self._command_cwd: Optional[str] = None
         self.calls: List[Dict[str, Any]] = []
 
     # ----- recording -----
@@ -332,6 +335,7 @@ class ToolRuntime:
                     "tool": tool,
                     "command": redact_text(command) if command else None,
                     "target_path": path,
+                    "cwd": self._command_cwd if tool == "run_command" else None,
                     "requested_authority_level": int(
                         decision.audit_metadata.get("required_authority") or 0),
                 },
@@ -540,6 +544,7 @@ class ToolRuntime:
         # shell/unknown-executable commands are blocked outright; risky and
         # policy-gated build/install commands pause ONLY this action for
         # approval (opening the real boundary chain when context allows).
+        self._command_cwd = cwd_host if cwd else None
         denied = await self._enforce("run_command", command=command,
                                      allow_build=allow_build,
                                      allow_install=allow_install,
