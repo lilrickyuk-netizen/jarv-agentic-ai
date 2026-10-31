@@ -232,3 +232,72 @@ def test_the_planner_keeps_normal_work_away_from_richard():
     source = Path(orchestrator.__file__).read_text()
     assert "true for any task that modifies files" not in source
     assert "Writing and editing files, installing" in source
+
+
+@pytest.mark.integration
+def test_an_approved_command_runs_in_the_folder_it_was_paused_in():
+    """A mission works in its own folder (MYCO) while its task belongs to another workspace. Approving a paused
+    command ran nothing ("the workspace has no folder"); the folder is now kept with the checkpoint."""
+    from app.core.richard.workflow import COMPLETED, RichardBoundaryWorkflow
+
+    name = f"mission-{uuid4().hex[:8]}"
+    folder = Path(SANDBOX_CONTAINER_ROOT) / name
+    shutil.rmtree(folder, ignore_errors=True)
+    folder.mkdir(parents=True)
+    host = f"/test_workspaces/{name}"
+    subprocess.run(["git", "init", "-q"], cwd=folder, check=True)
+    (folder / "notes.txt").write_text("x")
+
+    async def run():
+        async with AsyncTestingSessionLocal() as session:
+            rt = await _runtime(session)  # its workspace has no folder
+            paused = await rt.run_command("git clean -n", cwd_host=host)
+            workflow = RichardBoundaryWorkflow(session)
+            await workflow.record_richard_decision(
+                approval_id=UUID(paused["approval_id"]), authenticated_user_id=rt.user_id,
+                approve=True, authority_granted=5, expiry_seconds=3600)
+            return await workflow.resume_mission(checkpoint_id=UUID(paused["checkpoint_id"]),
+                                                 authenticated_user_id=rt.user_id)
+
+    resumed = asyncio.run(run())
+    assert resumed["status"] == COMPLETED, resumed
+    assert "Would remove notes.txt" in resumed["ran"][0]["output_preview"]
+    shutil.rmtree(folder, ignore_errors=True)
+
+
+@pytest.mark.integration
+def test_a_failed_approved_command_does_not_overwrite_a_running_mission():
+    from sqlalchemy import select
+    from app.core.richard.workflow import RichardBoundaryWorkflow
+    from app.models.task import Task
+
+    async def run():
+        async with AsyncTestingSessionLocal() as session:
+            rt = await _runtime(session)
+            mission = Task(id=uuid4(), title="Finish MYCO Phase 0", description="d", workspace_id=rt.workspace_id,
+                           status="pending", priority=5, task_type="agent_task")
+            session.add(mission)
+            await session.commit()
+            rt.task_id = mission.id
+            paused = await rt.run_command("git clean -n")  # no folder anywhere: the approved run fails
+            row = (await session.execute(select(Task).where(Task.id == mission.id))).scalar_one()
+            row.status = "running"  # the mission's agent loop carried on and is still working
+            await session.commit()
+            workflow = RichardBoundaryWorkflow(session)
+            await workflow.record_richard_decision(
+                approval_id=UUID(paused["approval_id"]), authenticated_user_id=rt.user_id,
+                approve=True, authority_granted=5, expiry_seconds=3600)
+            resumed = await workflow.resume_mission(checkpoint_id=UUID(paused["checkpoint_id"]),
+                                                    authenticated_user_id=rt.user_id)
+            status = (await session.execute(select(Task.status).where(Task.id == mission.id))).scalar_one()
+            return resumed, status
+
+    resumed, status = asyncio.run(run())
+    assert resumed["resumed"] is False
+    assert status == "running"
+
+
+def test_read_only_git_commands_never_need_approval():
+    for command in ("git ls-files", "git ls-tree HEAD", "git describe --tags", "git check-ignore dist",
+                    "git show HEAD", "git grep SERVICE_NAME", "git blame README.md", "git tag -l"):
+        assert classify_command(command) == "safe", command

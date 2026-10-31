@@ -440,6 +440,8 @@ SAFE_COMMAND_PREFIXES = (
     "npm ls", "npm list", "pip list", "pip --version", "echo", "whoami", "date",
     "pnpm --version", "pnpm ls", "pnpm list", "npx --version", "uv --version", "uv python list",
     "uv tree", "uv tool list", "git --version", "git show", "git rev-parse",
+    "git ls-files", "git ls-tree", "git describe", "git check-ignore", "git cat-file",
+    "git shortlog", "git blame", "git grep", "git stash list", "git tag -l", "git tag --list",
     "yarn --version", "jq --version", "rg --version", "gcc --version", "make --version",
 )
 # Build / test commands — allowed at Level 3 (build & test) inside an approved
