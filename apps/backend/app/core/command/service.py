@@ -788,6 +788,13 @@ class CommandService:
         """Classify a command into a real specialized handler, or None (generic)."""
         text = command_text.lower()
         has_path = bool(_PATH_RE.search(command_text))
+        # A written mission (introduced as one, or set out in numbered steps) is work for the
+        # agents. A keyword inside one of its steps ("run pnpm install", "research", "draft")
+        # must not hand the whole mission to a one-step handler.
+        if (re.match(r"\s*(please\s+)?(start|begin|run|new)\s+(a\s+|the\s+|this\s+)?mission\b", text)
+                or re.match(r"\s*mission\s*:", text)
+                or len(re.findall(r"(?:^|\s)\d{1,2}[).]\s", command_text)) >= 2):
+            return "agent_task"
         # Self-completion: map Design.md to code and report gaps honestly.
         if re.search(r"\b(self[- ]complet|finish your own|map design to code|"
                      r"audit your (own )?implementation|design to code|gap map|complete your build)\b", text):
