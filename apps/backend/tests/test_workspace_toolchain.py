@@ -69,6 +69,9 @@ from tests.repo_paths import repo_path
     ("pnpm release", "risky"),
     ("pnpm config set registry x", "risky"),
     ("pnpm type-check; rm x", "dangerous"),
+    ("task --version", "safe"),
+    ("task --list", "safe"),
+    ("terraform version", "safe"),
     ("task verify", "build"),
     ("task format", "build"),
     ("task test:unit", "build"),
@@ -351,3 +354,65 @@ def test_env_templates_are_project_files_and_real_env_files_stay_protected():
     assert real["success"] is False
     assert leaked["success"] is False and not (folder / ".env.sample").exists()
     shutil.rmtree(folder, ignore_errors=True)
+
+
+@pytest.mark.integration
+def test_a_paused_command_leaves_its_running_mission_running():
+    """The V3.2 Phase 0 mission paused "task --version" for approval; that put the whole mission into
+    waiting_on_approval while its agent kept working, the approval then marked it completed, and the agent's
+    own end ("needs_continuation") was refused as an illegal transition, so the mission stopped after one round.
+    A mission's agent loop now pauses only the blocked action."""
+    from sqlalchemy import select
+    from app.core.command.agent_executor import AgentExecutor
+    from app.core.richard.workflow import RichardBoundaryWorkflow
+    from app.models.boundary import BoundaryApproval
+    from app.models.task import Task
+
+    async def run():
+        async with AsyncTestingSessionLocal() as session:
+            rt = await _runtime(session)
+            mission = Task(id=uuid4(), title="Rebuild MYCO Phase 0", description="d", workspace_id=rt.workspace_id,
+                           status="running", priority=5, task_type="command")
+            session.add(mission)
+            await session.commit()
+            rt.task_id = mission.id
+            AgentExecutor(rt, "test-model", None)  # the mission's agent loop takes the runtime
+            paused = await rt.run_command("git clean -n")
+            approval = (await session.execute(select(BoundaryApproval).where(
+                BoundaryApproval.id == UUID(paused["approval_id"])))).scalar_one()
+            status_while_waiting = (await session.execute(
+                select(Task.status).where(Task.id == mission.id))).scalar_one()
+            workflow = RichardBoundaryWorkflow(session)
+            await workflow.record_richard_decision(approval_id=approval.id, authenticated_user_id=rt.user_id,
+                                                   approve=True, authority_granted=5, expiry_seconds=3600)
+            await workflow.resume_mission(checkpoint_id=UUID(paused["checkpoint_id"]),
+                                          authenticated_user_id=rt.user_id)
+            status_after_resume = (await session.execute(
+                select(Task.status).where(Task.id == mission.id))).scalar_one()
+            return rt.pause_task_on_boundary, paused, approval.status, status_while_waiting, status_after_resume
+
+    pause, paused, approval_status, while_waiting, after_resume = asyncio.run(run())
+    assert pause is False
+    assert paused["requires_approval"] is True and paused["boundary_chain_opened"] is True
+    assert approval_status == "pending"
+    assert while_waiting == "running"
+    assert after_resume == "running"
+
+
+@pytest.mark.integration
+def test_a_paused_command_outside_a_mission_still_pauses_its_task():
+    from sqlalchemy import select
+    from app.models.task import Task
+
+    async def run():
+        async with AsyncTestingSessionLocal() as session:
+            rt = await _runtime(session)
+            task = Task(id=uuid4(), title="One command", description="d", workspace_id=rt.workspace_id,
+                        status="running", priority=5, task_type="command")
+            session.add(task)
+            await session.commit()
+            rt.task_id = task.id
+            await rt.run_command("git clean -n")
+            return (await session.execute(select(Task.status).where(Task.id == task.id))).scalar_one()
+
+    assert asyncio.run(run()) == "waiting_on_approval"

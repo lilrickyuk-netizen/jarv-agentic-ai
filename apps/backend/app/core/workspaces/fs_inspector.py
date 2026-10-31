@@ -456,6 +456,8 @@ SAFE_COMMAND_PREFIXES = (
     "git ls-files", "git ls-tree", "git describe", "git check-ignore", "git cat-file",
     "git shortlog", "git blame", "git grep", "git stash list", "git tag -l", "git tag --list",
     "yarn --version", "jq --version", "rg --version", "gcc --version", "make --version",
+    "task --version", "task --list", "task --list-all", "terraform version", "terraform -version",
+    "helm version",
 )
 # Build / test commands — allowed at Level 3 (build & test) inside an approved
 # workspace. These compile/test a project (JARV's core job) but do not delete,

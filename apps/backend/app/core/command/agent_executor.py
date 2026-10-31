@@ -102,6 +102,10 @@ class AgentExecutor:
 
     def __init__(self, runtime, model: str, workspace_root: Optional[str]):
         self.runtime = runtime
+        # The agent keeps working while one of its commands waits for Richard, so a paused
+        # command must not put the whole mission into waiting_on_approval: the mission owns its
+        # own status and records its outcome when it ends.
+        self.runtime.pause_task_on_boundary = False
         self.model = model
         self.workspace_root = workspace_root
         self.iterations = 0
