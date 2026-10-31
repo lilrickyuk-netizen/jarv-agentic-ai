@@ -497,6 +497,13 @@ _PACKAGE_MANAGER_COMMANDS = frozenset((
 ))
 _RELEASE_SCRIPT_RE = re.compile(
     r"^(npm|pnpm|yarn)(?: run)? (pre|post)?(publish|unpublish|deploy|release)(?:[:.-][a-z0-9:_.-]*)?(?: |$)")
+# Taskfile targets run by name ("task verify", "task test:unit", "task phase -- 0").
+_TASK_RE = re.compile(r"^task ([a-z0-9][a-z0-9:_.-]{0,80})(?: -- [a-z0-9_.:-]{1,40})?$")
+# Infrastructure tools: checking, formatting and planning are build work; anything that changes
+# real infrastructure (apply, destroy, import, state, install, upgrade) is Richard's decision.
+_TERRAFORM_RE = re.compile(
+    r"^terraform(?: -chdir=[a-z0-9_./-]{1,200})? (fmt|validate|version|providers|show|graph|output|plan|init|test)(?: |$)")
+_HELM_RE = re.compile(r"^helm (lint|template|version|show|dependency (?:build|update|list)|env)(?: |$)")
 _GIT_COMMIT_RE = re.compile(r'^git commit(?: -a)? -m "([^"`$\\;&|<>\n]{1,500})"$')
 
 # Trusted project package-manager install commands (project-local). Allowed to
@@ -556,6 +563,14 @@ def classify_command(command: str) -> str:
         return "build"
     if c == "yarn":
         return "install"
+    terraform = _TERRAFORM_RE.match(c)
+    if terraform:
+        return "install" if terraform.group(1) == "init" else "build"
+    if _HELM_RE.match(c):
+        return "install" if c.startswith("helm dependency") else "build"
+    task = _TASK_RE.match(c)
+    if task and not _RELEASE_SCRIPT_RE.match(f"npm run {task.group(1)}"):
+        return "build"
     # Scripts whose job is to publish or release are Richard's decision, whatever runs them.
     if _RELEASE_SCRIPT_RE.match(c):
         return "risky"

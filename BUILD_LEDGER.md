@@ -13064,3 +13064,21 @@ TESTS RUN: Owner run of the PostgreSQL suite.
 RESULT: Awaiting the owner run.
 BLOCKERS: None.
 NEXT TASK: JARV adds .env.example to MYCO; Richard pushes MYCO to its private GitHub repository.
+
+---
+
+TASK ID: FIX-V32-TOOLCHAIN
+TASK NAME: JARV's toolchain matches MYCO V3.2
+STATUS: IN_PROGRESS
+PROBLEM: Richard confirmed MYCO V3.2 (supersedes V3.0) as the locked design. Its Phase 0 pins Node 24.21.0, Python 3.14.7, pnpm 12.5.1 (through the packageManager field), uv 0.12.17, Task 3.52.0 (Taskfile.yml root commands such as task verify and task scale:status), Terraform 1.16.3 and Helm 4.3.0 (dormant-region modules). JARV's worker had Node 22, pnpm 10 installed globally, uv 0.8 and Python up to 3.13, and no Task, Terraform or Helm; task, terraform and helm commands all needed approval.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/backend/Dockerfile (NODE_IMAGE node:24.21.0-bookworm-slim and UV_IMAGE ghcr.io/astral-sh/uv:0.12.17 as build arguments; Corepack shims for pnpm and yarn, so each project gets the version its packageManager field pins, cached in the tool home; Python 3.12, 3.13 and 3.14; Task, Terraform and Helm from their official release downloads, each checked against its published SHA-256 checksum)
+- apps/backend/app/core/workspaces/fs_inspector.py (Taskfile targets by name, with one plain argument after --, are build commands, except release, publish and deploy targets; terraform fmt, validate, plan, show and test are build commands and init is an install; helm lint, template and show are build commands and dependency build/update an install; terraform apply/destroy and helm install/upgrade stay blocked or need approval)
+- apps/backend/app/core/command/agent_executor.py (the agents' tool list)
+- apps/backend/tests/test_workspace_toolchain.py (17 classifier cases; the image carries the V3.2 toolchain with checksum-verified downloads)
+COMMANDS RUN: Classifier cases evaluated: as expected. python -m py_compile on the changed files: passed.
+TESTS RUN: Owner run of the PostgreSQL suite; image rebuild and tool version check.
+RESULT: Awaiting the owner run.
+BLOCKERS: None.
+NEXT TASK: Richard copies the V3.2 specification into MYCO as MYCO_V3_SPEC.md; JARV rebuilds Phase 0 against V3.2.

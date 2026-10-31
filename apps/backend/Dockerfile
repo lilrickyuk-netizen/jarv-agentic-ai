@@ -1,3 +1,8 @@
+# Toolchain images copied into the runtime stage (declared before the first FROM so they can be
+# used there): Node 24 LTS and uv 0.12, per MYCO V3.2 §40.
+ARG NODE_IMAGE=node:24.21.0-bookworm-slim
+ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.17
+
 # Multi-stage build for optimized production image
 FROM python:3.11-slim AS builder
 
@@ -54,8 +59,10 @@ CMD ["python", "-m", "pytest"]
 
 
 # Toolchains JARV's agents use to build projects in a workspace (copied into the runtime image).
-FROM node:22-bookworm-slim AS node
-FROM ghcr.io/astral-sh/uv:0.8 AS uv
+# Versions follow the most demanding project JARV builds (MYCO V3.2 §40): Node 24 LTS, uv 0.12,
+# Task 3.52, Terraform 1.16, Helm 4.3. Change them here, in one place.
+FROM ${NODE_IMAGE} AS node
+FROM ${UV_IMAGE} AS uv
 
 # Production stage
 FROM python:3.11-slim
@@ -66,10 +73,15 @@ WORKDIR /app
 
 # Install runtime dependencies + the toolchain JARV's autonomous agent loop
 # needs to build/test real projects from the workspace: git (init/status/diff/commit),
-# Node.js 22 LTS with npm, pnpm and yarn (JS/TS projects), uv with Python 3.12 and 3.13
-# (Python projects), a C/C++ compiler and make (native packages), jq, unzip and ripgrep.
+# Node.js 24 LTS with npm and Corepack (each project's pnpm or yarn version, from its
+# packageManager field), uv with Python 3.12 to 3.14 (Python projects; uv fetches any exact
+# version a project pins), Task (Taskfile.yml), Terraform and Helm (infrastructure modules),
+# a C/C++ compiler and make (native packages), jq, unzip and ripgrep.
 # Anything else a project needs, JARV installs itself from the official registries into its
 # tool home (/home/jarv, a persistent volume): uv tool install, uv python install, pnpm, npm.
+ARG TASK_VERSION=3.52.0
+ARG TERRAFORM_VERSION=1.16.3
+ARG HELM_VERSION=4.3.0
 RUN apt-get update && apt-get install -y \
     curl \
     git \
@@ -84,13 +96,32 @@ COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
 RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
-    && npm install -g pnpm@10 yarn@1 \
+    && ln -s ../lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack \
+    && corepack enable --install-directory /usr/local/bin pnpm yarn \
     && npm cache clean --force
+# Task, Terraform and Helm from their official release downloads, checked against the published
+# checksums before installing.
+RUN set -eu; cd /tmp \
+    && curl -fsSLO "https://github.com/go-task/task/releases/download/v${TASK_VERSION}/task_linux_amd64.tar.gz" \
+    && curl -fsSLO "https://github.com/go-task/task/releases/download/v${TASK_VERSION}/task_checksums.txt" \
+    && grep " task_linux_amd64.tar.gz$" task_checksums.txt | sha256sum -c - \
+    && tar -xzf task_linux_amd64.tar.gz -C /usr/local/bin task \
+    && curl -fsSLO "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
+    && curl -fsSLO "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_SHA256SUMS" \
+    && grep " terraform_${TERRAFORM_VERSION}_linux_amd64.zip$" "terraform_${TERRAFORM_VERSION}_SHA256SUMS" | sha256sum -c - \
+    && unzip -o -q "terraform_${TERRAFORM_VERSION}_linux_amd64.zip" terraform -d /usr/local/bin \
+    && curl -fsSLO "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" \
+    && curl -fsSLO "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz.sha256sum" \
+    && sha256sum -c "helm-v${HELM_VERSION}-linux-amd64.tar.gz.sha256sum" \
+    && tar -xzf "helm-v${HELM_VERSION}-linux-amd64.tar.gz" --strip-components=1 -C /usr/local/bin linux-amd64/helm \
+    && rm -rf /tmp/*
 COPY --from=uv /uv /uvx /usr/local/bin/
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python \
     UV_LINK_MODE=copy \
-    npm_config_package_import_method=copy
-RUN uv python install 3.12 3.13 && chmod -R a+rX /opt/uv-python
+    npm_config_package_import_method=copy \
+    COREPACK_HOME=/home/jarv/.cache/corepack \
+    COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN uv python install 3.12 3.13 3.14 && chmod -R a+rX /opt/uv-python
 
 # PostgreSQL 17 client tools from the PostgreSQL project's apt repository.
 # pg_dump must be at least as new as the server it backs up; 17 covers every
