@@ -284,7 +284,8 @@ def test_voice_carries_on_with_the_paused_mission_instead_of_starting_a_new_one(
 
     async def run():
         async with AsyncTestingSessionLocal() as db:
-            paused = await _mission(db, test_workspace.id, "needs_continuation", result={"mission": "Phase 0"})
+            paused = await _mission(db, test_workspace.id, "needs_continuation",
+                                    result={"mission": "Phase 0", "workspace_path": "/test_workspaces/myco"})
             before = (await db.execute(select(Task.id))).scalars().all()
             output = await run_tool(db, test_user.id, "resume_mission", {})
             after = (await db.execute(select(Task.id))).scalars().all()
@@ -406,3 +407,65 @@ def test_richard_approval_resumes_the_paused_mission_automatically(client, monke
 
     again = client.post(f"/api/richard/reports/{res['boundary_report_id']}/resume")
     assert again.status_code == 200 and again.json().get("idempotent") is True
+
+
+@pytest.mark.integration
+def test_missions_show_their_folder_and_can_be_closed_and_archived(client, test_user, test_workspace, monkeypatch):
+    """A stray partial mission could not be closed or hidden, and the dashboard could not tell missions apart.
+    Every mission now shows its folder; a partial one can be closed; any mission that is not running can be
+    archived (hidden from the list, never deleted) and brought back."""
+    monkeypatch.setenv("MISSION_EXECUTION_MODE", "deferred")
+
+    async def seed():
+        async with AsyncTestingSessionLocal() as db:
+            real = await _mission(db, test_workspace.id, "partial",
+                                  result={"workspace_path": "C:\\\\Users\\\\lilri\\\\Projects\\\\MYCO", "response": "Phase 0"})
+            stray = await _mission(db, test_workspace.id, "partial", result={"response": "no folder"})
+            running = await _mission(db, test_workspace.id, "running")
+            paused = await _mission(db, test_workspace.id, "needs_continuation", result={"workspace_path": "/w"})
+            return real, stray, running, paused
+
+    real, stray, running, paused = _run(seed())
+    app.dependency_overrides[get_current_user_id] = lambda: str(test_user.id)
+    view = client.get(f"/api/command/tasks/{real}").json()
+    assert view["folder"].endswith("MYCO") and view["resumable"] is True and view["archived"] is False
+    history = {h["task_id"]: h for h in client.get("/api/command/history").json()}
+    assert history[str(real)]["folder"].endswith("MYCO") and history[str(stray)]["folder"] is None
+
+    closed = client.post(f"/api/command/tasks/{stray}/cancel")
+    assert closed.status_code == 200 and closed.json()["status"] == "cancelled"
+    archived = client.post(f"/api/command/tasks/{stray}/archive")
+    assert archived.status_code == 200 and archived.json()["archived"] is True
+    assert str(stray) not in {h["task_id"] for h in client.get("/api/command/history").json()}
+    assert str(stray) in {h["task_id"] for h in client.get("/api/command/history?include_archived=true").json()}
+    assert client.post(f"/api/command/tasks/{running}/archive").status_code == 409
+
+    parked = client.post(f"/api/command/tasks/{paused}/archive").json()
+    assert parked["archived"] is True and parked["status"] == "cancelled"  # never continued again
+    assert client.post(f"/api/tasks/{paused}/resume").status_code == 400
+
+    restored = client.post(f"/api/command/tasks/{stray}/unarchive").json()
+    assert restored["archived"] is False
+
+
+@pytest.mark.integration
+def test_voice_resumes_and_reports_the_mission_that_has_a_folder(test_user, test_workspace, monkeypatch):
+    """Voice resumed the newest paused mission, a stray one with no folder, again and again. It now resumes
+    the mission that works in a folder, and get_mission reads the report that missions store."""
+    from app.core.voice.live import run_tool
+
+    monkeypatch.setenv("MISSION_EXECUTION_MODE", "deferred")
+
+    async def run():
+        async with AsyncTestingSessionLocal() as db:
+            real = await _mission(db, test_workspace.id, "partial",
+                                  result={"workspace_path": "C:\\\\Users\\\\lilri\\\\Projects\\\\MYCO",
+                                          "response": "Phase 0 committed as f0a60a1."})
+            report = await run_tool(db, test_user.id, "get_mission", {"task_id": str(real)})
+            await _mission(db, test_workspace.id, "partial", result={"response": "no folder"})  # newer stray
+            resumed = await run_tool(db, test_user.id, "resume_mission", {})
+            return real, report, resumed
+
+    real, report, resumed = _run(run())
+    assert report["result"] == "Phase 0 committed as f0a60a1." and report["folder"].endswith("MYCO")
+    assert resumed["resumed"] is True and resumed["task_id"] == str(real)

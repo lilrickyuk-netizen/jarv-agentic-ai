@@ -13141,3 +13141,25 @@ TESTS RUN: PostgreSQL suite (owner run): 746 passed, 1 skipped. Dashboard (owner
 RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: Richard sets MYCO's authority level and resumes the V3.2 Phase 0 mission.
+
+---
+
+TASK ID: FIX-MISSION-UI
+TASK NAME: The dashboard and voice show and act on the right mission; any mission can be closed or archived
+STATUS: IN_PROGRESS
+PROBLEM: On the night of the V3.2 Phase 0 run the dashboard and voice reported the wrong mission: a stray mission voice had created (no folder, partial, "2 of 8 delegated steps failed") was newer than the real Phase 0 mission, so it was shown and resumed again and again while the real mission worked in the background. A partial mission could not be closed or hidden, and nothing on screen said which mission was which. Voice's get_mission also read the report from keys missions never write ("response_text", "output", "summary" instead of "response"), so it could not say what a mission had done.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/backend/app/core/runtime/lifecycle.py (a partial mission can be cancelled)
+- apps/backend/app/api/command.py (mission and history views carry folder, archived and resumable; POST /api/command/tasks/{id}/archive and /unarchive: archive hides a mission that is not running, cancelling it first if it paused at a step limit, and deletes nothing; history leaves archived missions out unless include_archived=true)
+- apps/backend/app/core/command/continuation.py (an archived mission is never resumed)
+- apps/backend/app/core/voice/live.py (resume_mission picks a mission that has a folder and is not archived, step-limited before partial; get_mission without an id reports the mission still being worked on, otherwise the latest one not archived, with its folder and its stored report)
+- apps/dashboard/src/lib/missions.ts (archiveMission, resumeMission)
+- apps/dashboard/src/app/dashboard/command/page.tsx (each mission shows its id and folder; any mission in the list opens and is followed; Carry on, Close, Archive and Unarchive; Show archived; one mission followed at a time)
+- apps/backend/tests/test_repair12_mission_runtime.py (folder, close, archive and unarchive through the API; a running mission cannot be archived; an archived step-limited mission is cancelled and cannot be resumed; voice resumes the mission with a folder over a newer stray one and reports the stored result)
+- apps/dashboard/__tests__/command-page.test.tsx (mission identity shown; any mission opens; Close and Archive post to the API; Unarchive offered)
+COMMANDS RUN: python -m py_compile on the changed backend files: passed.
+TESTS RUN: Owner run of the PostgreSQL suite and the dashboard tests.
+RESULT: Awaiting the owner run.
+BLOCKERS: None.
+NEXT TASK: The root causes behind the night's failures (one mission engine with every tool, command policy that parses commands, independent verification before completion, token-efficient long missions); then the Phase 0 correction mission.

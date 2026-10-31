@@ -103,6 +103,8 @@ async def queue_resume(db: AsyncSession, task: Task, *, operator: str, reason: s
     status = lifecycle.normalise(task.status)
     if status not in RESUMABLE:
         raise ValueError(f"Task status '{status}' is not resumable.")
+    if (task.meta_data or {}).get("archived_at"):
+        raise ValueError("This mission is archived; unarchive it before resuming.")
     lifecycle.transition(task, lifecycle.QUEUED, reason=reason, actor=operator)
     task.result = {**(task.result if isinstance(task.result, dict) else {}), "auto_rounds": 0}
     task.meta_data = {**(task.meta_data or {}), "resume_mode": "continuation", "operator": operator}

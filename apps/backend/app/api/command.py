@@ -66,6 +66,9 @@ class MissionEvent(BaseModel):
 
 class MissionStatusResponse(CommandResponse):
     workspace_id: str
+    folder: Optional[str] = None
+    archived: bool = False
+    resumable: bool = False
     created_at: Optional[str] = None
     started_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -84,6 +87,17 @@ class CommandHistoryItem(BaseModel):
     created_at: str
     completed_at: Optional[str]
     error: Optional[str]
+    folder: Optional[str] = None
+    archived: bool = False
+
+
+def _folder(task: Task) -> Optional[str]:
+    res = task.result if isinstance(task.result, dict) else {}
+    return res.get("workspace_path") or None
+
+
+def _archived(task: Task) -> bool:
+    return bool((task.meta_data or {}).get("archived_at"))
 
 
 def _iso(value) -> Optional[str]:
@@ -124,7 +138,9 @@ def _mission_view(task: Task, events: List[LiveOperationsFeedItem]) -> MissionSt
         error=task.error_message if status in (lifecycle.FAILED, lifecycle.PARTIAL) else None,
         finished=status in lifecycle.TERMINAL or status in (lifecycle.BLOCKED, lifecycle.WAITING_ON_APPROVAL),
         dispatch_mode=meta.get("dispatch_mode"),
-        workspace_id=str(task.workspace_id), created_at=_iso(task.created_at),
+        workspace_id=str(task.workspace_id), folder=_folder(task), archived=_archived(task),
+        resumable=status in (lifecycle.NEEDS_CONTINUATION, lifecycle.PARTIAL) and not _archived(task),
+        created_at=_iso(task.created_at),
         started_at=_iso(task.started_at), updated_at=_iso(task.updated_at),
         heartbeat_at=_iso(task.heartbeat_at), attempts=int(task.retry_count or 0) + 1,
         status_history=list(meta.get("status_history") or []),
@@ -194,6 +210,36 @@ async def cancel_command(
     return _mission_view(task, await _events(db, task.id))
 
 
+@router.post("/tasks/{task_id}/archive", response_model=MissionStatusResponse)
+async def archive_command(
+    task_id: UUID, operator: CurrentUserId, db: AsyncSession = Depends(get_db),
+) -> MissionStatusResponse:
+    """Hide a mission that is no longer running from the mission list (nothing is deleted)."""
+    task = await _owned_task(db, operator, task_id)
+    status = lifecycle.normalise(task.status)
+    if status in lifecycle.IN_FLIGHT and status != lifecycle.NEEDS_CONTINUATION:
+        raise HTTPException(status_code=409, detail=f"Mission is {status}; cancel it before archiving")
+    if status == lifecycle.NEEDS_CONTINUATION:
+        # An archived mission must never be continued automatically.
+        lifecycle.transition(task, lifecycle.CANCELLED, actor=str(operator), reason="archived by operator")
+    from datetime import datetime, timezone
+
+    task.meta_data = {**(task.meta_data or {}), "archived_at": datetime.now(timezone.utc).isoformat(),
+                      "archived_by": str(operator)}
+    await db.commit()
+    return _mission_view(task, await _events(db, task.id))
+
+
+@router.post("/tasks/{task_id}/unarchive", response_model=MissionStatusResponse)
+async def unarchive_command(
+    task_id: UUID, operator: CurrentUserId, db: AsyncSession = Depends(get_db),
+) -> MissionStatusResponse:
+    task = await _owned_task(db, operator, task_id)
+    task.meta_data = {k: v for k, v in (task.meta_data or {}).items() if k not in ("archived_at", "archived_by")}
+    await db.commit()
+    return _mission_view(task, await _events(db, task.id))
+
+
 @router.post("/tasks/{task_id}/retry", response_model=MissionStatusResponse)
 async def retry_command(
     task_id: UUID, operator: CurrentUserId, db: AsyncSession = Depends(get_db),
@@ -212,14 +258,17 @@ async def retry_command(
 async def command_history(
     operator: CurrentUserId,
     limit: int = Query(25, ge=1, le=200),
+    include_archived: bool = False,
     db: AsyncSession = Depends(get_db),
 ) -> List[CommandHistoryItem]:
-    """The caller's recent missions."""
+    """The caller's recent missions (archived ones only when asked for)."""
     tasks = (await db.execute(
         select(Task).join(Workspace, Workspace.id == Task.workspace_id)
         .where(Task.task_type == "command", Workspace.owner_id == UUID(str(operator)))
-        .order_by(Task.created_at.desc()).limit(limit)
+        .order_by(Task.created_at.desc()).limit(limit * 4 if not include_archived else limit)
     )).scalars().all()
+    if not include_archived:
+        tasks = [t for t in tasks if not _archived(t)][:limit]
     items: List[CommandHistoryItem] = []
     for t in tasks:
         res = t.result if isinstance(t.result, dict) else {}
@@ -227,7 +276,7 @@ async def command_history(
             task_id=str(t.id), command=t.title, status=lifecycle.normalise(t.status),
             response_text=res.get("response"), selected_agents=res.get("selected_agents", []),
             created_at=_iso(t.created_at) or "", completed_at=_iso(t.completed_at),
-            error=t.error_message,
+            error=t.error_message, folder=_folder(t), archived=_archived(t),
         ))
     return items
 
