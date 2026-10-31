@@ -417,3 +417,40 @@ def test_a_paused_command_outside_a_mission_still_pauses_its_task():
             return (await session.execute(select(Task.status).where(Task.id == task.id))).scalar_one()
 
     assert asyncio.run(run()) == "waiting_on_approval"
+
+
+def test_a_continuation_round_knows_what_earlier_rounds_did():
+    """A long mission (V3.2 Phase 0) wrote its phase contract and about 30 files, reached its step limit, and the
+    next round started a new conversation with only the request: it found files it did not recognise, ran
+    nothing and reported the mission unverifiable. The next round now gets the earlier rounds' work."""
+    from app.core.command.continuation import progress_note
+
+    result = {
+        "response": "Wrote docs/phases/PHASE-00.md and config/regions/regions.yaml; Taskfile next.",
+        "tool_calls": [
+            {"tool": "write_file", "inputs": {"path": "C:\\\\Users\\\\lilri\\\\Projects\\\\MYCO\\\\docs\\\\phases\\\\PHASE-00.md"},
+             "success": True},
+            {"tool": "write_file", "inputs": {"path": "config/regions/regions.yaml"}, "success": True},
+            {"tool": "write_file", "inputs": {"path": ".env"}, "success": False},
+            {"tool": "run_command", "inputs": {"command": "pnpm install"}, "success": True, "output": {"exit_code": 0}},
+            {"tool": "run_command", "inputs": {"command": "task verify"}, "success": False, "output": {"exit_code": 201}},
+            {"tool": "read_file", "inputs": {"path": "MYCO_V3_SPEC.md"}, "success": True},
+        ],
+    }
+    note = progress_note(result)
+    assert note.startswith("PROGRESS FROM EARLIER ROUNDS OF THIS SAME MISSION")
+    assert "PHASE-00.md" in note and "config/regions/regions.yaml" in note
+    assert ".env (write failed)" in note
+    assert "`pnpm install`: exit 0" in note and "`task verify`: exit 201" in note
+    assert "Taskfile next." in note
+    assert "Do not redo finished work" in note
+    assert progress_note({}) == ""
+
+
+def test_finish_must_say_whether_the_mission_succeeded():
+    """The same round finished with "Phase 0 exit gate is NOT PASSED" and no success flag, and the missing flag
+    counted as success, so the mission showed COMPLETED. The finish tool now requires it."""
+    from app.core.command.agent_executor import _tool_schemas
+
+    finish = next(t for t in _tool_schemas() if t["name"] == "finish")
+    assert finish["input_schema"]["required"] == ["summary", "success"]

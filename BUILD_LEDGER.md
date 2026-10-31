@@ -13101,3 +13101,20 @@ TESTS RUN: PostgreSQL suite (owner run): 740 passed, 2 failed (terraform version
 RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: Richard reruns the V3.2 Phase 0 mission.
+
+---
+
+TASK ID: FIX-CONTINUATION-MEMORY
+TASK NAME: Each round of a long mission knows what earlier rounds did, and finish says honestly whether it succeeded
+STATUS: IN_PROGRESS
+PROBLEM: The V3.2 Phase 0 mission wrote its phase contract and about 30 files in its first run (94 tool calls, 2.6 million tokens), then reached its step limit. The next round started a new conversation holding only the request, with a different model setting (DEFAULT_MODEL instead of the mission's model): it found files it did not recognise, ran nothing, and finished with "exit gate NOT PASSED" but no success flag. A missing flag counted as success, so the mission showed COMPLETED.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/backend/app/core/command/continuation.py (progress_note: the files written, the commands run with their exit codes and the last summary from the task's recorded tool calls are given to the next round with the request; the next round uses the model that started the mission)
+- apps/backend/app/core/command/agent_executor.py (finish requires success, true only when every part is done and verified; a finish without it is not a success)
+- apps/backend/tests/test_workspace_toolchain.py (the progress note lists written files, failed writes, commands with exit codes and the last summary; finish requires success)
+COMMANDS RUN: python -m py_compile on the changed files: passed.
+TESTS RUN: Owner run of the PostgreSQL suite.
+RESULT: Awaiting the owner run.
+BLOCKERS: None.
+NEXT TASK: Richard resumes the V3.2 Phase 0 mission.

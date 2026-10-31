@@ -84,14 +84,17 @@ def _tool_schemas() -> List[Dict[str, Any]]:
         },
         {
             "name": "finish",
-            "description": "Call when the mission is complete (or cannot proceed). Provide a summary.",
+            "description": ("Call when the whole mission is done and verified, or when it cannot proceed. "
+                            "Provide a summary. Set success to true only when every part of the mission is "
+                            "done and verified; anything not done, failing or blocked means false."),
             "input_schema": {
                 "type": "object",
                 "properties": {
                     "summary": {"type": "string"},
-                    "success": {"type": "boolean"},
+                    "success": {"type": "boolean",
+                                "description": "true only when every part of the mission is done and verified"},
                 },
-                "required": ["summary"],
+                "required": ["summary", "success"],
             },
         },
     ]
@@ -209,7 +212,8 @@ class AgentExecutor:
                     out = {"success": False, "error": BROKEN_ARGUMENTS.format(name=call["name"])}
                 elif call["name"] == "finish":
                     final_summary = call["args"].get("summary", "Mission complete.")
-                    success = bool(call["args"].get("success", True))
+                    # A finish that does not say it succeeded is not a success.
+                    success = call["args"].get("success") is True
                     finished = True
                     out = {"acknowledged": True}
                 else:
