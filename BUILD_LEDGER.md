@@ -13052,7 +13052,7 @@ NEXT TASK: Richard reruns the finishing Phase 0 mission.
 
 TASK ID: FIX-ENV-TEMPLATES
 TASK NAME: JARV reads and writes .env.example templates
-STATUS: IN_PROGRESS
+STATUS: COMPLETE
 PROBLEM: The MYCO Phase 0 mission completed (commit 35bdf34; lint, type-check, build, 4 TypeScript and 2 Python tests, and the 94-section requirements check all pass) but could not create .env.example, which Phase 0 requires: every file whose name starts with .env was treated as secret-bearing, including templates that list setting names only.
 FILES CREATED: None.
 FILES MODIFIED:
@@ -13060,8 +13060,8 @@ FILES MODIFIED:
 - apps/backend/app/core/agents/toolbox.py (file search reads templates)
 - apps/backend/tests/test_workspace_toolchain.py (a names-only .env.example is written and read; .env stays refused; a template holding a real key is refused by the secret check)
 COMMANDS RUN: python -m py_compile on the changed files: passed.
-TESTS RUN: Owner run of the PostgreSQL suite.
-RESULT: Awaiting the owner run.
+TESTS RUN: PostgreSQL suite (owner run): 737 passed, 1 skipped (one toolchain test read the Dockerfile header wrongly; fixed, its 78 tests rerun and passed).
+RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: JARV adds .env.example to MYCO; Richard pushes MYCO to its private GitHub repository.
 
@@ -13069,7 +13069,7 @@ NEXT TASK: JARV adds .env.example to MYCO; Richard pushes MYCO to its private Gi
 
 TASK ID: FIX-V32-TOOLCHAIN
 TASK NAME: JARV's toolchain matches MYCO V3.2
-STATUS: IN_PROGRESS
+STATUS: COMPLETE
 PROBLEM: Richard confirmed MYCO V3.2 (supersedes V3.0) as the locked design. Its Phase 0 pins Node 24.21.0, Python 3.14.7, pnpm 12.5.1 (through the packageManager field), uv 0.12.17, Task 3.52.0 (Taskfile.yml root commands such as task verify and task scale:status), Terraform 1.16.3 and Helm 4.3.0 (dormant-region modules). JARV's worker had Node 22, pnpm 10 installed globally, uv 0.8 and Python up to 3.13, and no Task, Terraform or Helm; task, terraform and helm commands all needed approval.
 FILES CREATED: None.
 FILES MODIFIED:
@@ -13078,7 +13078,7 @@ FILES MODIFIED:
 - apps/backend/app/core/command/agent_executor.py (the agents' tool list)
 - apps/backend/tests/test_workspace_toolchain.py (17 classifier cases; the image carries the V3.2 toolchain with checksum-verified downloads)
 COMMANDS RUN: Classifier cases evaluated: as expected. python -m py_compile on the changed files: passed.
-TESTS RUN: Owner run of the PostgreSQL suite; image rebuild and tool version check.
-RESULT: Awaiting the owner run.
+TESTS RUN: PostgreSQL suite (owner run): 737 passed, 1 skipped (one toolchain test read the Dockerfile header wrongly; fixed, its 78 tests rerun and passed).
+RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: Richard copies the V3.2 specification into MYCO as MYCO_V3_SPEC.md; JARV rebuilds Phase 0 against V3.2.
