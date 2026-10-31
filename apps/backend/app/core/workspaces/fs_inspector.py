@@ -468,6 +468,20 @@ WORKSPACE_ONLY_PREFIXES = ("git init", "git add", "git commit")
 # for the destructive-command words above, so "Add platform docs" is a valid message.
 # git add with plain paths only ("dd " inside "git add ." is not the dd command).
 _GIT_ADD_RE = re.compile(r"^git add(?: (?:-a|--all|[\w./@-]+))+$")
+# A project script run by name ("pnpm type-check", "pnpm format", "yarn lint", "pnpm run e2e"):
+# one plain name, no arguments. pnpm and yarn commands that publish, deploy, sign in, change
+# configuration or the store are their own commands, not scripts, and are never matched here.
+_SCRIPT_RE = re.compile(r"^(pnpm|yarn)(?: run)? ([a-z0-9][a-z0-9:_.-]{0,80})$")
+_PACKAGE_MANAGER_COMMANDS = frozenset((
+    "publish", "unpublish", "deploy", "link", "unlink", "login", "logout", "adduser", "config",
+    "set", "setup", "env", "self-update", "store", "dist-tag", "owner", "team", "access", "server",
+    "cache", "prune", "remove", "rm", "uninstall", "un", "patch", "patch-commit", "pack", "exec",
+    "dlx", "create", "init", "import", "rebuild", "fetch", "install", "i", "add", "update", "up",
+    "upgrade", "audit", "outdated", "why", "licenses", "list", "ls", "root", "bin", "npm",
+    "global", "policies", "version", "workspace", "workspaces", "plugin", "constraints", "node",
+))
+_RELEASE_SCRIPT_RE = re.compile(
+    r"^(npm|pnpm|yarn)(?: run)? (pre|post)?(publish|unpublish|deploy|release)(?:[:.-][a-z0-9:_.-]*)?(?: |$)")
 _GIT_COMMIT_RE = re.compile(r'^git commit(?: -a)? -m "([^"`$\\;&|<>\n]{1,500})"$')
 
 # Trusted project package-manager install commands (project-local). Allowed to
@@ -475,7 +489,7 @@ _GIT_COMMIT_RE = re.compile(r'^git commit(?: -a)? -m "([^"`$\\;&|<>\n]{1,500})"$
 # trusted_workspace_install). Global/sudo/piped variants are blocked separately.
 INSTALL_PREFIXES = (
     "npm install", "npm ci", "npm i", "npm add", "npm update",
-    "pnpm install", "pnpm i", "pnpm add", "yarn", "yarn install", "yarn add",
+    "pnpm install", "pnpm i", "pnpm add", "yarn install", "yarn add",
     "pip install", "pip3 install", "python -m pip install", "python3 -m pip install",
     "poetry install", "poetry add", "poetry lock", "uv pip install", "uv sync",
     "uv add", "uv lock", "uv venv",
@@ -524,6 +538,14 @@ def classify_command(command: str) -> str:
     if _is_hard_blocked(c):
         return "dangerous"
     if _GIT_COMMIT_RE.match(c) or _GIT_ADD_RE.match(c):
+        return "build"
+    if c == "yarn":
+        return "install"
+    # Scripts whose job is to publish or release are Richard's decision, whatever runs them.
+    if _RELEASE_SCRIPT_RE.match(c):
+        return "risky"
+    script = _SCRIPT_RE.match(c)
+    if script and script.group(2) not in _PACKAGE_MANAGER_COMMANDS:
         return "build"
     # Trusted local installs (checked before generic dangerous tokens).
     for pre in INSTALL_PREFIXES:

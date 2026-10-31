@@ -1069,6 +1069,8 @@ class RichardBoundaryWorkflow:
         """
         if callback is not None:
             return await callback(step)
+        if scope_action is not None and step.get("tool") == "run_command" and step.get("command"):
+            return await self._run_approved_command(step, workspace_id, user_id, session_id)
 
         agent_name = step.get("agent") or step.get("assigned_agent")
         description = step.get("description") or scope_action or ""
@@ -1087,6 +1089,49 @@ class RichardBoundaryWorkflow:
             approved_tools=approved_tools,
         )
         return result
+
+    async def _run_approved_command(self, step: Dict[str, Any], workspace_id: Optional[UUID],
+                                    user_id: Optional[UUID], session_id: UUID) -> Dict[str, Any]:
+        """Run the exact command Richard approved, in the workspace folder it was paused in.
+
+        The command goes through the same ToolRuntime gate with the approval granted, so an
+        approval satisfies an approval-gated command but never un-blocks a forbidden one.
+        """
+        from app.core.command.tool_runtime import ToolRuntime
+        from app.core.security import REDACTED
+        from app.models.workspace import Workspace
+
+        command = str(step.get("command") or "")
+        if REDACTED in command:
+            return {"success": False, "output_text": "",
+                    "error": "the approved command contains a secret that must be entered again"}
+        workspace = None
+        if workspace_id is not None:
+            workspace = (await self.db.execute(
+                select(Workspace).where(Workspace.id == workspace_id))).scalar_one_or_none()
+        folder = (workspace.config or {}).get("root_path") if workspace is not None and isinstance(
+            workspace.config, dict) else None
+        if not folder:
+            return {"success": False, "output_text": "",
+                    "error": "the workspace has no folder to run the approved command in"}
+        try:
+            task_id = UUID(str(step.get("task_id"))) if step.get("task_id") else None
+        except (TypeError, ValueError):
+            task_id = None
+        authority = max(int(getattr(workspace, "authority_level", 0) or 0),
+                        int(step.get("requested_authority_level") or 0))
+        runtime = ToolRuntime(self.db, workspace_id, task_id, operator=str(user_id or ""),
+                              authority_level=authority, user_id=user_id, session_id=session_id,
+                              open_boundary_flows=False)
+        result = await runtime.run_command(command, cwd_host=folder, approval_granted=True)
+        exit_code = result.get("exit_code")
+        output = "\n".join(part for part in (str(result.get("stdout") or "").strip(),
+                                              str(result.get("stderr") or "").strip()) if part)
+        summary = f"Ran the approved command `{command}`" + (
+            f" (exit {exit_code})" if exit_code is not None else "")
+        return {"success": bool(result.get("success")),
+                "output_text": f"{summary}\n{output}".strip()[:4000],
+                "error": None if result.get("success") else (result.get("reason") or output or summary)[:1000]}
 
     # ------------------------------------------------------------------ #
     # Read helpers (API support)

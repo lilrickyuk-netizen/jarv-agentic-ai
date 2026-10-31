@@ -516,7 +516,7 @@ class ToolRuntime:
 
     async def run_command(self, command: str, cwd_host: Optional[str] = None,
                           allow_build: bool = True, allow_install: bool = True,
-                          timeout: int = 120) -> Dict[str, Any]:
+                          timeout: int = 120, approval_granted: bool = False) -> Dict[str, Any]:
         """
         Execute a command with classification-based gating:
           safe -> always; build -> allowed when allow_build (Level 3, in workspace);
@@ -542,7 +542,8 @@ class ToolRuntime:
         # approval (opening the real boundary chain when context allows).
         denied = await self._enforce("run_command", command=command,
                                      allow_build=allow_build,
-                                     allow_install=allow_install)
+                                     allow_install=allow_install,
+                                     approval_granted=approval_granted)
         if denied:
             self._block_counts[norm] = self._block_counts.get(norm, 0) + 1
             if repeated:
