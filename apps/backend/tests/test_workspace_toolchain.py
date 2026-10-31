@@ -3,8 +3,8 @@ Toolchain for building projects in a workspace (MYCO Phase 0: pnpm, uv, local gi
 
 The classifier lets agents run pnpm and uv, initialise a repository, stage and commit inside the
 workspace folder, and still blocks chaining, pushing, resetting and cleaning. Commands that change
-the folder they run in are refused without a workspace folder. The worker image carries Node 22,
-pnpm, uv and Python 3.12 at build time. The git test runs real git through the real ToolRuntime.
+the folder they run in are refused without a workspace folder. The worker image carries Node 24 with
+Corepack, uv with Python 3.12 to 3.14, Task, Terraform and Helm at build time. The git test runs real git through the real ToolRuntime.
 """
 import asyncio
 import shutil
@@ -69,6 +69,23 @@ from tests.repo_paths import repo_path
     ("pnpm release", "risky"),
     ("pnpm config set registry x", "risky"),
     ("pnpm type-check; rm x", "dangerous"),
+    ("task verify", "build"),
+    ("task format", "build"),
+    ("task test:unit", "build"),
+    ("task phase -- 0", "build"),
+    ("task scale:plan -- s1_single_region_horizontal_scale", "build"),
+    ("task deploy", "risky"),
+    ("task release:prod", "risky"),
+    ("terraform validate", "build"),
+    ("terraform -chdir=infra/terraform/regions/us-east-1 validate", "build"),
+    ("terraform plan -out=plan.bin", "build"),
+    ("terraform init -backend=false", "install"),
+    ("terraform apply", "dangerous"),
+    ("terraform destroy", "dangerous"),
+    ("helm lint infra/helm/myco", "build"),
+    ("helm template myco infra/helm/myco", "build"),
+    ("helm dependency build infra/helm/myco", "install"),
+    ("helm install myco infra/helm/myco", "risky"),
     ("git clean -fd", "risky"),
     ("git commit -m 'single quotes'", "risky"),
 ])
@@ -130,19 +147,26 @@ def test_agent_initialises_stages_and_commits_inside_the_workspace(monkeypatch):
     shutil.rmtree(folder, ignore_errors=True)
 
 
-def test_worker_image_carries_node_pnpm_uv_and_python_312():
+def test_worker_image_carries_the_build_toolchain():
     dockerfile = repo_path("apps", "backend", "Dockerfile").read_text()
+    header = dockerfile.split("\nFROM ", 1)[0]
     runtime = dockerfile.split("# Production stage", 1)[1]
-    assert "FROM node:22-bookworm-slim AS node" in dockerfile
-    assert "FROM ghcr.io/astral-sh/uv:" in dockerfile
+    assert "ARG NODE_IMAGE=node:24.21.0-bookworm-slim" in header  # usable in FROM lines
+    assert "ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.17" in header
+    assert "FROM ${NODE_IMAGE} AS node" in dockerfile and "FROM ${UV_IMAGE} AS uv" in dockerfile
     assert "COPY --from=node /usr/local/bin/node /usr/local/bin/node" in runtime
-    assert "npm install -g pnpm@10" in runtime
+    assert "corepack enable --install-directory /usr/local/bin pnpm yarn" in runtime
+    assert "npm install -g" not in runtime  # each project's pnpm/yarn version comes from Corepack
     assert "COPY --from=uv /uv /uvx /usr/local/bin/" in runtime
-    assert "uv python install 3.12 3.13" in runtime
-    assert "build-essential" in runtime and "ripgrep" in runtime and "pnpm@10 yarn@1" in runtime
+    assert "uv python install 3.12 3.13 3.14" in runtime
+    for tool in ("TASK_VERSION=3.52.0", "TERRAFORM_VERSION=1.16.3", "HELM_VERSION=4.3.0"):
+        assert f"ARG {tool}" in runtime
+    assert runtime.count("sha256sum -c") == 3  # every downloaded binary is checksum-verified
+    assert "build-essential" in runtime and "ripgrep" in runtime
     assert "PATH=/home/jarv/.local/bin:$PATH" in runtime
     assert "HOME=/home/jarv" in runtime and "GIT_AUTHOR_NAME=JARV" in runtime
-    assert "    nodejs \\" not in runtime  # the distribution's old Node is no longer installed
+    assert "COREPACK_HOME=/home/jarv/.cache/corepack" in runtime
+    assert "    nodejs \\" not in runtime  # the distribution's old Node is not installed
 
 
 def test_jarv_user_matches_the_workspace_owner():
@@ -301,3 +325,29 @@ def test_read_only_git_commands_never_need_approval():
     for command in ("git ls-files", "git ls-tree HEAD", "git describe --tags", "git check-ignore dist",
                     "git show HEAD", "git grep SERVICE_NAME", "git blame README.md", "git tag -l"):
         assert classify_command(command) == "safe", command
+
+
+@pytest.mark.integration
+def test_env_templates_are_project_files_and_real_env_files_stay_protected():
+    """Phase 0 asks for .env.example (setting names only); JARV refused to write it as a secret file."""
+    name = f"envtpl-{uuid4().hex[:8]}"
+    folder = Path(SANDBOX_CONTAINER_ROOT) / name
+    shutil.rmtree(folder, ignore_errors=True)
+    folder.mkdir(parents=True)
+    host = f"/test_workspaces/{name}"
+
+    async def run():
+        async with AsyncTestingSessionLocal() as session:
+            rt = await _runtime(session)
+            template = await rt.write_file(f"{host}/.env.example", "DATABASE_URL=\nANTHROPIC_API_KEY=\n")
+            read = await rt.read_file(f"{host}/.env.example")
+            real = await rt.write_file(f"{host}/.env", "DATABASE_URL=\n")
+            leaked = await rt.write_file(f"{host}/.env.sample", "OPENAI_API_KEY=sk-REPAIR10SECRETKEY1234567890\n")
+            return template, read, real, leaked
+
+    template, read, real, leaked = asyncio.run(run())
+    assert template["success"] is True, template
+    assert "ANTHROPIC_API_KEY=" in read["data"]["content"]
+    assert real["success"] is False
+    assert leaked["success"] is False and not (folder / ".env.sample").exists()
+    shutil.rmtree(folder, ignore_errors=True)
