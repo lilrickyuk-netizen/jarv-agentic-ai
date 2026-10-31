@@ -35,6 +35,7 @@ const ACTION_LABELS: Record<string, string> = {
   start_mission: 'Started a mission',
   get_mission: 'Checked a mission',
   cancel_mission: 'Cancelled a mission',
+  resume_mission: 'Carried on with a mission',
   list_workspaces: 'Listed workspaces',
 };
 
@@ -127,7 +128,8 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
     send({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: event.call_id,
       output: JSON.stringify(output) } });
     requestReply();
-    if (name === 'start_mission' && output.intent === 'mission' && typeof output.task_id === 'string') {
+    const resumed = name === 'resume_mission' && output.resumed === true;
+    if (((name === 'start_mission' && output.intent === 'mission') || resumed) && typeof output.task_id === 'string') {
       void followMission(output.task_id);
     }
   };

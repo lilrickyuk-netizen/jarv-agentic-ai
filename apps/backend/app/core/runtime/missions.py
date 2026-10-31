@@ -214,13 +214,13 @@ class MissionRunner:
 
     async def _auto_continue(self, task_id: UUID) -> bool:
         """Re-queue a mission that paused at its step limit, within the cap."""
-        from app.core.command.continuation import MAX_AUTO_CONTINUATIONS, continuation_count
+        from app.core.command.continuation import MAX_AUTO_CONTINUATIONS, automatic_rounds
 
         async with self.session_factory() as db:
             task = (await db.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
             if task is None or lifecycle.normalise(task.status) != lifecycle.NEEDS_CONTINUATION:
                 return False
-            done = continuation_count(task)
+            done = automatic_rounds(task)
             if done >= MAX_AUTO_CONTINUATIONS:
                 _feed(db, task, "Continuation limit reached",
                       f"Mission paused after {done} automatic continuations; resume it to keep going.",
@@ -229,6 +229,7 @@ class MissionRunner:
                 return False
             lifecycle.transition(task, lifecycle.QUEUED, actor=self.worker_id,
                                  reason=f"automatic continuation {done + 1}")
+            task.result = {**(task.result if isinstance(task.result, dict) else {}), "auto_rounds": done + 1}
             task.meta_data = {**(task.meta_data or {}), "resume_mode": "continuation"}
             await db.commit()
         from app.core.runtime.dispatcher import dispatch_mission

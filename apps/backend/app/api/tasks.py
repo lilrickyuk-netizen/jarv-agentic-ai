@@ -642,10 +642,8 @@ async def get_task(
 
 
 # ===== Resume (continue a step-limited / needs_continuation task) =====
-from app.core.command.continuation import continue_mission
+from app.core.command.continuation import RESUMABLE as _RESUMABLE, queue_resume
 from app.core.runtime import lifecycle as _lifecycle
-
-_RESUMABLE = (_lifecycle.NEEDS_CONTINUATION, _lifecycle.PARTIAL)
 
 
 @router.post("/{task_id}/resume")
@@ -656,9 +654,10 @@ async def resume_task(
 ) -> Dict[str, Any]:
     """
     Continue a step-limited (needs_continuation) or partial mission now. The
-    mission runner continues these automatically; this runs the next round
-    immediately. Same task, same workspace; nothing restarts. A running mission
-    is never resumed here: a lost worker is recovered by the runtime.
+    mission runner continues these automatically; this queues the next round
+    immediately on the worker (never inside this request, so leaving the page
+    cannot stop it). Same task, same workspace; nothing restarts. A running
+    mission is never resumed here: a lost worker is recovered by the runtime.
     """
     task = (await db.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
     if not task:
@@ -671,6 +670,4 @@ async def resume_task(
         raise HTTPException(status_code=400, detail=f"Task is {status}; clear the boundary first.")
     if status not in _RESUMABLE:
         raise HTTPException(status_code=400, detail=f"Task status '{status}' is not resumable.")
-    _lifecycle.transition(task, _lifecycle.RUNNING, reason="operator resume", actor=str(operator))
-    await db.flush()
-    return await continue_mission(db, task, operator=str(operator))
+    return await queue_resume(db, task, operator=str(operator), reason="operator resume")

@@ -77,6 +77,42 @@ def continuation_count(task: Task) -> int:
     return int(result.get("continuation_count", 0) or 0)
 
 
+def automatic_rounds(task: Task) -> int:
+    """How many times the mission runner has re-queued this mission on its own.
+
+    Kept apart from continuation_count, which also counts the short pauses inside each run: one
+    run already counts four or five of those, so capping on it stopped long missions after a
+    single round.
+    """
+    result = task.result if isinstance(task.result, dict) else {}
+    return int(result.get("auto_rounds", 0) or 0)
+
+
+RESUMABLE = (lifecycle.NEEDS_CONTINUATION, lifecycle.PARTIAL)
+
+
+async def queue_resume(db: AsyncSession, task: Task, *, operator: str, reason: str) -> Dict[str, Any]:
+    """Send a paused mission back to the worker to carry on: the same task, workspace and progress.
+
+    The next round runs in JARV's worker, never inside a web request, so closing or leaving the
+    dashboard cannot stop it. A resume Richard asks for gives the mission a fresh allowance of
+    automatic rounds.
+    """
+    from app.core.runtime.dispatcher import dispatch_mission
+
+    status = lifecycle.normalise(task.status)
+    if status not in RESUMABLE:
+        raise ValueError(f"Task status '{status}' is not resumable.")
+    lifecycle.transition(task, lifecycle.QUEUED, reason=reason, actor=operator)
+    task.result = {**(task.result if isinstance(task.result, dict) else {}), "auto_rounds": 0}
+    task.meta_data = {**(task.meta_data or {}), "resume_mode": "continuation", "operator": operator}
+    await db.commit()
+    dispatched = await dispatch_mission(task.id, reason=reason)
+    return {"task_id": str(task.id), "status": lifecycle.QUEUED, "resumed": True,
+            "continuation_count": continuation_count(task), "dispatch": dispatched.get("mode"),
+            "reply": "Carrying on with that mission from where it stopped."}
+
+
 async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Dict[str, Any]:
     """Run the next continuation round. The task must already be ``running``."""
     now = datetime.now(timezone.utc)

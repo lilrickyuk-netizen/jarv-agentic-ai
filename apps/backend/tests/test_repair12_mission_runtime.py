@@ -234,8 +234,11 @@ def test_step_limited_mission_is_continued_automatically(monkeypatch):
     async def run():
         async with AsyncTestingSessionLocal() as db:
             _, ws_id = await _seed_owner(db)
-            under = await _mission(db, ws_id, "needs_continuation", result={"continuation_count": 1})
-            capped = await _mission(db, ws_id, "needs_continuation", result={"continuation_count": 6})
+            # continuation_count also counts the pauses inside each run (13 after one long round);
+            # only the runner's own re-queues (auto_rounds) are capped.
+            under = await _mission(db, ws_id, "needs_continuation",
+                                   result={"continuation_count": 13, "auto_rounds": 1})
+            capped = await _mission(db, ws_id, "needs_continuation", result={"auto_rounds": 6})
         runner = MissionRunner()
         return under, capped, await runner._auto_continue(under), await runner._auto_continue(capped)
 
@@ -244,6 +247,55 @@ def test_step_limited_mission_is_continued_automatically(monkeypatch):
     resumed = _run(_get(under))
     assert resumed.status == "queued" and resumed.meta_data["resume_mode"] == "continuation"
     assert _run(_get(capped)).status == "needs_continuation"
+    assert resumed.result["auto_rounds"] == 2
+
+
+@pytest.mark.integration
+def test_resuming_a_paused_mission_queues_it_on_the_worker(client, test_user, test_workspace, monkeypatch):
+    """Resume used to run the next round inside the web request. It now queues the same mission on the worker,
+    with a fresh allowance of automatic rounds, so leaving the dashboard cannot stop it."""
+    monkeypatch.setenv("MISSION_EXECUTION_MODE", "deferred")
+
+    async def seed():
+        async with AsyncTestingSessionLocal() as db:
+            return (await _mission(db, test_workspace.id, "needs_continuation",
+                                   result={"continuation_count": 13, "auto_rounds": 6, "mission": "Phase 0"}),
+                    await _mission(db, test_workspace.id, "completed"))
+
+    paused, done = _run(seed())
+    app.dependency_overrides[get_current_user_id] = lambda: str(test_user.id)
+    resumed = client.post(f"/api/tasks/{paused}/resume")
+    assert resumed.status_code == 200, resumed.text
+    assert resumed.json()["status"] == "queued" and resumed.json()["resumed"] is True
+    row = _run(_get(paused))
+    assert row.status == "queued" and row.meta_data["resume_mode"] == "continuation"
+    assert row.result["auto_rounds"] == 0 and row.result["continuation_count"] == 13
+    assert client.post(f"/api/tasks/{done}/resume").status_code == 400
+
+
+@pytest.mark.integration
+def test_voice_carries_on_with_the_paused_mission_instead_of_starting_a_new_one(test_user, test_workspace,
+                                                                              monkeypatch):
+    """Asked by voice to resume the mission, JARV started a new mission that had none of the old one's
+    progress. resume_mission queues the paused mission itself."""
+    from app.core.voice.live import run_tool
+
+    monkeypatch.setenv("MISSION_EXECUTION_MODE", "deferred")
+
+    async def run():
+        async with AsyncTestingSessionLocal() as db:
+            paused = await _mission(db, test_workspace.id, "needs_continuation", result={"mission": "Phase 0"})
+            before = (await db.execute(select(Task.id))).scalars().all()
+            output = await run_tool(db, test_user.id, "resume_mission", {})
+            after = (await db.execute(select(Task.id))).scalars().all()
+            nothing = await run_tool(db, test_user.id, "resume_mission", {})
+            return paused, output, len(before), len(after), nothing
+
+    paused, output, before, after, nothing = _run(run())
+    assert output["resumed"] is True and output["task_id"] == str(paused)
+    assert after == before  # no new mission
+    assert _run(_get(paused)).status == "queued"
+    assert "no paused mission" in nothing["error"]
 
 
 # ----- command API ------------------------------------------------------------------

@@ -46,6 +46,12 @@ TOOLS: List[Dict[str, Any]] = [
                                                           "he gave, as a written instruction."},
          "workspace": _NO_WORKSPACE},
          "required": ["instruction"], "additionalProperties": False}},
+    {"type": "function", "name": "resume_mission",
+     "description": "Carry on with a mission that paused or stopped part-way (needs continuation or partial): the "
+                    "same mission continues from where it stopped, with its progress. Use it whenever Richard asks "
+                    "to continue, resume or carry on with a mission; never start a new mission for that. Without a "
+                    "task_id it resumes his latest paused mission.",
+     "parameters": {"type": "object", "properties": {"task_id": {"type": "string"}}, "additionalProperties": False}},
     {"type": "function", "name": "get_mission",
      "description": "The state and result of one mission (the latest one when no id is given).",
      "parameters": {"type": "object", "properties": {"task_id": {"type": "string"}}, "additionalProperties": False}},
@@ -108,7 +114,8 @@ def instructions(spaces: List[Any]) -> str:
         "doing, use get_status, get_mission or list_workspaces rather than guessing. When he asks for work to "
         "be done, say in one sentence what you'll do and call start_mission with his full request; JARV's agents "
         "then do the work and you'll receive a message beginning [mission update] when it finishes or pauses; "
-        "tell him the outcome in a sentence or two.\n"
+        "tell him the outcome in a sentence or two. When he asks to continue, resume or carry on with a mission, "
+        "call resume_mission; never start a new mission to continue an old one.\n"
         "Each workspace is a folder on his computer that JARV and its agents work in. Never tell him you cannot "
         "access his files: use list_workspace_files and read_workspace_file to look at what is there, and "
         "start_mission for work on it, naming where to look, e.g. 'Read the design in the MYCO workspace's docs "
@@ -230,6 +237,29 @@ async def _mission(db: AsyncSession, user_id: UUID, task_id: Optional[str]) -> D
             "result": str(summary)[:1500], "error": (task.error_message or "")[:300] or None}
 
 
+async def _resume(db: AsyncSession, user_id: UUID, task_id: Optional[str]) -> Dict[str, Any]:
+    from app.core.command.continuation import RESUMABLE, queue_resume
+    from app.core.scoping import owned_workspaces
+    from app.models.task import Task
+
+    query = select(Task).where(Task.workspace_id.in_(owned_workspaces(user_id)), Task.task_type != "subtask")
+    if task_id:
+        try:
+            query = query.where(Task.id == UUID(str(task_id)))
+        except ValueError:
+            return {"error": "That is not a mission id."}
+    else:
+        query = query.where(Task.status.in_(RESUMABLE))
+    task = (await db.execute(query.order_by(Task.created_at.desc()).limit(1))).scalar_one_or_none()
+    if task is None:
+        return {"error": "There is no paused mission to carry on with."}
+    try:
+        return {**await queue_resume(db, task, operator=str(user_id), reason="resumed by voice"),
+                "title": task.title}
+    except ValueError as exc:
+        return {"error": f"{exc} It can only carry on when it has paused part-way.", "task_id": str(task.id)}
+
+
 async def run_tool(db: AsyncSession, user_id: UUID, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
     """Carry out one tool call from the live conversation as the signed-in operator; audit-logged."""
     from app.core.audit import AuditLogger
@@ -242,6 +272,8 @@ async def run_tool(db: AsyncSession, user_id: UUID, name: str, arguments: Dict[s
                                         read=name == "read_workspace_file")
     elif name == "get_mission":
         output = await _mission(db, user_id, args.get("task_id"))
+    elif name == "resume_mission":
+        output = await _resume(db, user_id, args.get("task_id"))
     elif name in ("get_status", "start_mission", "cancel_mission"):
         workspace_id, problem = await _resolve_workspace(db, user_id, args.get("workspace"))
         if problem:

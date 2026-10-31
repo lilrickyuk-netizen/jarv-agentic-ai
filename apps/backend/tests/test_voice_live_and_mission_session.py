@@ -150,9 +150,10 @@ def test_live_conversation_needs_the_openai_key_and_never_hands_it_to_the_browse
     assert request.headers["openai-safety-identifier"] != str(owner)
     session = sent["session"]
     assert session["type"] == "realtime" and session["model"] == settings.OPENAI_REALTIME_MODEL
-    assert {t["name"] for t in session["tools"]} == {"get_status", "start_mission", "get_mission",
+    assert {t["name"] for t in session["tools"]} == {"get_status", "start_mission", "resume_mission", "get_mission",
                                                      "cancel_mission", "list_workspaces", "list_workspace_files",
                                                      "read_workspace_file"}
+    assert "never start a new mission to continue an old one" in session["instructions"]
     assert "Never tell him you cannot access his files" in session["instructions"]
     assert "MYCO" in session["instructions"] and "Approvals page" in session["instructions"]
     assert session["audio"]["output"]["voice"] == settings.OPENAI_REALTIME_VOICE
