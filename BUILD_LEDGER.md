@@ -12999,7 +12999,7 @@ NEXT TASK: Richard reruns the MYCO Phase 0 mission once.
 
 TASK ID: FIX-APPROVAL-NOISE-AND-RESUME
 TASK NAME: Normal work never waits for Richard; an approved command runs exactly as approved
-STATUS: IN_PROGRESS
+STATUS: COMPLETE
 PROBLEM: In the MYCO Phase 0 run, git, pnpm, uv, builds and tests ran, but two approvals still reached Richard: "pnpm type-check" (a project script; only "pnpm typecheck" was allowed) and an orchestrator plan step "apply targeted changes to resolve the type-check errors". The planner was told to mark every task that modifies files as requiring approval, so ordinary code edits became hard boundaries. Approving a paused command then started a new agent run with the command as its text instead of running the command, and that run (whose agents had no file or command tools) opened another approval.
 FILES CREATED: None.
 FILES MODIFIED:
@@ -13009,7 +13009,7 @@ FILES MODIFIED:
 - apps/backend/app/core/richard/workflow.py (resuming a paused run_command runs that exact command in the workspace folder with the approval granted and records its output; a command holding a redacted secret, or a workspace without a folder, fails honestly and stays retryable)
 - apps/backend/tests/test_workspace_toolchain.py (13 classifier cases; an approved git clean -n runs in its folder and only lists; no folder fails honestly; the planner rule)
 COMMANDS RUN: Classifier cases evaluated against the changed classifier: all as expected. python -m py_compile on the changed files: passed.
-TESTS RUN: Owner run of the PostgreSQL suite.
-RESULT: Awaiting the owner run.
+TESTS RUN: PostgreSQL suite (owner run): 709 passed, 1 skipped.
+RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: Richard sends the Phase 0 mission report.
