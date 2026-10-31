@@ -380,6 +380,7 @@ def test_a_paused_command_leaves_its_running_mission_running():
             paused = await rt.run_command("git clean -n")
             approval = (await session.execute(select(BoundaryApproval).where(
                 BoundaryApproval.id == UUID(paused["approval_id"])))).scalar_one()
+            approval_status = approval.status  # read now: the decision below updates this same row
             status_while_waiting = (await session.execute(
                 select(Task.status).where(Task.id == mission.id))).scalar_one()
             workflow = RichardBoundaryWorkflow(session)
@@ -389,7 +390,7 @@ def test_a_paused_command_leaves_its_running_mission_running():
                                           authenticated_user_id=rt.user_id)
             status_after_resume = (await session.execute(
                 select(Task.status).where(Task.id == mission.id))).scalar_one()
-            return rt.pause_task_on_boundary, paused, approval.status, status_while_waiting, status_after_resume
+            return rt.pause_task_on_boundary, paused, approval_status, status_while_waiting, status_after_resume
 
     pause, paused, approval_status, while_waiting, after_resume = asyncio.run(run())
     assert pause is False

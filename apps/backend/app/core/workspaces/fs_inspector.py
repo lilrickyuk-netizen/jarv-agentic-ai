@@ -567,8 +567,11 @@ def classify_command(command: str) -> str:
         return "install"
     terraform = _TERRAFORM_RE.match(c)
     if terraform:
-        return "install" if terraform.group(1) == "init" else "build"
+        # Matched before the destructive-token check: "terraform " itself contains "rm ".
+        return {"init": "install", "version": "safe"}.get(terraform.group(1), "build")
     if _HELM_RE.match(c):
+        if c.startswith("helm version"):
+            return "safe"
         return "install" if c.startswith("helm dependency") else "build"
     task = _TASK_RE.match(c)
     if task and not _RELEASE_SCRIPT_RE.match(f"npm run {task.group(1)}"):
