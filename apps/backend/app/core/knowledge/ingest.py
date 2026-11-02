@@ -221,7 +221,7 @@ class KnowledgeIngestor:
         passages are rebuilt only when the document's text changes, and the change goes to the operations
         feed. Only this workspace's searches see it."""
         from app.core.knowledge.documentation import ALL_AGENTS
-        from app.models.operations import LiveOperationsFeedItem
+        from app.models.company_operations import LiveOperationsFeedItem
 
         root = folder.resolve()
         path = (root / relative).resolve()

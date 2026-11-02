@@ -13412,7 +13412,7 @@ FILES MODIFIED:
 - apps/backend/tests/test_workspace_toolchain.py, tests/test_upgrade1a_knowledge_and_checks.py (scripted routers answer the requirements step)
 DECISIONS: The plan's authority_facts table is not built: the spec-pins hard check reads the authority documents directly on every run, so it is always current and needs no second copy. KnowledgeService.retrieve and ask_jarv keep their own ranking for now; the fused ranking serves consult_specialist_knowledge and missions.
 COMMANDS RUN: Static checks; the pure requirement tests locally with stand-in modules for the providers (4 passed).
-TESTS RUN: Full suite on the owner's machine by the install script.
+TESTS RUN: Owner run 1: 814 passed, 1 failed (the specification test: the change notice imported LiveOperationsFeedItem from app.models.operations; it lives in app.models.company_operations). Fixed; re-run by installer version 2.
 RESULT: Pending the owner's test run.
 BLOCKERS: None.
 NEXT TASK: Owner runs install-upgrade-2.sh; then Upgrade 3 (Artifact Intelligence Graph).

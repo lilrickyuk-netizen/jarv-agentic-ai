@@ -182,7 +182,7 @@ def test_the_specification_is_searchable_knowledge_rebuilt_when_it_changes():
     from app.core.knowledge.ingest import KnowledgeIngestor
     from app.core.knowledge.search import search_everything, search_passages
     from app.core.workspaces.fs_inspector import SANDBOX_CONTAINER_ROOT
-    from app.models.operations import LiveOperationsFeedItem
+    from app.models.company_operations import LiveOperationsFeedItem
     from app.models.user import User
     from app.models.workspace import Workspace
 
