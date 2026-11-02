@@ -105,6 +105,9 @@ class ToolRuntime:
         # Folder a paused command was to run in, kept with its checkpoint so the approved
         # command runs in the same folder (a mission's folder is not always its workspace's).
         self._command_cwd: Optional[str] = None
+        # Exact arguments of a boundary tool (delete, push) about to be gated, kept with its checkpoint so
+        # the approved action is the one that runs, in the folder it was asked for.
+        self.pending_tool_args: Optional[Dict[str, Any]] = None
         # Whether opening a boundary pauses this runtime's task. A mission's agent loop turns
         # this off: only the blocked action waits, the mission keeps going.
         self.pause_task_on_boundary = True
@@ -339,6 +342,7 @@ class ToolRuntime:
                     "command": redact_text(command) if command else None,
                     "target_path": path,
                     "cwd": self._command_cwd if tool == "run_command" else None,
+                    "tool_args": self.pending_tool_args if tool != "run_command" else None,
                     "requested_authority_level": int(
                         decision.audit_metadata.get("required_authority") or 0),
                 },
@@ -350,6 +354,7 @@ class ToolRuntime:
                 "secret_entry_reference": (
                     "deferred:repair14-secret-entry-ui" if needs_secret_reentry else None),
             }
+            self.pending_tool_args = None
             res = await wf.handle_hard_boundary(
                 session_id=sess.id,
                 agent_id=self.agent_id or agent.id,
@@ -578,12 +583,18 @@ class ToolRuntime:
         if cls == "install":
             timeout = max(timeout, 420)  # installs can take minutes
 
-        # safe/build/install: execute with timeout, capture stdout/stderr/exit code.
+        # safe/build/install: execute with timeout, capture stdout/stderr/exit code. The process
+        # runs the exact words the policy classified, with no shell in between to reinterpret them.
+        argv = fs_inspector.command_argv(command, cwd)
+        if not argv:
+            await self._record("run_command", {"command": command}, False, "blocked: not one plain command")
+            return {"success": False, "blocked": True, "classification": "dangerous",
+                    "reason": "Run one plain command (no &&, ;, |, >, $ or backticks)."}
         stdout = stderr = ""
         exit_code = -1
         try:
-            proc = await asyncio.create_subprocess_shell(
-                command,
+            proc = await asyncio.create_subprocess_exec(
+                *argv,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=cwd,
             )
             out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
@@ -599,6 +610,13 @@ class ToolRuntime:
                                f"timed out after {timeout}s")
             await self._persist_command_run(command, cwd_host, None, "timeout", "timeout", False)
             return {"success": False, "reason": f"Command timed out after {timeout}s."}
+        except FileNotFoundError:
+            reason = (f"'{argv[0]}' is not installed in JARV's tool home. Install it with uv tool install, "
+                      "uv python install, pnpm dlx or npx, then run the command again.")
+            await self._record("run_command", {"command": command}, False, reason)
+            await self._persist_command_run(command, cwd_host, 127, "", reason, False)
+            return {"success": False, "exit_code": 127, "stdout": "", "stderr": reason,
+                    "classification": cls, "reason": reason}
         except Exception as exc:  # noqa: BLE001
             await self._record("run_command", {"command": command}, False, str(exc))
             return {"success": False, "reason": str(exc)}

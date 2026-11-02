@@ -103,8 +103,12 @@ async def service_health(db: AsyncSession) -> Dict[str, Any]:
         "missions": await _timed(_missions(db)),
         "prometheus": await _timed(_prometheus_targets()),
     }
-    failing = [name for name, result in checks.items() if not result["ok"]]
-    return {"healthy": not failing, "failing": failing, "checks": checks,
+    # Prometheus is optional monitoring (docker-compose.monitoring.yml): when it is unreachable that is
+    # reported, but JARV itself is not degraded by it.
+    checks["prometheus"]["optional"] = True
+    failing = [name for name, result in checks.items() if not result["ok"] and not result.get("optional")]
+    optional_down = [name for name, result in checks.items() if not result["ok"] and result.get("optional")]
+    return {"healthy": not failing, "failing": failing, "optional_unavailable": optional_down, "checks": checks,
             "checked_at": datetime.now(timezone.utc).isoformat()}
 
 

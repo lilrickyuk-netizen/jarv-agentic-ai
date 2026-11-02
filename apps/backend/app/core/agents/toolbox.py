@@ -265,14 +265,18 @@ def _clip(value: Any, limit: int = _RESULT_CHARS) -> str:
 class AgentToolbox:
     """Tools one agent may use for one task, confined to one workspace."""
 
-    def __init__(self, agent: Any, context: Any):
+    def __init__(self, agent: Any, context: Any, *, runtime: Any = None, root_host: Optional[str] = None):
+        """``runtime``: an existing ToolRuntime to act through (a mission's own, so its calls, authority
+        and boundary handling stay the mission's). ``root_host``: the folder to confine to when the mission
+        works in a folder other than its workspace's registered one; it must still map into JARV's mounts."""
         self.agent = agent
         self.context = context
         self.calls: List[ToolCallRecord] = []
         self.root_host: Optional[str] = None
         self.root_container: Optional[Path] = None
         self.workspace_authority: Optional[int] = None
-        self.runtime = None
+        self.runtime = runtime
+        self._requested_root = root_host
         self._specs: Dict[str, ToolSpec] = {}
         self._prepared = False
 
@@ -297,17 +301,19 @@ class AgentToolbox:
             raise RuntimeError("Workspace not found")
         self.workspace_authority = workspace.authority_level
         root = (workspace.config or {}).get("root_path") if isinstance(workspace.config, dict) else None
-        if root:
-            container = fs_inspector.host_to_container(root)
+        for candidate in (self._requested_root, root):
+            container = fs_inspector.host_to_container(candidate) if candidate else None
             if container is not None:
-                self.root_host, self.root_container = root, container.resolve()
-        level = effective_authority(int(self.agent.config.authority_level), self.workspace_authority)
-        self.runtime = ToolRuntime(
-            db, workspace.id, self.context.task_id,
-            operator=f"agent:{self.agent.name}", authority_level=level,
-            user_id=self.context.user_id, session_id=self.context.session_id,
-            agent_id=self.agent.config.agent_id,
-        )
+                self.root_host, self.root_container = candidate, container.resolve()
+                break
+        if self.runtime is None:
+            level = effective_authority(int(self.agent.config.authority_level), self.workspace_authority)
+            self.runtime = ToolRuntime(
+                db, workspace.id, self.context.task_id,
+                operator=f"agent:{self.agent.name}", authority_level=level,
+                user_id=self.context.user_id, session_id=self.context.session_id,
+                agent_id=self.agent.config.agent_id,
+            )
         self._specs = self._resolve_specs()
         self._prepared = True
         return self

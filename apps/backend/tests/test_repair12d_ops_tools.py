@@ -53,12 +53,12 @@ class FakeDocker:
         self.requests = []
         self.containers = {}
 
-    def add(self, cid, service, state="running", health="healthy", project=None):
+    def add(self, cid, service, state="running", health="healthy", project=None, exit_code=1):
         self.containers[cid] = {"service": service, "state": state, "health": health,
-                                "project": project or self.project, "restarts": 0}
+                                "project": project or self.project, "restarts": 0, "exit_code": exit_code}
 
     def _summary(self, cid, c):
-        status = "Up 5 minutes" if c["state"] == "running" else "Exited (1) 2 minutes ago"
+        status = "Up 5 minutes" if c["state"] == "running" else f"Exited ({c.get('exit_code', 1)}) 2 minutes ago"
         if c["state"] == "running" and c["health"]:
             status += f" ({c['health']})"
         return {"Id": cid + "f" * 52, "Names": [f"/jarv-{c['service']}-{cid[:4]}"], "Image": f"jarv-{c['service']}",
