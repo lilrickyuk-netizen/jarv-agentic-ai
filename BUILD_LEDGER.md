@@ -13320,3 +13320,20 @@ TESTS RUN: PostgreSQL suite (owner run): 794 passed, 1 skipped. Dashboard (owner
 RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: Let the MYCO correction mission (8ca4f55a) finish, then review it against V3.2.
+
+TASK ID: FIX-DASHBOARD-NO-NEW-UI
+TASK NAME: Remove the live mission box; keep the fixes inside the existing dashboard
+STATUS: IN_PROGRESS
+PROBLEM: Richard: the live mission box covered the right side of every page; "I don't want anything adding to the UI, I want it fixing".
+FILES CREATED:
+- apps/dashboard/src/components/persistent-voice.tsx (Talk with JARV mounted once in the dashboard frame; its element is moved into the Command Center's own slot when that page is open and kept, unseen, on other pages, so the conversation never drops and nothing is added to any page)
+- apps/dashboard/__tests__/persistent-voice.test.tsx (shown in the Command Center slot, kept on other pages without restarting, nothing new on screen; links inside the dashboard change page without reloading)
+FILES MODIFIED:
+- apps/dashboard/src/app/dashboard/layout.tsx (the box removed; PersistentVoice in its place; links still change page without reloading)
+- apps/dashboard/src/app/dashboard/page.tsx (Talk with JARV back in the Mission Control panel through its slot; the panel picks up the mission JARV is working on when the page opens or reloads, instead of being blank)
+- Removed apps/dashboard/src/components/live-mission-dock.tsx and its test.
+COMMANDS RUN: None beyond static review; the dashboard checks run on the owner's machine.
+TESTS RUN: Owner run pending.
+RESULT: Pending the owner's test run.
+BLOCKERS: None.
+NEXT TASK: Upgrade 1: deep specialist knowledge for every agent, and a Verifier with hard spec and claim checks.

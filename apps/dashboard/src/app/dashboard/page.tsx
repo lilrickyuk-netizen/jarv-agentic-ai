@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CockpitCore } from '@/components/cockpit-core';
 import { apiClient, HealthResponse } from '@/lib/api';
-import { runMission } from '@/lib/missions';
+import { followMission, runMission } from '@/lib/missions';
+import { VOICE_SLOT_ID } from '@/components/persistent-voice';
 import { clearTokens, getAccessToken } from '@/lib/auth';
 
 type CockpitState = 'idle' | 'listening' | 'thinking' | 'planning' | 'executing' | 'speaking' | 'approval' | 'completed' | 'failed' | 'recovery';
@@ -102,6 +103,8 @@ function deriveState(input: {
   return 'idle';
 }
 
+const IN_FLIGHT = new Set(['running', 'queued', 'recovering', 'needs_continuation', 'waiting_on_approval']);
+
 export default function CommandCenterPage() {
   const router = useRouter();
   const [health, setHealth] = useState<HealthResponse | null>(null);
@@ -118,7 +121,7 @@ export default function CommandCenterPage() {
   const [commandResult, setCommandResult] = useState<CommandResult | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [commandLoading, setCommandLoading] = useState(false);
-  // Talk with JARV lives in the dashboard frame (LiveMissionDock), so it survives moving between pages.
+  // Talk with JARV is kept connected by the dashboard frame (PersistentVoice) and shown in this panel's slot.
   const voiceState = 'idle' as VoiceState;
 
   const refresh = useCallback(async () => {
@@ -150,6 +153,24 @@ export default function CommandCenterPage() {
     const interval = window.setInterval(() => void refresh(), 15000);
     return () => window.clearInterval(interval);
   }, [refresh]);
+
+  // Coming back to this page (or reloading it) picks up the mission JARV is working on, so the panel shows it
+  // instead of being blank: missions run in JARV's worker, not in this page.
+  useEffect(() => {
+    const stop = new AbortController();
+    void (async () => {
+      const history = await apiClient.get<{ task_id: string; status: string }[]>('/api/command/history?limit=10');
+      const working = history.data?.find((item) => IN_FLIGHT.has(item.status));
+      if (!working || stop.signal.aborted) return;
+      try {
+        const mission = await followMission(working.task_id, { onUpdate: setCommandResult, signal: stop.signal });
+        setCommandResult(mission);
+      } catch {
+        // Stopped following (left the page); the mission carries on in JARV.
+      }
+    })();
+    return () => stop.abort();
+  }, []);
 
   const sendCommand = async (text: string): Promise<CommandResult | null> => {
     const trimmed = text.trim();
@@ -249,6 +270,7 @@ export default function CommandCenterPage() {
                   <button type="submit" className="primary-button" disabled={commandLoading || !command.trim()}>{commandLoading ? 'Working…' : 'Send instruction ↗'}</button>
                 </div>
               </form>
+              <div id={VOICE_SLOT_ID} />
               {commandError && <p className="inline-error" role="alert">{commandError}</p>}
               {commandResult && <div className={`mission-result result-${commandResult.status}`}>
                 <div className="result-heading"><span>{commandResult.status.toUpperCase()}</span>{commandResult.requires_approval && <b>APPROVAL REQUIRED</b>}</div>
