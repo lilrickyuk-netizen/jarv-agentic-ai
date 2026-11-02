@@ -13500,3 +13500,15 @@ TESTS RUN: Owner run by install-bright.sh: tsc --noEmit and jest in node:20.
 RESULT: Committed by the owner's script only after both pass.
 BLOCKERS: None.
 NEXT TASK: Upgrade 3 (Artifact Intelligence Graph).
+
+TASK ID: UI-FIELD-CALM-BLUE
+TASK NAME: Swarm field: slower reaction to the voice, blue
+STATUS: COMPLETE
+PROBLEM: Richard (2 Nov 2026): when it reacts to the voice it moves too quick; change the colour to blue.
+FILES MODIFIED:
+- apps/dashboard/src/components/cockpit-core.tsx (cause of the jumpiness: the voice changed speeds that were multiplied by the running clock, so every change of loudness jumped every light's position and colour; the turn, rings, heartbeat and colour now advance as smooth phases on the CPU, and the voice only raises their pace gently; the voice level rises over about a third of a second and settles over about a second (it rose in about 1/18 s); the voice's effect on spin, rings, heartbeat, colour and size reduced; the ball grows and shrinks more slowly; colours: blue in every normal state with a blue-only spectrum (deep, electric and pale blue), less white; amber for waiting on Richard and red for a failure kept as warnings)
+COMMANDS RUN: None locally.
+TESTS RUN: Owner run by install-blue.sh: tsc --noEmit and jest in node:20.
+RESULT: Committed by the owner's script only after both pass.
+BLOCKERS: None.
+NEXT TASK: Upgrade 3 (Artifact Intelligence Graph).
