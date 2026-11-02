@@ -259,7 +259,7 @@ export default function CommandCenterPage() {
           <section className="cockpit-grid-main" aria-label="Live system cockpit">
             <article className="cockpit-panel core-panel">
               <div className="panel-heading"><div><p className="eyebrow">JARV CORE</p><h2>Intelligence field</h2></div><span className="panel-index">CORE / 01</span></div>
-              <div className="core-visual"><CockpitCore state={state} /><div className="core-readout"><span>OPERATIONAL STATE</span><strong>{state.toUpperCase()}</strong><small>{activeTasks.length ? `${activeTasks.length} active task${activeTasks.length === 1 ? '' : 's'}` : 'No active tasks'}</small></div></div>
+              <div className="core-visual"><CockpitCore state={state} /></div><div className="core-readout"><span>OPERATIONAL STATE</span><strong>{state.toUpperCase()}</strong><small>{activeTasks.length ? `${activeTasks.length} active task${activeTasks.length === 1 ? '' : 's'}` : 'No active tasks'}</small></div>
               <div className="core-legend"><span><i className="legend-dot cyan" />LIVE SIGNAL</span><span><i className="legend-dot silver" />SYSTEM STATUS</span><span>{loading ? 'SYNCING' : 'SYNC · 15 SEC'}</span></div>
             </article>
 
