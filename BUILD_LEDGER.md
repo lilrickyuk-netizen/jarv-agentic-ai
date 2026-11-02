@@ -13476,3 +13476,15 @@ TESTS RUN: Owner run by install-bees.sh: tsc --noEmit and jest in node:20.
 RESULT: Committed by the owner's script only after both pass.
 BLOCKERS: None.
 NEXT TASK: Upgrade 3 (Artifact Intelligence Graph).
+
+TASK ID: UI-FIELD-COORDINATED
+TASK NAME: Swarm field: double the lights, one coordinated body that gathers into a small or big ball
+STATUS: COMPLETE
+PROBLEM: Richard (2 Nov 2026): double the lights; they must move with each other, coordinated; they can go into a big ball or a little ball together; the bee version was all over the place.
+FILES MODIFIED:
+- apps/dashboard/src/components/cockpit-core.tsx (90,000 lights, double the 45,000, filling one ball; every light follows the same rules: the body turns as one with the inner lights wheeling a little faster, rings of light and colour travel outward through it in step, and it shares one heartbeat; the ball gathers small or opens big together with JARV's state (thinking 0.7, waiting on approval 0.75, idle 0.95, listening 1.1, working 1.3, speaking 1.55) and swells with each word JARV says; the groups, roamers, loops and buzz removed)
+COMMANDS RUN: None locally.
+TESTS RUN: Owner run by install-ball.sh: tsc --noEmit and jest in node:20.
+RESULT: Committed by the owner's script only after both pass.
+BLOCKERS: None.
+NEXT TASK: Upgrade 3 (Artifact Intelligence Graph).
