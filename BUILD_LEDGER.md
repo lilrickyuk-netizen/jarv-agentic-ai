@@ -13169,7 +13169,7 @@ NEXT TASK: The root causes behind the night's failures (one mission engine with 
 TASK ID: UPGRADE-QUEUE-1
 TASK NAME: Upgrades Richard approved, gated on JARV working as designed
 STATUS: NOT_STARTED
-GATE: Starts only after the dashboard/UI fixes, the root-cause fixes to JARV's mission engine, and JARV's correction of MYCO Phase 0 all pass, and JARV completes missions as designed without operator rescue.
+GATE: Starts only after the dashboard/UI fixes, the root-cause fixes to JARV's mission engine, and JARV's correction of MYCO Phase 0 all pass, and JARV completes missions as designed without operator rescue. Richard (2 Nov 2026): once MYCO Phase 0 is successfully completed (independently verified), all five upgrades go in. Baseline for measuring them: the Phase 0 correction run (tokens, rounds, verifier findings).
 SCOPE (in this order unless Richard reorders):
 1. Deep specialist knowledge for all 31 agents.
 2. Knowledge-enhanced reasoning: expert references combined with model capabilities.
