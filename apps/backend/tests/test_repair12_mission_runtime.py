@@ -531,3 +531,32 @@ def test_only_one_mission_works_in_a_workspace_folder_at_a_time(test_user, test_
     assert old_continues is False and _run(_get(old)).status == "cancelled"
     assert "already active in this workspace" in blocked["error"] and str(old)[:8] in blocked["error"]
     assert resumed["resumed"] is True and resumed["task_id"] == str(current)
+
+
+@pytest.mark.integration
+def test_a_mission_carried_on_after_a_provider_pause_is_not_reported_as_paused(test_user, test_workspace,
+                                                                              monkeypatch):
+    """After Carry on, Talk with JARV still said the mission was paused because the provider had stopped
+    answering: it read the old pause note. Carrying on clears the note, and a running mission is described by
+    its latest activity, not by an earlier report."""
+    from app.core.voice.live import run_tool
+
+    monkeypatch.setenv("MISSION_EXECUTION_MODE", "deferred")
+    pause = "Paused: the AI provider stopped answering (peer closed connection)."
+
+    async def run():
+        async with AsyncTestingSessionLocal() as db:
+            paused = await _mission(db, test_workspace.id, "partial", error_message=pause, result={
+                "workspace_path": "C:\\\\MYCO", "response": "Edited the Taskfile.\n\n" + pause,
+                "final_status_reason": pause, "provider_unavailable": True})
+            await run_tool(db, test_user.id, "resume_mission", {"task_id": str(paused)})
+            task = (await db.execute(select(Task).where(Task.id == paused))).scalar_one()
+            task.status = "running"
+            await db.commit()
+            return paused, await run_tool(db, test_user.id, "get_mission", {})
+
+    paused, report = _run(run())
+    row = _run(_get(paused))
+    assert row.error_message is None and "provider_unavailable" not in row.result
+    assert row.result["response"] == "Edited the Taskfile."
+    assert report["in_progress"] is True and "result" not in report and "error" not in report

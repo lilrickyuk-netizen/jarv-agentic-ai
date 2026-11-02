@@ -115,7 +115,14 @@ async def queue_resume(db: AsyncSession, task: Task, *, operator: str, reason: s
                          f"workspace. Only one mission works in a folder at a time: let it finish, or close it, "
                          f"before carrying on with this one.")
     lifecycle.transition(task, lifecycle.QUEUED, reason=reason, actor=operator)
-    task.result = {**(task.result if isinstance(task.result, dict) else {}), "auto_rounds": 0}
+    result = dict(task.result if isinstance(task.result, dict) else {})
+    if result.pop("provider_unavailable", None):
+        # The provider pause is over once the mission carries on: its note no longer describes the mission.
+        note = str(result.pop("final_status_reason", "") or "")
+        if note:
+            result["response"] = str(result.get("response") or "").replace(note, "").strip()
+        task.error_message = None
+    task.result = {**result, "auto_rounds": 0}
     task.meta_data = {**(task.meta_data or {}), "resume_mode": "continuation", "operator": operator}
     await db.commit()
     dispatched = await dispatch_mission(task.id, reason=reason)

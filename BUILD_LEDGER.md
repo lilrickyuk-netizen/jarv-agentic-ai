@@ -13293,8 +13293,10 @@ FILES MODIFIED:
 - apps/backend/app/core/runtime/missions.py (an automatic continuation is skipped, with a feed entry, while another mission runs in the workspace or once a newer live mission exists there)
 - apps/backend/app/core/voice/live.py (carry on chooses the newest mission with a folder, never an older one for its status; now_block: every session and ask_jarv know the current date and UK time, and remembered turns carry their time)
 - apps/backend/tests/test_repair12_mission_runtime.py (one mission per folder: an older paused mission does not continue itself, carry on is refused while another is active and names it, then resumes the newest; the automatic-continuation test uses separate workspaces)
+- apps/backend/app/core/voice/live.py, continuation.py (also: after Carry on, Talk with JARV still said the mission was paused by the provider because it read the old pause note; carrying on clears the note and error, and get_mission describes a running mission by its latest activity only)
 - apps/backend/tests/test_voice_live_and_mission_session.py (the session states the current date and time)
-COMMANDS RUN: python ast parse and undefined-name check of the changed files: passed. Owner: the two stray missions were cancelled by SQL.
+- apps/backend/tests/test_repair12_mission_runtime.py (a mission carried on after a provider pause is not reported as paused)
+COMMANDS RUN: python ast parse and undefined-name check of the changed files: passed. Owner: the two stray missions, and three 30 October missions waiting on approval for the old OneDrive MYCO folder, were cancelled by SQL.
 TESTS RUN: Owner run pending.
 RESULT: Pending the owner's test run.
 BLOCKERS: None.

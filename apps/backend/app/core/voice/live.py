@@ -336,6 +336,12 @@ async def _mission(db: AsyncSession, user_id: UUID, task_id: Optional[str]) -> D
     if task is None:
         return {"error": "No mission found."}
     result = task.result if isinstance(task.result, dict) else {}
+    if (task.status or "").lower() in ("queued", "running", "recovering"):
+        # A mission being worked on is described by what it is doing now; its last report and error are
+        # from an earlier round (a pause it has since come back from) and would mislead.
+        return {"task_id": str(task.id), "title": task.title, "status": task.status, "in_progress": True,
+                "folder": result.get("workspace_path"), "latest_activity": await _activity(db, task.id),
+                "note": "Still being worked on. Describe it from latest_activity; earlier pauses are over."}
     # Missions store their report under "response".
     summary = (result.get("response") or result.get("response_text") or result.get("output")
                or result.get("summary") or "")
