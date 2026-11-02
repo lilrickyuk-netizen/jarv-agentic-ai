@@ -13443,6 +13443,7 @@ FILES MODIFIED:
 - apps/dashboard/src/app/dashboard/page.tsx (the field's state follows the live conversation: listening, thinking, speaking)
 - apps/dashboard/src/components/cockpit-core.tsx (an analyser on JARV's voice stream drives the field: points ripple outward and grow, the core and halo brighten and swell, the bands and orbits speed up with the loudness of each word; a speech-like rhythm when the browser blocks analysis; camera closer)
 - apps/dashboard/src/app/globals.css (field area clamp(440px, 52vw, 760px))
+- cockpit-core.tsx also: 6,000 globe lights and 3,400 dust lights; every light drifts through a cool spectrum (blue, cyan, teal, violet, white) from the state colour; waves of light sweep across the field together; the voice speeds the waves, the twinkle and the colour change, and swirls the field
 COMMANDS RUN: None locally.
 TESTS RUN: Owner run by install-field-voice.sh: tsc --noEmit and jest in node:20.
 RESULT: Committed by the owner's script only after both pass.

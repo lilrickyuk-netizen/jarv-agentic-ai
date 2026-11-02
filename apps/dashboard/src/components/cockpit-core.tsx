@@ -50,33 +50,55 @@ const POINT_VERTEX = `
   uniform float uPulse;
   uniform float uBackFade;
   uniform float uAudio;
+  uniform vec3 uColor;
+  uniform float uSpectrum;
   varying float vAlpha;
+  varying vec3 vColor;
+
+  // A cool spectrum (blue, cyan, teal, violet, white) the lights travel through.
+  vec3 spectrum(float t) {
+    return vec3(0.45, 0.62, 0.85) + vec3(0.40, 0.33, 0.20) * cos(6.28318 * (vec3(1.0, 1.0, 1.0) * t + vec3(0.55, 0.40, 0.30)));
+  }
+
   void main() {
-    // While JARV speaks, the points ripple outward with the loudness of its voice.
-    float ripple = 1.0 + uAudio * (0.06 + 0.07 * sin(uTime * 9.0 + aPhase * 3.0));
-    vec4 mv = modelViewMatrix * vec4(position * ripple, 1.0);
-    float twinkle = 0.55 + 0.45 * sin(uTime * 1.7 + aPhase);
+    vec3 p = position;
+    // The whole field swirls together, harder while JARV speaks.
+    float swirl = uAudio * 0.22 * sin(uTime * 2.2 + p.y * 2.6);
+    float c = cos(swirl), s = sin(swirl);
+    p = vec3(c * p.x - s * p.z, p.y, s * p.x + c * p.z);
+    // Each word sends a ripple out through the lights.
+    p *= 1.0 + uAudio * (0.05 + 0.07 * sin(uTime * 9.0 + aPhase * 3.0));
+    vec4 mv = modelViewMatrix * vec4(p, 1.0);
+
+    // Waves of light sweep across the field together; faster and stronger with the voice.
+    vec3 dir = normalize(vec3(0.6, 0.8, 0.2));
+    float wave = 0.5 + 0.5 * sin(dot(normalize(position), dir) * 7.0 - uTime * (1.4 + uAudio * 7.0));
+    float twinkle = 0.55 + 0.45 * sin(uTime * (1.7 + uAudio * 6.0) + aPhase);
     vec3 n = normalize((modelMatrix * vec4(position, 0.0)).xyz);
     float facing = mix(1.0, 0.25 + 0.75 * smoothstep(-0.7, 0.6, n.z), uBackFade);
-    vAlpha = twinkle * facing;
-    vAlpha = min(1.0, vAlpha * (1.0 + uAudio * 1.2));
-    gl_PointSize = aSize * uPixelRatio * (1.0 + uPulse * 0.35 + uAudio * 0.9) * (18.0 / -mv.z);
+    vAlpha = min(1.0, twinkle * facing * (0.55 + wave * (0.6 + uAudio * 1.4)));
+
+    // Colour: the state's colour, drifting through the spectrum; the voice pushes it further and faster.
+    float t = aPhase * 0.159 + uTime * (0.04 + uAudio * 0.35) + position.y * 0.18 + wave * 0.25;
+    vColor = mix(uColor, spectrum(t), clamp(uSpectrum + uAudio * 0.6, 0.0, 1.0));
+
+    gl_PointSize = aSize * uPixelRatio * (1.0 + uPulse * 0.35 + uAudio * 0.9 + wave * uAudio * 0.8) * (18.0 / -mv.z);
     gl_Position = projectionMatrix * mv;
   }
 `;
 
 const POINT_FRAGMENT = `
   uniform sampler2D uMap;
-  uniform vec3 uColor;
   uniform float uWhite;
   varying float vAlpha;
+  varying vec3 vColor;
   void main() {
     float a = texture2D(uMap, gl_PointCoord).a * vAlpha;
-    gl_FragColor = vec4(mix(uColor, vec3(1.0), uWhite) * a, a);
+    gl_FragColor = vec4(mix(vColor, vec3(1.0), uWhite) * a, a);
   }
 `;
 
-function pointMaterial(map: THREE.Texture, color: THREE.Color, white: number, backFade: number) {
+function pointMaterial(map: THREE.Texture, color: THREE.Color, white: number, backFade: number, spectrum = 0.35) {
   return new THREE.ShaderMaterial({
     uniforms: {
       uTime: { value: 0 },
@@ -87,6 +109,7 @@ function pointMaterial(map: THREE.Texture, color: THREE.Color, white: number, ba
       uMap: { value: map },
       uColor: { value: color },
       uWhite: { value: white },
+      uSpectrum: { value: spectrum },
     },
     vertexShader: POINT_VERTEX,
     fragmentShader: POINT_FRAGMENT,
@@ -110,7 +133,7 @@ function globePoints(count: number, radius: number) {
     positions[i * 3] = Math.cos(theta) * r * jitter;
     positions[i * 3 + 1] = y * jitter;
     positions[i * 3 + 2] = Math.sin(theta) * r * jitter;
-    sizes[i] = 0.9 + Math.random() * 1.6 + (Math.random() < 0.04 ? 2.6 : 0);
+    sizes[i] = 0.7 + Math.random() * 1.3 + (Math.random() < 0.04 ? 2.4 : 0);
     phases[i] = Math.random() * Math.PI * 2;
   }
   const geometry = new THREE.BufferGeometry();
@@ -261,16 +284,16 @@ export function CockpitCore({ state }: { state: CoreState }) {
     root.add(globe);
     const gridMaterial = new THREE.LineBasicMaterial({ color: accent, transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false });
     globe.add(new THREE.LineSegments(gridLines(1.24), gridMaterial));
-    const globeMaterial = pointMaterial(glow, accent, 0.45, 1);
-    const globeCloud = new THREE.Points(globePoints(2600, 1.26), globeMaterial);
+    const globeMaterial = pointMaterial(glow, accent, 0.3, 1, 0.4);
+    const globeCloud = new THREE.Points(globePoints(6000, 1.26), globeMaterial);
     globe.add(globeCloud);
 
     // Outer field: two dust bands at different tilts, turning in opposite directions.
-    const dustMaterial = pointMaterial(glow, accent, 0.2, 0);
-    const dustA = new THREE.Points(dustBand(900, 1.55, 2.5), dustMaterial);
+    const dustMaterial = pointMaterial(glow, accent, 0.15, 0, 0.55);
+    const dustA = new THREE.Points(dustBand(2200, 1.55, 2.5), dustMaterial);
     dustA.rotation.set(1.22, 0, 0.3);
     root.add(dustA);
-    const dustB = new THREE.Points(dustBand(500, 1.7, 2.35), dustMaterial);
+    const dustB = new THREE.Points(dustBand(1200, 1.7, 2.35), dustMaterial);
     dustB.rotation.set(0.5, 0, -0.9);
     root.add(dustB);
 
