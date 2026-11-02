@@ -100,16 +100,16 @@ const SWARM_VERTEX = `
 
     // Brightness pulses with the same rings and one shared heartbeat; a light shimmer keeps it alive.
     float glowRing = 0.5 + 0.5 * ring;
-    float heartbeat = 0.65 + 0.35 * pow(0.5 + 0.5 * sin(uTime * (1.5 + uAudio * 4.0)), 3.0);
-    float shimmer = 0.85 + 0.15 * sin(uTime * 3.0 + aPhase);
-    float depth = 1.0 - smoothstep(0.0, 1.0, rad) * 0.35;
-    vAlpha = min(1.0, (0.3 + glowRing * (0.6 + uAudio * 1.2)) * heartbeat * shimmer * depth * (1.0 + uPulse * 0.25));
+    // Every light stays on: the rings and heartbeat only lift them brighter still.
+    float heartbeat = 0.9 + 0.1 * pow(0.5 + 0.5 * sin(uTime * (1.5 + uAudio * 4.0)), 3.0);
+    float shimmer = 0.94 + 0.06 * sin(uTime * 3.0 + aPhase);
+    vAlpha = (0.85 + glowRing * (0.35 + uAudio * 0.6)) * heartbeat * shimmer * (1.0 + uPulse * 0.15);
 
     // Colour rings move outward with the light.
     float hue = rad * 0.6 - uTime * (0.06 + uAudio * 0.4) + glowRing * 0.1;
     vColor = mix(uColor, spectrum(hue), clamp(uSpectrum + uAudio * 0.6, 0.0, 1.0));
 
-    gl_PointSize = aSize * uPixelRatio * (0.85 + glowRing * 0.5 + uAudio * 0.8) * (16.0 / -mv.z);
+    gl_PointSize = aSize * uPixelRatio * (1.1 + glowRing * 0.45 + uAudio * 0.8) * (16.0 / -mv.z);
     gl_Position = projectionMatrix * mv;
   }
 `;
@@ -117,11 +117,13 @@ const SWARM_VERTEX = `
 const SWARM_FRAGMENT = `
   uniform sampler2D uMap;
   uniform float uWhite;
+  uniform float uGain;
   varying float vAlpha;
   varying vec3 vColor;
   void main() {
-    float a = texture2D(uMap, gl_PointCoord).a * vAlpha;
-    gl_FragColor = vec4(mix(vColor, vec3(1.0), uWhite) * a, a);
+    float a = pow(texture2D(uMap, gl_PointCoord).a, 0.8);
+    float light = a * vAlpha * uGain;
+    gl_FragColor = vec4(mix(vColor, vec3(1.0), uWhite) * light, min(1.0, a * vAlpha));
   }
 `;
 
@@ -138,7 +140,7 @@ function swarmGeometry(count: number) {
     homes[i * 3] = Math.cos(angle) * ring * distance;
     homes[i * 3 + 1] = u * distance;
     homes[i * 3 + 2] = Math.sin(angle) * ring * distance;
-    sizes[i] = 0.3 + Math.random() * 0.6 + (Math.random() < 0.015 ? 1.6 : 0);
+    sizes[i] = 0.55 + Math.random() * 0.6 + (Math.random() < 0.015 ? 1.6 : 0);
     phases[i] = Math.random() * Math.PI * 2;
   }
   const geometry = new THREE.BufferGeometry();
@@ -164,6 +166,7 @@ function swarmMaterial(map: THREE.Texture, color: THREE.Color, options: { white:
       uSpectrum: { value: options.spectrum },
       uMap: { value: map },
       uWhite: { value: options.white },
+      uGain: { value: 1.6 },
     },
     vertexShader: SWARM_VERTEX,
     fragmentShader: SWARM_FRAGMENT,
@@ -207,7 +210,7 @@ export function CockpitCore({ state }: { state: CoreState }) {
     const glow = glowTexture();
     const accent = new THREE.Color(stateColors[stateRef.current]);
 
-    const bodyMaterial = swarmMaterial(glow, accent, { white: 0.22, spectrum: 0.5 });
+    const bodyMaterial = swarmMaterial(glow, accent, { white: 0.35, spectrum: 0.5 });
     const body = new THREE.Points(swarmGeometry(SWARM_LIGHTS), bodyMaterial);
     scene.add(body);
     const materials = [bodyMaterial];
