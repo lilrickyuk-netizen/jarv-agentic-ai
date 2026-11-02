@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { usePathname } from 'next/navigation';
 import { followMission } from '@/lib/missions';
 import { VoiceOperator } from '@/components/voice-operator';
+import { setVoiceState } from '@/lib/voice-signal';
 
 /** Where Talk with JARV is shown: the Command Center's mission panel puts this element where it wants it. */
 export const VOICE_SLOT_ID = 'voice-slot';
@@ -42,7 +43,7 @@ export function PersistentVoice() {
     <>
       <div ref={parkingRef} hidden data-testid="voice-parking" />
       {host && createPortal(
-        <VoiceOperator onStateChange={() => undefined} onMission={(taskId) => followMission(taskId)} />, host)}
+        <VoiceOperator onStateChange={setVoiceState} onMission={(taskId) => followMission(taskId)} />, host)}
     </>
   );
 }

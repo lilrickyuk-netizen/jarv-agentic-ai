@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
+import { getVoiceStream, subscribeVoice } from '@/lib/voice-signal';
 
 type CoreState = 'idle' | 'listening' | 'thinking' | 'planning' | 'executing' | 'speaking' | 'approval' | 'completed' | 'failed' | 'recovery';
 
@@ -48,14 +49,18 @@ const POINT_VERTEX = `
   uniform float uPixelRatio;
   uniform float uPulse;
   uniform float uBackFade;
+  uniform float uAudio;
   varying float vAlpha;
   void main() {
-    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    // While JARV speaks, the points ripple outward with the loudness of its voice.
+    float ripple = 1.0 + uAudio * (0.06 + 0.07 * sin(uTime * 9.0 + aPhase * 3.0));
+    vec4 mv = modelViewMatrix * vec4(position * ripple, 1.0);
     float twinkle = 0.55 + 0.45 * sin(uTime * 1.7 + aPhase);
     vec3 n = normalize((modelMatrix * vec4(position, 0.0)).xyz);
     float facing = mix(1.0, 0.25 + 0.75 * smoothstep(-0.7, 0.6, n.z), uBackFade);
     vAlpha = twinkle * facing;
-    gl_PointSize = aSize * uPixelRatio * (1.0 + uPulse * 0.35) * (18.0 / -mv.z);
+    vAlpha = min(1.0, vAlpha * (1.0 + uAudio * 1.2));
+    gl_PointSize = aSize * uPixelRatio * (1.0 + uPulse * 0.35 + uAudio * 0.9) * (18.0 / -mv.z);
     gl_Position = projectionMatrix * mv;
   }
 `;
@@ -77,6 +82,7 @@ function pointMaterial(map: THREE.Texture, color: THREE.Color, white: number, ba
       uTime: { value: 0 },
       uPixelRatio: { value: 1 },
       uPulse: { value: 0 },
+      uAudio: { value: 0 },
       uBackFade: { value: backFade },
       uMap: { value: map },
       uColor: { value: color },
@@ -196,7 +202,7 @@ export function CockpitCore({ state }: { state: CoreState }) {
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 100);
-    camera.position.set(0, 0, 7.4);
+    camera.position.set(0, 0, 6.6);
 
     const glow = glowTexture();
     const accent = new THREE.Color(stateColors[stateRef.current]);
@@ -219,7 +225,7 @@ export function CockpitCore({ state }: { state: CoreState }) {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
-      uniforms: { uTime: { value: 0 }, uColor: { value: accent } },
+      uniforms: { uTime: { value: 0 }, uColor: { value: accent }, uAudio: { value: 0 } },
       vertexShader: `
         varying vec3 vNormal;
         varying vec3 vWorld;
@@ -235,14 +241,15 @@ export function CockpitCore({ state }: { state: CoreState }) {
       fragmentShader: `
         uniform float uTime;
         uniform vec3 uColor;
+        uniform float uAudio;
         varying vec3 vNormal;
         varying vec3 vWorld;
         varying vec3 vPos;
         void main() {
           vec3 view = normalize(cameraPosition - vWorld);
           float rim = pow(1.0 - max(dot(normalize(vNormal), view), 0.0), 2.4);
-          float bands = sin(vPos.y * 16.0 + atan(vPos.z, vPos.x) * 4.0 - uTime * 0.9) * 0.5 + 0.5;
-          float light = rim * 1.15 + bands * 0.06 + 0.04;
+          float bands = sin(vPos.y * 16.0 + atan(vPos.z, vPos.x) * 4.0 - uTime * (0.9 + uAudio * 6.0)) * 0.5 + 0.5;
+          float light = rim * (1.15 + uAudio * 0.9) + bands * (0.06 + uAudio * 0.22) + 0.04 + uAudio * 0.12;
           gl_FragColor = vec4(mix(uColor, vec3(1.0), rim * 0.35) * light, light);
         }
       `,
@@ -306,12 +313,58 @@ export function CockpitCore({ state }: { state: CoreState }) {
       renderer.setSize(width, height, false);
       camera.aspect = width / height;
       // Keep the whole field in view on narrow screens.
-      camera.position.z = width < height ? 7.4 * (height / width) * 0.85 : 7.4;
+      camera.position.z = width < height ? 6.6 * (height / width) * 0.9 : 6.6;
       camera.updateProjectionMatrix();
     };
     const resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(mount);
     resize();
+
+    // JARV's voice: an analyser on the live voice stream gives the loudness the field moves with.
+    let audioContext: AudioContext | null = null;
+    let analyser: AnalyserNode | null = null;
+    let source: MediaStreamAudioSourceNode | null = null;
+    let samples: Uint8Array<ArrayBuffer> | null = null;
+    let listenedStream: MediaStream | null = null;
+    const listen = () => {
+      const stream = getVoiceStream();
+      if (stream === listenedStream) return;
+      listenedStream = stream;
+      source?.disconnect();
+      source = null;
+      if (!stream || stream.getAudioTracks().length === 0) return;
+      try {
+        const Context = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!Context) return;
+        audioContext = audioContext ?? new Context();
+        if (audioContext.state === 'suspended') void audioContext.resume();
+        analyser = analyser ?? audioContext.createAnalyser();
+        analyser.fftSize = 512;
+        analyser.smoothingTimeConstant = 0.6;
+        samples = new Uint8Array(new ArrayBuffer(analyser.fftSize));
+        // Analysed only, never played twice: the conversation's own audio element plays the voice.
+        source = audioContext.createMediaStreamSource(stream);
+        source.connect(analyser);
+      } catch {
+        analyser = null;
+      }
+    };
+    listen();
+    const unsubscribe = subscribeVoice(listen);
+    const loudness = (time: number, speaking: boolean): number => {
+      if (analyser && samples && listenedStream) {
+        analyser.getByteTimeDomainData(samples);
+        let sum = 0;
+        for (let i = 0; i < samples.length; i += 1) {
+          const v = (samples[i] - 128) / 128;
+          sum += v * v;
+        }
+        return Math.min(1, Math.sqrt(sum / samples.length) * 4.5);
+      }
+      // No analysable stream (the browser blocked it): a speech-like rhythm while JARV speaks.
+      return speaking ? 0.35 + 0.3 * Math.abs(Math.sin(time * 7.3) * Math.sin(time * 2.9 + 1.1)) : 0;
+    };
+    let audioLevel = 0;
 
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const clock = new THREE.Clock();
@@ -332,16 +385,24 @@ export function CockpitCore({ state }: { state: CoreState }) {
       // Busy states pulse and turn faster; approval breathes slowly so it reads as waiting.
       const beat = current === 'approval' ? 0.5 + 0.5 * Math.sin(time * 1.4) : active ? 0.5 + 0.5 * Math.sin(time * 3.2) : 0;
       pulse += ((reducedMotion ? 0 : beat) - pulse) * Math.min(delta * 6, 1);
-      const speed = reducedMotion ? 0 : active ? 1 : 0.45;
+      const speaking = current === 'speaking';
+      const level = reducedMotion ? 0 : loudness(clock.elapsedTime, speaking);
+      // Rise fast with the voice, fall back gently between words.
+      audioLevel += (level - audioLevel) * Math.min(delta * (level > audioLevel ? 18 : 5), 1);
+      const speed = reducedMotion ? 0 : (active ? 1 : 0.45) + audioLevel * 1.6;
 
       coreMaterial.uniforms.uTime.value = time;
+      coreMaterial.uniforms.uAudio.value = audioLevel;
       pointMaterials.forEach((material) => {
         material.uniforms.uTime.value = time;
         material.uniforms.uPulse.value = pulse;
+        material.uniforms.uAudio.value = audioLevel;
       });
-      haloMaterial.opacity = 0.5 + pulse * 0.2;
-      halo.scale.setScalar(5.4 + pulse * 0.35);
-      innerHaloMaterial.opacity = 0.14 + pulse * 0.1;
+      haloMaterial.opacity = Math.min(1, 0.5 + pulse * 0.2 + audioLevel * 0.45);
+      halo.scale.setScalar(5.4 + pulse * 0.35 + audioLevel * 1.2);
+      innerHaloMaterial.opacity = 0.14 + pulse * 0.1 + audioLevel * 0.35;
+      core.scale.setScalar(1 + audioLevel * 0.12);
+      orbitMaterial.opacity = Math.min(1, 0.85 + audioLevel * 0.3);
 
       globe.rotation.y += delta * 0.22 * speed;
       core.rotation.y -= delta * 0.1 * speed;
@@ -351,7 +412,7 @@ export function CockpitCore({ state }: { state: CoreState }) {
 
       orbits.forEach((orbit) => {
         orbit.group.rotation.z += delta * 0.03 * speed;
-        const head = (((time * orbit.speed * (active ? 1.6 : 1)) + orbit.offset) % 1 + 1) % 1;
+        const head = (((time * orbit.speed * (active ? 1.6 : 1) * (1 + audioLevel)) + orbit.offset) % 1 + 1) % 1;
         const positions = orbit.comet.geometry.getAttribute('position') as THREE.BufferAttribute;
         for (let i = 0; i < TRAIL; i += 1) {
           const t = ((head - Math.sign(orbit.speed) * i * 0.0065) % 1 + 1) % 1;
@@ -368,6 +429,9 @@ export function CockpitCore({ state }: { state: CoreState }) {
     return () => {
       window.cancelAnimationFrame(frame);
       resizeObserver.disconnect();
+      unsubscribe();
+      source?.disconnect();
+      void audioContext?.close();
       const materials = new Set<THREE.Material>();
       scene.traverse((object) => {
         const holder = object as THREE.Object3D & { geometry?: THREE.BufferGeometry; material?: THREE.Material | THREE.Material[] };

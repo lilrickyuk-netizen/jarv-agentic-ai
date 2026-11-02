@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiClient } from '@/lib/api';
 import type { MissionReport } from '@/components/voice-operator';
+import { setVoiceStream } from '@/lib/voice-signal';
 
 type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking';
 type Phase = 'off' | 'connecting' | 'live';
@@ -89,6 +90,7 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     if (audioRef.current) audioRef.current.srcObject = null;
+    setVoiceStream(null);
     respondingRef.current = false;
     replyQueuedRef.current = false;
     if (mountedRef.current) {
@@ -209,6 +211,8 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
       }
       peer.ontrack = (track) => {
         if (audioRef.current) audioRef.current.srcObject = track.streams[0];
+        // The intelligence field listens to JARV's voice and moves with it.
+        setVoiceStream(track.streams[0] ?? null);
       };
       peer.onconnectionstatechange = () => {
         if (['failed', 'closed'].includes(peer.connectionState) && mountedRef.current && peerRef.current === peer) {

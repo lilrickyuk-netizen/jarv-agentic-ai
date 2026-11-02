@@ -13430,3 +13430,21 @@ TESTS RUN: Owner run by install-field.sh: tsc --noEmit and jest in node:20.
 RESULT: Committed by the owner's script only after both pass.
 BLOCKERS: None.
 NEXT TASK: Upgrade 3 (Artifact Intelligence Graph) after Upgrade 2 is installed.
+
+TASK ID: UI-FIELD-VOICE
+TASK NAME: Intelligence field bigger, and moving with JARV's voice
+STATUS: COMPLETE
+PROBLEM: Richard (2 Nov 2026): make the field bigger, and it must react when JARV is speaking. The Command Center's voice state was fixed at idle since Talk with JARV moved to the dashboard frame, so the field never knew JARV was talking.
+FILES CREATED:
+- apps/dashboard/src/lib/voice-signal.ts (Talk with JARV's state and the live stream of JARV's voice, shared with the dashboard; useVoiceState hook)
+FILES MODIFIED:
+- apps/dashboard/src/components/persistent-voice.tsx (publishes the conversation state)
+- apps/dashboard/src/components/voice-conversation.tsx (publishes the voice stream when it arrives; clears it when the conversation stops)
+- apps/dashboard/src/app/dashboard/page.tsx (the field's state follows the live conversation: listening, thinking, speaking)
+- apps/dashboard/src/components/cockpit-core.tsx (an analyser on JARV's voice stream drives the field: points ripple outward and grow, the core and halo brighten and swell, the bands and orbits speed up with the loudness of each word; a speech-like rhythm when the browser blocks analysis; camera closer)
+- apps/dashboard/src/app/globals.css (field area clamp(440px, 52vw, 760px))
+COMMANDS RUN: None locally.
+TESTS RUN: Owner run by install-field-voice.sh: tsc --noEmit and jest in node:20.
+RESULT: Committed by the owner's script only after both pass.
+BLOCKERS: None.
+NEXT TASK: Upgrade 3 (Artifact Intelligence Graph).

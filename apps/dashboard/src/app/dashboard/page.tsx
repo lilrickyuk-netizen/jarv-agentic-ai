@@ -7,6 +7,7 @@ import { apiClient, HealthResponse } from '@/lib/api';
 import { followMission, runMission } from '@/lib/missions';
 import { VOICE_SLOT_ID } from '@/components/persistent-voice';
 import { clearTokens, getAccessToken } from '@/lib/auth';
+import { useVoiceState } from '@/lib/voice-signal';
 
 type CockpitState = 'idle' | 'listening' | 'thinking' | 'planning' | 'executing' | 'speaking' | 'approval' | 'completed' | 'failed' | 'recovery';
 type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking';
@@ -121,8 +122,9 @@ export default function CommandCenterPage() {
   const [commandResult, setCommandResult] = useState<CommandResult | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [commandLoading, setCommandLoading] = useState(false);
-  // Talk with JARV is kept connected by the dashboard frame (PersistentVoice) and shown in this panel's slot.
-  const voiceState = 'idle' as VoiceState;
+  // Talk with JARV is kept connected by the dashboard frame (PersistentVoice) and shown in this panel's slot;
+  // its state reaches the intelligence field here, so the field listens and speaks with JARV.
+  const voiceState: VoiceState = useVoiceState();
 
   const refresh = useCallback(async () => {
     const [healthResponse, agentsResponse, statsResponse, tasksResponse, feedResponse, approvalsResponse, memoryResponse, swarmResponse] = await Promise.all([
