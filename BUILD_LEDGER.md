@@ -13380,7 +13380,7 @@ NEXT TASK: Upgrade 1b: source documentation for the other 23 agents; fuller page
 
 TASK ID: UPGRADE-1B
 TASK NAME: Source documentation for the other 23 agents; replace the thin CloudNativePG pages
-STATUS: IN_PROGRESS
+STATUS: COMPLETE
 PROBLEM: After Upgrade 1a only the eight engineering agents had official documentation; the CloudNativePG "documentation/current" pages and the OWASP ASVS project page gave one passage each.
 FILES CREATED: None.
 FILES MODIFIED:
@@ -13391,6 +13391,6 @@ FILES MODIFIED:
 - apps/backend/tests/test_upgrade1a_knowledge_and_checks.py (every agent has stored sources with recorded licences; SRE book never stored; retirement)
 COMMANDS RUN: Licence pages read: developers.google.com/site-policies, ico.org.uk copyright and re-use, github.com/prometheus/docs, OWASP CheatSheetSeries listing, MDN attribution page, nist.gov copyrights-disclaimers, a GOV.UK footer. Page addresses found by search.
 TESTS RUN: Static checks; full suite on the owner's machine by the install script.
-RESULT: Pending the owner's test run.
+RESULT: Owner run 1 (2 Nov 2026): 807 passed, 1 skipped; committed as 4ec5eae on master; JARV rebuilt. Ingest: 96 sources (54 updated, 24 unchanged, 15 link_only, 3 old CloudNativePG pages retired), 1007 active passages, no fetch errors. CloudNativePG now 126 passages, OWASP cheat sheets 147. Index pages that gave one passage (Prometheus alerting practices and overview, GOV.UK Service Standard, Running a limited company, ICO right to be informed) to be replaced by their detail pages in a later refresh.
 BLOCKERS: None.
-NEXT TASK: Owner runs install-upgrade-1b.sh; then Upgrade 2 (knowledge-enhanced reasoning).
+NEXT TASK: Upgrade 2 (knowledge-enhanced reasoning).
