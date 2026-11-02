@@ -511,6 +511,7 @@ def test_talk_with_jarv_carries_on_from_the_last_conversation(client, voice, mon
     assert started.status_code == 200, started.text
     instructions = json.loads(voice["requests"][-1][1])["session"]["instructions"]
     assert "YOUR RECENT CONVERSATION WITH RICHARD" in instructions
+    assert "It is now " in instructions and ("UK time" in instructions or "UTC." in instructions)  # JARV knows what day and time it is
     first = instructions.index("Richard: MYCO is being built, not launched")
     assert first < instructions.index("JARV: Understood, Phase 0 stays offline.")
     assert "sk-abcdefghijklmnopqrstuvwxyz123456" not in instructions
