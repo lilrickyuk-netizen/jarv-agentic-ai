@@ -96,6 +96,57 @@ def _openai_messages_from_blocks(role: str, blocks: List[Any]) -> List[Dict[str,
         out.append({"role": role, "content": json.dumps(blocks, default=str)})
     return out
 
+# Models whose tool-using requests go to the Responses API: on Chat Completions they take function tools only
+# with reasoning switched off, so an agent would work every step without thinking.
+RESPONSES_MODELS = frozenset({"gpt-6-luna"})
+_EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
+
+
+def _agent_effort() -> str:
+    from app.core.config import settings
+
+    effort = str(getattr(settings, "OPENAI_AGENT_REASONING_EFFORT", "medium") or "medium").strip().lower()
+    return effort if effort in _EFFORTS else "medium"
+
+
+def _responses_input(request: CompletionRequest) -> tuple:
+    """(instructions, input items) for the Responses API, from JARV's Anthropic-shaped conversation."""
+    instructions = [request.system] if request.system else []
+    items: List[Dict[str, Any]] = []
+    for msg in request.messages:
+        if msg.role == "system":
+            instructions.append(msg.content if isinstance(msg.content, str) else json.dumps(msg.content))
+            continue
+        if msg.role == "tool":
+            items.append({"type": "function_call_output", "call_id": msg.tool_call_id,
+                          "output": msg.content if isinstance(msg.content, str) else json.dumps(msg.content)})
+            continue
+        if not isinstance(msg.content, list):
+            if msg.content:
+                items.append({"role": msg.role, "content": msg.content})
+            for call in msg.tool_calls or []:
+                function = call.get("function") or {}
+                items.append({"type": "function_call", "call_id": call.get("id"),
+                              "name": _openai_name(function.get("name", "")),
+                              "arguments": function.get("arguments") or "{}"})
+            continue
+        text = "\n".join(str(b.get("text", "")) for b in msg.content
+                         if isinstance(b, dict) and b.get("type") == "text" and b.get("text"))
+        if text:
+            items.append({"role": msg.role, "content": text})
+        for block in msg.content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "tool_use":
+                items.append({"type": "function_call", "call_id": block["id"], "name": _openai_name(block["name"]),
+                              "arguments": json.dumps(block.get("input") or {})})
+            elif block.get("type") == "tool_result":
+                content = block.get("content")
+                items.append({"type": "function_call_output", "call_id": block.get("tool_use_id"),
+                              "output": content if isinstance(content, str) else json.dumps(content, default=str)})
+    return "\n\n".join(instructions), items
+
+
 class OpenAIProvider(BaseLLMProvider):
     """
     OpenAI API provider implementation.
@@ -158,21 +209,26 @@ class OpenAIProvider(BaseLLMProvider):
     async def complete(self, request: CompletionRequest) -> CompletionResponse:
         """Generate a completion using OpenAI API"""
         try:
-            # Convert to OpenAI format
-            openai_request = self._convert_request(request)
+            if self._uses_responses(request):
+                response = await self.client.post("/responses", json=self._responses_request(request))
+                if response.status_code != 200:
+                    await self._handle_error(response)
+                result = self._convert_responses_response(response.json(), request.model)
+            else:
+                # Convert to OpenAI format
+                openai_request = self._convert_request(request)
 
-            # Make API request
-            response = await self.client.post(
-                "/chat/completions", json=openai_request
-            )
+                # Make API request
+                response = await self.client.post(
+                    "/chat/completions", json=openai_request
+                )
 
-            # Handle errors
-            if response.status_code != 200:
-                await self._handle_error(response)
+                # Handle errors
+                if response.status_code != 200:
+                    await self._handle_error(response)
 
-            # Parse response; tool names come back as sent, so restore JARV's own names.
-            data = response.json()
-            result = self._convert_response(data)
+                # Parse response; tool names come back as sent, so restore JARV's own names.
+                result = self._convert_response(response.json())
             original = {_openai_name(_tool_name(t)): _tool_name(t) for t in (request.tools or [])}
             for call in result.tool_calls or []:
                 function = call.get("function") or {}
@@ -343,6 +399,53 @@ class OpenAIProvider(BaseLLMProvider):
             openai_request["tool_choice"] = {"any": "required"}.get(request.tool_choice, request.tool_choice)
 
         return openai_request
+
+    @staticmethod
+    def _uses_responses(request: CompletionRequest) -> bool:
+        return request.model in RESPONSES_MODELS and bool(request.tools)
+
+    def _responses_request(self, request: CompletionRequest) -> Dict[str, Any]:
+        """A tool-using request on the Responses API, with the model reasoning between tool calls."""
+        instructions, items = _responses_input(request)
+        body: Dict[str, Any] = {
+            "model": request.model,
+            "input": items,
+            "max_output_tokens": request.max_tokens,
+            "reasoning": {"effort": _agent_effort()},
+            "tools": [{"type": "function", "name": t["function"]["name"],
+                       "description": t["function"].get("description") or t["function"]["name"],
+                       "parameters": t["function"]["parameters"], "strict": False}
+                      for t in (_openai_tool(tool) for tool in request.tools or [])],
+            "store": False,
+            "service_tier": "default",
+        }
+        if instructions:
+            body["instructions"] = instructions
+        if request.tool_choice:
+            body["tool_choice"] = {"any": "required"}.get(request.tool_choice, request.tool_choice)
+        return body
+
+    def _convert_responses_response(self, data: Dict[str, Any], model: str) -> CompletionResponse:
+        text: List[str] = []
+        calls: List[Dict[str, Any]] = []
+        for item in data.get("output") or []:
+            if item.get("type") == "message":
+                text += [part.get("text", "") for part in item.get("content") or []
+                         if part.get("type") == "output_text"]
+            elif item.get("type") == "function_call":
+                calls.append({"id": item.get("call_id") or item.get("id"), "type": "function",
+                              "function": {"name": item.get("name", ""), "arguments": item.get("arguments") or "{}"}})
+        usage = data.get("usage") or {}
+        incomplete = (data.get("incomplete_details") or {}).get("reason")
+        return CompletionResponse(
+            id=data.get("id", ""), model=data.get("model") or model, content="".join(text),
+            finish_reason="tool_calls" if calls else ("length" if incomplete == "max_output_tokens" else "stop"),
+            usage={"prompt_tokens": int(usage.get("input_tokens") or 0),
+                   "completion_tokens": int(usage.get("output_tokens") or 0),
+                   "reasoning_tokens": int((usage.get("output_tokens_details") or {}).get("reasoning_tokens") or 0),
+                   "cached_tokens": int((usage.get("input_tokens_details") or {}).get("cached_tokens") or 0),
+                   "total_tokens": int(usage.get("total_tokens") or 0)},
+            tool_calls=calls or None, provider="openai")
 
     def _convert_response(self, data: Dict[str, Any]) -> CompletionResponse:
         """Convert OpenAI API response to standard format"""
