@@ -13267,3 +13267,18 @@ TESTS RUN: PostgreSQL suite (owner run): 791 passed, 1 skipped. Dashboard (owner
 RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: The targeted MYCO Phase 0 correction mission from the review of the failed run.
+
+TASK ID: FIX-PROVIDER-RETRY
+TASK NAME: A dropped connection to the AI provider is retried instead of stopping the mission
+STATUS: IN_PROGRESS
+PROBLEM: The finishing MYCO correction mission paused twice on "peer closed connection without sending complete message body (incomplete chunked read)": one reply cut off in transit. The router had no retry: the failure went straight to failover, and with only OpenAI configured the step, and the mission round, was lost.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/backend/app/core/providers/router.py (_complete_retrying: a transient failure (dropped connection or timeout with no status, 408, 409, 425, 429 without a quota message, 500, 502, 503, 504, 529) is retried on the same provider after 2, 6 and 15 seconds before failover; bad keys, invalid requests, unknown models and no-credit or quota errors are never retried; no waits in test mode)
+- apps/backend/tests/test_repair12e_provider_failover.py (a dropped reply and a 503 are retried and answered; a connection that keeps dropping fails after four attempts with the real error; insufficient_quota is tried once)
+- BUILD_LEDGER.md (UPGRADE-QUEUE-1: the five upgrades start once MYCO Phase 0 is verified complete, measured against the correction run)
+COMMANDS RUN: python ast parse and undefined-name check of the changed files: passed.
+TESTS RUN: Owner run pending.
+RESULT: Pending the owner's test run.
+BLOCKERS: None.
+NEXT TASK: Carry on the MYCO Phase 0 correction mission.

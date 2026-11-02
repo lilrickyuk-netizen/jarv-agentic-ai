@@ -5,6 +5,7 @@ Routes completion requests to the appropriate LLM provider based on model name.
 """
 from dataclasses import replace
 from typing import Any, Dict, List, Optional, AsyncIterator
+import asyncio
 import logging
 import time
 
@@ -72,6 +73,26 @@ def _provider_order() -> List[str]:
     raw = getattr(settings, "PROVIDER_ORDER", "") or "claude,openai,gemini,ollama"
     order = [known[n.strip().lower()] for n in raw.split(",") if n.strip().lower() in known]
     return order + [p for p in ModelProvider if p not in order]
+
+
+# A dropped connection, a timeout, an overloaded or briefly failing server: the same provider is asked
+# again after these pauses before JARV gives up on it. Account problems (bad key, no credit, quota) are
+# never retried: waiting does not fix them.
+RETRY_DELAYS_SECONDS = (2.0, 6.0, 15.0)
+_NO_CREDIT = ("insufficient_quota", "quota", "billing", "credit balance", "payment")
+
+
+def _transient(exc: ProviderError) -> bool:
+    if isinstance(exc, (AuthenticationError, ModelNotFoundError, InvalidRequestError)):
+        return False
+    if any(word in str(exc).lower() for word in _NO_CREDIT):
+        return False
+    status = getattr(exc, "status_code", None)
+    return status is None or status in (408, 409, 425, 429, 500, 502, 503, 504, 529)
+
+
+def _retry_delays() -> tuple:
+    return (0.0,) * len(RETRY_DELAYS_SECONDS) if getattr(settings, "TESTING", False) else RETRY_DELAYS_SECONDS
 
 
 def _fails_over(exc: ProviderError) -> bool:
@@ -233,7 +254,7 @@ class ModelRouter:
         for provider_key, model in candidates:
             attempt = request if model == request.model else replace(request, model=model)
             try:
-                response = await self._complete_with(self.providers[provider_key], attempt)
+                response = await self._complete_retrying(self.providers[provider_key], attempt)
             except ProviderError as exc:
                 if not _fails_over(exc):
                     raise
@@ -267,6 +288,20 @@ class ModelRouter:
         now = time.monotonic()
         resting = [entry for entry in plan if self._resting_until.get(entry[0], 0) > now]
         return [entry for entry in plan if entry not in resting] + resting
+
+    async def _complete_retrying(self, provider: BaseLLMProvider, request: CompletionRequest) -> CompletionResponse:
+        """One provider, asked again after a short pause when the failure is transient."""
+        delays = _retry_delays()
+        for number in range(len(delays) + 1):
+            try:
+                return await self._complete_with(provider, request)
+            except ProviderError as exc:
+                if number >= len(delays) or not _transient(exc):
+                    raise
+                logger.warning(f"{provider.provider_name} failed transiently ({str(exc)[:200]}); "
+                               f"retrying in {delays[number]:.0f}s (attempt {number + 2} of {len(delays) + 1})")
+                await asyncio.sleep(delays[number])
+        raise RuntimeError("unreachable")
 
     async def _complete_with(self, provider: BaseLLMProvider, request: CompletionRequest) -> CompletionResponse:
         logger.info(
