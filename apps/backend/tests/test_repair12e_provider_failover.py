@@ -105,3 +105,42 @@ def test_ollama_is_only_a_provider_when_switched_on(monkeypatch):
     assert ModelRouter().providers == {}
     monkeypatch.setattr(config.settings, "OLLAMA_ENABLED", True, raising=False)
     assert list(ModelRouter().providers) == [ModelProvider.OLLAMA]
+
+
+class FlakyProvider(FakeProvider):
+    """Fails the first ``failures`` calls with ``error``, then answers."""
+
+    def __init__(self, name, error, failures):
+        super().__init__(name)
+        self.flaky, self.failures = error, failures
+
+    async def complete(self, request):
+        self.calls.append(request.model)
+        if len(self.calls) <= self.failures:
+            raise self.flaky
+        return CompletionResponse(id="r", model=request.model, content=f"{self.name} answered",
+                                  usage={"input_tokens": 1, "output_tokens": 1}, provider=self.name)
+
+
+def test_a_dropped_connection_is_retried_on_the_same_provider(monkeypatch):
+    """The MYCO correction mission stopped twice on "peer closed connection without sending complete message
+    body": one dropped reply, no retry, and with only OpenAI configured the step was lost. Transient failures
+    are now retried on the same provider before JARV gives up; account problems are not."""
+    dropped = ProviderError("HTTP error calling OpenAI API: peer closed connection without sending complete "
+                            "message body (incomplete chunked read)", provider="openai")
+    openai = FlakyProvider("openai", dropped, failures=2)
+    assert _ask(_router(monkeypatch, openai=openai), "gpt-6-luna").content == "openai answered"
+    assert openai.calls == ["gpt-6-luna"] * 3
+
+    overloaded = FlakyProvider("openai", ProviderError("server error", provider="openai", status_code=503), 1)
+    assert _ask(_router(monkeypatch, openai=overloaded), "gpt-6-luna").content == "openai answered"
+
+    always = FlakyProvider("openai", dropped, failures=99)
+    with pytest.raises(ProviderError, match="peer closed connection"):
+        _ask(_router(monkeypatch, openai=always), "gpt-6-luna")
+    assert len(always.calls) == 4  # the first try and three retries
+
+    no_credit = FlakyProvider("openai", RateLimitError("insufficient_quota", provider="openai", status_code=429), 99)
+    with pytest.raises(ProviderError, match="insufficient_quota"):
+        _ask(_router(monkeypatch, openai=no_credit), "gpt-6-luna")
+    assert len(no_credit.calls) == 1  # waiting does not add credit
