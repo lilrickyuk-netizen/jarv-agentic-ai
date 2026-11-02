@@ -15,7 +15,9 @@ from sqlalchemy import (JSON, Boolean, Computed, DateTime, ForeignKey, Index, In
                         UniqueConstraint)
 from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.schema import CreateColumn
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
 
@@ -69,3 +71,13 @@ class KnowledgeChunk(Base, UUIDMixin, TimestampMixin):
         TSVECTOR, Computed("to_tsvector('english', coalesce(heading_path, '') || ' ' || content)", persisted=True),
         nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+@compiles(CreateColumn, "sqlite")
+def _sqlite_column(element, compiler, **kw):
+    """SQLite (used by a few schema tests) has no full-text vector type or to_tsvector(): there the generated
+    search column is plain TEXT. PostgreSQL, where JARV runs, gets the real generated TSVECTOR column."""
+    column = element.element
+    if column.table is not None and column.table.name == "knowledge_chunks" and column.name == "tsv":
+        return f"{compiler.preparer.format_column(column)} TEXT"
+    return compiler.visit_create_column(element, **kw)
