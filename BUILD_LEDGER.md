@@ -13464,3 +13464,15 @@ TESTS RUN: Owner run by install-swarm.sh: tsc --noEmit and jest in node:20.
 RESULT: Committed by the owner's script only after both pass.
 BLOCKERS: None.
 NEXT TASK: Upgrade 3 (Artifact Intelligence Graph).
+
+TASK ID: UI-FIELD-BEES
+TASK NAME: Swarm field: more lights, flashing, bee-like, no bubble
+STATUS: COMPLETE
+PROBLEM: Richard (2 Nov 2026): more lights; they must pulsate; it should be the disconnected movement of a swarm of bees; it looked like a big floating bubble with lights.
+FILES MODIFIED:
+- apps/dashboard/src/components/cockpit-core.tsx (45,000 lights: 36,000 in five groups and 9,000 roamers; each light loops fast and tight around its group's gathering point at its own speeds, with a constant high-frequency buzz; the five gathering points wheel around the field on their own paths and lights drift between neighbouring groups, so the swarm splits, stretches and rejoins; every light flashes on its own sharp rhythm over a shared heartbeat; the halo that made it read as a bubble removed; JARV's voice makes the buzz harder, the flashes brighter, the groups spread and the colours change faster)
+COMMANDS RUN: None locally.
+TESTS RUN: Owner run by install-bees.sh: tsc --noEmit and jest in node:20.
+RESULT: Committed by the owner's script only after both pass.
+BLOCKERS: None.
+NEXT TASK: Upgrade 3 (Artifact Intelligence Graph).
