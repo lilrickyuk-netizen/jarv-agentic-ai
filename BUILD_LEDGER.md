@@ -13416,3 +13416,17 @@ TESTS RUN: Owner run 1: 814 passed, 1 failed (the specification test: the change
 RESULT: Pending the owner's test run.
 BLOCKERS: None.
 NEXT TASK: Owner runs install-upgrade-2.sh; then Upgrade 3 (Artifact Intelligence Graph).
+
+TASK ID: UI-INTELLIGENCE-FIELD
+TASK NAME: Intelligence field upgraded: big, bright, moving
+STATUS: COMPLETE
+PROBLEM: Richard (2 Nov 2026): the Command Center's intelligence field should look like his reference picture (a bright particle globe with orbits), big, bright and moving; nothing else on the page changes.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/dashboard/src/components/cockpit-core.tsx (three.js field rebuilt: 2,600-point twinkling globe on a Fibonacci lattice with latitude and longitude lines, fresnel-lit core, white inner glow and state-coloured halo, two counter-rotating dust bands, three tilted orbits each with a comet and trail; additive blending throughout; colour follows JARV's state; busy states pulse and turn faster, approval breathes slowly; reduced-motion users get a still field; everything disposed on unmount)
+- apps/dashboard/src/app/globals.css (field area taller, clamp(340px, 40vw, 560px); state readout centred in the globe)
+COMMANDS RUN: None locally (no dashboard dependencies in the build session).
+TESTS RUN: Owner run by install-field.sh: tsc --noEmit and jest in node:20.
+RESULT: Committed by the owner's script only after both pass.
+BLOCKERS: None.
+NEXT TASK: Upgrade 3 (Artifact Intelligence Graph) after Upgrade 2 is installed.
