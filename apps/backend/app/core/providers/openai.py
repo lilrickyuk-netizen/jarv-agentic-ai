@@ -102,9 +102,13 @@ RESPONSES_MODELS = frozenset({"gpt-6-luna"})
 _EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
 
 
-def _agent_effort() -> str:
+def _agent_effort(requested: Optional[str] = None) -> str:
+    """The request's own effort when it names a valid one (the Verifier and the requirements step ask for
+    high), otherwise OPENAI_AGENT_REASONING_EFFORT."""
     from app.core.config import settings
 
+    if requested and str(requested).strip().lower() in _EFFORTS:
+        return str(requested).strip().lower()
     effort = str(getattr(settings, "OPENAI_AGENT_REASONING_EFFORT", "medium") or "medium").strip().lower()
     return effort if effort in _EFFORTS else "medium"
 
@@ -411,7 +415,7 @@ class OpenAIProvider(BaseLLMProvider):
             "model": request.model,
             "input": items,
             "max_output_tokens": request.max_tokens,
-            "reasoning": {"effort": _agent_effort()},
+            "reasoning": {"effort": _agent_effort(getattr(request, "reasoning_effort", None))},
             "tools": [{"type": "function", "name": t["function"]["name"],
                        "description": t["function"].get("description") or t["function"]["name"],
                        "parameters": t["function"]["parameters"], "strict": False}

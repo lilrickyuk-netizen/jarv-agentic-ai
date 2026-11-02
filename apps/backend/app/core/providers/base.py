@@ -42,6 +42,9 @@ class CompletionRequest:
     tools: Optional[List[Dict[str, Any]]] = None
     tool_choice: Optional[str] = None
     system: Optional[str] = None
+    # How hard a reasoning model thinks for this request (none, low, medium, high, xhigh, max); None uses the
+    # provider's configured default. Providers without the setting ignore it.
+    reasoning_effort: Optional[str] = None
 
 
 @dataclass

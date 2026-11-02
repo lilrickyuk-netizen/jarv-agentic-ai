@@ -33,6 +33,9 @@ from types import SimpleNamespace
 from app.core.agents.toolbox import BROKEN_ARGUMENTS, WORKSPACE_TOOLS, AgentToolbox, _clip, result_limit
 from app.core.config import settings
 from app.core.providers import CompletionRequest, Message, get_router
+from app.core.command.requirements import (STATUS_TOOL, derive as derive_requirements, render as render_requirements,
+                                           unmet_without_evidence, update as update_requirement)
+from app.core.verification.checks import Finding
 
 logger = logging.getLogger(__name__)
 
@@ -287,6 +290,7 @@ class AgentExecutor:
         self.toolbox: Optional[AgentToolbox] = None
         self.context_trimmed = 0
         self.hard_baseline: Optional[set] = None  # hard-check findings when the mission started
+        self.requirements: List[Dict[str, Any]] = []  # the numbered requirement list (Upgrade 2)
 
     async def _prepare_tools(self) -> List[Dict[str, Any]]:
         """The full mission toolbox; the four core tools only when there is no workspace record to confine to."""
@@ -306,7 +310,8 @@ class AgentExecutor:
                   prior_messages: Optional[List[Message]] = None,
                   start_continuation: int = 0,
                   known: Optional[str] = None,
-                  verify: bool = True) -> Dict[str, Any]:
+                  verify: bool = True,
+                  requirements: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         """
         Run the tool loop with AUTO-CONTINUATION. The same conversation (and thus
         every prior tool result) is preserved across continuation rounds — the
@@ -329,11 +334,25 @@ class AgentExecutor:
                     "A conformance mission is not accepted while any remain; any mission is refused if it adds a "
                     "new one or leaves one in a file it changed):\n"
                     + render_findings(standing))
+            # Upgrade 2: the workspace's specification is searchable knowledge, and the mission starts from a
+            # numbered requirement list (carried over from earlier rounds when there is one).
+            spec_text = await self._specification_passages(mission)
+            if requirements:
+                self.requirements = [dict(r) for r in requirements]
+            else:
+                findings = ([Finding(**f).text() for f in self._hard_in_scope(mission, standing)]
+                            if standing and standing.get("findings") and self._conformance(mission, standing)
+                            else [])
+                derived = await derive_requirements(router, self.model, mission, spec=spec_text, findings=findings)
+                self.requirements = derived["requirements"]
+                self.tokens += derived["tokens"]
             reference = await self._reference_passages(mission)
             if reference:
                 known = (f"{known}\n\n" if known else "") + (
                     "SOURCE DOCUMENTATION (official, cited; consult it before changing anything it covers, and "
                     "use consult_specialist_knowledge or fetch_url for more):\n" + reference)
+        if self.requirements:
+            tools = tools + [STATUS_TOOL]
         names = {tool["name"] for tool in tools}
         full = self.toolbox is not None
         system = (
@@ -380,6 +399,9 @@ class AgentExecutor:
                 + (f"\nWHAT JARV ALREADY KNOWS (its memory and verified lessons for this workspace, and source "
                    f"documentation; check memory against the files before relying on it):\n{known}\n\n"
                    if known else "")
+                + (f"REQUIREMENTS (work from this list; mark each with requirement_status as you finish it, "
+                   f"with its evidence; the independent check needs evidence for every one):\n"
+                   f"{render_requirements(self.requirements)}\n\n" if self.requirements else "")
                 + "Begin by inspecting what you need, then act. Call finish when the whole "
                 "mission is complete and verified."))]
 
@@ -399,7 +421,9 @@ class AgentExecutor:
                 messages.append(Message(role="user", content=(
                     f"[CONTINUATION {continuation}] You have not called finish yet. Continue the "
                     f"SAME mission from your current progress (files already written persist). "
-                    f"Do the remaining work and call finish when the whole mission is verified.")))
+                    f"Do the remaining work and call finish when the whole mission is verified."
+                    + (f"\n\nREQUIREMENTS NOW:\n{render_requirements(self.requirements)}"
+                       if self.requirements else ""))))
             self.context_trimmed += compact_messages(messages)
             resp = await router.complete(CompletionRequest(
                 model=self.model, messages=messages, system=system,
@@ -435,6 +459,8 @@ class AgentExecutor:
                 last_tool = call["id"]
                 if call.get("broken"):
                     out = {"success": False, "error": BROKEN_ARGUMENTS.format(name=call["name"])}
+                elif call["name"] == STATUS_TOOL["name"]:
+                    out = update_requirement(self.requirements, call["args"])
                 elif call["name"] == "finish":
                     gave_up = call["args"].get("success") is not True
                     remaining = total_budget - self.iterations
@@ -494,6 +520,7 @@ class AgentExecutor:
             "tokens": self.tokens,
             "tools": sorted(names),
             "context_trimmed_chars": self.context_trimmed,
+            "requirements": self.requirements,
             "messages": messages,  # checkpoint payload for resume
         }
 
@@ -520,15 +547,54 @@ class AgentExecutor:
             logger.warning(f"hard checks could not run: {exc}")
             return None
 
+    def _listed(self) -> bool:
+        """True when the requirement list is a real breakdown, not just the mission repeated (the requirements step
+        had nothing to add): then the Verifier's own checks are the breakdown."""
+        return bool(self.requirements) and not (len(self.requirements) == 1
+                                                and self.requirements[0]["source"] == "mission")
+
+    @staticmethod
+    def _conformance(mission: str, hard: Dict[str, Any]) -> bool:
+        """A mission about meeting the specification: it names an authority document, or asks for conformance
+        or a phase."""
+        text = f" {mission.lower()} "
+        authority = [str(d).lower() for d in hard.get("authority_docs") or []]
+        return any(word in text for word in ("conform", "specification", " spec ", " phase ")) or any(
+            Path(d).name in text for d in authority)
+
+    async def _specification_passages(self, mission: str) -> str:
+        """Read the workspace's authority documents into its knowledge (rebuilt only when they change) and
+        return their sections most relevant to the mission."""
+        if not self.workspace_root or self.runtime.workspace_id is None:
+            return ""
+        try:
+            from app.core.knowledge.ingest import knowledge_ingestor
+            from app.core.knowledge.search import render_passages, search_passages
+            from app.core.workspaces import fs_inspector
+            from app.models.workspace import Workspace
+
+            workspace = await self.runtime.db.get(Workspace, self.runtime.workspace_id)
+            docs = [str(d) for d in ((workspace.config or {}).get("authority_docs") or [])] if workspace else []
+            folder = fs_inspector.host_to_container(self.workspace_root)
+            if not docs or folder is None or not folder.is_dir():
+                return ""
+            for doc in docs:
+                async with self.runtime.db.begin_nested():
+                    await knowledge_ingestor.ingest_workspace_document(self.runtime.db, self.runtime.workspace_id,
+                                                                       folder, doc)
+            hits = await search_passages(self.runtime.db, mission, workspace_id=self.runtime.workspace_id,
+                                         limit=12, workspace_only=True)
+            return render_passages(hits, chars=2000)
+        except Exception as exc:  # noqa: BLE001 - the mission still runs; the miss is logged
+            logger.warning(f"specification passages unavailable: {exc}")
+            return ""
+
     def _hard_in_scope(self, mission: str, hard: Dict[str, Any]) -> List[Dict[str, Any]]:
         """The hard-check findings that block this mission: every one for a conformance mission (it names an
         authority document, or asks for conformance or a phase); otherwise those the mission introduced and
         those in files it changed. A resumed run has no starting baseline, so there the changed-files rule and
         the conformance rule decide."""
-        text = mission.lower()
-        authority = [str(d).lower() for d in hard.get("authority_docs") or []]
-        if any(word in text for word in ("conform", "specification", "spec ", " phase ")) or any(
-                Path(d).name in text for d in authority):
+        if self._conformance(mission, hard):
             return list(hard["findings"])
         written = [str((c.get("inputs") or {}).get("path") or "").replace("\\", "/").lower()
                    for c in self.runtime.calls if isinstance(c, dict)
@@ -592,6 +658,9 @@ class AgentExecutor:
             f"WHAT THE OTHER AGENT REPORTED (claims to check, not facts):\n{summary[:4000]}\n\n"
             + (f"ITS RECORDED ACTIONS:\n{trail}\n\n" if trail else "")
             + hard_text
+            + (f"THE MISSION'S REQUIREMENTS (give one check per requirement, naming its id, with the evidence you "
+               f"saw; a requirement without evidence is unmet):\n{render_requirements(self.requirements)}\n\n"
+               if self._listed() else "")
             + "Check every requirement yourself, then call verdict."))]
         router = get_router()
         tokens = steps = 0
@@ -601,7 +670,8 @@ class AgentExecutor:
             compact_messages(messages)
             resp = await router.complete(CompletionRequest(
                 model=self.model, messages=messages, system=_VERIFIER_SYSTEM, tools=tools,
-                max_tokens=settings.AGENT_MAX_OUTPUT_TOKENS, temperature=0.0))
+                max_tokens=settings.AGENT_MAX_OUTPUT_TOKENS, temperature=0.0,
+                reasoning_effort=getattr(settings, "OPENAI_VERIFIER_REASONING_EFFORT", "high")))
             tokens += int((resp.usage or {}).get("total_tokens", 0) or 0)
             if not resp.tool_calls:
                 break
@@ -638,6 +708,10 @@ class AgentExecutor:
         verified = verdict.get("verified") is True and not unmet and bool(checks)
         if verdict.get("verified") is True and not checks:
             unmet = ["The independent check reported no evidence for any requirement."]
+        # Every listed requirement needs a met check with evidence (Upgrade 2).
+        if self._listed():
+            unmet += [u for u in unmet_without_evidence(self.requirements, checks) if u not in unmet]
+            verified = verified and not unmet
         # A failed hard check is unmet whatever the Verifier agent concluded.
         unmet = hard_failures + [u for u in unmet if u not in hard_failures]
         verified = verified and not hard_failures

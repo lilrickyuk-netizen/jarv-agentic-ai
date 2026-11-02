@@ -13394,3 +13394,25 @@ TESTS RUN: Static checks; full suite on the owner's machine by the install scrip
 RESULT: Owner run 1 (2 Nov 2026): 807 passed, 1 skipped; committed as 4ec5eae on master; JARV rebuilt. Ingest: 96 sources (54 updated, 24 unchanged, 15 link_only, 3 old CloudNativePG pages retired), 1007 active passages, no fetch errors. CloudNativePG now 126 passages, OWASP cheat sheets 147. Index pages that gave one passage (Prometheus alerting practices and overview, GOV.UK Service Standard, Running a limited company, ICO right to be informed) to be replaced by their detail pages in a later refresh.
 BLOCKERS: None.
 NEXT TASK: Upgrade 2 (knowledge-enhanced reasoning).
+
+TASK ID: UPGRADE-2
+TASK NAME: Knowledge-enhanced reasoning: requirements first, the specification as knowledge, one ranking, effort per role
+STATUS: IN_PROGRESS
+PROBLEM: Phase 0 missions worked from the mission text alone: the spec's Python and TypeScript pins were lines the agent had to notice, and the Verifier gave a general verdict instead of evidence per requirement.
+FILES CREATED:
+- apps/backend/app/core/command/requirements.py (requirements step through a fixed-shape tool; numbered list with sources; hard-check findings added as requirements of their own for conformance missions; requirement_status tool; evidence per requirement)
+- apps/backend/tests/test_upgrade2_reasoning.py
+FILES MODIFIED:
+- apps/backend/app/core/command/agent_executor.py (before the first tool call: read the workspace's authority documents into its knowledge and derive the requirement list from the mission and the most relevant spec sections; the list is shown in the first message and at every continuation, updated by requirement_status, returned with the result and given to the Verifier; a listed requirement without a met check with evidence is unmet)
+- apps/backend/app/core/command/continuation.py, service.py (the list is saved with the mission's result and carried into later rounds, statuses kept)
+- apps/backend/app/core/knowledge/ingest.py (ingest_workspace_document: the spec as the workspace's own source, split by heading, rebuilt only when its text changes, change written to the operations feed; paths confined to the workspace folder)
+- apps/backend/app/core/knowledge/search.py (workspace-only search; search_everything: briefs, documentation, specification and memories fused by rank)
+- apps/backend/app/tools/knowledge/__init__.py (consult_specialist_knowledge returns the fused results)
+- apps/backend/app/core/providers/base.py, openai.py, app/core/config.py (CompletionRequest.reasoning_effort; Verifier and requirements step at OPENAI_VERIFIER_REASONING_EFFORT, default high; missions stay at medium)
+- apps/backend/tests/test_workspace_toolchain.py, tests/test_upgrade1a_knowledge_and_checks.py (scripted routers answer the requirements step)
+DECISIONS: The plan's authority_facts table is not built: the spec-pins hard check reads the authority documents directly on every run, so it is always current and needs no second copy. KnowledgeService.retrieve and ask_jarv keep their own ranking for now; the fused ranking serves consult_specialist_knowledge and missions.
+COMMANDS RUN: Static checks; the pure requirement tests locally with stubs (4 passed).
+TESTS RUN: Full suite on the owner's machine by the install script.
+RESULT: Pending the owner's test run.
+BLOCKERS: None.
+NEXT TASK: Owner runs install-upgrade-2.sh; then Upgrade 3 (Artifact Intelligence Graph).

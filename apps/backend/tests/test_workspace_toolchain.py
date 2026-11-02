@@ -524,6 +524,9 @@ class _MissionRouter:
         import json as _json
         from app.core.providers import CompletionResponse
 
+        if (request.system or "").startswith("You are JARV's requirements analyst"):
+            # The requirements step (Upgrade 2): these scripted missions add nothing to the mission itself.
+            return CompletionResponse(id="r", model="test", content="", usage={"total_tokens": 1}, tool_calls=[])
         who = "verifier" if (request.system or "").startswith("You are JARV's Verifier Agent") else "mission"
         self.offered[who].append(sorted(t["name"] for t in request.tools or []))
         self.first_message.setdefault(who, request.messages[0].content)

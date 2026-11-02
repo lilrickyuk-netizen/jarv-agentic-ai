@@ -19,6 +19,8 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
+from uuid import uuid4
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 import httpx
@@ -211,6 +213,49 @@ class KnowledgeIngestor:
             await db.flush()
             return {"url": source.url, "status": "error", "reason": str(exc)}
         return await self.ingest_text(db, source, markdown)
+
+    async def ingest_workspace_document(self, db: AsyncSession, workspace_id, folder: Path,
+                                        relative: str) -> Dict[str, Any]:
+        """A workspace's own governing document (Upgrade 2: the spec as knowledge), stored as that workspace's
+        source and split by heading, so each section is a citable passage. Re-read every mission; the
+        passages are rebuilt only when the document's text changes, and the change goes to the operations
+        feed. Only this workspace's searches see it."""
+        from app.core.knowledge.documentation import ALL_AGENTS
+        from app.models.operations import LiveOperationsFeedItem
+
+        root = folder.resolve()
+        path = (root / relative).resolve()
+        try:
+            path.relative_to(root)
+        except ValueError:
+            return {"url": relative, "status": "error", "reason": "outside the workspace folder"}
+        if not path.is_file():
+            return {"url": relative, "status": "error", "reason": "not found in the workspace folder"}
+        url = f"workspace://{workspace_id}/{relative}"
+        source = (await db.execute(select(KnowledgeSource).where(
+            KnowledgeSource.url == url, KnowledgeSource.workspace_id == workspace_id))).scalar_one_or_none()
+        if source is None:
+            source = KnowledgeSource(url=url, workspace_id=workspace_id, version=0, status="pending", agents=[])
+            db.add(source)
+        source.title = relative
+        source.publisher = "Workspace authority document"
+        source.licence = "Owner's own document"
+        source.licence_evidence = "Richard's project file, read from the workspace folder"
+        source.licence_class = LICENCE_STORE
+        source.agents = sorted(set(ALL_AGENTS))
+        await db.flush()
+        text = path.read_text(encoding="utf-8", errors="replace")[: MAX_PAGE_BYTES * 2]
+        result = await self.ingest_text(db, source, text)
+        if result.get("status") == "updated" and result.get("version", 1) > 1:
+            now = datetime.now(timezone.utc)
+            db.add(LiveOperationsFeedItem(
+                id=uuid4(), workspace_id=workspace_id, item_type="knowledge", severity="info",
+                title="Specification changed", message=(f"{relative} changed: its sections were re-read as "
+                                                         f"version {result['version']} ({result['passages']} "
+                                                         f"passages)."),
+                requires_action=False, created_at=now, updated_at=now))
+            await db.flush()
+        return result
 
     async def install(self, db: AsyncSession, entries: Iterable[Dict[str, Any]], *, fetch: bool = True,
                       agents: Optional[Sequence[str]] = None) -> List[Dict[str, Any]]:

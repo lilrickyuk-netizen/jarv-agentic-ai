@@ -270,8 +270,12 @@ class _Router:
     async def complete(self, request):
         from app.core.providers import CompletionResponse
 
-        who = "verifier" if (request.system or "").startswith("You are JARV's Verifier Agent") else "mission"
+        system = request.system or ""
+        who = ("analyst" if system.startswith("You are JARV's requirements analyst") else
+               "verifier" if system.startswith("You are JARV's Verifier Agent") else "mission")
         self.first.setdefault(who, request.messages[0].content)
+        if who == "analyst":
+            return CompletionResponse(id="r", model="test", content="", usage={"total_tokens": 1}, tool_calls=[])
         if who == "mission":
             name, args = "finish", {"summary": "Phase 0 conforms to the spec.", "success": True}
         else:

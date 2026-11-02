@@ -1964,6 +1964,7 @@ class CommandService:
         extra: Dict[str, Any] = {
             "agent_tools": result.get("tools", []),
             "verification": result.get("verification"),
+            "requirements": result.get("requirements"),
             "agent_iterations": result["iterations"],
             "agent_success": result["success"],
             "agent_needs_continuation": result["needs_continuation"],

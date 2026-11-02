@@ -210,7 +210,8 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
     note = progress_note(res)
     result = await executor.run(f"{mission}\n\n{note}" if note else mission, steps_per_round=8,
                                 max_continuations=max_cont, start_continuation=prior,
-                                known=await recall_for_mission(db, task.workspace_id, str(mission)))
+                                known=await recall_for_mission(db, task.workspace_id, str(mission)),
+                                requirements=res.get("requirements") or None)
 
     if result["needs_continuation"] and result.get("finished"):
         outcome, reason = lifecycle.NEEDS_CONTINUATION, "The independent check found work still to do."
@@ -237,6 +238,7 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
         "checkpoint_id": checkpoint_id,
         "final_status_reason": reason,
         "verification": result.get("verification"),
+        "requirements": result.get("requirements") or res.get("requirements"),
         "tool_calls": (res.get("tool_calls") or []) + runtime.calls,
     })
     task.result = updated

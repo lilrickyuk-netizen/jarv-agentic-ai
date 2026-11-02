@@ -115,6 +115,8 @@ class Settings(BaseSettings):
     # How hard gpt-6-luna thinks when an agent works with tools (Responses API): none, low, medium, high,
     # xhigh or max. Without tools it answers at low effort.
     OPENAI_AGENT_REASONING_EFFORT: str = "medium"
+    # The Verifier and the requirements step check rather than build, and think harder (Upgrade 2).
+    OPENAI_VERIFIER_REASONING_EFFORT: str = "high"
 
     @validator("CLAUDE_API_KEY", pre=True)
     def claude_key_from_anthropic(cls, v: Optional[str], values: dict) -> Optional[str]:

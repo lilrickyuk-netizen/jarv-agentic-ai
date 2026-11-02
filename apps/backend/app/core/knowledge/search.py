@@ -36,24 +36,32 @@ def fuse(*rankings: Sequence[Any], k: int = RRF_K) -> List[tuple]:
     return sorted(scores.items(), key=lambda pair: pair[1], reverse=True)
 
 
-async def _sources(db: AsyncSession, agents: Optional[Sequence[str]], workspace_id: Optional[UUID]):
-    query = select(KnowledgeSource).where(or_(KnowledgeSource.workspace_id.is_(None),
-                                              KnowledgeSource.workspace_id == workspace_id)
-                                          if workspace_id is not None else KnowledgeSource.workspace_id.is_(None))
+async def _sources(db: AsyncSession, agents: Optional[Sequence[str]], workspace_id: Optional[UUID],
+                   workspace_only: bool = False):
+    if workspace_only:
+        if workspace_id is None:
+            return []
+        query = select(KnowledgeSource).where(KnowledgeSource.workspace_id == workspace_id)
+    else:
+        query = select(KnowledgeSource).where(or_(KnowledgeSource.workspace_id.is_(None),
+                                                  KnowledgeSource.workspace_id == workspace_id)
+                                              if workspace_id is not None else KnowledgeSource.workspace_id.is_(None))
     rows = (await db.execute(query.where(KnowledgeSource.status != "retired"))).scalars().all()
     wanted = set(agents or [])
     return [s for s in rows if not wanted or wanted & set(s.agents or [])]
 
 
 async def search_passages(db: AsyncSession, query: str, *, agents: Optional[Sequence[str]] = None,
-                          workspace_id: Optional[UUID] = None, limit: int = 6) -> List[Dict[str, Any]]:
-    """The best passages (and unstored sources, as links) for ``query``, each with what to cite."""
+                          workspace_id: Optional[UUID] = None, limit: int = 6,
+                          workspace_only: bool = False) -> List[Dict[str, Any]]:
+    """The best passages (and unstored sources, as links) for ``query``, each with what to cite.
+    ``workspace_only`` searches only the workspace's own documents (its specification)."""
     from app.core.memory.embeddings import get_embedding_service
 
     query = (query or "").strip()[:2000]
     if not query or db.get_bind().dialect.name != "postgresql":
         return []
-    sources = await _sources(db, agents, workspace_id)
+    sources = await _sources(db, agents, workspace_id, workspace_only)
     if not sources:
         return []
     by_id = {s.id: s for s in sources}
@@ -130,3 +138,49 @@ def render_passages(hits: List[Dict[str, Any]], *, chars: int = 900) -> str:
         else:
             lines.append(f"- {hit['title']} ({hit['publisher']}, {hit['url']}): {hit['note']}")
     return "\n".join(lines)
+
+
+async def search_everything(db: AsyncSession, query: str, *, agent: Optional[str] = None,
+                            workspace_id: Optional[UUID] = None, limit: int = 8) -> List[Dict[str, Any]]:
+    """One ranking over every kind of knowledge (Upgrade 2): the agent's specialist briefs, source
+    documentation and the workspace's specification passages, and the workspace's memories. Each list is ranked
+    on its own and the lists are fused by rank (RRF), so no score scale needs comparing. Every hit carries its
+    kind and what to cite."""
+    lists: List[List[str]] = []
+    items: Dict[str, Dict[str, Any]] = {}
+
+    def add(kind: str, key: str, hit: Dict[str, Any]) -> str:
+        items.setdefault(f"{kind}:{key}", {"kind": kind, **hit})
+        return f"{kind}:{key}"
+
+    if agent:
+        try:
+            from app.core.knowledge.service import knowledge_service
+
+            briefs = await knowledge_service.retrieve(db, agent_name=agent, query=query, limit=limit)
+            lists.append([add("brief", b["id"], {"title": b["title"], "content": b["content"],
+                                                 "citation": f"{b['source_title']} ({b['source_url']})"})
+                          for b in briefs if b.get("relevance_score", 0) > 0])
+        except Exception as exc:  # noqa: BLE001 - a missing field still leaves the rest
+            logger.info(f"briefs not searched for {agent}: {exc}")
+    try:
+        passages = await search_passages(db, query, agents=None if agent in (None, "orchestrator") else [agent],
+                                         workspace_id=workspace_id, limit=limit)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"passages not searched: {exc}")
+        passages = []
+    lists.append([add("documentation" if not str(p["url"]).startswith("workspace://") else "specification",
+                      p.get("id") or p["url"],
+                      {"title": p.get("heading_path") or p["title"], "content": p.get("content") or p.get("note"),
+                       "citation": f"{p['publisher']} ({p['url']})"}) for p in passages])
+    if workspace_id is not None:
+        try:
+            from app.core.jarv_memory import memory_service
+
+            memories = await memory_service.search(db, query, limit=limit, workspace_id=workspace_id)
+            lists.append([add("memory", str(m.id), {"title": f"memory ({m.memory_type})", "content": m.content,
+                                                    "citation": f"JARV memory {str(m.id)[:8]}"})
+                          for m in memories])
+        except Exception as exc:  # noqa: BLE001
+            logger.info(f"memories not searched: {exc}")
+    return [dict(items[key], score=round(score, 5)) for key, score in fuse(*lists)[:limit]]

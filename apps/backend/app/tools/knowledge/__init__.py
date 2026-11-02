@@ -51,10 +51,19 @@ class ConsultSpecialistKnowledgeTool(ScopedTool):
                 workspace_id=getattr(context, "workspace_id", None), limit=data["limit"])
         except Exception:  # noqa: BLE001 - the briefs above still answer
             documentation = []
-        if not topics and not documentation:
-            return {"field": field, "topics": [], "documentation": []}, (
+        try:
+            from app.core.knowledge.search import search_everything
+
+            # One ranking over briefs, documentation, the workspace's specification and its memories (Upgrade 2).
+            results = await search_everything(db, data["query"], agent=field,
+                                              workspace_id=getattr(context, "workspace_id", None),
+                                              limit=data["limit"] + 2)
+        except Exception:  # noqa: BLE001
+            results = []
+        if not topics and not documentation and not results:
+            return {"field": field, "topics": [], "documentation": [], "results": []}, (
                 f"No {field} guidance matches '{data['query']}'")
-        return {"field": field, "topics": topics, "documentation": documentation}, (
+        return {"field": field, "topics": topics, "documentation": documentation, "results": results}, (
             f"{len(topics)} {field} topic(s), {len(documentation)} documentation passage(s): "
             + "; ".join([t["title"] for t in topics] + [d.get("heading_path") or d["title"] for d in documentation]))
 
