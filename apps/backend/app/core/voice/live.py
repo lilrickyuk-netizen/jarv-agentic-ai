@@ -445,16 +445,14 @@ async def _ask_jarv(db: AsyncSession, user_id: UUID, question: str, workspace_id
 
 
 def _best_to_resume(candidates: List[Any]) -> Optional[Any]:
-    """The mission "carry on" means: one that works in a folder and is not archived, a mission that
-    paused at its step limit before one that ended partial, the newest first. A mission without a
-    folder (for example one created by asking to resume) is never chosen: it has nothing to work on."""
+    """The mission "carry on" means: the newest mission that works in a folder and is not archived, whether it
+    paused at its step limit or stopped part-way. Status never outranks age: preferring step-limit pauses made
+    "carry on" restart days-old Phase 0 missions instead of the one Richard had just been running. A mission
+    without a folder (for example one created by asking to resume) is never chosen: it has nothing to work on.
+    ``candidates`` are newest first."""
     usable = [t for t in candidates if not (t.meta_data or {}).get("archived_at")
               and isinstance(t.result, dict) and t.result.get("workspace_path")]
-    for wanted in ("needs_continuation", "partial"):
-        for task in usable:
-            if (task.status or "").lower() == wanted:
-                return task
-    return None
+    return usable[0] if usable else None
 
 
 async def _resume(db: AsyncSession, user_id: UUID, task_id: Optional[str]) -> Dict[str, Any]:

@@ -239,11 +239,22 @@ class MissionRunner:
 
     async def _auto_continue(self, task_id: UUID) -> bool:
         """Re-queue a mission that paused at its step limit, within the cap."""
-        from app.core.command.continuation import MAX_AUTO_CONTINUATIONS, automatic_rounds
+        from app.core.command.continuation import (MAX_AUTO_CONTINUATIONS, automatic_rounds, newer_mission,
+                                                   other_active_mission)
 
         async with self.session_factory() as db:
             task = (await db.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
             if task is None or lifecycle.normalise(task.status) != lifecycle.NEEDS_CONTINUATION:
+                return False
+            working = await other_active_mission(
+                db, task, statuses=(lifecycle.RUNNING, lifecycle.QUEUED, lifecycle.RECOVERING))
+            other = working or await newer_mission(db, task)
+            if other is not None:
+                # Another mission is working in this folder, or a newer one supersedes this: never both.
+                _feed(db, task, "Not continued: another mission is active in this workspace",
+                      f"Mission {str(other.id)[:8]} is {other.status} in the same workspace; this one waits "
+                      f"so the two never change the same folder.", severity="warning")
+                await db.commit()
                 return False
             done = automatic_rounds(task)
             if done >= MAX_AUTO_CONTINUATIONS:

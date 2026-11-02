@@ -13282,3 +13282,20 @@ TESTS RUN: PostgreSQL suite (owner run): 792 passed, 1 skipped.
 RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: Carry on the MYCO Phase 0 correction mission.
+
+TASK ID: FIX-ONE-MISSION-PER-FOLDER
+TASK NAME: Only one mission works in a workspace folder; carry on means the newest mission; Talk with JARV knows the date
+STATUS: IN_PROGRESS
+PROBLEM: Richard: "there should only be 1 mission running", "every time I speak to JARV it thinks it's a new day". The audit log showed two days-old MYCO missions (b850c930, 8456d4c2) continuing themselves every few minutes all afternoon in the MYCO folder while the correction mission ran there; they ran the git restore to an old commit and reverted Node and the V3.0 authority, and spent provider credit. Cause: Talk with JARV's carry-on chose a mission paused at its step limit before one that stopped part-way, whatever its age, so "carry on" restarted the old missions, each time with a fresh allowance of six automatic rounds, and nothing stopped two missions working in one folder. Their counter also doubled each round (#554 ... #35708). And the voice was never told the date or time.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/backend/app/core/command/continuation.py (other_active_mission and newer_mission; queue_resume refuses while another mission is active in the same workspace and names it; the continuation counter counts on instead of doubling)
+- apps/backend/app/core/runtime/missions.py (an automatic continuation is skipped, with a feed entry, while another mission runs in the workspace or once a newer live mission exists there)
+- apps/backend/app/core/voice/live.py (carry on chooses the newest mission with a folder, never an older one for its status; now_block: every session and ask_jarv know the current date and UK time, and remembered turns carry their time)
+- apps/backend/tests/test_repair12_mission_runtime.py (one mission per folder: an older paused mission does not continue itself, carry on is refused while another is active and names it, then resumes the newest; the automatic-continuation test uses separate workspaces)
+- apps/backend/tests/test_voice_live_and_mission_session.py (the session states the current date and time)
+COMMANDS RUN: python ast parse and undefined-name check of the changed files: passed. Owner: the two stray missions were cancelled by SQL.
+TESTS RUN: Owner run pending.
+RESULT: Pending the owner's test run.
+BLOCKERS: None.
+NEXT TASK: Let the MYCO correction mission (8ca4f55a) finish, then review it against V3.2.

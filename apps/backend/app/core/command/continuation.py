@@ -109,6 +109,11 @@ async def queue_resume(db: AsyncSession, task: Task, *, operator: str, reason: s
         raise ValueError(f"Task status '{status}' is not resumable.")
     if (task.meta_data or {}).get("archived_at"):
         raise ValueError("This mission is archived; unarchive it before resuming.")
+    other = await other_active_mission(db, task)
+    if other is not None:
+        raise ValueError(f"Mission {str(other.id)[:8]} ('{(other.title or '')[:60]}') is already active in this "
+                         f"workspace. Only one mission works in a folder at a time: let it finish, or close it, "
+                         f"before carrying on with this one.")
     lifecycle.transition(task, lifecycle.QUEUED, reason=reason, actor=operator)
     task.result = {**(task.result if isinstance(task.result, dict) else {}), "auto_rounds": 0}
     task.meta_data = {**(task.meta_data or {}), "resume_mode": "continuation", "operator": operator}
@@ -117,6 +122,38 @@ async def queue_resume(db: AsyncSession, task: Task, *, operator: str, reason: s
     return {"task_id": str(task.id), "status": lifecycle.QUEUED, "resumed": True,
             "continuation_count": continuation_count(task), "dispatch": dispatched.get("mode"),
             "reply": "Carrying on with that mission from where it stopped."}
+
+
+# A mission is active while it runs, waits in the queue, recovers, or is about to be continued.
+ACTIVE = (lifecycle.RUNNING, lifecycle.QUEUED, lifecycle.RECOVERING, lifecycle.NEEDS_CONTINUATION)
+
+
+async def other_active_mission(db: AsyncSession, task: Task, statuses=ACTIVE):
+    """Another mission working in the same workspace right now, if any (archived ones never count).
+    Two missions in one folder undo each other's work: the old Phase 0 missions, resumed by voice, kept
+    reverting the correction mission's changes."""
+    from sqlalchemy import select
+
+    if task.workspace_id is None:
+        return None
+    rows = (await db.execute(select(Task).where(
+        Task.workspace_id == task.workspace_id, Task.id != task.id, Task.task_type == task.task_type,
+        Task.status.in_(statuses)).order_by(Task.created_at.desc()))).scalars().all()
+    return next((t for t in rows if not (t.meta_data or {}).get("archived_at")), None)
+
+
+async def newer_mission(db: AsyncSession, task: Task):
+    """A later mission in the same workspace that is still live (active, stopped part-way or waiting on
+    Richard): it supersedes this one, so this one must not continue on its own."""
+    from sqlalchemy import select
+
+    if task.workspace_id is None or task.created_at is None:
+        return None
+    live = ACTIVE + (lifecycle.PARTIAL, lifecycle.WAITING_ON_APPROVAL)
+    rows = (await db.execute(select(Task).where(
+        Task.workspace_id == task.workspace_id, Task.id != task.id, Task.task_type == task.task_type,
+        Task.status.in_(live), Task.created_at > task.created_at))).scalars().all()
+    return next((t for t in rows if not (t.meta_data or {}).get("archived_at")), None)
 
 
 async def recall_for_mission(db: AsyncSession, workspace_id, text: str) -> str:
@@ -186,7 +223,8 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
         "agent_needs_continuation": result["needs_continuation"],
         "step_limit_reached": result["step_limit_reached"],
         "continuation_required": result["needs_continuation"],
-        "continuation_count": number + result["continuation_count"],
+        # The run counts on from this round's number, so its own count already includes the earlier ones.
+        "continuation_count": max(number, int(result.get("continuation_count") or 0)),
         "resume_from_step": result["resume_from_step"],
         "remaining_steps": result["remaining_steps"],
         "checkpoint_id": checkpoint_id,
