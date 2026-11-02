@@ -13169,7 +13169,7 @@ NEXT TASK: The root causes behind the night's failures (one mission engine with 
 TASK ID: UPGRADE-QUEUE-1
 TASK NAME: Upgrades Richard approved, gated on JARV working as designed
 STATUS: NOT_STARTED
-GATE: Starts only after the dashboard/UI fixes, the root-cause fixes to JARV's mission engine, and JARV's correction of MYCO Phase 0 all pass, and JARV completes missions as designed without operator rescue. Richard (2 Nov 2026): once MYCO Phase 0 is successfully completed (independently verified), all five upgrades go in. Baseline for measuring them: the Phase 0 correction run (tokens, rounds, verifier findings).
+GATE: Richard (2 Nov 2026, 19:22) moved the upgrades ahead of finishing Phase 0: they start once the dashboard fixes pass. The five open Phase 0 defects are the acceptance test: the upgraded JARV must find and fix them unprompted. Baseline: the Phase 0 correction run (about 5.5 million tokens, 31 rounds, 5 defects passed by the Verifier).
 SCOPE (in this order unless Richard reorders):
 1. Deep specialist knowledge for all 31 agents.
 2. Knowledge-enhanced reasoning: expert references combined with model capabilities.
@@ -13337,3 +13337,15 @@ TESTS RUN: Owner run pending.
 RESULT: Pending the owner's test run.
 BLOCKERS: None.
 NEXT TASK: Upgrade 1: deep specialist knowledge for every agent, and a Verifier with hard spec and claim checks.
+
+TASK ID: UPGRADE-PLAN
+TASK NAME: Researched implementation plan for the five upgrades
+STATUS: COMPLETE
+PROBLEM: Richard (2 Nov 2026): JARV is no good if it makes mistakes that need iteration after iteration; every agent must be an expert in its field and the upgrades must be added now, researched exactly (dependencies, wiring), no guesswork. The five Phase 0 defects become the acceptance test for the upgraded JARV instead of a separate correction mission.
+FILES CREATED: None in the repository. The plan is the shared document "JARV Upgrade Plan: Expert Agents to Measured Routing" (Claude Docs).
+FILES MODIFIED: BUILD_LEDGER.md.
+COMMANDS RUN: Code audit of app/core/knowledge, app/core/memory, app/core/jarv_memory.py, app/core/learning, app/core/agents, app/core/command, app/core/providers, app/models, alembic/versions, poetry.lock. Sources read: pgvector changelog (0.8.7, 1 Oct 2026), trafilatura 2.3.1 on PyPI (Apache-2.0) and its core functions page, pgvector for Python 0.5.1 on PyPI, OpenAI embeddings guide and API reference, gpt-6-luna model page, OpenAI prompt caching guide, ParadeDB hybrid search manual, Debian postgresql-17-age 1.6.0~rc0.
+TESTS RUN: None (planning).
+RESULT: Plan written: one new dependency (trafilatura 2.3.1); no database upgrade (HNSW since pgvector 0.5.0, 1536-dimension embeddings already in use); order 1a, 1b, 2, 3, 4, 5, then the acceptance mission; Step 0 reads the pgvector version and embedding model on Richard's machine first.
+BLOCKERS: Step 0 answers from Richard's machine.
+NEXT TASK: Step 0, then Upgrade 1a.
