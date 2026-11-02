@@ -99,6 +99,14 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
 
   useEffect(() => {
     mountedRef.current = true;
+    // The conversation so far, from JARV's records: a reload or another page never shows it blank.
+    void apiClient.get<{ turns: { who: string; text: string }[] }>('/api/voice/live/history').then((response) => {
+      if (!mountedRef.current || !response?.data?.turns) return;
+      const kept = response.data.turns
+        .filter((turn) => turn.who === 'you' || turn.who === 'jarv')
+        .map((turn) => ({ who: turn.who as 'you' | 'jarv', text: turn.text }));
+      setLines((current) => (current.length ? current : kept.slice(-12)));
+    });
     return () => {
       mountedRef.current = false;
       stop();

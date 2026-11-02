@@ -51,7 +51,8 @@ async def _seed_owner(db):
 async def _mission(db, ws_id, status, **fields):
     task = Task(id=uuid4(), workspace_id=ws_id, title="m", description=fields.pop("description", "m"),
                 task_type="command", status=status, priority=5, meta_data={"operator": "op"},
-                created_at=datetime.now(timezone.utc), updated_at=fields.pop("updated_at", datetime.now(timezone.utc)),
+                created_at=fields.pop("created_at", datetime.now(timezone.utc)),
+                updated_at=fields.pop("updated_at", datetime.now(timezone.utc)),
                 **fields)
     db.add(task)
     await db.commit()
@@ -238,7 +239,8 @@ def test_step_limited_mission_is_continued_automatically(monkeypatch):
             # only the runner's own re-queues (auto_rounds) are capped.
             under = await _mission(db, ws_id, "needs_continuation",
                                    result={"continuation_count": 13, "auto_rounds": 1})
-            capped = await _mission(db, ws_id, "needs_continuation", result={"auto_rounds": 6})
+            _, other_ws = await _seed_owner(db)  # one mission per workspace folder
+            capped = await _mission(db, other_ws, "needs_continuation", result={"auto_rounds": 6})
         runner = MissionRunner()
         return under, capped, await runner._auto_continue(under), await runner._auto_continue(capped)
 
@@ -498,3 +500,63 @@ def test_an_ai_provider_outage_pauses_the_mission_instead_of_failing_it(monkeypa
     assert "AI provider stopped answering" in task.error_message and "peer closed" in task.error_message
     assert task.result["provider_unavailable"] is True
     assert task.lease_owner is None
+
+
+@pytest.mark.integration
+def test_only_one_mission_works_in_a_workspace_folder_at_a_time(test_user, test_workspace, monkeypatch):
+    """Two old Phase 0 missions kept restarting themselves in the MYCO folder while the correction mission ran
+    there, and undid its work (a git restore to an old commit, Node and V3.0 reverted). "Carry on" by voice had
+    picked them because it preferred step-limit pauses over the mission that had just stopped. Now: carry on
+    means the newest mission; a mission is never resumed while another is active in the same workspace; and an
+    older paused mission never continues itself once a newer one exists there."""
+    from app.core.voice.live import run_tool
+
+    monkeypatch.setenv("MISSION_EXECUTION_MODE", "deferred")
+    folder = {"workspace_path": "C:\\Users\\lilri\\Projects\\MYCO", "auto_rounds": 1}
+
+    async def run():
+        async with AsyncTestingSessionLocal() as db:
+            old = await _mission(db, test_workspace.id, "needs_continuation", result=dict(folder),
+                                 created_at=datetime(2026, 10, 30, tzinfo=timezone.utc))
+            current = await _mission(db, test_workspace.id, "partial", result=dict(folder))
+            old_continues = await MissionRunner()._auto_continue(old)
+            blocked = await run_tool(db, test_user.id, "resume_mission", {})  # old one is still active
+            await cancel_mission(db, (await db.execute(select(Task).where(Task.id == old))).scalar_one(),
+                                 actor="test", reason="stale")
+            await db.commit()
+            resumed = await run_tool(db, test_user.id, "resume_mission", {})
+            return old, current, old_continues, blocked, resumed
+
+    old, current, old_continues, blocked, resumed = _run(run())
+    assert old_continues is False and _run(_get(old)).status == "cancelled"
+    assert "already active in this workspace" in blocked["error"] and str(old)[:8] in blocked["error"]
+    assert resumed["resumed"] is True and resumed["task_id"] == str(current)
+
+
+@pytest.mark.integration
+def test_a_mission_carried_on_after_a_provider_pause_is_not_reported_as_paused(test_user, test_workspace,
+                                                                              monkeypatch):
+    """After Carry on, Talk with JARV still said the mission was paused because the provider had stopped
+    answering: it read the old pause note. Carrying on clears the note, and a running mission is described by
+    its latest activity, not by an earlier report."""
+    from app.core.voice.live import run_tool
+
+    monkeypatch.setenv("MISSION_EXECUTION_MODE", "deferred")
+    pause = "Paused: the AI provider stopped answering (peer closed connection)."
+
+    async def run():
+        async with AsyncTestingSessionLocal() as db:
+            paused = await _mission(db, test_workspace.id, "partial", error_message=pause, result={
+                "workspace_path": "C:\\\\MYCO", "response": "Edited the Taskfile.\n\n" + pause,
+                "final_status_reason": pause, "provider_unavailable": True})
+            await run_tool(db, test_user.id, "resume_mission", {"task_id": str(paused)})
+            task = (await db.execute(select(Task).where(Task.id == paused))).scalar_one()
+            task.status = "running"
+            await db.commit()
+            return paused, await run_tool(db, test_user.id, "get_mission", {})
+
+    paused, report = _run(run())
+    row = _run(_get(paused))
+    assert row.error_message is None and "provider_unavailable" not in row.result
+    assert row.result["response"] == "Edited the Taskfile."
+    assert report["in_progress"] is True and "result" not in report and "error" not in report

@@ -201,6 +201,21 @@ async def recent_turns(user_id: UUID, limit: int = HISTORY_IN_SESSION) -> List[D
     return turns
 
 
+def now_block() -> str:
+    """Today's date and time where Richard is (Europe/London), so JARV knows how long ago things happened."""
+    from datetime import datetime, timezone
+
+    try:
+        from zoneinfo import ZoneInfo
+
+        now, zone = datetime.now(ZoneInfo("Europe/London")), "UK time"
+    except Exception:  # noqa: BLE001 - no time-zone database in the image: say UTC rather than guess
+        now, zone = datetime.now(timezone.utc), "UTC"
+    return (f"\nIt is now {now:%A %-d %B %Y, %H:%M} {zone}. Times in the conversation below are UTC; "
+            "when he spoke to you earlier today, say so, and never greet him as if it were a new day "
+            "when it is not.")
+
+
 def history_block(turns: List[Dict[str, Any]]) -> str:
     if not turns:
         return ""
@@ -222,7 +237,7 @@ async def create_session(db: AsyncSession, user_id: UUID) -> Dict[str, Any]:
     model, voice = settings.OPENAI_REALTIME_MODEL, settings.OPENAI_REALTIME_VOICE
     body = {"session": {
         "type": "realtime", "model": model,
-        "instructions": instructions(spaces) + history_block(await recent_turns(user_id)),
+        "instructions": instructions(spaces) + now_block() + history_block(await recent_turns(user_id)),
         "tools": TOOLS, "tool_choice": "auto",
         "audio": {"input": {"transcription": {"model": settings.OPENAI_REALTIME_TRANSCRIBE_MODEL},
                             "turn_detection": {"type": "semantic_vad"}},
@@ -321,6 +336,12 @@ async def _mission(db: AsyncSession, user_id: UUID, task_id: Optional[str]) -> D
     if task is None:
         return {"error": "No mission found."}
     result = task.result if isinstance(task.result, dict) else {}
+    if (task.status or "").lower() in ("queued", "running", "recovering"):
+        # A mission being worked on is described by what it is doing now; its last report and error are
+        # from an earlier round (a pause it has since come back from) and would mislead.
+        return {"task_id": str(task.id), "title": task.title, "status": task.status, "in_progress": True,
+                "folder": result.get("workspace_path"), "latest_activity": await _activity(db, task.id),
+                "note": "Still being worked on. Describe it from latest_activity; earlier pauses are over."}
     # Missions store their report under "response".
     summary = (result.get("response") or result.get("response_text") or result.get("output")
                or result.get("summary") or "")
@@ -402,8 +423,9 @@ async def _ask_jarv(db: AsyncSession, user_id: UUID, question: str, workspace_id
         "recent_missions": await _recent_missions(db, user_id),
         "waiting_for_approval": (await _approvals(db, user_id))["waiting"],
         "memories": await _memories(db, user_id, question, workspace_id),
-        "recent_conversation": [f"{_SPEAKERS.get(t.get('who'), 'JARV')}: {t.get('text', '')[:300]}"
-                                for t in await recent_turns(user_id, 16)],
+        "now": now_block().strip(),
+        "recent_conversation": [f"[{str(t.get('at', ''))[:16]}] {_SPEAKERS.get(t.get('who'), 'JARV')}: "
+                                f"{t.get('text', '')[:300]}" for t in await recent_turns(user_id, 16)],
     }
     if workspace_id is not None:
         try:
@@ -429,16 +451,14 @@ async def _ask_jarv(db: AsyncSession, user_id: UUID, question: str, workspace_id
 
 
 def _best_to_resume(candidates: List[Any]) -> Optional[Any]:
-    """The mission "carry on" means: one that works in a folder and is not archived, a mission that
-    paused at its step limit before one that ended partial, the newest first. A mission without a
-    folder (for example one created by asking to resume) is never chosen: it has nothing to work on."""
+    """The mission "carry on" means: the newest mission that works in a folder and is not archived, whether it
+    paused at its step limit or stopped part-way. Status never outranks age: preferring step-limit pauses made
+    "carry on" restart days-old Phase 0 missions instead of the one Richard had just been running. A mission
+    without a folder (for example one created by asking to resume) is never chosen: it has nothing to work on.
+    ``candidates`` are newest first."""
     usable = [t for t in candidates if not (t.meta_data or {}).get("archived_at")
               and isinstance(t.result, dict) and t.result.get("workspace_path")]
-    for wanted in ("needs_continuation", "partial"):
-        for task in usable:
-            if (task.status or "").lower() == wanted:
-                return task
-    return None
+    return usable[0] if usable else None
 
 
 async def _resume(db: AsyncSession, user_id: UUID, task_id: Optional[str]) -> Dict[str, Any]:

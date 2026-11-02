@@ -214,6 +214,12 @@ async def live_turn(request: LiveTurnRequest, user_id: CurrentUserId) -> Dict[st
     return await live.remember_turn(UUID(str(user_id)), request.who, request.text)
 
 
+@router.get("/live/history")
+async def live_history(user_id: CurrentUserId) -> Dict[str, Any]:
+    """The recent spoken conversation (oldest first), so the panel shows it after a reload or a page change."""
+    return {"turns": await live.recent_turns(UUID(str(user_id)), 12)}
+
+
 @router.post("/live/tool")
 async def live_tool(request: LiveToolRequest, user_id: CurrentUserId,
                     db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:

@@ -12,6 +12,9 @@ const mockPosts: { path: string; body: unknown }[] = [];
 
 jest.mock('@/lib/api', () => ({
   apiClient: {
+    get: jest.fn(async (path: string) => (path === '/api/voice/live/history'
+      ? { status: 200, data: { turns: [{ who: 'you', text: 'Earlier: keep Phase 0 offline.', at: '2026-11-02T18:00:00' }] } }
+      : { status: 404, error: `no ${path}` })),
     post: jest.fn(async (path: string, body?: unknown) => {
       mockPosts.push({ path, body });
       if (path === '/api/voice/live/session') {
@@ -75,6 +78,8 @@ describe('VoiceConversation', () => {
     const onMission = jest.fn(async () => ({ status: 'completed', response_text: 'Three changes this week.', finished: true }));
     render(<VoiceConversation ready beforeStart={beforeStart} onMission={onMission} onStateChange={onStateChange} />);
 
+    // The conversation so far comes back from JARV's records before anything is said.
+    expect(await screen.findByText('Earlier: keep Phase 0 offline.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Talk with JARV' }));
     await waitFor(() => expect(global.fetch).toHaveBeenCalled());
     const [url, init] = (global.fetch as jest.Mock).mock.calls[0];

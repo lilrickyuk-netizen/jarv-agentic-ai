@@ -3,9 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CockpitCore } from '@/components/cockpit-core';
-import { VoiceOperator } from '@/components/voice-operator';
 import { apiClient, HealthResponse } from '@/lib/api';
-import { followMission, runMission } from '@/lib/missions';
+import { runMission } from '@/lib/missions';
 import { clearTokens, getAccessToken } from '@/lib/auth';
 
 type CockpitState = 'idle' | 'listening' | 'thinking' | 'planning' | 'executing' | 'speaking' | 'approval' | 'completed' | 'failed' | 'recovery';
@@ -119,7 +118,8 @@ export default function CommandCenterPage() {
   const [commandResult, setCommandResult] = useState<CommandResult | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [commandLoading, setCommandLoading] = useState(false);
-  const [voiceState, setVoiceState] = useState<VoiceState>('idle');
+  // Talk with JARV lives in the dashboard frame (LiveMissionDock), so it survives moving between pages.
+  const voiceState = 'idle' as VoiceState;
 
   const refresh = useCallback(async () => {
     const [healthResponse, agentsResponse, statsResponse, tasksResponse, feedResponse, approvalsResponse, memoryResponse, swarmResponse] = await Promise.all([
@@ -168,20 +168,6 @@ export default function CommandCenterPage() {
       setCommandLoading(false);
     }
     return null;
-  };
-
-  /** A mission started by voice: shown here like a typed one, followed until it finishes or pauses. */
-  const followVoiceMission = async (taskId: string): Promise<CommandResult | null> => {
-    setCommandError(null);
-    try {
-      const mission = await followMission(taskId, { onUpdate: setCommandResult });
-      setCommandResult(mission);
-      void refresh();
-      return mission;
-    } catch (error) {
-      setCommandError(error instanceof Error ? error.message : 'The voice mission could not be followed');
-      return null;
-    }
   };
 
   const handleLogout = async () => {
@@ -263,7 +249,6 @@ export default function CommandCenterPage() {
                   <button type="submit" className="primary-button" disabled={commandLoading || !command.trim()}>{commandLoading ? 'Working…' : 'Send instruction ↗'}</button>
                 </div>
               </form>
-              <VoiceOperator onMission={followVoiceMission} onStateChange={setVoiceState} />
               {commandError && <p className="inline-error" role="alert">{commandError}</p>}
               {commandResult && <div className={`mission-result result-${commandResult.status}`}>
                 <div className="result-heading"><span>{commandResult.status.toUpperCase()}</span>{commandResult.requires_approval && <b>APPROVAL REQUIRED</b>}</div>
