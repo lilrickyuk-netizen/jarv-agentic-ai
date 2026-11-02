@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api';
-import { cancelMission, followMission, MissionResult, retryMission, runMission } from '@/lib/missions';
+import {
+  archiveMission, cancelMission, followMission, MissionResult, resumeMission, retryMission, runMission,
+} from '@/lib/missions';
 
 // A mission in one of these states is still being worked on by JARV's worker.
 const IN_FLIGHT = new Set(['pending', 'queued', 'running', 'recovering']);
@@ -19,7 +21,11 @@ interface HistoryItem {
   created_at: string;
   completed_at: string | null;
   error: string | null;
+  folder?: string | null;
+  archived?: boolean;
 }
+
+const shortId = (id: string) => id.slice(0, 8);
 
 export default function CommandPage() {
   const router = useRouter();
@@ -30,11 +36,45 @@ export default function CommandPage() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [info, setInfo] = useState<{ provider: string; model: string } | null>(null);
   const [listening, setListening] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [voiceSupported, setVoiceSupported] = useState(false);
   const recognitionRef = useRef<any>(null);
+  const showArchivedRef = useRef(false);
+  const followingRef = useRef<AbortController | null>(null);
+
+  /** Show one mission and follow it while JARV is still working on it. */
+  const openMission = async (taskId: string) => {
+    followingRef.current?.abort();
+    const following = new AbortController();
+    followingRef.current = following;
+    setError(null);
+    setLoading(true);
+    try {
+      const mission = await followMission(taskId, { onUpdate: setResult, signal: following.signal });
+      setResult(mission);
+      loadHistory();
+    } catch (err) {
+      if (!following.signal.aborted) setError(err instanceof Error ? err.message : 'Could not open the mission');
+    } finally {
+      if (!following.signal.aborted) setLoading(false);
+    }
+  };
+
+  const act = async (label: string, action: () => Promise<MissionResult | null | void>, taskId: string) => {
+    setError(null);
+    try {
+      const updated = await action();
+      if (updated) setResult(updated);
+      await loadHistory();
+      if (label === 'resume') void openMission(taskId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Could not ${label} the mission`);
+    }
+  };
 
   const loadHistory = async (): Promise<HistoryItem[]> => {
-    const res = await apiClient.get<HistoryItem[]>('/api/command/history?limit=15');
+    const res = await apiClient.get<HistoryItem[]>(
+      `/api/command/history?limit=15${showArchivedRef.current ? '&include_archived=true' : ''}`);
     if (!res.error && res.data) {
       setHistory(res.data);
       return res.data;
@@ -50,6 +90,7 @@ export default function CommandPage() {
     // Missions run in JARV's worker, not in this page: coming back to the page picks up the
     // mission that is still running and follows it again.
     const following = new AbortController();
+    followingRef.current = following;  // opening another mission stops following this one
     loadHistory().then((items) => {
       const running = items.find((item) => IN_FLIGHT.has(item.status));
       if (!running || following.signal.aborted) return;
@@ -68,7 +109,7 @@ export default function CommandPage() {
       const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       setVoiceSupported(Boolean(SR));
     }
-    return () => following.abort();
+    return () => followingRef.current?.abort();
   }, []);
 
   const runCommand = async (text: string) => {
@@ -234,6 +275,46 @@ export default function CommandPage() {
               </span>
             </div>
 
+            <p className="text-xs text-muted-foreground mb-3" data-testid="mission-identity">
+              Mission {shortId(result.task_id)}{result.folder ? ` · ${result.folder}` : ' · no folder'}
+              {result.archived ? ' · archived' : ''}
+            </p>
+
+            <div className="flex flex-wrap gap-3 mb-3">
+              {result.resumable && (
+                <button
+                  onClick={() => act('resume', () => resumeMission(result.task_id), result.task_id)}
+                  className="text-sm px-3 py-1 rounded border border-blue-300 text-blue-700"
+                >
+                  Carry on with this mission
+                </button>
+              )}
+              {result.status === 'partial' && (
+                <button
+                  onClick={() => act('cancel', () => cancelMission(result.task_id), result.task_id)}
+                  className="text-sm px-3 py-1 rounded border border-red-300 text-red-700"
+                >
+                  Close mission
+                </button>
+              )}
+              {(result.finished || result.status === 'needs_continuation') && !result.archived && (
+                <button
+                  onClick={() => act('archive', () => archiveMission(result.task_id), result.task_id)}
+                  className="text-sm px-3 py-1 rounded border"
+                >
+                  Archive
+                </button>
+              )}
+              {result.archived && (
+                <button
+                  onClick={() => act('unarchive', () => archiveMission(result.task_id, false), result.task_id)}
+                  className="text-sm px-3 py-1 rounded border"
+                >
+                  Unarchive
+                </button>
+              )}
+            </div>
+
             {(!result.finished || ['failed', 'partial'].includes(result.status)) && (
               <div className="flex gap-3 mb-3">
                 {!result.finished && (
@@ -329,24 +410,44 @@ export default function CommandPage() {
 
         {/* History */}
         <div className="bg-card border rounded-lg p-6">
-          <h2 className="text-xl font-bold mb-4">Recent Commands</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold">Recent missions</h2>
+            <label className="text-xs text-muted-foreground flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={showArchived}
+                onChange={(event) => {
+                  showArchivedRef.current = event.target.checked;
+                  setShowArchived(event.target.checked);
+                  loadHistory();
+                }}
+              />
+              Show archived
+            </label>
+          </div>
           {history.length === 0 ? (
             <p className="text-sm text-muted-foreground">No commands run yet.</p>
           ) : (
             <div className="space-y-2">
               {history.map((h) => (
-                <div key={h.task_id} className="border rounded-md p-3 flex items-start justify-between gap-4">
+                <button
+                  key={h.task_id}
+                  onClick={() => openMission(h.task_id)}
+                  className={`w-full text-left border rounded-md p-3 flex items-start justify-between gap-4 hover:border-primary ${
+                    result?.task_id === h.task_id ? 'border-primary' : ''}`}
+                >
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{h.command}</p>
                     <p className="text-xs text-muted-foreground">
-                      {new Date(h.created_at).toLocaleString()}
+                      {shortId(h.task_id)} · {h.folder || 'no folder'} · {new Date(h.created_at).toLocaleString()}
                       {h.selected_agents.length > 0 && ` · ${h.selected_agents.length} agents`}
+                      {h.archived ? ' · archived' : ''}
                     </p>
                   </div>
                   <span className={`px-2 py-1 text-xs rounded font-semibold shrink-0 ${statusColor(h.status)}`}>
                     {h.status}
                   </span>
-                </div>
+                </button>
               ))}
             </div>
           )}

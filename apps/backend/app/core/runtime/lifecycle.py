@@ -50,7 +50,8 @@ _ALLOWED: Dict[str, frozenset] = {
     BLOCKED: frozenset({QUEUED, CANCELLED, FAILED}),
     # A finished mission can be retried on request; it re-enters the queue.
     COMPLETED: frozenset(),
-    PARTIAL: frozenset({QUEUED, RUNNING}),
+    # A partial mission can also be closed so nothing resumes it.
+    PARTIAL: frozenset({QUEUED, RUNNING, CANCELLED}),
     FAILED: frozenset({QUEUED}),
     CANCELLED: frozenset(),
 }

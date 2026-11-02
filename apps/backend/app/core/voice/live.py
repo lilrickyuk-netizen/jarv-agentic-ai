@@ -228,13 +228,35 @@ async def _mission(db: AsyncSession, user_id: UUID, task_id: Optional[str]) -> D
             query = query.where(Task.id == UUID(str(task_id)))
         except ValueError:
             return {"error": "That is not a mission id."}
-    task = (await db.execute(query.order_by(Task.created_at.desc()).limit(1))).scalar_one_or_none()
+        task = (await db.execute(query)).scalar_one_or_none()
+    else:
+        # "The mission" is the one still being worked on, if any; otherwise the latest one that is not archived.
+        recent = (await db.execute(query.order_by(Task.created_at.desc()).limit(50))).scalars().all()
+        visible = [t for t in recent if not (t.meta_data or {}).get("archived_at")]
+        working = [t for t in visible if (t.status or "").lower() in ("queued", "running", "recovering", "needs_continuation")]
+        task = (working or visible or [None])[0]
     if task is None:
         return {"error": "No mission found."}
     result = task.result if isinstance(task.result, dict) else {}
-    summary = result.get("response_text") or result.get("output") or result.get("summary") or ""
+    # Missions store their report under "response".
+    summary = (result.get("response") or result.get("response_text") or result.get("output")
+               or result.get("summary") or "")
     return {"task_id": str(task.id), "title": task.title, "status": task.status,
+            "folder": result.get("workspace_path"),
             "result": str(summary)[:1500], "error": (task.error_message or "")[:300] or None}
+
+
+def _best_to_resume(candidates: List[Any]) -> Optional[Any]:
+    """The mission "carry on" means: one that works in a folder and is not archived, a mission that
+    paused at its step limit before one that ended partial, the newest first. A mission without a
+    folder (for example one created by asking to resume) is never chosen: it has nothing to work on."""
+    usable = [t for t in candidates if not (t.meta_data or {}).get("archived_at")
+              and isinstance(t.result, dict) and t.result.get("workspace_path")]
+    for wanted in ("needs_continuation", "partial"):
+        for task in usable:
+            if (task.status or "").lower() == wanted:
+                return task
+    return None
 
 
 async def _resume(db: AsyncSession, user_id: UUID, task_id: Optional[str]) -> Dict[str, Any]:
@@ -248,9 +270,10 @@ async def _resume(db: AsyncSession, user_id: UUID, task_id: Optional[str]) -> Di
             query = query.where(Task.id == UUID(str(task_id)))
         except ValueError:
             return {"error": "That is not a mission id."}
+        task = (await db.execute(query)).scalar_one_or_none()
     else:
-        query = query.where(Task.status.in_(RESUMABLE))
-    task = (await db.execute(query.order_by(Task.created_at.desc()).limit(1))).scalar_one_or_none()
+        task = _best_to_resume((await db.execute(
+            query.where(Task.status.in_(RESUMABLE)).order_by(Task.created_at.desc()).limit(50))).scalars().all())
     if task is None:
         return {"error": "There is no paused mission to carry on with."}
     try:

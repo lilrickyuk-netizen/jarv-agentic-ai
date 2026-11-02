@@ -26,6 +26,9 @@ export interface MissionResult {
   attempts?: number;
   heartbeat_at?: string | null;
   events?: MissionEvent[];
+  folder?: string | null;
+  archived?: boolean;
+  resumable?: boolean;
 }
 
 const POLL_MS = 1200;
@@ -90,6 +93,18 @@ export async function cancelMission(taskId: string): Promise<MissionResult | nul
   const res = await apiClient.post<MissionResult>(`/api/command/tasks/${taskId}/cancel`);
   if (res.error) throw new Error(res.error);
   return res.data ?? null;
+}
+
+export async function archiveMission(taskId: string, archived = true): Promise<MissionResult | null> {
+  const res = await apiClient.post<MissionResult>(`/api/command/tasks/${taskId}/${archived ? 'archive' : 'unarchive'}`);
+  if (res.error) throw new Error(res.error);
+  return res.data ?? null;
+}
+
+/** Carry on with a paused (needs continuation) or partial mission: the same mission, on JARV's worker. */
+export async function resumeMission(taskId: string): Promise<void> {
+  const res = await apiClient.post(`/api/tasks/${taskId}/resume`);
+  if (res.error) throw new Error(res.error);
 }
 
 export async function retryMission(taskId: string): Promise<MissionResult | null> {
