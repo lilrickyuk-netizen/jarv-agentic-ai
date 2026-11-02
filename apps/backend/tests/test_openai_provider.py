@@ -110,15 +110,15 @@ async def test_agent_tool_turns_are_sent_in_openai_shape():
     await provider.client.aclose()
     provider.client = httpx.AsyncClient(base_url=provider.API_BASE, transport=httpx.MockTransport(answer))
     try:
+        # Chat Completions shape (models other than gpt-6-luna; gpt-6-luna tool use goes to the Responses API).
         response = await provider.complete(CompletionRequest(
-            model="gpt-6-luna", messages=messages, system="You are JARV's coding agent.", tools=tools,
+            model="gpt-4-turbo", messages=messages, system="You are JARV's coding agent.", tools=tools,
             max_tokens=256, temperature=0.0))
     finally:
         await provider.client.aclose()
 
     payload = sent[0]
     _assert_valid_openai_chat(payload)
-    assert payload["reasoning_effort"] == "none"  # gpt-6-luna refuses function tools with reasoning on
     assert [t["function"]["name"] for t in payload["tools"]] == ["read_file", "finish"]
     assert payload["tools"][0]["function"]["parameters"]["required"] == ["path"]
     assistant = payload["messages"][2]
@@ -153,7 +153,7 @@ async def test_tool_names_openai_would_reject_are_renamed_and_restored():
     provider.client = httpx.AsyncClient(base_url=provider.API_BASE, transport=httpx.MockTransport(answer))
     try:
         response = await provider.complete(CompletionRequest(
-            model="gpt-6-luna", max_tokens=64,
+            model="gpt-4-turbo", max_tokens=64,
             messages=[Message(role="user", content="Check this action."),
                       Message(role="assistant", content=[{"type": "tool_use", "id": "call_8",
                                                           "name": "boundary.detect", "input": {"action": "x"}}]),
@@ -168,6 +168,56 @@ async def test_tool_names_openai_would_reject_are_renamed_and_restored():
     assert sent[0]["tools"][0]["function"]["name"] == "boundary__detect"
     assert sent[0]["messages"][1]["tool_calls"][0]["function"]["name"] == "boundary__detect"
     assert response.tool_calls[0]["function"]["name"] == "boundary.detect"
+
+
+@pytest.mark.asyncio
+async def test_gpt_6_luna_tool_turns_go_to_the_responses_api_with_reasoning():
+    """gpt-6-luna takes function tools on Chat Completions only with reasoning off, so its agents worked every
+    step without thinking. Its tool turns now go to /v1/responses with reasoning, names restored on return."""
+    import json
+
+    import httpx
+
+    sent = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        sent.append((request.url.path, json.loads(request.content)))
+        return httpx.Response(200, json={
+            "id": "resp_1", "model": "gpt-6-luna", "status": "completed",
+            "usage": {"input_tokens": 50, "output_tokens": 20, "total_tokens": 70},
+            "output": [{"type": "reasoning", "summary": []},
+                       {"type": "function_call", "call_id": "call_9", "name": "boundary__detect",
+                        "arguments": "{}"}]})
+
+    provider = OpenAIProvider(api_key="unit-test-key")
+    await provider.client.aclose()
+    provider.client = httpx.AsyncClient(base_url=provider.API_BASE, transport=httpx.MockTransport(answer))
+    try:
+        response = await provider.complete(CompletionRequest(
+            model="gpt-6-luna", max_tokens=64, system="You are JARV.",
+            messages=[Message(role="user", content="Check this action."),
+                      Message(role="assistant", content=[{"type": "tool_use", "id": "call_8",
+                                                          "name": "boundary.detect", "input": {"action": "x"}}]),
+                      Message(role="user", content=[{"type": "tool_result", "tool_use_id": "call_8",
+                                                     "content": "no boundary"}])],
+            tools=[{"name": "boundary.detect", "description": "Detect hard boundaries.",
+                    "input_schema": {"type": "object", "properties": {"action": {"type": "string"}}}}]))
+        plain = OpenAIProvider._uses_responses(CompletionRequest(
+            model="gpt-6-luna", messages=[Message(role="user", content="hi")]))
+    finally:
+        await provider.client.aclose()
+
+    path, body = sent[0]
+    assert path == "/v1/responses"
+    assert body["reasoning"]["effort"] in ("low", "medium", "high", "xhigh", "max")
+    assert body["instructions"] == "You are JARV." and body["store"] is False
+    assert body["tools"][0]["name"] == "boundary__detect"
+    assert body["input"][1] == {"type": "function_call", "call_id": "call_8", "name": "boundary__detect",
+                                "arguments": '{"action": "x"}'}
+    assert body["input"][2] == {"type": "function_call_output", "call_id": "call_8", "output": "no boundary"}
+    assert response.tool_calls[0]["function"]["name"] == "boundary.detect"
+    assert response.usage["total_tokens"] == 70
+    assert plain is False  # without tools gpt-6-luna stays on Chat Completions
 
 
 def test_every_registered_tool_is_a_valid_openai_function():
