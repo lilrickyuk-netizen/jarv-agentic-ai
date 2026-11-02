@@ -112,6 +112,9 @@ class Settings(BaseSettings):
     # the next configured provider is used.
     PROVIDER_ORDER: str = "claude,openai,gemini,ollama"
     OPENAI_MODEL: str = "gpt-6-luna"
+    # How hard gpt-6-luna thinks when an agent works with tools (Responses API): none, low, medium, high,
+    # xhigh or max. Without tools it answers at low effort.
+    OPENAI_AGENT_REASONING_EFFORT: str = "medium"
 
     @validator("CLAUDE_API_KEY", pre=True)
     def claude_key_from_anthropic(cls, v: Optional[str], values: dict) -> Optional[str]:

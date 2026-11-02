@@ -171,6 +171,17 @@ def compact_messages(messages: List[Any], budget: int = CONTEXT_BUDGET_CHARS,
     return removed
 
 
+# How many times one run sends back a finish that gives up with nothing blocking it.
+MAX_REFUSED_STOPS = 2
+
+
+def _blocked_or_waiting(runtime_calls: List[Dict[str, Any]]) -> bool:
+    """Whether anything in this run is waiting for Richard (a refused shell form is not a reason to stop:
+    there is always a plain command or a file tool for it)."""
+    return any(isinstance(c, dict) and str(c.get("summary") or "").startswith("paused for approval")
+               for c in runtime_calls)
+
+
 def _claims(runtime_calls: List[Dict[str, Any]]) -> str:
     """The agent's own trail, as facts the verifier checks rather than trusts: files written, last result
     of each command, and anything still waiting for approval."""
@@ -358,6 +369,7 @@ class AgentExecutor:
         last_tool = None
         continuation = start_continuation
         total_budget = steps_per_round * (max_continuations + 1)
+        refused_stops = 0
 
         while self.iterations < total_budget and not finished:
             self.iterations += 1
@@ -404,11 +416,24 @@ class AgentExecutor:
                 if call.get("broken"):
                     out = {"success": False, "error": BROKEN_ARGUMENTS.format(name=call["name"])}
                 elif call["name"] == "finish":
-                    final_summary = call["args"].get("summary", "Mission complete.")
-                    # A finish that does not say it succeeded is not a success.
-                    success = call["args"].get("success") is True
-                    finished = True
-                    out = {"acknowledged": True}
+                    gave_up = call["args"].get("success") is not True
+                    remaining = total_budget - self.iterations
+                    if gave_up and remaining > 0 and refused_stops < MAX_REFUSED_STOPS \
+                            and not _blocked_or_waiting(self.runtime.calls):
+                        # Stopping short with nothing in the way is not an outcome: carry on.
+                        refused_stops += 1
+                        out = {"acknowledged": False, "reason": (
+                            f"Not accepted yet: nothing is blocked or waiting for approval, and you have "
+                            f"{remaining} steps left. Reading is not progress: make the changes the mission "
+                            f"asks for, verify them with real commands, then call finish. If something truly "
+                            f"stops you (a hard boundary, or a credential or decision only Richard can give), "
+                            f"call finish again and name it; then the rest is reported as waiting on him.")}
+                    else:
+                        final_summary = call["args"].get("summary", "Mission complete.")
+                        # A finish that does not say it succeeded is not a success.
+                        success = not gave_up
+                        finished = True
+                        out = {"acknowledged": True}
                 else:
                     out = await self._dispatch(call["name"], call["args"])
                 result_blocks.append({"type": "tool_result", "tool_use_id": call["id"],

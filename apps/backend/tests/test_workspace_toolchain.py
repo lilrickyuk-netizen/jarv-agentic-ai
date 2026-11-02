@@ -733,3 +733,94 @@ def test_claude_requests_mark_the_repeated_prefix_for_the_prompt_cache():
     assert payload["messages"][-1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
     assert "cache_control" not in request.messages[-1].content[-1]  # the mission's own record is unchanged
     assert _usage({"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 900})["total_tokens"] == 915
+
+
+@pytest.mark.integration
+def test_a_mission_that_gives_up_with_nothing_blocking_is_sent_back_to_work(monkeypatch):
+    """The Phase 0 correction mission read the repository, then finished with success=false: "I did not modify
+    files, run the requested verification commands, or commit." Nothing was blocked. Such a finish is now sent
+    back (twice at most); the agent then does the work. A finish that names a real wait is accepted."""
+    from app.core.command import agent_executor
+    from app.core.command.agent_executor import AgentExecutor
+
+    host, folder = _mission_folder()
+    router = _MissionRouter([
+        {"tools": [("read_file", {"path": "src/app.py"})]},
+        {"tools": [("finish", {"summary": "The mission remains incomplete.", "success": False})]},
+        {"tools": [("edit_file", {"path": "src/app.py", "old_text": "return a + b\n",
+                                  "new_text": "return a + b\n\n\ndef sub(a, b):\n    return a - b\n"})]},
+        {"tools": [("finish", {"summary": "Added sub.", "success": True})]},
+    ], [{"tools": [("verdict", {"verified": True, "unmet": [], "checks": [
+        {"requirement": "sub in src/app.py", "met": True, "evidence": "read it"}]})]}])
+    monkeypatch.setattr(agent_executor, "get_router", lambda: router)
+
+    async def run():
+        async with AsyncTestingSessionLocal() as session:
+            rt = await _mission_workspace(session, host)
+            return await AgentExecutor(rt, "test-model", host).run("Add sub(a, b) to src/app.py.")
+
+    result = asyncio.run(run())
+    assert result["success"] is True and "def sub(a, b)" in (folder / "src" / "app.py").read_text()
+    assert result["answer"] == "Added sub."
+
+    stubborn = _MissionRouter([{"tools": [("finish", {"summary": "Cannot.", "success": False})]}] * 3, [])
+    monkeypatch.setattr(agent_executor, "get_router", lambda: stubborn)
+
+    async def run_stubborn():
+        async with AsyncTestingSessionLocal() as session:
+            rt = await _mission_workspace(session, host)
+            return await AgentExecutor(rt, "test-model", host).run("Add sub(a, b) to src/app.py.")
+
+    gave_up = asyncio.run(run_stubborn())
+    assert gave_up["finished"] is True and gave_up["success"] is False and gave_up["iterations"] == 3
+
+    waiting = _MissionRouter([
+        {"tools": [("run_command", {"command": "git clean -n"})]},
+        {"tools": [("finish", {"summary": "git clean waits for Richard.", "success": False})]},
+    ], [])
+    monkeypatch.setattr(agent_executor, "get_router", lambda: waiting)
+
+    async def run_waiting():
+        async with AsyncTestingSessionLocal() as session:
+            rt = await _mission_workspace(session, host)
+            return await AgentExecutor(rt, "test-model", host).run("Clean the folder.")
+
+    paused = asyncio.run(run_waiting())
+    assert paused["finished"] is True and paused["iterations"] == 2  # a real wait: the finish is accepted
+    shutil.rmtree(folder, ignore_errors=True)
+
+
+def test_gpt_6_luna_agents_reason_through_the_responses_api():
+    """On Chat Completions gpt-6-luna takes function tools only with reasoning off, so every mission step ran
+    without thinking. Tool-using requests now go to the Responses API with reasoning; plain requests stay."""
+    import json as _json
+    from app.core.providers.base import CompletionRequest, Message
+    from app.core.providers.openai import OpenAIProvider
+
+    provider = object.__new__(OpenAIProvider)
+    request = CompletionRequest(model="gpt-6-luna", system="You are JARV.", max_tokens=16000, messages=[
+        Message(role="user", content="MISSION"),
+        Message(role="assistant", content=[{"type": "text", "text": "Reading."},
+                                           {"type": "tool_use", "id": "c1", "name": "boundary.detect", "input": {"a": 1}}]),
+        Message(role="user", content=[{"type": "tool_result", "tool_use_id": "c1", "content": "ok"}])],
+        tools=[{"name": "boundary.detect", "description": "d", "input_schema": {"type": "object"}}])
+    assert OpenAIProvider._uses_responses(request) is True
+    assert OpenAIProvider._uses_responses(CompletionRequest(model="gpt-6-luna", messages=[])) is False
+    body = provider._responses_request(request)
+    assert body["reasoning"] == {"effort": "medium"} and body["instructions"] == "You are JARV."
+    assert body["max_output_tokens"] == 16000 and body["store"] is False
+    assert body["tools"][0]["name"] == "boundary__detect" and body["tools"][0]["type"] == "function"
+    assert body["input"] == [
+        {"role": "user", "content": "MISSION"},
+        {"role": "assistant", "content": "Reading."},
+        {"type": "function_call", "call_id": "c1", "name": "boundary__detect", "arguments": _json.dumps({"a": 1})},
+        {"type": "function_call_output", "call_id": "c1", "output": "ok"}]
+    reply = provider._convert_responses_response({"id": "resp_1", "model": "gpt-6-luna", "output": [
+        {"type": "reasoning", "summary": []},
+        {"type": "function_call", "call_id": "c2", "name": "read_file", "arguments": '{"path": "a"}'}],
+        "usage": {"input_tokens": 100, "output_tokens": 40, "total_tokens": 140,
+                  "output_tokens_details": {"reasoning_tokens": 30}}}, "gpt-6-luna")
+    assert reply.tool_calls == [{"id": "c2", "type": "function",
+                                 "function": {"name": "read_file", "arguments": '{"path": "a"}'}}]
+    assert reply.finish_reason == "tool_calls" and reply.usage["total_tokens"] == 140
+    assert reply.usage["reasoning_tokens"] == 30

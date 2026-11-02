@@ -13230,3 +13230,20 @@ TESTS RUN: PostgreSQL suite (owner run): 785 passed, 1 skipped. Dashboard unchan
 RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: The MYCO Phase 0 correction mission, run on the fixed engine.
+
+TASK ID: FIX-AGENT-REASONING
+TASK NAME: Missions think between tool calls, and do not stop short when nothing is in the way
+STATUS: COMPLETE
+PROBLEM: The MYCO Phase 0 correction mission (first run on the unified engine) read the repository for 11 steps, then finished with success=false: "I did not modify files, run the requested verification commands, or commit." Nothing was blocked. Two causes. (1) gpt-6-luna on Chat Completions takes function tools only with reasoning_effort none (OpenAI model page: "Chat Completions supports function calling only with reasoning_effort set to none"), so every agent and mission step ran with reasoning off. (2) A finish that gave up was accepted as the outcome even with most of the step budget left and nothing waiting for Richard.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/backend/app/core/providers/openai.py (tool-using gpt-6-luna requests go to the Responses API with reasoning at OPENAI_AGENT_REASONING_EFFORT: instructions, input items built from JARV's conversation (messages, function_call, function_call_output), function tools with OpenAI-safe names, store false; responses parsed back into JARV's tool-call shape with reasoning and cached token counts; requests without tools are unchanged)
+- apps/backend/app/core/config.py (OPENAI_AGENT_REASONING_EFFORT, default medium)
+- apps/backend/app/core/command/agent_executor.py (a finish with success=false is sent back, at most twice a run, when steps remain and nothing is waiting for approval; a finish naming a real wait is accepted)
+- apps/backend/tests/test_openai_provider.py (the chat-shape tests use a Chat Completions model; gpt-6-luna tool turns reach /v1/responses with reasoning, names restored, usage counted)
+- apps/backend/tests/test_workspace_toolchain.py (a give-up with nothing blocking is sent back and the work is then done; a stubborn give-up is accepted on the third finish; a finish after an approval pause is accepted at once; the Responses request and reply round-trip, including tool names and reasoning tokens)
+COMMANDS RUN: python ast parse and undefined-name check of the changed files: passed.
+TESTS RUN: PostgreSQL suite (owner run): 788 passed, 1 skipped.
+RESULT: Passed.
+BLOCKERS: None.
+NEXT TASK: Re-run the MYCO Phase 0 correction mission.
