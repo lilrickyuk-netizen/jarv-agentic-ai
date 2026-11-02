@@ -22,8 +22,8 @@ const stateColors: Record<CoreState, number> = {
 const ACTIVE: CoreState[] = ['listening', 'thinking', 'planning', 'executing', 'speaking'];
 
 /** The swarm's size: thousands of lights moving as one. */
-export const SWARM_LIGHTS = 18000;
-export const DRIFT_LIGHTS = 5000;
+export const SWARM_LIGHTS = 36000;
+export const DRIFT_LIGHTS = 9000;
 
 /** A soft round glow, drawn once, used by every light (additive blending makes overlaps brighter). */
 function glowTexture(): THREE.CanvasTexture {
@@ -47,10 +47,11 @@ function glowTexture(): THREE.CanvasTexture {
 }
 
 /**
- * Every light is moved on the graphics card. Each has a home in a soft cloud; the whole cloud turns, stretches,
- * breathes and travels around the field as one body, while each light flows along a shared current, so neighbours
- * move together like a murmuration. JARV's voice (uAudio) makes the swarm surge outward, swirl, pulse brighter and
- * run through its colours faster.
+ * Every light is moved on the graphics card, like bees: each one loops fast and tight around one of five
+ * gathering points, with its own speed and a constant buzz, and the gathering points themselves wheel around the
+ * field, so the swarm keeps splitting, stretching and rejoining instead of holding one smooth outline. Some lights
+ * roam between the groups. Every light flashes on its own rhythm and the whole swarm shares a heartbeat. JARV's
+ * voice (uAudio) makes the lights buzz harder, flash brighter, spread out and run through their colours faster.
  */
 const SWARM_VERTEX = `
   attribute vec3 aHome;
@@ -62,6 +63,7 @@ const SWARM_VERTEX = `
   uniform float uAudio;
   uniform float uSpread;
   uniform float uFlow;
+  uniform float uRoam;
   uniform vec3 uCentre;
   uniform vec3 uColor;
   uniform float uSpectrum;
@@ -72,48 +74,43 @@ const SWARM_VERTEX = `
     return vec3(0.45, 0.62, 0.85) + vec3(0.40, 0.33, 0.20) * cos(6.28318 * (t + vec3(0.55, 0.40, 0.30)));
   }
 
-  mat3 turn(vec3 axis, float angle) {
-    axis = normalize(axis);
-    float s = sin(angle), c = cos(angle), o = 1.0 - c;
-    return mat3(o * axis.x * axis.x + c, o * axis.x * axis.y - axis.z * s, o * axis.z * axis.x + axis.y * s,
-                o * axis.x * axis.y + axis.z * s, o * axis.y * axis.y + c, o * axis.y * axis.z - axis.x * s,
-                o * axis.z * axis.x - axis.y * s, o * axis.y * axis.z + axis.x * s, o * axis.z * axis.z + c);
+  // Five gathering points wheeling around the field on their own paths.
+  vec3 gathering(float k, float t) {
+    float a = 0.31 + k * 0.07, b = 0.23 + k * 0.05, c = 0.27 + k * 0.04, o = k * 1.7;
+    return vec3(sin(t * a + o) * 1.35, sin(t * b + o * 1.3) * 0.75, cos(t * c + o * 0.7) * 0.9);
   }
 
   void main() {
     float t = uTime * uFlow;
-    vec3 p = aHome * uSpread;
+    float seed = fract(aPhase * 7.13);
+    float k = floor(seed * 5.0);
+    float k2 = mod(k + 1.0, 5.0);
+    // Each bee mostly keeps to its group but drifts between two, so groups stretch towards each other and merge.
+    float pull = 0.5 + 0.5 * sin(t * (0.2 + seed * 0.3) + aPhase);
+    vec3 home = mix(gathering(k, t), gathering(k2, t), pull * uRoam);
 
-    // The body changes shape as it moves: stretching, folding and breathing as one.
-    p.x *= 1.0 + 0.38 * sin(t * 0.31);
-    p.y *= 1.0 + 0.30 * sin(t * 0.27 + 1.7);
-    p.z *= 1.0 + 0.25 * sin(t * 0.23 + 3.1);
-    p = turn(vec3(sin(t * 0.11), 1.0, cos(t * 0.13)), t * 0.35) * p;
+    // A fast, tight loop around the gathering point: its own speeds, its own size.
+    float r = (0.12 + length(aHome) * 0.75) * uSpread * (1.0 + uAudio * 0.6);
+    vec3 freq = vec3(1.6, 2.1, 1.3) + fract(aHome * 13.7) * 2.6;
+    vec3 loop = vec3(sin(t * freq.x + aPhase), sin(t * freq.y + aPhase * 1.7), cos(t * freq.z + aPhase * 0.6));
+    vec3 p = home + loop * r * normalize(abs(aHome) + 0.35);
 
-    // A shared current: neighbouring lights get almost the same push, so they flow together.
-    vec3 current = vec3(
-      sin(p.y * 1.7 + t * 0.9) + sin(p.z * 2.3 - t * 0.6),
-      sin(p.z * 1.9 + t * 0.8) + sin(p.x * 2.1 + t * 0.7),
-      sin(p.x * 1.5 - t * 0.7) + sin(p.y * 2.5 + t * 0.5));
-    p += current * (0.16 + uAudio * 0.28);
-
-    // JARV's voice: the swarm surges out with each word and swirls.
-    float surge = uAudio * (0.18 + 0.22 * sin(uTime * 9.0 + aPhase * 2.0));
-    p *= 1.0 + surge;
-    p = turn(vec3(0.0, 1.0, 0.0), uAudio * 0.5 * sin(uTime * 2.0 + length(p) * 2.2)) * p;
+    // The buzz: a tiny, very fast jitter on every light, harder while JARV speaks.
+    p += vec3(sin(uTime * 23.0 + aPhase * 5.0), sin(uTime * 19.0 + aPhase * 3.0), sin(uTime * 29.0 + aPhase * 7.0))
+         * (0.012 + uAudio * 0.04);
 
     p += uCentre;
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
 
-    float wave = 0.5 + 0.5 * sin(dot(aHome, vec3(0.6, 0.8, 0.2)) * 6.0 - uTime * (1.4 + uAudio * 7.0));
-    float twinkle = 0.5 + 0.5 * sin(uTime * (1.8 + uAudio * 6.0) + aPhase);
-    float core = 1.0 - smoothstep(0.0, 1.0, length(aHome));
-    vAlpha = min(1.0, twinkle * (0.35 + core * 0.45 + wave * (0.45 + uAudio * 1.3)));
+    // Flashing: each light on its own sharp rhythm, all of them on a shared heartbeat.
+    float own = pow(0.5 + 0.5 * sin(uTime * (2.5 + seed * 5.0) + aPhase * 3.0), 3.0);
+    float heartbeat = 0.6 + 0.4 * pow(0.5 + 0.5 * sin(uTime * (1.6 + uAudio * 5.0)), 4.0);
+    vAlpha = min(1.0, (0.18 + own * (0.9 + uAudio * 1.2)) * heartbeat * (1.0 + uPulse * 0.3));
 
-    float hue = aPhase * 0.159 + uTime * (0.04 + uAudio * 0.35) + aHome.y * 0.25 + wave * 0.3;
+    float hue = aPhase * 0.159 + uTime * (0.05 + uAudio * 0.4) + k * 0.12 + own * 0.15;
     vColor = mix(uColor, spectrum(hue), clamp(uSpectrum + uAudio * 0.6, 0.0, 1.0));
 
-    gl_PointSize = aSize * uPixelRatio * (1.0 + uPulse * 0.3 + uAudio * 0.9 + wave * uAudio * 0.7) * (16.0 / -mv.z);
+    gl_PointSize = aSize * uPixelRatio * (0.8 + own * 0.9 + uAudio * 0.9) * (16.0 / -mv.z);
     gl_Position = projectionMatrix * mv;
   }
 `;
@@ -142,7 +139,7 @@ function swarmGeometry(count: number, reach: number) {
     homes[i * 3] = Math.cos(angle) * ring * distance;
     homes[i * 3 + 1] = u * distance * 0.8;
     homes[i * 3 + 2] = Math.sin(angle) * ring * distance;
-    sizes[i] = 0.5 + Math.random() * 1.1 + (Math.random() < 0.03 ? 2.2 : 0);
+    sizes[i] = 0.35 + Math.random() * 0.8 + (Math.random() < 0.02 ? 1.8 : 0);
     phases[i] = Math.random() * Math.PI * 2;
   }
   const geometry = new THREE.BufferGeometry();
@@ -155,7 +152,8 @@ function swarmGeometry(count: number, reach: number) {
   return geometry;
 }
 
-function swarmMaterial(map: THREE.Texture, color: THREE.Color, options: { white: number; spectrum: number; flow: number }) {
+function swarmMaterial(map: THREE.Texture, color: THREE.Color,
+  options: { white: number; spectrum: number; flow: number; roam: number }) {
   return new THREE.ShaderMaterial({
     uniforms: {
       uTime: { value: 0 },
@@ -164,6 +162,7 @@ function swarmMaterial(map: THREE.Texture, color: THREE.Color, options: { white:
       uAudio: { value: 0 },
       uSpread: { value: 1 },
       uFlow: { value: options.flow },
+      uRoam: { value: options.roam },
       uCentre: { value: new THREE.Vector3() },
       uColor: { value: color },
       uSpectrum: { value: options.spectrum },
@@ -212,18 +211,12 @@ export function CockpitCore({ state }: { state: CoreState }) {
     const glow = glowTexture();
     const accent = new THREE.Color(stateColors[stateRef.current]);
 
-    // A faint light the swarm carries with it, so it reads as one being, not scattered dots.
-    const haloMaterial = new THREE.SpriteMaterial({ map: glow, color: accent, transparent: true, opacity: 0.32, blending: THREE.AdditiveBlending, depthWrite: false });
-    const halo = new THREE.Sprite(haloMaterial);
-    halo.scale.setScalar(4.6);
-    scene.add(halo);
-
-    const bodyMaterial = swarmMaterial(glow, accent, { white: 0.25, spectrum: 0.45, flow: 1 });
-    const body = new THREE.Points(swarmGeometry(SWARM_LIGHTS, 1.5), bodyMaterial);
+    const bodyMaterial = swarmMaterial(glow, accent, { white: 0.25, spectrum: 0.45, flow: 1, roam: 0.35 });
+    const body = new THREE.Points(swarmGeometry(SWARM_LIGHTS, 1), bodyMaterial);
     scene.add(body);
-    // Lights at the edge that trail the body more loosely, a little slower.
-    const driftMaterial = swarmMaterial(glow, accent, { white: 0.1, spectrum: 0.65, flow: 0.8 });
-    const drift = new THREE.Points(swarmGeometry(DRIFT_LIGHTS, 2.4), driftMaterial);
+    // Roamers: lights that wander widely between the groups, so the swarm is never one closed shape.
+    const driftMaterial = swarmMaterial(glow, accent, { white: 0.1, spectrum: 0.65, flow: 0.8, roam: 1 });
+    const drift = new THREE.Points(swarmGeometry(DRIFT_LIGHTS, 1.6), driftMaterial);
     scene.add(drift);
     const materials = [bodyMaterial, driftMaterial];
     materials.forEach((material) => { material.uniforms.uPixelRatio.value = pixelRatio; });
@@ -299,7 +292,6 @@ export function CockpitCore({ state }: { state: CoreState }) {
       const delta = Math.min(clock.getDelta(), 0.1);
       const time = reducedMotion ? 0 : clock.elapsedTime;
       accent.lerp(new THREE.Color(stateColors[current]), Math.min(delta * 2, 1));
-      haloMaterial.color.copy(accent);
 
       const level = reducedMotion ? 0 : loudness(clock.elapsedTime, current === 'speaking');
       // Rise fast with the voice, fall back gently between words.
@@ -310,17 +302,14 @@ export function CockpitCore({ state }: { state: CoreState }) {
       flowTime += reducedMotion ? 0 : delta * ((active ? 1.3 : 0.8) + audioLevel * 1.8);
 
       // The whole body travels slowly around the field.
-      centre.set(Math.sin(flowTime * 0.21) * 0.7, Math.sin(flowTime * 0.17 + 1.3) * 0.32, Math.sin(flowTime * 0.13) * 0.4);
+      centre.set(Math.sin(flowTime * 0.12) * 0.35, Math.sin(flowTime * 0.1 + 1.3) * 0.18, 0);
       materials.forEach((material) => {
         material.uniforms.uTime.value = flowTime;
         material.uniforms.uPulse.value = pulse;
         material.uniforms.uAudio.value = audioLevel;
-        material.uniforms.uSpread.value = 1 + pulse * 0.06;
+        material.uniforms.uSpread.value = 1 + pulse * 0.08;
         (material.uniforms.uCentre.value as THREE.Vector3).copy(centre);
       });
-      halo.position.copy(centre);
-      haloMaterial.opacity = Math.min(1, 0.3 + pulse * 0.12 + audioLevel * 0.4);
-      halo.scale.setScalar(4.6 + pulse * 0.3 + audioLevel * 1.4);
 
       renderer.render(scene, camera);
     };
@@ -335,12 +324,11 @@ export function CockpitCore({ state }: { state: CoreState }) {
       body.geometry.dispose();
       drift.geometry.dispose();
       materials.forEach((material) => material.dispose());
-      haloMaterial.dispose();
       glow.dispose();
       renderer.dispose();
       renderer.domElement.remove();
     };
   }, []);
 
-  return <div ref={mountRef} className="core-canvas" role="img" aria-label={`Intelligence field: a swarm of light that moves with JARV. Current state: ${state}.`} data-state={state} />;
+  return <div ref={mountRef} className="core-canvas" role="img" aria-label={`Intelligence field: a swarm of tens of thousands of lights moving with JARV. Current state: ${state}.`} data-state={state} />;
 }
