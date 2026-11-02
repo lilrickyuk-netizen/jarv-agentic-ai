@@ -13449,3 +13449,18 @@ TESTS RUN: Owner run by install-field-voice.sh: tsc --noEmit and jest in node:20
 RESULT: Committed by the owner's script only after both pass.
 BLOCKERS: None.
 NEXT TASK: Upgrade 3 (Artifact Intelligence Graph).
+
+TASK ID: UI-FIELD-SWARM
+TASK NAME: Intelligence field as one swarm of light
+STATUS: COMPLETE
+PROBLEM: Richard (2 Nov 2026): remove the ball and the writing from inside the field; more lights; a big swarm of lights moving around together as one being.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/dashboard/src/components/cockpit-core.tsx (rebuilt as a swarm: 18,000 body lights and 5,000 looser edge lights, all moved on the graphics card; the body stretches, folds, breathes, turns and travels around the field as one, each light carried by a shared current so neighbours flow together; waves of light and colour (blue, cyan, teal, violet, white from the state colour) sweep through it; JARV's voice makes it surge, swirl, brighten and change colour faster; the sphere, grid, orbits and comets removed)
+- apps/dashboard/src/app/dashboard/page.tsx (the state text moved out of the field, to a line beneath it)
+- apps/dashboard/src/app/globals.css (state line styling beneath the field)
+COMMANDS RUN: None locally.
+TESTS RUN: Owner run by install-swarm.sh: tsc --noEmit and jest in node:20.
+RESULT: Committed by the owner's script only after both pass.
+BLOCKERS: None.
+NEXT TASK: Upgrade 3 (Artifact Intelligence Graph).
