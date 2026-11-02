@@ -13352,7 +13352,7 @@ NEXT TASK: Step 0, then Upgrade 1a.
 
 TASK ID: UPGRADE-1A
 TASK NAME: Source documentation for the eight engineering agents; Verifier hard conformance checks
-STATUS: IN_PROGRESS
+STATUS: COMPLETE
 PROBLEM: The Verifier passed MYCO Phase 0 (ce5582f) with five defects: Python 3.12.8 against a locked 3.14.7 (and an ADR claiming 3.14.7), TypeScript 5.8.2 / Vitest 3.0.8 against 7.0.2 / 5.0.1, ADR-0006 still "Open - blocking", later-phases files calling the superseded Myco_design.md authoritative, and stray scripts. Agents had short briefs, not the official documentation. Step 0 showed memories embedded with the local hash embedder because the OpenAI key was read only from the process environment.
 FILES CREATED:
 - apps/backend/app/models/knowledge_library.py (KnowledgeSource, KnowledgeChunk: licence class store/link_only, versions, 1536-dimension embedding, generated English full-text vector)
@@ -13374,6 +13374,6 @@ FILES MODIFIED:
 - apps/backend/pyproject.toml, poetry.lock (trafilatura 2.3.1, added on the owner's machine by the install script)
 COMMANDS RUN: Hard checks on a copy of MYCO ce5582f (22 findings, all five defects among them, plus pytest 8.3.5 against 9.1.1 and README/PHASE-00 claiming Python 3.14.7); on a corrected copy (no findings). Static checks (ast, undefined names) on every changed file.
 TESTS RUN: Pure-logic tests locally (7 passed). Owner runs 1 and 2: 804 passed, 1 failed (test_invalid_foreign_keys_fail_honestly builds every table in SQLite, which has no TSVECTOR type; a compile hook did not take effect). The column moved out of the model into PostgreSQL-only DDL; re-run by the install script.
-RESULT: Pending the owner's test run.
+RESULT: Owner run 3 (2 Nov 2026, installer version 3): 805 passed, 1 skipped; committed as 715119d on master; JARV rebuilt at r16_knowledge_library (head). Documentation loaded: 36 sources, 27 stored (pnpm, Vitest, Biome, uv, pytest, Docker, GitHub, Kubernetes, Helm, PostgreSQL, CloudNativePG, OWASP), 9 link_only. 322 memories re-embedded with openai:text-embedding-3-small:1536. MYCO authority documents set (MYCO_V3_SPEC.md; superseded Myco_design.md). Hard checks on MYCO: 24 findings, all five Phase 0 defects among them, plus pytest 8.3.5 against 9.1.1 and README/PHASE-00 claiming Python 3.14.7. Noted for 1b: the CloudNativePG and OWASP pages gave one passage each (thin extraction).
 BLOCKERS: None.
-NEXT TASK: Owner runs install-upgrade-1a.sh; then ingest the documentation, re-embed memories, set MYCO's authority documents; then Upgrade 1b.
+NEXT TASK: Upgrade 1b: source documentation for the other 23 agents; fuller pages for CloudNativePG and OWASP.
