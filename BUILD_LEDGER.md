@@ -13512,3 +13512,4 @@ TESTS RUN: Owner run by install-blue.sh: tsc --noEmit and jest in node:20.
 RESULT: Committed by the owner's script only after both pass.
 BLOCKERS: None.
 NEXT TASK: Upgrade 3 (Artifact Intelligence Graph).
+- apps/dashboard/src/app/globals.css (Richard: remove the box around it: the field's panel has no border, background or shadow, and the swarm is no longer clipped at the panel's edge)
