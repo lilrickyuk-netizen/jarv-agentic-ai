@@ -6,17 +6,18 @@ import { getVoiceStream, subscribeVoice } from '@/lib/voice-signal';
 
 type CoreState = 'idle' | 'listening' | 'thinking' | 'planning' | 'executing' | 'speaking' | 'approval' | 'completed' | 'failed' | 'recovery';
 
+// Blue in every normal state; only waiting on Richard (amber) and a failure (red) change it, as warnings.
 const stateColors: Record<CoreState, number> = {
-  idle: 0x38bdf8,
-  listening: 0x5eead4,
-  thinking: 0x60a5fa,
-  planning: 0x93c5fd,
-  executing: 0x38bdf8,
-  speaking: 0x67e8f9,
+  idle: 0x2f7bff,
+  listening: 0x3b8cff,
+  thinking: 0x2a6cf0,
+  planning: 0x3a7dff,
+  executing: 0x3d8bff,
+  speaking: 0x4a9bff,
   approval: 0xfbbf24,
-  completed: 0xb8c2cc,
+  completed: 0x3b82f6,
   failed: 0xfb7185,
-  recovery: 0xf97316,
+  recovery: 0x2f7bff,
 };
 
 const ACTIVE: CoreState[] = ['listening', 'thinking', 'planning', 'executing', 'speaking'];
@@ -67,14 +68,20 @@ const SWARM_VERTEX = `
   uniform float uPulse;
   uniform float uAudio;
   uniform float uRadius;
+  // Phases advanced smoothly on the CPU (speed changes never make the lights jump).
+  uniform float uSpin;
+  uniform float uRing;
+  uniform float uBeat;
+  uniform float uHue;
   uniform vec3 uCentre;
   uniform vec3 uColor;
   uniform float uSpectrum;
   varying float vAlpha;
   varying vec3 vColor;
 
+  // Blues only: deep blue through electric blue to pale blue.
   vec3 spectrum(float t) {
-    return vec3(0.45, 0.62, 0.85) + vec3(0.40, 0.33, 0.20) * cos(6.28318 * (t + vec3(0.55, 0.40, 0.30)));
+    return mix(vec3(0.10, 0.30, 1.00), vec3(0.55, 0.80, 1.00), 0.5 + 0.5 * cos(6.28318 * t));
   }
 
   mat3 turn(vec3 axis, float angle) {
@@ -89,24 +96,24 @@ const SWARM_VERTEX = `
     float rad = length(aHome);
     // One turn for all, the inner lights a little faster: the body wheels like a single flock.
     vec3 axis = vec3(0.25 * sin(uTime * 0.13), 1.0, 0.25 * cos(uTime * 0.11));
-    float angle = uTime * (0.35 + uAudio * 0.6) + (1.0 - rad) * 0.9 * sin(uTime * 0.25);
+    float angle = uSpin + (1.0 - rad) * 0.9 * sin(uTime * 0.25);
     vec3 p = turn(axis, angle) * aHome;
 
     // Rings travelling outward through the body, in step; faster and deeper while JARV speaks.
-    float ring = sin(rad * 9.0 - uTime * (2.6 + uAudio * 8.0));
-    p *= uRadius * (1.0 + ring * (0.035 + uAudio * 0.12));
+    float ring = sin(rad * 9.0 - uRing);
+    p *= uRadius * (1.0 + ring * (0.035 + uAudio * 0.07));
     p += uCentre;
     vec4 mv = modelViewMatrix * vec4(p, 1.0);
 
     // Brightness pulses with the same rings and one shared heartbeat; a light shimmer keeps it alive.
     float glowRing = 0.5 + 0.5 * ring;
     // Every light stays on: the rings and heartbeat only lift them brighter still.
-    float heartbeat = 0.9 + 0.1 * pow(0.5 + 0.5 * sin(uTime * (1.5 + uAudio * 4.0)), 3.0);
+    float heartbeat = 0.9 + 0.1 * pow(0.5 + 0.5 * sin(uBeat), 3.0);
     float shimmer = 0.94 + 0.06 * sin(uTime * 3.0 + aPhase);
     vAlpha = (0.85 + glowRing * (0.35 + uAudio * 0.6)) * heartbeat * shimmer * (1.0 + uPulse * 0.15);
 
     // Colour rings move outward with the light.
-    float hue = rad * 0.6 - uTime * (0.06 + uAudio * 0.4) + glowRing * 0.1;
+    float hue = rad * 0.6 - uHue + glowRing * 0.1;
     vColor = mix(uColor, spectrum(hue), clamp(uSpectrum + uAudio * 0.6, 0.0, 1.0));
 
     gl_PointSize = aSize * uPixelRatio * (1.1 + glowRing * 0.45 + uAudio * 0.8) * (16.0 / -mv.z);
@@ -161,6 +168,10 @@ function swarmMaterial(map: THREE.Texture, color: THREE.Color, options: { white:
       uPulse: { value: 0 },
       uAudio: { value: 0 },
       uRadius: { value: 1 },
+      uSpin: { value: 0 },
+      uRing: { value: 0 },
+      uBeat: { value: 0 },
+      uHue: { value: 0 },
       uCentre: { value: new THREE.Vector3() },
       uColor: { value: color },
       uSpectrum: { value: options.spectrum },
@@ -210,7 +221,7 @@ export function CockpitCore({ state }: { state: CoreState }) {
     const glow = glowTexture();
     const accent = new THREE.Color(stateColors[stateRef.current]);
 
-    const bodyMaterial = swarmMaterial(glow, accent, { white: 0.35, spectrum: 0.5 });
+    const bodyMaterial = swarmMaterial(glow, accent, { white: 0.18, spectrum: 0.5 });
     const body = new THREE.Points(swarmGeometry(SWARM_LIGHTS), bodyMaterial);
     scene.add(body);
     const materials = [bodyMaterial];
@@ -280,6 +291,10 @@ export function CockpitCore({ state }: { state: CoreState }) {
     let radius = stateRadius[stateRef.current];
     let pulse = 0;
     let flowTime = 0;
+    let spin = 0;
+    let ringPhase = 0;
+    let beatPhase = 0;
+    let huePhase = 0;
     let frame = 0;
     const animate = () => {
       frame = window.requestAnimationFrame(animate);
@@ -290,23 +305,34 @@ export function CockpitCore({ state }: { state: CoreState }) {
       accent.lerp(new THREE.Color(stateColors[current]), Math.min(delta * 2, 1));
 
       const level = reducedMotion ? 0 : loudness(clock.elapsedTime, current === 'speaking');
-      // Rise fast with the voice, fall back gently between words.
-      audioLevel += (level - audioLevel) * Math.min(delta * (level > audioLevel ? 18 : 5), 1);
+      // Follow the voice smoothly: rise over about a third of a second, settle over about a second.
+      audioLevel += (level - audioLevel) * Math.min(delta * (level > audioLevel ? 3.5 : 1.2), 1);
       const beat = current === 'approval' ? 0.5 + 0.5 * Math.sin(time * 1.4) : active ? 0.5 + 0.5 * Math.sin(time * 3.2) : 0;
       pulse += ((reducedMotion ? 0 : beat) - pulse) * Math.min(delta * 6, 1);
       // The swarm's own clock runs faster while JARV works and faster again while it speaks.
-      flowTime += reducedMotion ? 0 : delta * ((active ? 1.3 : 0.8) + audioLevel * 1.8);
+      flowTime += reducedMotion ? 0 : delta * ((active ? 0.9 : 0.6) + audioLevel * 0.35);
 
+      if (!reducedMotion) {
+        // Each motion advances at its own pace; the voice raises the pace gently, never in a jump.
+        spin += delta * (0.3 + audioLevel * 0.15);
+        ringPhase += delta * (2.0 + audioLevel * 1.6);
+        beatPhase += delta * (1.2 + audioLevel * 0.8);
+        huePhase += delta * (0.05 + audioLevel * 0.06);
+      }
       // The whole body travels slowly around the field.
       centre.set(Math.sin(flowTime * 0.12) * 0.25, Math.sin(flowTime * 0.1 + 1.3) * 0.12, 0);
       // The whole swarm gathers or opens together, smoothly, and swells with each word JARV says.
-      const targetRadius = stateRadius[current] + audioLevel * 0.55 + pulse * 0.05;
-      radius += (targetRadius - radius) * Math.min(delta * (targetRadius > radius ? 4 : 2), 1);
+      const targetRadius = stateRadius[current] + audioLevel * 0.4 + pulse * 0.05;
+      radius += (targetRadius - radius) * Math.min(delta * (targetRadius > radius ? 1.5 : 0.9), 1);
       materials.forEach((material) => {
         material.uniforms.uTime.value = flowTime;
         material.uniforms.uPulse.value = pulse;
         material.uniforms.uAudio.value = audioLevel;
         material.uniforms.uRadius.value = radius;
+        material.uniforms.uSpin.value = spin;
+        material.uniforms.uRing.value = ringPhase;
+        material.uniforms.uBeat.value = beatPhase;
+        material.uniforms.uHue.value = huePhase;
         (material.uniforms.uCentre.value as THREE.Vector3).copy(centre);
       });
 
