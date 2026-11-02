@@ -38,14 +38,25 @@ class ConsultSpecialistKnowledgeTool(ScopedTool):
             raise ValueError("Name the field to search (an agent name such as security or finance)")
         if not get_registry().is_implemented(field):
             raise LookupError(f"No knowledge field named '{field}'")
+        from app.core.knowledge.search import search_passages
+
         found = await knowledge_service.retrieve(db, agent_name=field, query=data["query"], limit=data["limit"])
         topics = [{"title": r["title"], "guidance": r["content"], "source": r["source_title"],
                    "publisher": r["source_publisher"], "url": r["source_url"], "version": r["version"],
                    "relevance": round(r["relevance_score"], 3)} for r in found if r["relevance_score"] > 0]
-        if not topics:
-            return {"field": field, "topics": []}, f"No {field} guidance matches '{data['query']}'"
-        return {"field": field, "topics": topics}, (
-            f"{len(topics)} {field} topic(s): " + "; ".join(t["title"] for t in topics))
+        # Source documentation: the field's own, or every field's for JARV's mission lead (the orchestrator).
+        try:
+            documentation = await search_passages(
+                db, data["query"], agents=None if field == "orchestrator" else [field],
+                workspace_id=getattr(context, "workspace_id", None), limit=data["limit"])
+        except Exception:  # noqa: BLE001 - the briefs above still answer
+            documentation = []
+        if not topics and not documentation:
+            return {"field": field, "topics": [], "documentation": []}, (
+                f"No {field} guidance matches '{data['query']}'")
+        return {"field": field, "topics": topics, "documentation": documentation}, (
+            f"{len(topics)} {field} topic(s), {len(documentation)} documentation passage(s): "
+            + "; ".join([t["title"] for t in topics] + [d.get("heading_path") or d["title"] for d in documentation]))
 
 
 KNOWLEDGE_TOOLS = [ConsultSpecialistKnowledgeTool]

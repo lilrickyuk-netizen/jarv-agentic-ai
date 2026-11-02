@@ -246,6 +246,11 @@ class AgentRunner:
             logger.exception("specialist knowledge retrieval failed for %s", agent_name)
             return {"agent": agent_name, "success": False,
                     "error": f"specialist knowledge retrieval failed: {str(exc)[:300]}"}
+        # Source documentation for the agent's field (Upgrade 1a), alongside its briefs.
+        from app.core.knowledge.search import agent_passages
+
+        if db is not None:
+            knowledge = list(knowledge) + await agent_passages(db, agent_name, task, workspace_id=workspace_id)
         if not knowledge and agent_name in get_registry().REQUIRED_AGENTS:
             return {"agent": agent_name, "success": False,
                     "error": f"no active, relevant specialist knowledge for {agent_name}"}

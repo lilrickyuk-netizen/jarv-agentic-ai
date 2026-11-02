@@ -62,25 +62,45 @@ def _ssrf_ok(url: str) -> tuple[bool, Optional[str]]:
 
 
 def _redact(text: str) -> str:
-    low = text.lower()
-    for h in ("api_key", "apikey", "secret", "token", "password", "authorization", "bearer", "private key"):
-        if h in low:
-            return "[REDACTED — may contain secrets]"
-    return text
+    """Remove secret-shaped values (keys, tokens, private-key blocks) and keep the rest of the page readable."""
+    from app.core.security import redact_text
+
+    return redact_text(text)
+
+
+def _page_text(body: str, content_type: str, url: str) -> str:
+    """The page's main content: Markdown via trafilatura for HTML (menus and footers dropped), tags stripped as a
+    fallback, plain text as it is."""
+    if "html" in content_type.lower() or body.lstrip()[:15].lower().startswith(("<!doctype", "<html")):
+        try:
+            from app.core.knowledge.ingest import extract_markdown
+
+            extracted = extract_markdown(body, url)
+            if extracted:
+                return extracted
+        except Exception:  # noqa: BLE001 - extraction is an improvement; the stripped text still answers
+            pass
+        return _strip_html(body)
+    return body
 
 
 async def fetch_url(url: str) -> Dict[str, Any]:
-    """GET a public URL (read-only, size-capped, SSRF-guarded). Never executes."""
+    """GET a public URL (read-only, size-capped, SSRF-guarded, the final address checked too). Never executes."""
     ok, reason = _ssrf_ok(url)
     if not ok:
         return {"ok": False, "blocked": True, "url": url, "reason": reason}
     try:
         async with httpx.AsyncClient(timeout=FETCH_TIMEOUT, follow_redirects=True) as c:
             r = await c.get(url, headers={"User-Agent": "JARV-Research/1.0"})
+            final_ok, final_reason = _ssrf_ok(str(r.url))
+            if not final_ok:
+                return {"ok": False, "blocked": True, "url": str(r.url),
+                        "reason": f"redirected to a blocked address: {final_reason}"}
             body = r.text[:MAX_BYTES]
+            content_type = r.headers.get("content-type", "")
             return {"ok": r.status_code < 400, "url": str(r.url), "status": r.status_code,
-                    "content_type": r.headers.get("content-type", ""),
-                    "title": _extract_title(body), "text": _redact(_strip_html(body))[:8000],
+                    "content_type": content_type, "title": _extract_title(body),
+                    "text": _redact(_page_text(body, content_type, str(r.url)))[:8000],
                     "bytes": len(r.content)}
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "url": url, "reason": str(exc)}

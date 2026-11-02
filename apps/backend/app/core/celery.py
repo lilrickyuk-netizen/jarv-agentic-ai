@@ -75,11 +75,24 @@ celery_app.conf.update(
             "schedule": float(getattr(settings, "COMPANY_LOOP_INTERVAL_HOURS", 24)) * 3600,
             "options": {"expires": 3600},
         },
+        "knowledge-refresh": {
+            "task": "knowledge_refresh",
+            "schedule": float(getattr(settings, "KNOWLEDGE_REFRESH_INTERVAL_HOURS", 168)) * 3600,
+            "options": {"expires": 3600},
+        },
     },
 )
 
 # Declarative registry of scheduled jobs (surfaced via /api/scheduler/jobs).
 SCHEDULED_JOBS = [
+    {
+        "name": "knowledge_refresh",
+        "task": "knowledge_refresh",
+        "interval_seconds": float(getattr(settings, "KNOWLEDGE_REFRESH_INTERVAL_HOURS", 168)) * 3600,
+        "enabled": True,
+        "type": "knowledge/refresh",
+        "description": "Re-fetch the agents' source documentation; changed pages get a new version of their passages.",
+    },
     {
         "name": "daily_status_check",
         "task": "scheduled_status_loop",

@@ -286,3 +286,22 @@ def company_daily_loop(self: Task) -> dict[str, Any]:
         return {"workspaces": len(results), "results": results}
 
     return run_async(run())
+
+
+@celery_app.task(name="knowledge_refresh", bind=True)
+def knowledge_refresh(self: Task) -> dict[str, Any]:
+    """Re-fetch every catalogue source; changed pages get a new version of their passages (Celery beat)."""
+    from collections import Counter
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.knowledge.documentation import catalogue
+    from app.core.knowledge.ingest import knowledge_ingestor
+
+    async def run() -> dict[str, Any]:
+        async with AsyncSessionLocal() as db:
+            results = await knowledge_ingestor.install(db, catalogue())
+        counts = Counter(r["status"] for r in results)
+        return {"sources": len(results), "counts": dict(counts),
+                "errors": [{"url": r["url"], "reason": r.get("reason")} for r in results if r["status"] == "error"]}
+
+    return run_async(run())

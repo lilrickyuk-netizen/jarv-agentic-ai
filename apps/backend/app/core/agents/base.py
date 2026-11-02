@@ -396,6 +396,15 @@ class AgentBase(ABC):
                                            if isinstance(value, (str, list))),
                             limit=4,
                         )
+                if context.db_session is not None:
+                    # Source documentation for this agent's field (Upgrade 1a), cited like the briefs.
+                    from app.core.knowledge.search import agent_passages
+
+                    knowledge = list(knowledge) + await agent_passages(
+                        context.db_session, self.name,
+                        " ".join(str(value) for value in validated_input.values()
+                                 if isinstance(value, (str, list)))[:2000],
+                        workspace_id=context.workspace_id)
                 if not knowledge and not settings.TESTING:
                     raise AgentExecutionError(
                         message=f"No verified specialist knowledge available for {self.name}",

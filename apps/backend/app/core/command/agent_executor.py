@@ -24,7 +24,7 @@ Safety is enforced by the tool layer (ToolRuntime + fs_inspector):
 from __future__ import annotations
 
 import json
-from pathlib import PurePosixPath, PureWindowsPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -286,6 +286,7 @@ class AgentExecutor:
         self.tokens = 0
         self.toolbox: Optional[AgentToolbox] = None
         self.context_trimmed = 0
+        self.hard_baseline: Optional[set] = None  # hard-check findings when the mission started
 
     async def _prepare_tools(self) -> List[Dict[str, Any]]:
         """The full mission toolbox; the four core tools only when there is no workspace record to confine to."""
@@ -315,6 +316,24 @@ class AgentExecutor:
         """
         router = get_router()
         tools = await self._prepare_tools()
+        if not prior_messages:
+            standing = await self.hard_checks()
+            if standing is not None:
+                self.hard_baseline = {f["check"] + "|" + f["file"] + "|" + f["detail"]
+                                      for f in standing["findings"]}
+            if standing and standing.get("findings"):
+                from app.core.verification.checks import render_findings
+
+                known = (f"{known}\n\n" if known else "") + (
+                    "WHAT JARV'S HARD CHECKS FIND IN THE WORKSPACE NOW (files compared with the authority documents. "
+                    "A conformance mission is not accepted while any remain; any mission is refused if it adds a "
+                    "new one or leaves one in a file it changed):\n"
+                    + render_findings(standing))
+            reference = await self._reference_passages(mission)
+            if reference:
+                known = (f"{known}\n\n" if known else "") + (
+                    "SOURCE DOCUMENTATION (official, cited; consult it before changing anything it covers, and "
+                    "use consult_specialist_knowledge or fetch_url for more):\n" + reference)
         names = {tool["name"] for tool in tools}
         full = self.toolbox is not None
         system = (
@@ -358,8 +377,9 @@ class AgentExecutor:
             Message(role="user", content=(
                 f"MISSION:\n{mission}\n\n"
                 + (f"Approved workspace root: {self.workspace_root}\n" if self.workspace_root else "")
-                + (f"\nWHAT JARV ALREADY KNOWS (from its memory and verified lessons for this workspace; "
-                   f"check it against the files before relying on it):\n{known}\n\n" if known else "")
+                + (f"\nWHAT JARV ALREADY KNOWS (its memory and verified lessons for this workspace, and source "
+                   f"documentation; check memory against the files before relying on it):\n{known}\n\n"
+                   if known else "")
                 + "Begin by inspecting what you need, then act. Call finish when the whole "
                 "mission is complete and verified."))]
 
@@ -477,6 +497,67 @@ class AgentExecutor:
             "messages": messages,  # checkpoint payload for resume
         }
 
+    async def hard_checks(self) -> Optional[Dict[str, Any]]:
+        """JARV's deterministic conformance checks on the workspace folder (Upgrade 1a), with the workspace's
+        authority_docs and superseded_docs. None when the folder or its record cannot be read."""
+        import asyncio
+
+        from app.core.verification.checks import run_hard_checks
+        from app.core.workspaces import fs_inspector
+
+        if not self.workspace_root or self.runtime.workspace_id is None:
+            return None
+        try:
+            from app.models.workspace import Workspace
+
+            workspace = await self.runtime.db.get(Workspace, self.runtime.workspace_id)
+            config = dict((workspace.config or {}) if workspace is not None else {})
+            folder = fs_inspector.host_to_container(self.workspace_root)
+            if folder is None or not folder.is_dir():
+                return None
+            return await asyncio.to_thread(run_hard_checks, folder, config)
+        except Exception as exc:  # noqa: BLE001 - the Verifier agent still checks; the miss is logged
+            logger.warning(f"hard checks could not run: {exc}")
+            return None
+
+    def _hard_in_scope(self, mission: str, hard: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """The hard-check findings that block this mission: every one for a conformance mission (it names an
+        authority document, or asks for conformance or a phase); otherwise those the mission introduced and
+        those in files it changed. A resumed run has no starting baseline, so there the changed-files rule and
+        the conformance rule decide."""
+        text = mission.lower()
+        authority = [str(d).lower() for d in hard.get("authority_docs") or []]
+        if any(word in text for word in ("conform", "specification", "spec ", " phase ")) or any(
+                Path(d).name in text for d in authority):
+            return list(hard["findings"])
+        written = [str((c.get("inputs") or {}).get("path") or "").replace("\\", "/").lower()
+                   for c in self.runtime.calls if isinstance(c, dict)
+                   and c.get("tool") in ("write_file", "edit_file", "move_file", "delete_file_with_boundary")
+                   and isinstance(c.get("inputs"), dict)]
+        chosen = []
+        for finding in hard["findings"]:
+            key = finding["check"] + "|" + finding["file"] + "|" + finding["detail"]
+            new = self.hard_baseline is not None and key not in self.hard_baseline
+            touched = any(path.endswith(finding["file"].lower()) for path in written if path)
+            if new or touched:
+                chosen.append(finding)
+        return chosen
+
+    async def _reference_passages(self, mission: str) -> str:
+        """The engineering agents' documentation passages most relevant to the mission, as cited lines."""
+        if self.toolbox is None:
+            return ""
+        try:
+            from app.core.knowledge.documentation import ENGINEERING_AGENTS
+            from app.core.knowledge.search import render_passages, search_passages
+
+            hits = await search_passages(self.runtime.db, mission, agents=ENGINEERING_AGENTS,
+                                         workspace_id=self.runtime.workspace_id, limit=6)
+            return render_passages(hits)
+        except Exception as exc:  # noqa: BLE001 - reference material is an addition, never a reason to fail
+            logger.warning(f"mission reference passages unavailable: {exc}")
+            return ""
+
     async def verify(self, mission: str, summary: str) -> Dict[str, Any]:
         """Check the mission with a separate agent that did not do the work: fresh conversation, its own
         runtime and log entries (operator agent:verifier), look-and-test tools only, no approval requests."""
@@ -496,10 +577,22 @@ class AgentExecutor:
         toolbox.withhold([name for name in toolbox.available if name not in VERIFIER_TOOLS])
         tools = toolbox.model_tools() + [_VERDICT]
         trail = _claims(self.runtime.calls)
+        hard = await self.hard_checks()
+        hard_failures: List[str] = []
+        hard_text = ""
+        if hard is not None:
+            from app.core.verification.checks import Finding, render_findings
+
+            hard_failures = [Finding(**f).text()[:500] for f in self._hard_in_scope(mission, hard)][:30]
+            hard_text = ("JARV'S HARD CHECKS (deterministic; " + (
+                f"{len(hard_failures)} of these are unmet for this mission whatever you find" if hard_failures
+                else "none of these is in this mission's scope") + "; check everything else the mission "
+                "requires yourself):\n" + render_findings(hard) + "\n\n")
         messages: List[Message] = [Message(role="user", content=(
             f"MISSION:\n{mission}\n\nWorkspace folder: {self.workspace_root or toolbox.root_host}\n\n"
             f"WHAT THE OTHER AGENT REPORTED (claims to check, not facts):\n{summary[:4000]}\n\n"
             + (f"ITS RECORDED ACTIONS:\n{trail}\n\n" if trail else "")
+            + hard_text
             + "Check every requirement yourself, then call verdict."))]
         router = get_router()
         tokens = steps = 0
@@ -536,8 +629,8 @@ class AgentExecutor:
             messages.append(Message(role="user", content=results))
         self.tokens += tokens
         if verdict is None:
-            return {"verified": False, "checks": [], "tokens": tokens, "steps": steps,
-                    "unmet": [f"The independent check did not reach a verdict in {steps} steps."]}
+            return {"verified": False, "checks": [], "tokens": tokens, "steps": steps, "hard_checks": hard,
+                    "unmet": hard_failures + [f"The independent check did not reach a verdict in {steps} steps."]}
         checks = [c for c in (verdict.get("checks") or []) if isinstance(c, dict)][:60]
         unmet = [str(u)[:500] for u in (verdict.get("unmet") or []) if str(u).strip()][:30]
         unmet += [f"{c.get('requirement')}: {c.get('evidence')}"[:500] for c in checks
@@ -546,7 +639,11 @@ class AgentExecutor:
         verified = verdict.get("verified") is True and not unmet and bool(checks)
         if verdict.get("verified") is True and not checks:
             unmet = ["The independent check reported no evidence for any requirement."]
-        return {"verified": verified, "checks": checks, "unmet": unmet, "tokens": tokens, "steps": steps}
+        # A failed hard check is unmet whatever the Verifier agent concluded.
+        unmet = hard_failures + [u for u in unmet if u not in hard_failures]
+        verified = verified and not hard_failures
+        return {"verified": verified, "checks": checks, "unmet": unmet, "tokens": tokens, "steps": steps,
+                "hard_checks": hard}
 
     def _host(self, value: Any) -> str:
         """A tool path as a host path: relative paths ("docs/x.md", "/docs/x.md" under a Windows folder)

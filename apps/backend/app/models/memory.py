@@ -103,11 +103,12 @@ class Memory(Base, UUIDMixin, TimestampMixin):
 
     # Indexes for vector similarity search
     __table_args__ = (
+        # HNSW (pgvector 0.5.0+): good recall from the first row. The IVFFlat index it replaces was built
+        # with 100 lists on a near-empty table, so its lists stayed unrepresentative as memories grew.
         Index(
-            "ix_memories_embedding_ivfflat",
+            "ix_memories_embedding_hnsw",
             embedding,
-            postgresql_using="ivfflat",
-            postgresql_with={"lists": 100},
+            postgresql_using="hnsw",
             postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
     )

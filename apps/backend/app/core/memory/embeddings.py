@@ -128,6 +128,22 @@ def cosine_similarity(left: Optional[Sequence[float]], right: Optional[Sequence[
     return dot / (norm_a * norm_b)
 
 
+def _settings_key() -> Optional[str]:
+    try:
+        from app.core.config import settings
+
+        if getattr(settings, "TESTING", False):
+            return None  # tests never spend provider credit, whatever a local .env holds
+        return (getattr(settings, "OPENAI_API_KEY", None) or "").strip() or None
+    except Exception:  # noqa: BLE001 - settings unavailable (standalone use): environment only
+        return None
+
+
+# The OpenAI embeddings endpoint takes up to 2,048 inputs and 300,000 tokens per request, 8,192 tokens per input.
+EMBED_BATCH = 64
+MAX_INPUT_CHARS = 24000  # about 6,000 tokens at 4 characters per token, under the 8,192-token input limit
+
+
 class EmbeddingService:
     """Generates embeddings and reports which model produced them."""
 
@@ -139,7 +155,9 @@ class EmbeddingService:
         api_base: Optional[str] = None,
         dimensions: int = DEFAULT_DIMENSIONS,
     ):
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY") or None
+        # JARV loads its keys from apps/backend/.env into settings, not into the process environment, so the
+        # environment alone left this service on the local embedder even with an OpenAI key configured.
+        self.api_key = api_key or os.getenv("OPENAI_API_KEY") or _settings_key() or None
         requested = (provider or "auto").lower()
         if requested == "auto":
             requested = "openai" if self.api_key else "local"
@@ -202,7 +220,45 @@ class EmbeddingService:
     async def batch_generate_embeddings(
         self, texts: Iterable[str], user_id: Optional[str] = None,
     ) -> List[List[float]]:
-        return [await self.generate_embedding(text, user_id) for text in texts]
+        return [vector for vector, _ in await self.embed_many(list(texts), user_id)]
+
+    async def embed_many(self, texts: Sequence[str], user_id: Optional[str] = None) -> List[Tuple[List[float], str]]:
+        """``(vector, model_id)`` for each text, in order. OpenAI requests go in batches of EMBED_BATCH; a failed
+        batch falls back to the local embedder for those texts and says so through their model id."""
+        texts = [(t or "")[:MAX_INPUT_CHARS] for t in texts]
+        if any(not t.strip() for t in texts):
+            raise ValueError("Text cannot be empty")
+        if self.provider != "openai":
+            return [await self.embed(t, user_id) for t in texts]
+        out: List[Tuple[List[float], str]] = []
+        for start in range(0, len(texts), EMBED_BATCH):
+            chunk = texts[start:start + EMBED_BATCH]
+            try:
+                vectors = await self._generate_openai_embeddings(chunk, user_id)
+                if any(len(v) != self.dimensions for v in vectors):
+                    raise ValueError("OpenAI returned vectors of the wrong size")
+                out.extend(([float(x) for x in v], self.model_id) for v in vectors)
+            except Exception as exc:  # noqa: BLE001 - logged, then honest local fallback per text
+                self.logger.warning("Remote batch embedding failed; using local embedder for this batch",
+                                    extra={"error": str(exc)[:300], "size": len(chunk)})
+                out.extend((local_hash_embedding(t, self.dimensions), self.local_model_id) for t in chunk)
+        return out
+
+    async def _generate_openai_embeddings(self, texts: Sequence[str], user_id: Optional[str]) -> List[List[float]]:
+        if not self.api_key:
+            raise ValueError("OpenAI API key not configured")
+        payload: Dict[str, Any] = {"input": list(texts), "model": self.model}
+        if "text-embedding-3" in self.model:
+            payload["dimensions"] = self.dimensions
+        if user_id:
+            payload["user"] = user_id
+        data = await self._post(
+            f"{self.api_base}/embeddings",
+            headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+            json=payload,
+        )
+        rows = sorted(data["data"], key=lambda row: row.get("index", 0))
+        return [row["embedding"] for row in rows]
 
     async def _post(self, url: str, **kwargs: Any) -> Dict[str, Any]:
         async with httpx.AsyncClient(timeout=30.0) as client:

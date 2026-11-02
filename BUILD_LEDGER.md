@@ -13349,3 +13349,31 @@ TESTS RUN: None (planning).
 RESULT: Plan written: one new dependency (trafilatura 2.3.1); no database upgrade (HNSW since pgvector 0.5.0, 1536-dimension embeddings already in use); order 1a, 1b, 2, 3, 4, 5, then the acceptance mission; Step 0 reads the pgvector version and embedding model on Richard's machine first.
 BLOCKERS: Step 0 answers from Richard's machine.
 NEXT TASK: Step 0, then Upgrade 1a.
+
+TASK ID: UPGRADE-1A
+TASK NAME: Source documentation for the eight engineering agents; Verifier hard conformance checks
+STATUS: IN_PROGRESS
+PROBLEM: The Verifier passed MYCO Phase 0 (ce5582f) with five defects: Python 3.12.8 against a locked 3.14.7 (and an ADR claiming 3.14.7), TypeScript 5.8.2 / Vitest 3.0.8 against 7.0.2 / 5.0.1, ADR-0006 still "Open - blocking", later-phases files calling the superseded Myco_design.md authoritative, and stray scripts. Agents had short briefs, not the official documentation. Step 0 showed memories embedded with the local hash embedder because the OpenAI key was read only from the process environment.
+FILES CREATED:
+- apps/backend/app/models/knowledge_library.py (KnowledgeSource, KnowledgeChunk: licence class store/link_only, versions, 1536-dimension embedding, generated English full-text vector)
+- apps/backend/alembic/versions/2026_11_02_2000-r16_knowledge_library.py (both tables; HNSW cosine and GIN indexes; memories index IVFFlat -> HNSW)
+- apps/backend/app/core/knowledge/ingest.py (fetch with SSRF guard, trafilatura Markdown extraction, licence gate, heading-path passages of at most about 800 tokens, batched embeddings, versioning)
+- apps/backend/app/core/knowledge/documentation.py (36 official pages for coding, debugging, devops, qa, verifier, infrastructure, security, documentation; licence and evidence per source; unconfirmed licences link_only)
+- apps/backend/app/core/knowledge/search.py (hybrid search: pgvector cosine with hnsw.ef_search=100 plus websearch_to_tsquery/ts_rank_cd, fused by Reciprocal Rank Fusion k=60; link_only sources as links)
+- apps/backend/app/core/verification/__init__.py, checks.py (spec_pins, lockfile, document_claims, open_blockers, superseded_authority, stray_files)
+- apps/backend/app/cli/__init__.py, knowledge.py (ingest, status, reembed-memories), conformance.py (set authority documents, check a workspace)
+- apps/backend/tests/test_upgrade1a_knowledge_and_checks.py
+FILES MODIFIED:
+- apps/backend/app/core/memory/embeddings.py (key from settings as well as the environment, never under test; batched embed_many)
+- apps/backend/app/core/command/agent_executor.py (mission opening gets the current hard-check findings and the most relevant documentation passages; verification runs the hard checks first, and a failure in scope is unmet whatever the Verifier agent says: every finding for a conformance mission, otherwise new findings and findings in files the mission changed)
+- apps/backend/app/core/agents/base.py, runner.py (each agent gets its own field's passages beside its briefs)
+- apps/backend/app/tools/knowledge/__init__.py (consult_specialist_knowledge returns documentation passages; the mission lead searches every field)
+- apps/backend/app/core/internet/__init__.py (fetch_url extracts the main text and redacts secret-shaped values instead of blanking any page that contains the word "token"; the final address after redirects is checked too)
+- apps/backend/app/core/celery.py, app/workers/tasks.py (weekly knowledge_refresh)
+- apps/backend/app/models/__init__.py, app/models/memory.py
+- apps/backend/pyproject.toml, poetry.lock (trafilatura 2.3.1, added on the owner's machine by the install script)
+COMMANDS RUN: Hard checks on a copy of MYCO ce5582f (22 findings, all five defects among them, plus pytest 8.3.5 against 9.1.1 and README/PHASE-00 claiming Python 3.14.7); on a corrected copy (no findings). Static checks (ast, undefined names) on every changed file.
+TESTS RUN: Pure-logic tests locally (7 passed). Full backend and dashboard suites run on the owner's machine by the install script.
+RESULT: Pending the owner's test run.
+BLOCKERS: None.
+NEXT TASK: Owner runs install-upgrade-1a.sh; then ingest the documentation, re-embed memories, set MYCO's authority documents; then Upgrade 1b.
