@@ -13285,7 +13285,7 @@ NEXT TASK: Carry on the MYCO Phase 0 correction mission.
 
 TASK ID: FIX-ONE-MISSION-PER-FOLDER
 TASK NAME: Only one mission works in a workspace folder; carry on means the newest mission; Talk with JARV knows the date
-STATUS: IN_PROGRESS
+STATUS: COMPLETE
 PROBLEM: Richard: "there should only be 1 mission running", "every time I speak to JARV it thinks it's a new day". The audit log showed two days-old MYCO missions (b850c930, 8456d4c2) continuing themselves every few minutes all afternoon in the MYCO folder while the correction mission ran there; they ran the git restore to an old commit and reverted Node and the V3.0 authority, and spent provider credit. Cause: Talk with JARV's carry-on chose a mission paused at its step limit before one that stopped part-way, whatever its age, so "carry on" restarted the old missions, each time with a fresh allowance of six automatic rounds, and nothing stopped two missions working in one folder. Their counter also doubled each round (#554 ... #35708). And the voice was never told the date or time.
 FILES CREATED: None.
 FILES MODIFIED:
@@ -13297,14 +13297,14 @@ FILES MODIFIED:
 - apps/backend/tests/test_voice_live_and_mission_session.py (the session states the current date and time)
 - apps/backend/tests/test_repair12_mission_runtime.py (a mission carried on after a provider pause is not reported as paused)
 COMMANDS RUN: python ast parse and undefined-name check of the changed files: passed. Owner: the two stray missions, and three 30 October missions waiting on approval for the old OneDrive MYCO folder, were cancelled by SQL.
-TESTS RUN: Owner run pending.
-RESULT: Pending the owner's test run.
+TESTS RUN: PostgreSQL suite (owner run): 794 passed, 1 skipped. Dashboard (owner run): tsc clean, 24 passed.
+RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: Let the MYCO correction mission (8ca4f55a) finish, then review it against V3.2.
 
 TASK ID: FIX-DASHBOARD-LIVE-DOCK
 TASK NAME: The mission and Talk with JARV stay on screen on every page; leaving a page no longer reloads the dashboard
-STATUS: IN_PROGRESS
+STATUS: COMPLETE
 PROBLEM: Richard: "every time I go off the dashboard page it refreshes and I don't know anything". Every link in the dashboard was a plain link, so each page change reloaded the whole site: the live conversation with JARV ended, and the mission panel, filled only for a mission started from that page, came back blank. There was no single place showing what the running mission was doing.
 FILES CREATED:
 - apps/dashboard/src/components/live-mission-dock.tsx (on every dashboard page: the mission being worked on, else the latest; status, folder, when JARV was last heard from, its latest actions with times, the outcome when it ends; Open missions and Approvals; Talk with JARV, kept mounted when hidden so the conversation carries on; restored from JARV's records after a reload)
@@ -13316,7 +13316,7 @@ FILES MODIFIED:
 - apps/backend/app/api/v1/voice.py (GET /api/voice/live/history: the operator's recent turns, oldest first)
 - apps/dashboard/__tests__/voice-conversation.test.tsx, apps/backend/tests/test_voice_live_and_mission_session.py (the conversation so far is shown; history is the operator's own)
 COMMANDS RUN: python ast parse and undefined-name check of the changed backend files: passed. The dashboard's packages are not installed in the build session, so its type-check and tests run on the owner's machine.
-TESTS RUN: Owner run pending.
-RESULT: Pending the owner's test run.
+TESTS RUN: PostgreSQL suite (owner run): 794 passed, 1 skipped. Dashboard (owner run): tsc clean, 24 passed.
+RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: Let the MYCO correction mission (8ca4f55a) finish, then review it against V3.2.
