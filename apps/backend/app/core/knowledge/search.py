@@ -13,7 +13,7 @@ import logging
 from typing import Any, Dict, List, Optional, Sequence
 from uuid import UUID
 
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import func, literal_column, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.knowledge_library import LICENCE_LINK_ONLY, KnowledgeChunk, KnowledgeSource
@@ -21,6 +21,8 @@ from app.models.knowledge_library import LICENCE_LINK_ONLY, KnowledgeChunk, Know
 logger = logging.getLogger(__name__)
 
 RRF_K = 60
+# The PostgreSQL generated full-text column (see knowledge_library.py).
+TSV = literal_column("knowledge_chunks.tsv")
 CANDIDATES = 20
 EF_SEARCH = 100
 
@@ -76,8 +78,8 @@ async def search_passages(db: AsyncSession, query: str, *, agents: Optional[Sequ
         words = list((await db.execute(
             select(KnowledgeChunk.id).where(
                 KnowledgeChunk.source_id.in_(stored), KnowledgeChunk.is_active.is_(True),
-                KnowledgeChunk.tsv.op("@@")(tsquery))
-            .order_by(func.ts_rank_cd(KnowledgeChunk.tsv, tsquery).desc()).limit(CANDIDATES))).scalars().all())
+                TSV.op("@@")(tsquery))
+            .order_by(func.ts_rank_cd(TSV, tsquery).desc()).limit(CANDIDATES))).scalars().all())
     ranked = fuse(meaning, words)[:limit]
     chunks = {c.id: c for c in (await db.execute(
         select(KnowledgeChunk).where(KnowledgeChunk.id.in_([cid for cid, _ in ranked])))).scalars().all()}

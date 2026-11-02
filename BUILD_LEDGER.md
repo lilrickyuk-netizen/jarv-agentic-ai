@@ -13370,10 +13370,10 @@ FILES MODIFIED:
 - apps/backend/app/tools/knowledge/__init__.py (consult_specialist_knowledge returns documentation passages; the mission lead searches every field)
 - apps/backend/app/core/internet/__init__.py (fetch_url extracts the main text and redacts secret-shaped values instead of blanking any page that contains the word "token"; the final address after redirects is checked too)
 - apps/backend/app/core/celery.py, app/workers/tasks.py (weekly knowledge_refresh)
-- apps/backend/app/models/__init__.py, app/models/memory.py (knowledge_library.py renders the generated search column as TEXT under SQLite, for the schema tests that build tables there)
+- apps/backend/app/models/__init__.py, app/models/memory.py (the generated full-text column is created by PostgreSQL-only DDL, so the schema tests that build every table in SQLite still can)
 - apps/backend/pyproject.toml, poetry.lock (trafilatura 2.3.1, added on the owner's machine by the install script)
 COMMANDS RUN: Hard checks on a copy of MYCO ce5582f (22 findings, all five defects among them, plus pytest 8.3.5 against 9.1.1 and README/PHASE-00 claiming Python 3.14.7); on a corrected copy (no findings). Static checks (ast, undefined names) on every changed file.
-TESTS RUN: Pure-logic tests locally (7 passed). Owner run 1: 804 passed, 1 failed (test_invalid_foreign_keys_fail_honestly builds every table in SQLite, which has no TSVECTOR type); fixed and re-run by the install script.
+TESTS RUN: Pure-logic tests locally (7 passed). Owner runs 1 and 2: 804 passed, 1 failed (test_invalid_foreign_keys_fail_honestly builds every table in SQLite, which has no TSVECTOR type; a compile hook did not take effect). The column moved out of the model into PostgreSQL-only DDL; re-run by the install script.
 RESULT: Pending the owner's test run.
 BLOCKERS: None.
 NEXT TASK: Owner runs install-upgrade-1a.sh; then ingest the documentation, re-embed memories, set MYCO's authority documents; then Upgrade 1b.

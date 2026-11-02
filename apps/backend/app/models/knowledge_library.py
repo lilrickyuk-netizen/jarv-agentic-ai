@@ -11,13 +11,10 @@ from typing import List, Optional
 from uuid import UUID
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import (JSON, Boolean, Computed, DateTime, ForeignKey, Index, Integer, String, Text,
-                        UniqueConstraint)
-from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy import (DDL, JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint,
+                        event)
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
-from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy.schema import CreateColumn
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
 
@@ -48,13 +45,16 @@ class KnowledgeSource(Base, UUIDMixin, TimestampMixin):
 
 
 class KnowledgeChunk(Base, UUIDMixin, TimestampMixin):
-    """One passage of a source, under its heading path, with its embedding and full-text vector."""
+    """One passage of a source, under its heading path, with its embedding and full-text vector.
+
+    The full-text vector ``tsv`` is a PostgreSQL generated column (to_tsvector of heading path and content) with a
+    GIN index. It exists only in PostgreSQL, so it is created by the migration and, for tables built with
+    create_all, by the DDL below; queries reach it as ``TSV``."""
 
     __tablename__ = "knowledge_chunks"
     __table_args__ = (
         Index("ix_knowledge_chunks_embedding_hnsw", "embedding", postgresql_using="hnsw",
               postgresql_ops={"embedding": "vector_cosine_ops"}),
-        Index("ix_knowledge_chunks_tsv", "tsv", postgresql_using="gin"),
         Index("ix_knowledge_chunks_source_active", "source_id", "is_active"),
     )
 
@@ -67,17 +67,13 @@ class KnowledgeChunk(Base, UUIDMixin, TimestampMixin):
     token_estimate: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     embedding: Mapped[Optional[List[float]]] = mapped_column(Vector(1536), nullable=True)
     embedding_model: Mapped[Optional[str]] = mapped_column(String(120), nullable=True, index=True)
-    tsv: Mapped[Optional[str]] = mapped_column(
-        TSVECTOR, Computed("to_tsvector('english', coalesce(heading_path, '') || ' ' || content)", persisted=True),
-        nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
 
-@compiles(CreateColumn, "sqlite")
-def _sqlite_column(element, compiler, **kw):
-    """SQLite (used by a few schema tests) has no full-text vector type or to_tsvector(): there the generated
-    search column is plain TEXT. PostgreSQL, where JARV runs, gets the real generated TSVECTOR column."""
-    column = element.element
-    if column.table is not None and column.table.name == "knowledge_chunks" and column.name == "tsv":
-        return f"{compiler.preparer.format_column(column)} TEXT"
-    return compiler.visit_create_column(element, **kw)
+# The generated full-text column and its index, PostgreSQL only (the migration creates the same).
+TSV_EXPRESSION = "to_tsvector('english', coalesce(heading_path, '') || ' ' || content)"
+for _statement in (
+        f"ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS tsv tsvector GENERATED ALWAYS AS ({TSV_EXPRESSION}) "
+        "STORED",
+        "CREATE INDEX IF NOT EXISTS ix_knowledge_chunks_tsv ON knowledge_chunks USING gin (tsv)"):
+    event.listen(KnowledgeChunk.__table__, "after_create", DDL(_statement).execute_if(dialect="postgresql"))
