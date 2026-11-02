@@ -544,14 +544,13 @@ class AgentExecutor:
         return chosen
 
     async def _reference_passages(self, mission: str) -> str:
-        """The engineering agents' documentation passages most relevant to the mission, as cited lines."""
+        """The documentation passages most relevant to the mission, from every agent's field, as cited lines."""
         if self.toolbox is None:
             return ""
         try:
-            from app.core.knowledge.documentation import ENGINEERING_AGENTS
             from app.core.knowledge.search import render_passages, search_passages
 
-            hits = await search_passages(self.runtime.db, mission, agents=ENGINEERING_AGENTS,
+            hits = await search_passages(self.runtime.db, mission, agents=None,
                                          workspace_id=self.runtime.workspace_id, limit=6)
             return render_passages(hits)
         except Exception as exc:  # noqa: BLE001 - reference material is an addition, never a reason to fail

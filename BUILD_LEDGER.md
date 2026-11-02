@@ -13377,3 +13377,20 @@ TESTS RUN: Pure-logic tests locally (7 passed). Owner runs 1 and 2: 804 passed, 
 RESULT: Owner run 3 (2 Nov 2026, installer version 3): 805 passed, 1 skipped; committed as 715119d on master; JARV rebuilt at r16_knowledge_library (head). Documentation loaded: 36 sources, 27 stored (pnpm, Vitest, Biome, uv, pytest, Docker, GitHub, Kubernetes, Helm, PostgreSQL, CloudNativePG, OWASP), 9 link_only. 322 memories re-embedded with openai:text-embedding-3-small:1536. MYCO authority documents set (MYCO_V3_SPEC.md; superseded Myco_design.md). Hard checks on MYCO: 24 findings, all five Phase 0 defects among them, plus pytest 8.3.5 against 9.1.1 and README/PHASE-00 claiming Python 3.14.7. Noted for 1b: the CloudNativePG and OWASP pages gave one passage each (thin extraction).
 BLOCKERS: None.
 NEXT TASK: Upgrade 1b: source documentation for the other 23 agents; fuller pages for CloudNativePG and OWASP.
+
+TASK ID: UPGRADE-1B
+TASK NAME: Source documentation for the other 23 agents; replace the thin CloudNativePG pages
+STATUS: IN_PROGRESS
+PROBLEM: After Upgrade 1a only the eight engineering agents had official documentation; the CloudNativePG "documentation/current" pages and the OWASP ASVS project page gave one passage each.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/backend/app/core/knowledge/documentation.py (93 sources for all 31 agents, 78 stored; new licences with evidence read 2 Nov 2026: OWASP Cheat Sheet Series CC BY-SA 4.0, Prometheus docs Apache-2.0, GOV.UK and ICO OGL v3.0, Google developers CC BY 4.0, MDN CC-BY-SA 2.5, NIST public information, Wikipedia CC BY-SA 4.0, Creative Commons CC BY 4.0, pgvector PostgreSQL License; read live, never stored: Google SRE book (CC BY-NC-ND), Anthropic, Celery, ASA CAP code, web.dev; CloudNativePG moved to the versioned 1.30 docs, matching MYCO's pin; ALL_AGENTS)
+- apps/backend/app/core/knowledge/ingest.py (sources dropped from the catalogue are retired: passages inactive)
+- apps/backend/app/core/knowledge/search.py (retired sources skipped)
+- apps/backend/app/core/command/agent_executor.py (a mission's opening documentation comes from every field, not only engineering)
+- apps/backend/tests/test_upgrade1a_knowledge_and_checks.py (every agent has stored sources with recorded licences; SRE book never stored; retirement)
+COMMANDS RUN: Licence pages read: developers.google.com/site-policies, ico.org.uk copyright and re-use, github.com/prometheus/docs, OWASP CheatSheetSeries listing, MDN attribution page, nist.gov copyrights-disclaimers, a GOV.UK footer. Page addresses found by search.
+TESTS RUN: Static checks; full suite on the owner's machine by the install script.
+RESULT: Pending the owner's test run.
+BLOCKERS: None.
+NEXT TASK: Owner runs install-upgrade-1b.sh; then Upgrade 2 (knowledge-enhanced reasoning).

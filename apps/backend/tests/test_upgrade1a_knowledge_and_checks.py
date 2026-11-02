@@ -335,3 +335,64 @@ def test_a_failed_hard_check_is_unmet_whatever_the_verifier_says(monkeypatch, mi
     assert verification["verified"] is False and result["success"] is False and result["needs_continuation"]
     assert any(".python-version" in item and "3.14.7" in item for item in verification["unmet"])
     assert any("0006-digests.md" in item for item in verification["unmet"])
+
+
+def test_every_agent_has_source_documentation_with_a_recorded_licence():
+    """Upgrade 1b: all 31 agents have official sources; text is stored only with the licence and where it was
+    read; no-derivatives or unconfirmed sources are read live instead."""
+    from app.core.agents.registry import get_registry
+    from app.core.knowledge.documentation import ALL_AGENTS, catalogue
+
+    entries = catalogue()
+    assert set(ALL_AGENTS) == set(get_registry().REQUIRED_AGENTS)
+    for agent in ALL_AGENTS:
+        assert any(agent in e["agents"] and e["licence_class"] == "store" for e in entries), agent
+    urls = [e["url"] for e in entries]
+    assert len(urls) == len(set(urls))
+    for entry in entries:
+        assert entry["url"].startswith("https://")
+        if entry["licence_class"] == "store":
+            assert entry["licence"] and entry["licence_evidence"], entry["url"]
+    sre = [e for e in entries if e["url"].startswith("https://sre.google/")]
+    assert sre and all(e["licence_class"] == "link_only" for e in sre)  # CC BY-NC-ND: never stored
+
+
+@pytest.mark.integration
+def test_sources_dropped_from_the_catalogue_are_retired():
+    from sqlalchemy import select
+
+    from app.core.knowledge.ingest import KnowledgeIngestor
+    from app.core.knowledge.search import search_passages
+    from app.models.knowledge_library import KnowledgeChunk
+
+    ingestor = KnowledgeIngestor()
+    tag = uuid4().hex[:8]
+    old = {"url": f"https://docs.example.org/{tag}/moved", "title": "Backup", "publisher": "Example",
+           "agents": ["infrastructure"], "licence": "MIT", "licence_evidence": "https://docs.example.org/l",
+           "licence_class": "store"}
+
+    async def run():
+        async with AsyncTestingSessionLocal() as db:
+            if not _pg(db):
+                return None
+            source = await ingestor.register(db, old)
+            await ingestor.ingest_text(db, source, f"## Backups\n\nTake a base backup daily. retire{tag}\n")
+            await db.commit()
+            before = await search_passages(db, f"retire{tag}", agents=["infrastructure"])
+            from app.models.knowledge_library import KnowledgeSource
+
+            others = set((await db.execute(select(KnowledgeSource.url).where(
+                KnowledgeSource.url != old["url"]))).scalars().all())
+            retired = await ingestor.retire_missing(db, keep=others)  # only this test's source leaves
+            after = await search_passages(db, f"retire{tag}", agents=["infrastructure"])
+            active = (await db.execute(select(KnowledgeChunk).where(KnowledgeChunk.source_id == source.id,
+                                                                    KnowledgeChunk.is_active.is_(True)))
+                      ).scalars().all()
+            return before, retired, after, active
+
+    out = asyncio.run(run())
+    if out is None:
+        pytest.skip("passage search needs PostgreSQL")
+    before, retired, after, active = out
+    assert before and [r["url"] for r in retired] == [old["url"]]
+    assert after == [] and active == []

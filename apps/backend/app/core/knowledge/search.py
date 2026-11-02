@@ -40,7 +40,7 @@ async def _sources(db: AsyncSession, agents: Optional[Sequence[str]], workspace_
     query = select(KnowledgeSource).where(or_(KnowledgeSource.workspace_id.is_(None),
                                               KnowledgeSource.workspace_id == workspace_id)
                                           if workspace_id is not None else KnowledgeSource.workspace_id.is_(None))
-    rows = (await db.execute(query)).scalars().all()
+    rows = (await db.execute(query.where(KnowledgeSource.status != "retired"))).scalars().all()
     wanted = set(agents or [])
     return [s for s in rows if not wanted or wanted & set(s.agents or [])]
 

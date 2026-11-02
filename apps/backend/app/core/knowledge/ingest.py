@@ -216,13 +216,32 @@ class KnowledgeIngestor:
                       agents: Optional[Sequence[str]] = None) -> List[Dict[str, Any]]:
         """Register the catalogue (optionally only the given agents' sources) and fetch each one."""
         results = []
+        entries = list(entries)
         for entry in entries:
             if agents and not set(entry.get("agents") or []) & set(agents):
                 continue
             source = await self.register(db, entry)
             results.append(await self.refresh(db, source) if fetch else {"url": source.url, "status": "registered"})
             await db.commit()
+        if not agents:
+            results += await self.retire_missing(db, {str(e["url"]).strip() for e in entries})
         return results
+
+    async def retire_missing(self, db: AsyncSession, keep: set) -> List[Dict[str, Any]]:
+        """Retire JARV-wide sources no longer in the catalogue (a moved page replaced by its new address): their
+        passages go inactive and search skips them. Workspace-specific sources are never touched."""
+        retired = []
+        stale = (await db.execute(select(KnowledgeSource).where(
+            KnowledgeSource.workspace_id.is_(None), KnowledgeSource.status != "retired"))).scalars().all()
+        for source in stale:
+            if source.url in keep:
+                continue
+            await db.execute(update(KnowledgeChunk).where(KnowledgeChunk.source_id == source.id,
+                                                          KnowledgeChunk.is_active.is_(True)).values(is_active=False))
+            source.status, source.last_error = "retired", "No longer in the documentation catalogue."
+            retired.append({"url": source.url, "status": "retired", "passages": 0})
+        await db.commit()
+        return retired
 
 
 knowledge_ingestor = KnowledgeIngestor()
