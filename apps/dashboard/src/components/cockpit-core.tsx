@@ -85,9 +85,9 @@ const SWARM_VERTEX = `
     return mix(vec3(0.10, 0.30, 1.00), vec3(0.55, 0.80, 1.00), 0.5 + 0.5 * cos(6.28318 * t));
   }
 
-  // While JARV talks: cyan, violet, magenta and teal flowing through the swarm.
+  // While JARV talks: greens, from deep emerald to bright lime, flowing through the swarm.
   vec3 talking(float t) {
-    return vec3(0.50, 0.50, 0.80) + vec3(0.50, 0.45, 0.20) * cos(6.28318 * (t + vec3(0.00, 0.33, 0.67)));
+    return mix(vec3(0.05, 0.72, 0.32), vec3(0.55, 1.00, 0.45), 0.5 + 0.5 * cos(6.28318 * t));
   }
 
   mat3 turn(vec3 axis, float angle) {

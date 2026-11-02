@@ -13519,7 +13519,7 @@ TASK NAME: Swarm field changes colour while JARV talks
 STATUS: COMPLETE
 PROBLEM: Richard (2 Nov 2026): make it change colour when it is talking.
 FILES MODIFIED:
-- apps/dashboard/src/components/cockpit-core.tsx (while JARV speaks the swarm fades over about a second from blue into flowing cyan, violet, magenta and teal, deeper as the voice gets louder, the colours moving through the swarm a little faster; it fades back to blue after JARV stops)
+- apps/dashboard/src/components/cockpit-core.tsx (while JARV speaks the swarm fades over about a second from blue into flowing greens (deep emerald to bright lime; Richard chose green), deeper as the voice gets louder, the colours moving through the swarm a little faster; it fades back to blue after JARV stops)
 COMMANDS RUN: None locally.
 TESTS RUN: Owner run by install-talk-colour.sh: tsc --noEmit and jest in node:20.
 RESULT: Committed by the owner's script only after both pass.
