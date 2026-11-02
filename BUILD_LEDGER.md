@@ -13206,7 +13206,7 @@ NEXT TASK: The root causes behind the Phase 0 failures, then the Phase 0 correct
 
 TASK ID: FIX-JARV-CORE
 TASK NAME: JARV works as designed: one mission engine with every tool, a token-based command policy, independent verification before completion, bounded context, honest health
-STATUS: IN_PROGRESS
+STATUS: COMPLETE
 PROBLEM: MYCO Phase 0 exposed five root causes. (1) Missions ran on a separate engine with four tools (list, read, write, run) and none of JARV's memory, lessons or specialist knowledge, while the specialist agents had the full toolbox; missions could not search, edit in place, check packages or CVEs, record decisions, or delete and push through approval. (2) The command policy matched dangerous words as substrings, so "terraform version" was rm, "git add ." was dd, "pytest tests/test_capture.py" was apt and a quoted commit message could be read as a second command; commands then ran through a shell that could reinterpret what had been classified. (3) A mission accepted itself: the agent's own finish(success=true) marked it completed, which is how Taskfile commands that only print "passed" were reported as a passing exit gate. (4) Every step re-sent every earlier tool result (about 2.6 million tokens a round). (5) The status loop reported JARV as degraded because optional services (Voicebox, Prometheus) and the finished migration job were not running.
 FILES CREATED: None.
 FILES MODIFIED:
@@ -13226,7 +13226,7 @@ FILES MODIFIED:
 - apps/backend/tests/test_repair12d_ops_tools.py (fake containers can exit with a given code)
 - apps/backend/tests/test_repair12d_identity_selfheal.py (optional services and a finished migration do not make JARV degraded; a stopped worker does)
 COMMANDS RUN: python ast parse of every changed file: passed. Undefined-name check (symtable) on every changed file: none. The classifier, parser and trimming tests run standalone against the module: passed (PyPI is unreachable from the build session, so the full suite runs on the owner's machine).
-TESTS RUN: Owner run pending.
-RESULT: Pending the owner's test run.
+TESTS RUN: PostgreSQL suite (owner run): 785 passed, 1 skipped. Dashboard unchanged (20 passed on the previous run).
+RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: The MYCO Phase 0 correction mission, run on the fixed engine.
