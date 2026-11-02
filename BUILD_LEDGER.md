@@ -13397,7 +13397,7 @@ NEXT TASK: Upgrade 2 (knowledge-enhanced reasoning).
 
 TASK ID: UPGRADE-2
 TASK NAME: Knowledge-enhanced reasoning: requirements first, the specification as knowledge, one ranking, effort per role
-STATUS: IN_PROGRESS
+STATUS: COMPLETE
 PROBLEM: Phase 0 missions worked from the mission text alone: the spec's Python and TypeScript pins were lines the agent had to notice, and the Verifier gave a general verdict instead of evidence per requirement.
 FILES CREATED:
 - apps/backend/app/core/command/requirements.py (requirements step through a fixed-shape tool; numbered list with sources; hard-check findings added as requirements of their own for conformance missions; requirement_status tool; evidence per requirement)
@@ -13413,7 +13413,7 @@ FILES MODIFIED:
 DECISIONS: The plan's authority_facts table is not built: the spec-pins hard check reads the authority documents directly on every run, so it is always current and needs no second copy. KnowledgeService.retrieve and ask_jarv keep their own ranking for now; the fused ranking serves consult_specialist_knowledge and missions.
 COMMANDS RUN: Static checks; the pure requirement tests locally with stand-in modules for the providers (4 passed).
 TESTS RUN: Owner run 1: 814 passed, 1 failed (the specification test: the change notice imported LiveOperationsFeedItem from app.models.operations; it lives in app.models.company_operations). Fixed; re-run by installer version 2.
-RESULT: Pending the owner's test run.
+RESULT: Owner run 2 (installer version 2): 815 passed, 1 skipped; committed as d96a18a on master; backend, worker and scheduler rebuilt.
 BLOCKERS: None.
 NEXT TASK: Owner runs install-upgrade-2.sh; then Upgrade 3 (Artifact Intelligence Graph).
 
