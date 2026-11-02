@@ -151,8 +151,9 @@ def test_live_conversation_needs_the_openai_key_and_never_hands_it_to_the_browse
     session = sent["session"]
     assert session["type"] == "realtime" and session["model"] == settings.OPENAI_REALTIME_MODEL
     assert {t["name"] for t in session["tools"]} == {"get_status", "start_mission", "resume_mission", "get_mission",
-                                                     "cancel_mission", "list_workspaces", "list_workspace_files",
-                                                     "read_workspace_file"}
+                                                     "cancel_mission", "ask_jarv", "search_memory", "list_approvals",
+                                                     "list_workspaces", "list_workspace_files", "read_workspace_file"}
+    assert "voice of JARV's whole system" in session["instructions"]
     assert "never start a new mission to continue an old one" in session["instructions"]
     assert "Never tell him you cannot access his files" in session["instructions"]
     assert "MYCO" in session["instructions"] and "Approvals page" in session["instructions"]
@@ -429,3 +430,51 @@ def test_one_step_requests_keep_their_handlers(request_text, intent):
     from app.core.command.service import CommandService
 
     assert CommandService._detect_intent(request_text) == intent
+
+
+
+# ----- talking with JARV reaches JARV's memory, missions and approvals -------------------------------------
+
+def test_voice_answers_from_jarvs_memory_and_missions_never_another_owners(voice, monkeypatch):  # noqa: F811
+    """The live conversation was a separate model with a few tools: it could start missions but knew nothing JARV
+    remembered or had done. ask_jarv answers with JARV's reasoning model from JARV's memory, recent missions and
+    approvals; search_memory returns JARV's memories; neither ever reaches another owner's workspace."""
+    from app.core.jarv_memory import memory_service
+    from app.core.providers import CompletionResponse
+
+    seen = {}
+
+    class Router:
+        async def complete(self, request):
+            seen["system"] = request.system
+            seen["content"] = request.messages[0].content
+            return CompletionResponse(id="r1", model="test",
+                                      content="Phase 0 is committed as f0a60a1; the AWS plan proof is still open.",
+                                      usage={"total_tokens": 5}, tool_calls=[])
+
+    monkeypatch.setattr("app.core.providers.get_router", lambda: Router())
+
+    async def run():
+        async with AsyncTestingSessionLocal() as db:
+            owner, ws_id = await _seed(db)
+            stranger, other_ws = await _seed(db)
+            await memory_service.add(db, "Richard chose eu-west-2 as MYCO's only launch region.", workspace_id=ws_id)
+            await memory_service.add(db, "Stranger's secret launch region decision.", workspace_id=other_ws)
+            db.add(Task(id=uuid4(), workspace_id=ws_id, title="Continue MYCO Phase 0", task_type="command",
+                        status="partial", priority=5, meta_data={},
+                        result={"workspace_path": "C:\\Users\\lilri\\Projects\\MYCO",
+                                "response": "Phase 0 committed as f0a60a1; AWS plan proof blocked."}))
+            await db.commit()
+            memories = await live.run_tool(db, owner, "search_memory", {"query": "launch region decision"})
+            answer = await live.run_tool(db, owner, "ask_jarv", {"question": "Where is MYCO Phase 0 up to?"})
+            approvals = await live.run_tool(db, owner, "list_approvals", {})
+            return memories, answer, approvals
+
+    memories, answer, approvals = _run(run())
+    contents = [m["content"] for m in memories["memories"]]
+    assert any("eu-west-2" in c for c in contents)
+    assert not any("Stranger" in c for c in contents)
+    assert answer["answer"].startswith("Phase 0 is committed as f0a60a1")
+    assert "f0a60a1" in seen["content"] and "eu-west-2" in seen["content"] and "Stranger" not in seen["content"]
+    assert "Answer only from the facts given" in seen["system"]
+    assert approvals["count"] == 0 and "never by voice" in approvals["note"]

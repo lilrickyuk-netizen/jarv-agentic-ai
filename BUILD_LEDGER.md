@@ -13185,3 +13185,21 @@ TESTS RUN: None.
 RESULT: Recorded.
 BLOCKERS: The gate above.
 NEXT TASK: FIX-MISSION-UI owner test run.
+
+---
+
+TASK ID: FIX-VOICE-BRAIN
+TASK NAME: One voice: Talk with JARV, connected to JARV's memory, missions, approvals and reasoning
+STATUS: IN_PROGRESS
+PROBLEM: The voice panel still offered push-to-talk and hands-free through the self-hosted Voicebox, which never answered in time ("Voicebox did not answer in time (ConnectTimeout)"), while Talk with JARV held a natural conversation. That conversation was a separate realtime model with eight tools: it could start and follow missions but knew nothing JARV remembered, had decided or had done, and could not see what waited for approval. Richard asked for the Voicebox controls to go and for Talk with JARV to connect to JARV's brain.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/dashboard/src/components/voice-operator.tsx (the panel is the live conversation only: push-to-talk, hands-free, wake-word and Voicebox controls removed; it shows whether Talk with JARV is ready and that approvals are never taken by voice)
+- apps/backend/app/core/voice/live.py (ask_jarv: answers with JARV's reasoning model from JARV's memory, verified lessons, recent missions with their reports and folders, workspaces and what waits for approval, and says so when those do not hold the answer; search_memory: JARV's memories across Richard's workspaces, best first, never another owner's; list_approvals: read-only; instructions: the voice is JARV's whole system and uses these instead of guessing)
+- apps/backend/tests/test_voice_live_and_mission_session.py (the session offers the new tools; ask_jarv answers from the owner's memory and mission report and never sees another owner's memory; search_memory scoping; list_approvals read-only)
+- apps/dashboard/__tests__/voice-operator.test.tsx (only Talk with JARV is offered; setup shown when unavailable)
+COMMANDS RUN: python -m py_compile on the changed backend files: passed.
+TESTS RUN: Owner run of the PostgreSQL suite and the dashboard tests.
+RESULT: Awaiting the owner run.
+BLOCKERS: None. The Voicebox backend adapter and its Compose service (profile "voice") remain for anyone who runs it; nothing in the dashboard depends on it.
+NEXT TASK: The root causes behind the Phase 0 failures, then the Phase 0 correction mission.
