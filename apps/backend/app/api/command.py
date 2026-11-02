@@ -227,6 +227,8 @@ async def archive_command(
     task.meta_data = {**(task.meta_data or {}), "archived_at": datetime.now(timezone.utc).isoformat(),
                       "archived_by": str(operator)}
     await db.commit()
+    # updated_at is set by the database on write, so it is reloaded before the view reads it.
+    await db.refresh(task)
     return _mission_view(task, await _events(db, task.id))
 
 
@@ -237,6 +239,8 @@ async def unarchive_command(
     task = await _owned_task(db, operator, task_id)
     task.meta_data = {k: v for k, v in (task.meta_data or {}).items() if k not in ("archived_at", "archived_by")}
     await db.commit()
+    # updated_at is set by the database on write, so it is reloaded before the view reads it.
+    await db.refresh(task)
     return _mission_view(task, await _events(db, task.id))
 
 
