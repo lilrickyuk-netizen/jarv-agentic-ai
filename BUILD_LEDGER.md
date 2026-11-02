@@ -13247,3 +13247,23 @@ TESTS RUN: PostgreSQL suite (owner run): 788 passed, 1 skipped.
 RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: Re-run the MYCO Phase 0 correction mission.
+
+TASK ID: FIX-VOICE-MEMORY-AND-PROVIDER-PAUSE
+TASK NAME: Talk with JARV remembers past conversations and describes running missions truthfully; a provider outage pauses a mission instead of failing it
+STATUS: IN_PROGRESS
+PROBLEM: (1) "Every time I talk to JARV it's like a new conversation, it has no memory": each Talk with JARV started a fresh Realtime session with only fixed instructions. (2) Asked how the running correction mission was going, JARV said it had committed and passed its tests; that was the previous mission's report, given alongside the running one with nothing to tell them apart. (3) The correction mission was marked failed when OpenAI dropped the connection ("peer closed connection"), though all of its work was safe in the workspace.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/backend/app/core/voice/live.py (remember_turn and recent_turns: both sides of every spoken turn kept per operator in Redis, newest 60 for 30 days, secrets redacted; history_block opens every new session with the recent conversation, oldest first; ask_jarv also sees the recent conversation; running missions are marked in_progress with their own latest activity from the operations feed, and the answer may describe them only from that, never from another mission's report)
+- apps/backend/app/api/v1/voice.py (POST /api/voice/live/turn, authenticated, who is you or jarv)
+- apps/dashboard/src/components/voice-conversation.tsx (each line Richard or JARV speaks is sent to /api/voice/live/turn)
+- apps/backend/app/core/runtime/missions.py (an AI provider error pauses the mission as partial with the reason and provider_unavailable, resumable with Carry on; other crashes still fail it)
+- apps/backend/app/core/command/service.py (run_task(pause_on_provider_error): under the mission runner a provider outage is raised to the runner instead of being recorded as a failure)
+- apps/backend/tests/test_voice_live_and_mission_session.py (the next session carries the earlier turns in order, without secrets or another operator's turns; a running mission is described from its own activity)
+- apps/backend/tests/test_repair12_mission_runtime.py (a provider outage leaves the mission partial with the reason and the lease released)
+- apps/dashboard/__tests__/voice-conversation.test.tsx (both sides of the conversation are kept)
+COMMANDS RUN: python ast parse and undefined-name check of the changed backend files: passed.
+TESTS RUN: Owner run pending.
+RESULT: Pending the owner's test run.
+BLOCKERS: None.
+NEXT TASK: The targeted MYCO Phase 0 correction mission from the review of the failed run.

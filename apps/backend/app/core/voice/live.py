@@ -148,6 +148,70 @@ def instructions(spaces: List[Any]) -> str:
     )
 
 
+# Talk with JARV remembers the conversation: every spoken turn is kept per operator (newest 60, for 30 days)
+# and the recent ones open each new session, so a new conversation carries on from the last one.
+HISTORY_TURNS = 60
+HISTORY_IN_SESSION = 30
+HISTORY_TTL_SECONDS = 30 * 24 * 3600
+_SPEAKERS = {"you": "Richard", "jarv": "JARV"}
+
+
+def _history_key(user_id: UUID) -> str:
+    return f"voice:history:{user_id}"
+
+
+async def remember_turn(user_id: UUID, who: str, text: str) -> Dict[str, Any]:
+    """Keep one spoken turn ("you" is Richard, "jarv" is JARV). Secrets never enter the history."""
+    import json
+    from datetime import datetime, timezone
+
+    from app.core.redis import get_redis
+    from app.core.security import redact_text
+
+    if who not in _SPEAKERS:
+        raise ValueError("who must be 'you' or 'jarv'")
+    clean = redact_text(" ".join(str(text or "").split()))[:1500]
+    if not clean:
+        return {"kept": False}
+    redis = await get_redis()
+    key = _history_key(user_id)
+    await redis.lpush(key, json.dumps({"who": who, "text": clean,
+                                       "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}))
+    await redis.ltrim(key, 0, HISTORY_TURNS - 1)
+    await redis.expire(key, HISTORY_TTL_SECONDS)
+    return {"kept": True}
+
+
+async def recent_turns(user_id: UUID, limit: int = HISTORY_IN_SESSION) -> List[Dict[str, Any]]:
+    """The latest spoken turns, oldest first."""
+    import json
+
+    from app.core.redis import get_redis
+
+    try:
+        raw = await (await get_redis()).lrange(_history_key(user_id), 0, max(0, limit - 1))
+    except Exception:  # noqa: BLE001 - a conversation starts without history rather than not at all
+        return []
+    turns = []
+    for item in reversed(raw or []):
+        try:
+            turns.append(json.loads(item))
+        except (TypeError, ValueError):
+            continue
+    return turns
+
+
+def history_block(turns: List[Dict[str, Any]]) -> str:
+    if not turns:
+        return ""
+    lines = [f"[{str(t.get('at', ''))[:16].replace('T', ' ')}] {_SPEAKERS.get(t.get('who'), 'JARV')}: {t.get('text', '')}"
+             for t in turns]
+    return ("\nYOUR RECENT CONVERSATION WITH RICHARD (earlier sessions, oldest first). Carry on from it as one "
+            "continuous relationship: remember what he told you and what you said, and do not re-introduce "
+            "yourself. Check facts about missions with your tools, because they may have moved on since:\n"
+            + "\n".join(lines))
+
+
 async def create_session(db: AsyncSession, user_id: UUID) -> Dict[str, Any]:
     """A short-lived Realtime client secret for this operator, carrying JARV's instructions and tools."""
     if not available():
@@ -157,7 +221,8 @@ async def create_session(db: AsyncSession, user_id: UUID) -> Dict[str, Any]:
     spaces = await _workspaces(db, user_id)
     model, voice = settings.OPENAI_REALTIME_MODEL, settings.OPENAI_REALTIME_VOICE
     body = {"session": {
-        "type": "realtime", "model": model, "instructions": instructions(spaces),
+        "type": "realtime", "model": model,
+        "instructions": instructions(spaces) + history_block(await recent_turns(user_id)),
         "tools": TOOLS, "tool_choice": "auto",
         "audio": {"input": {"transcription": {"model": settings.OPENAI_REALTIME_TRANSCRIBE_MODEL},
                             "turn_detection": {"type": "semantic_vad"}},
@@ -288,6 +353,16 @@ async def _approvals(db: AsyncSession, user_id: UUID) -> Dict[str, Any]:
         "note": "Richard approves these on the Approvals page; never by voice."}
 
 
+async def _activity(db: AsyncSession, task_id, limit: int = 12) -> List[str]:
+    """What a running mission did most recently, from the operations feed (newest first)."""
+    from app.models.company_operations import LiveOperationsFeedItem
+
+    rows = (await db.execute(select(LiveOperationsFeedItem).where(
+        LiveOperationsFeedItem.related_task_id == task_id)
+        .order_by(LiveOperationsFeedItem.created_at.desc()).limit(limit))).scalars().all()
+    return [f"{r.created_at:%H:%M} {r.title}: {(r.message or '')[:160]}" for r in rows if r.created_at]
+
+
 async def _recent_missions(db: AsyncSession, user_id: UUID, limit: int = 6) -> List[Dict[str, Any]]:
     from app.core.scoping import owned_workspaces
     from app.models.task import Task
@@ -300,9 +375,14 @@ async def _recent_missions(db: AsyncSession, user_id: UUID, limit: int = 6) -> L
         if (task.meta_data or {}).get("archived_at"):
             continue
         result = task.result if isinstance(task.result, dict) else {}
-        missions.append({"id": str(task.id)[:8], "title": (task.title or "")[:120], "status": task.status,
-                         "folder": result.get("workspace_path"),
-                         "report": str(result.get("response") or task.error_message or "")[:700]})
+        entry = {"id": str(task.id)[:8], "title": (task.title or "")[:120], "status": task.status,
+                 "started": task.created_at.isoformat(timespec="minutes") if task.created_at else None,
+                 "folder": result.get("workspace_path"),
+                 "last_report": str(result.get("response") or task.error_message or "")[:700]}
+        if (task.status or "").lower() in ("running", "queued", "recovering"):
+            entry["in_progress"] = True
+            entry["latest_activity"] = await _activity(db, task.id)
+        missions.append(entry)
         if len(missions) == limit:
             break
     return missions
@@ -322,6 +402,8 @@ async def _ask_jarv(db: AsyncSession, user_id: UUID, question: str, workspace_id
         "recent_missions": await _recent_missions(db, user_id),
         "waiting_for_approval": (await _approvals(db, user_id))["waiting"],
         "memories": await _memories(db, user_id, question, workspace_id),
+        "recent_conversation": [f"{_SPEAKERS.get(t.get('who'), 'JARV')}: {t.get('text', '')[:300]}"
+                                for t in await recent_turns(user_id, 16)],
     }
     if workspace_id is not None:
         try:
@@ -335,9 +417,12 @@ async def _ask_jarv(db: AsyncSession, user_id: UUID, question: str, workspace_id
     response = await get_router().complete(CompletionRequest(
         model=service.model, max_tokens=700, temperature=0.2,
         system=("You are JARV's reasoning core answering Richard Curley's spoken question. Answer only from the "
-                "facts given (JARV's memory, missions, workspaces and approvals); when they do not contain the "
-                "answer, say so plainly and say what JARV would need to find out. Two to five spoken sentences, "
-                "British English, no lists or markdown."),
+                "facts given (JARV's memory, missions, workspaces, approvals and your recent conversation with "
+                "him); when they do not contain the answer, say so plainly and say what JARV would need to find "
+                "out. A mission marked in_progress is still running: describe it only from its own "
+                "latest_activity, never from another mission's last_report, and do not say it committed, passed "
+                "or finished unless its own activity shows that. Each last_report belongs only to its own "
+                "mission. Two to five spoken sentences, British English, no lists or markdown."),
         messages=[Message(role="user", content=f"Question: {question}\n\nFacts:\n{json.dumps(facts, default=str)}")]))
     return {"answer": (response.content or "").strip() or "I could not form an answer from what I know.",
             "missions_considered": len(facts["recent_missions"]), "memories_considered": len(facts["memories"])}

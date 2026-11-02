@@ -57,7 +57,13 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
   const replyQueuedRef = useRef(false);
   const mountedRef = useRef(true);
 
-  const add = (line: ConversationLine) => setLines((current) => [...current.slice(-11), line]);
+  const add = (line: ConversationLine) => {
+    setLines((current) => [...current.slice(-11), line]);
+    // JARV keeps the spoken conversation, so the next one carries on from here.
+    if (line.who === 'you' || line.who === 'jarv') {
+      void apiClient.post('/api/voice/live/turn', { who: line.who, text: line.text });
+    }
+  };
 
   const send = (event: Record<string, unknown>) => {
     const channel = channelRef.current;

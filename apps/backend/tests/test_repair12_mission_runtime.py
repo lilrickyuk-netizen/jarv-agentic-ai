@@ -469,3 +469,32 @@ def test_voice_resumes_and_reports_the_mission_that_has_a_folder(test_user, test
     real, report, resumed = _run(run())
     assert report["result"] == "Phase 0 committed as f0a60a1." and report["folder"].endswith("MYCO")
     assert resumed["resumed"] is True and resumed["task_id"] == str(real)
+
+
+@pytest.mark.integration
+def test_an_ai_provider_outage_pauses_the_mission_instead_of_failing_it(monkeypatch):
+    """The MYCO correction mission was marked failed when OpenAI dropped the connection ("peer closed
+    connection"), though its work was safe on disk. A provider outage now pauses it as partial, with the reason,
+    so Carry on picks it up; any other crash still fails it."""
+    from app.core.command import CommandService as Service
+    from app.core.providers.base import ProviderError
+
+    async def outage(self, db, task, **kwargs):
+        raise ProviderError("Every configured provider failed: openai: peer closed connection", provider="router")
+
+    monkeypatch.setattr(Service, "run_task", outage)
+
+    async def run():
+        async with AsyncTestingSessionLocal() as db:
+            user_id, ws_id = await _seed_owner(db)
+            submitted = await CommandService().submit("Remember that the review is on Friday", db,
+                                                      workspace_id=ws_id, operator=str(user_id))
+        await MissionRunner(worker_id="worker-a").run(submitted.task_id)
+        return submitted
+
+    submitted = _run(run())
+    task = _run(_get(UUID(submitted.task_id)))
+    assert task.status == "partial", task.status
+    assert "AI provider stopped answering" in task.error_message and "peer closed" in task.error_message
+    assert task.result["provider_unavailable"] is True
+    assert task.lease_owner is None
