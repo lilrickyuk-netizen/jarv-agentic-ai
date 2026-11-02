@@ -50,7 +50,8 @@ from tests.repo_paths import repo_path
     ("git add . && rm -rf docs", "dangerous"),
     ("git add a;b", "dangerous"),
     ("git add $(ls)", "dangerous"),
-    ('git commit -m "x; rm -rf /"', "dangerous"),
+    # Quoted text is data: the commit message is one argument, never a second command.
+    ('git commit -m "x; rm -rf /"', "build"),
     ('git commit -m "a" && rm x', "dangerous"),
     ('git commit -m "$(whoami)"', "dangerous"),
     ("git push origin main", "dangerous"),
@@ -90,10 +91,56 @@ from tests.repo_paths import repo_path
     ("helm dependency build infra/helm/myco", "install"),
     ("helm install myco infra/helm/myco", "risky"),
     ("git clean -fd", "risky"),
-    ("git commit -m 'single quotes'", "risky"),
+    ("git commit -m 'single quotes'", "build"),
+    # Words that merely contain a dangerous command name are not that command.
+    ("python -m pytest tests/test_capture.py", "build"),  # "apt" inside "capture"
+    ('pytest -k "model "', "build"),  # "del " inside "model "
+    ("pnpm test:skill", "build"),  # "kill" inside "skill"
+    ('node -e "console.log(1>0)"', "build"),  # ">" inside quotes
+    ('git commit -m "Fix: rm stale cp step"', "build"),
+    ("cat 'notes and docs.md'", "safe"),
+    # The program itself decides, wherever it lives or however it is spelled.
+    ("/usr/bin/rm -rf docs", "dangerous"),
+    ("rm.exe x", "dangerous"),
+    ("RM -rf x", "dangerous"),
+    ("chmod +x run.sh", "dangerous"),
+    ("curl https://example.com", "dangerous"),
+    ("npm install -g x", "dangerous"),
+    ("terraform -chdir=infra destroy", "dangerous"),
+    ("terraform state rm aws_s3_bucket.x", "dangerous"),
+    # Shell syntax outside quotes is refused: one plain command at a time.
+    ("echo hi > notes.md", "dangerous"),
+    ("ls $HOME", "dangerous"),
+    ('echo "$(whoami)"', "dangerous"),
+    ("ls 'unterminated", "dangerous"),
+    ("ls\nrm x", "dangerous"),
+    # Read-only commands with arguments that change something need approval.
+    ("find . -name '*.py'", "safe"),
+    ("find . -name x -delete", "risky"),
+    ("find . -exec rm {} +", "risky"),
+    ("git branch", "safe"),
+    ("git branch -D main", "risky"),
+    ("git remote -v", "safe"),
+    ("git remote add origin x", "risky"),
+    ("git stash", "risky"),
 ])
 def test_toolchain_commands_are_classified(command, expected):
     assert classify_command(command) == expected
+
+
+def test_commands_run_as_the_exact_words_that_were_classified(tmp_path):
+    from app.core.workspaces.fs_inspector import command_argv, parse_command
+
+    assert parse_command('git commit -m "x; rm -rf /"').argv == ["git", "commit", "-m", "x; rm -rf /"]
+    assert parse_command(r'echo "say \"hi\""').argv == ["echo", 'say "hi"']
+    assert parse_command("echo a\\ b").argv == ["echo", "a b"]
+    for blocked in ("a && b", "a; b", "a | b", "a > b", "a < b", "a &", "echo `id`", "echo $X", "a\nb"):
+        assert parse_command(blocked) is None, blocked
+    (tmp_path / "a.py").write_text("")
+    (tmp_path / "b.py").write_text("")
+    assert command_argv("ls *.py", str(tmp_path)) == ["ls", "a.py", "b.py"]
+    assert command_argv("ls '*.py'", str(tmp_path)) == ["ls", "*.py"]  # quoted patterns stay literal
+    assert command_argv("ls *.md", str(tmp_path)) == ["ls", "*.md"]  # no match stays as written
 
 
 def test_folder_changing_commands_need_a_workspace():
@@ -136,9 +183,18 @@ def test_agent_initialises_stages_and_commits_inside_the_workspace(monkeypatch):
             add = await rt.run_command("git add .", cwd_host=host)
             commit = await rt.run_command('git commit -m "Phase 0: platform skeleton"', cwd_host=host)
             push = await rt.run_command("git push origin main", cwd_host=host)
-            return outside, init, write, add, commit, push
+            # A message holding shell syntax is committed as text; nothing else runs.
+            await rt.write_file(f"{host}/keep.md", "keep\n")
+            await rt.run_command("git add keep.md", cwd_host=host)
+            tricky = await rt.run_command('git commit -m "Keep; rm -rf keep.md"', cwd_host=host)
+            missing = await rt.run_command("cargo check", cwd_host=host) if not shutil.which("cargo") else None
+            return outside, init, write, add, commit, push, tricky, missing
 
-    outside, init, write, add, commit, push = asyncio.run(run())
+    outside, init, write, add, commit, push, tricky, missing = asyncio.run(run())
+    assert tricky["success"] is True, tricky
+    assert (folder / "keep.md").exists()
+    if missing is not None:
+        assert missing["exit_code"] == 127 and "not installed" in missing["reason"]
     assert outside["blocked"] is True and "not inside an approved workspace" in outside["reason"]
     assert init["success"] is True, init
     assert write["success"] is True
@@ -146,7 +202,7 @@ def test_agent_initialises_stages_and_commits_inside_the_workspace(monkeypatch):
     assert commit["success"] is True, commit
     assert push["success"] is False and push["blocked"] is True
     log = subprocess.run(["git", "log", "--format=%an %s"], cwd=folder, capture_output=True, text=True)
-    assert log.stdout.strip() == "JARV Phase 0: platform skeleton"
+    assert log.stdout.strip().splitlines() == ["JARV Keep; rm -rf keep.md", "JARV Phase 0: platform skeleton"]
     shutil.rmtree(folder, ignore_errors=True)
 
 
@@ -454,3 +510,226 @@ def test_finish_must_say_whether_the_mission_succeeded():
 
     finish = next(t for t in _tool_schemas() if t["name"] == "finish")
     assert finish["input_schema"]["required"] == ["summary", "success"]
+
+
+class _MissionRouter:
+    """Scripted model: the mission's turns, then the independent check's turns, told apart by the system prompt."""
+
+    def __init__(self, mission_turns, verifier_turns):
+        self.turns = {"mission": list(mission_turns), "verifier": list(verifier_turns)}
+        self.offered = {"mission": [], "verifier": []}
+        self.first_message = {}
+
+    async def complete(self, request):
+        import json as _json
+        from app.core.providers import CompletionResponse
+
+        who = "verifier" if (request.system or "").startswith("You are JARV's Verifier Agent") else "mission"
+        self.offered[who].append(sorted(t["name"] for t in request.tools or []))
+        self.first_message.setdefault(who, request.messages[0].content)
+        turn = self.turns[who].pop(0) if self.turns[who] else {"content": "done"}
+        calls = [{"id": f"{who}-{len(self.offered[who])}-{i}", "type": "function",
+                  "function": {"name": name, "arguments": _json.dumps(args)}}
+                 for i, (name, args) in enumerate(turn.get("tools", []))]
+        return CompletionResponse(id="r", model="test", content=turn.get("content", ""),
+                                  usage={"total_tokens": 10}, tool_calls=calls)
+
+
+def _mission_turns():
+    return [
+        {"tools": [("search_files", {"contains": "def add"})]},
+        {"tools": [("edit_file", {"path": "src/app.py", "old_text": "return a + b\n",
+                                  "new_text": "return a + b\n\n\ndef sub(a, b):\n    return a - b\n"})]},
+        {"tools": [("run_command", {"command": "python3 -m py_compile src/app.py"})]},
+        {"tools": [("memory_add", {"content": "MYCO src/app.py now has add and sub.", "memory_type": "decision"})]},
+        {"tools": [("finish", {"summary": "Added sub(a, b) and a test; compiled cleanly.", "success": True})]},
+    ]
+
+
+async def _mission_workspace(session, host):
+    from app.models.task import Task
+    from app.models.user import User
+    from app.models.workspace import Workspace
+
+    uid, wid = uuid4(), uuid4()
+    session.add(User(id=uid, username=f"u{uid.hex[:8]}", email=f"{uid.hex[:8]}@t.io",
+                     password_hash="$2b$12$x", is_active=True, is_admin=False))
+    session.add(Workspace(id=wid, name="MYCO", slug=f"myco-{wid.hex[:8]}", description="d", owner_id=uid,
+                          is_active=True, workspace_type="software", authority_level=4,
+                          config={"root_path": host}))
+    mission = Task(id=uuid4(), title="Add sub", description="d", workspace_id=wid, status="running",
+                   priority=5, task_type="command")
+    session.add(mission)
+    await session.commit()
+    return ToolRuntime(session, wid, mission.id, operator=str(uid), authority_level=4, user_id=uid)
+
+
+def _mission_folder():
+    name = f"mission-{uuid4().hex[:8]}"
+    folder = Path(SANDBOX_CONTAINER_ROOT) / name
+    shutil.rmtree(folder, ignore_errors=True)
+    (folder / "src").mkdir(parents=True)
+    (folder / "src" / "app.py").write_text("def add(a, b):\n    return a + b\n")
+    return f"/test_workspaces/{name}", folder
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("verdict, expect_done", [
+    ({"verified": False, "unmet": ["The mission asks for a test of sub(); tests/test_app.py does not exist."],
+      "checks": [{"requirement": "sub(a, b) in src/app.py", "met": True, "evidence": "read src/app.py"},
+                 {"requirement": "a test for sub", "met": False, "evidence": "no tests/ folder"}]}, False),
+    ({"verified": True, "unmet": [],
+      "checks": [{"requirement": "sub(a, b) in src/app.py", "met": True, "evidence": "read src/app.py"}]}, True),
+])
+def test_missions_use_every_tool_and_never_accept_themselves(monkeypatch, verdict, expect_done):
+    """MYCO Phase 0 was marked complete on the agent's own word while its Taskfile commands only printed that they
+    passed. A mission now works with the full toolbox (search, edit, memory, specialist knowledge, delete and push
+    through approval) and, when it says it is done, a Verifier that did not do the work checks the workspace with
+    look-and-test tools only. An unmet requirement sends the mission on to fix it, with the findings."""
+    from app.core.command import agent_executor
+    from app.core.command.agent_executor import AgentExecutor
+
+    host, folder = _mission_folder()
+    router = _MissionRouter(_mission_turns(), [
+        {"tools": [("read_file", {"path": "src/app.py"})]},
+        {"tools": [("verdict", verdict)]},
+    ])
+    monkeypatch.setattr(agent_executor, "get_router", lambda: router)
+
+    async def run():
+        async with AsyncTestingSessionLocal() as session:
+            rt = await _mission_workspace(session, host)
+            executor = AgentExecutor(rt, "test-model", host)
+            result = await executor.run("Add sub(a, b) to src/app.py with a test.",
+                                        known="- Memory (decision): Richard wants a test for every function.")
+            return result, [c["tool"] for c in rt.calls]
+
+    result, mission_tools = asyncio.run(run())
+    offered = router.offered["mission"][0]
+    for tool in ("search_files", "edit_file", "memory_add", "memory_search", "delete_file_with_boundary",
+                 "git_push_with_boundary", "detect_commands", "check_cve", "run_tests", "finish"):
+        assert tool in offered, tool
+    assert "Richard wants a test for every function." in router.first_message["mission"]
+    verifier_tools = router.offered["verifier"][0]
+    assert "verdict" in verifier_tools and "read_file" in verifier_tools and "run_tests" in verifier_tools
+    for tool in ("write_file", "edit_file", "delete_file_with_boundary", "git_push_with_boundary",
+                 "install_package", "memory_add", "move_file"):
+        assert tool not in verifier_tools, tool
+    assert "Added sub(a, b)" in router.first_message["verifier"]  # the claim, given to check, not to trust
+    assert "def sub(a, b)" in (folder / "src" / "app.py").read_text()
+    assert "read_file" not in mission_tools  # the verifier's reads are on its own runtime, not the mission's
+    assert result["finished"] is True
+    assert result["success"] is expect_done
+    assert result["needs_continuation"] is (not expect_done)
+    assert result["step_limit_reached"] is False
+    assert result["verification"]["verified"] is expect_done
+    if not expect_done:
+        assert "tests/test_app.py does not exist" in result["answer"]
+        assert any("a test for sub" in item for item in result["verification"]["unmet"])
+    shutil.rmtree(folder, ignore_errors=True)
+
+
+def test_the_next_round_is_told_what_the_check_found():
+    from app.core.command.continuation import progress_note
+
+    note = progress_note({"response": "Added sub.", "verification": {
+        "verified": False, "unmet": ["Taskfile `verify` only echoes; it runs no checks."]}})
+    assert "INDEPENDENT CHECK FOUND" in note and "only echoes" in note
+
+
+@pytest.mark.integration
+def test_a_verdict_without_evidence_is_not_a_pass(monkeypatch):
+    from app.core.command import agent_executor
+    from app.core.command.agent_executor import AgentExecutor
+
+    host, folder = _mission_folder()
+    router = _MissionRouter([{"tools": [("finish", {"summary": "Done.", "success": True})]}],
+                            [{"tools": [("verdict", {"verified": True, "unmet": [], "checks": []})]}])
+    monkeypatch.setattr(agent_executor, "get_router", lambda: router)
+
+    async def run():
+        async with AsyncTestingSessionLocal() as session:
+            rt = await _mission_workspace(session, host)
+            return await AgentExecutor(rt, "test-model", host).run("Add sub(a, b) to src/app.py.")
+
+    result = asyncio.run(run())
+    assert result["success"] is False and result["verification"]["verified"] is False
+    shutil.rmtree(folder, ignore_errors=True)
+
+
+@pytest.mark.integration
+def test_an_approved_delete_from_a_mission_deletes_exactly_that_file():
+    """A mission asks to delete one file; it waits for Richard; once approved, that exact file goes and nothing else."""
+    from sqlalchemy import select
+    from app.core.command.agent_executor import mission_toolbox
+    from app.core.richard.workflow import RichardBoundaryWorkflow
+    from app.models.boundary import BoundaryApproval
+
+    host, folder = _mission_folder()
+    (folder / "old.md").write_text("stale\n")
+
+    async def run():
+        async with AsyncTestingSessionLocal() as session:
+            rt = await _mission_workspace(session, host)
+            rt.pause_task_on_boundary = False
+            toolbox = mission_toolbox(rt, host)
+            await toolbox.prepare()
+            paused = await toolbox.call("delete_file_with_boundary", {"path": "old.md", "reason": "superseded"})
+            still_there = (folder / "old.md").exists()
+            approval = (await session.execute(select(BoundaryApproval).where(
+                BoundaryApproval.id == UUID(paused["approval_id"])))).scalar_one()
+            workflow = RichardBoundaryWorkflow(session)
+            await workflow.record_richard_decision(approval_id=approval.id, authenticated_user_id=rt.user_id,
+                                                   approve=True, authority_granted=4, expiry_seconds=3600)
+            resumed = await workflow.resume_mission(checkpoint_id=UUID(paused["checkpoint_id"]),
+                                                    authenticated_user_id=rt.user_id)
+            return paused, still_there, resumed
+
+    paused, still_there, resumed = asyncio.run(run())
+    assert paused["requires_approval"] is True and still_there is True
+    assert not (folder / "old.md").exists(), resumed
+    assert (folder / "src" / "app.py").exists()
+    shutil.rmtree(folder, ignore_errors=True)
+
+
+def test_long_missions_trim_old_results_and_keep_the_newest():
+    """A long mission re-sent every earlier file read on every step (about 2.6 million tokens a round). Old tool
+    results are now cut to a short head once the conversation is large; the newest stay whole, and tool calls
+    and their pairing are untouched."""
+    from app.core.command.agent_executor import compact_messages
+    from app.core.providers import Message
+
+    messages = [Message(role="user", content="MISSION: rebuild Phase 0")]
+    for i in range(12):
+        messages.append(Message(role="assistant", content=[
+            {"type": "tool_use", "id": f"t{i}", "name": "read_file", "input": {"path": f"docs/part{i}.md"}}]))
+        messages.append(Message(role="user", content=[
+            {"type": "tool_result", "tool_use_id": f"t{i}", "content": f"part {i} " + "x" * 30000}]))
+    assert compact_messages(messages, budget=10_000_000) == 0  # under budget: nothing changes
+    removed = compact_messages(messages, budget=100_000, keep_recent=4)
+    results = [m.content[0]["content"] for m in messages if m.role == "user" and isinstance(m.content, list)]
+    assert removed > 200_000
+    assert all("[earlier result cut" in r and "read_file docs/part" in r for r in results[:8])
+    assert all(len(r) > 30000 for r in results[8:])
+    assert results[0].startswith("part 0 ")
+    assert compact_messages(messages, budget=100_000, keep_recent=4) == 0  # already cut: stable prefix
+    assert [m.content[0]["id"] for m in messages if m.role == "assistant"] == [f"t{i}" for i in range(12)]
+
+
+def test_claude_requests_mark_the_repeated_prefix_for_the_prompt_cache():
+    from app.core.providers.base import CompletionRequest, Message
+    from app.core.providers.claude import ClaudeProvider, _usage
+
+    provider = object.__new__(ClaudeProvider)
+    request = CompletionRequest(model="claude-sonnet-4-6", system="You are JARV.", max_tokens=100, messages=[
+        Message(role="user", content="MISSION"),
+        Message(role="assistant", content=[{"type": "tool_use", "id": "a", "name": "read_file", "input": {}}]),
+        Message(role="user", content=[{"type": "tool_result", "tool_use_id": "a", "content": "text"}])],
+        tools=[{"name": "read_file", "description": "d", "input_schema": {"type": "object", "properties": {}}},
+               {"name": "finish", "description": "d", "input_schema": {"type": "object", "properties": {}}}])
+    payload = provider._convert_request(request)
+    assert payload["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert payload["tools"][-1]["cache_control"] == {"type": "ephemeral"}
+    assert payload["messages"][-1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
+    assert "cache_control" not in request.messages[-1].content[-1]  # the mission's own record is unchanged
+    assert _usage({"input_tokens": 10, "output_tokens": 5, "cache_read_input_tokens": 900})["total_tokens"] == 915

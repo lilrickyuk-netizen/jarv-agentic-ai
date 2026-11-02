@@ -13203,3 +13203,30 @@ TESTS RUN: PostgreSQL suite (owner run): 749 passed, 1 skipped. Dashboard (owner
 RESULT: Passed.
 BLOCKERS: None. The Voicebox backend adapter and its Compose service (profile "voice") remain for anyone who runs it; nothing in the dashboard depends on it.
 NEXT TASK: The root causes behind the Phase 0 failures, then the Phase 0 correction mission.
+
+TASK ID: FIX-JARV-CORE
+TASK NAME: JARV works as designed: one mission engine with every tool, a token-based command policy, independent verification before completion, bounded context, honest health
+STATUS: IN_PROGRESS
+PROBLEM: MYCO Phase 0 exposed five root causes. (1) Missions ran on a separate engine with four tools (list, read, write, run) and none of JARV's memory, lessons or specialist knowledge, while the specialist agents had the full toolbox; missions could not search, edit in place, check packages or CVEs, record decisions, or delete and push through approval. (2) The command policy matched dangerous words as substrings, so "terraform version" was rm, "git add ." was dd, "pytest tests/test_capture.py" was apt and a quoted commit message could be read as a second command; commands then ran through a shell that could reinterpret what had been classified. (3) A mission accepted itself: the agent's own finish(success=true) marked it completed, which is how Taskfile commands that only print "passed" were reported as a passing exit gate. (4) Every step re-sent every earlier tool result (about 2.6 million tokens a round). (5) The status loop reported JARV as degraded because optional services (Voicebox, Prometheus) and the finished migration job were not running.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/backend/app/core/workspaces/fs_inspector.py (parse_command: words split as a POSIX shell would, with quotes honoured; any unquoted ; & | < > or backtick, any $ expansion, newline or unterminated quote refuses the command. classify_command decides by the program and its arguments: destructive, privilege, network-fetch and system-package programs, global installs, git push and reset --hard, destructive terraform subcommands are dangerous; find -delete/-exec, branch/remote/tag/stash changes need approval; quoted text is data. command_argv: the exact argument list to execute, with unquoted file patterns and a leading ~ expanded the way a shell would)
+- apps/backend/app/core/command/tool_runtime.py (commands execute with create_subprocess_exec on the classified words, no shell in between; a missing program reports exit 127 and how to install it; boundary tools keep their exact arguments in the checkpoint)
+- apps/backend/app/core/agents/toolbox.py (AgentToolbox can act through an existing ToolRuntime and confine to a mission's folder)
+- apps/backend/app/core/command/agent_executor.py (missions use the full AgentToolbox on the mission's own runtime: search, edit, folders, move and copy, project detection, builds, tests, installs, registry and CVE checks, memory, web reads, specialist knowledge, delete and push through approval; recalled memory and verified lessons open the mission; verify(): a separate Verifier with its own runtime and log entries, look-and-test tools only and no approval requests, checks every requirement against the workspace and returns a verdict; a verdict without evidence or with any unmet check is not a pass; an unmet verdict sends the mission on with the findings; compact_messages: old tool results are cut to a head with what to call again once the conversation passes 240,000 characters, in one batch so the provider's prompt cache keeps working)
+- apps/backend/app/core/command/continuation.py (the next round is told what the independent check found; continuation rounds get recalled memory and lessons; recall_for_mission)
+- apps/backend/app/core/command/service.py (missions receive what JARV recalled; reports say when the agent finished but the check found work still to do, and when a run was independently verified)
+- apps/backend/app/core/agents/workspace_ops.py (delete and push record their exact arguments before the approval gate)
+- apps/backend/app/core/richard/workflow.py (_run_approved_tool: an approved delete or push runs exactly as asked, through the same toolbox and gate, instead of being handed to another agent to redo)
+- apps/backend/app/core/providers/claude.py (prompt caching on the tools, instructions and newest turn of tool-using requests; usage and cost count cached input)
+- apps/backend/app/core/ops/docker_ops.py (OPTIONAL_SERVICES, ONE_SHOT_SERVICES, container_problem)
+- apps/backend/app/core/ops/health.py (Prometheus reported as optional; optional_unavailable)
+- apps/backend/app/workers/tasks.py (the status loop counts only core services against health and lists optional ones that are off)
+- apps/backend/tests/test_workspace_toolchain.py (96 classifier cases including the substring traps; parser and argv tests; a commit whose message holds "; rm -rf" commits as text and deletes nothing; a missing program reports exit 127; missions are offered the full toolbox and recalled memory; the Verifier gets look-and-test tools only, its own runtime, and the claims to check; unmet and evidence-free verdicts are not passes; an approved delete from a mission deletes exactly that file; old results are trimmed and the newest kept; Claude requests carry cache markers)
+- apps/backend/tests/test_repair12d_ops_tools.py (fake containers can exit with a given code)
+- apps/backend/tests/test_repair12d_identity_selfheal.py (optional services and a finished migration do not make JARV degraded; a stopped worker does)
+COMMANDS RUN: python ast parse of every changed file: passed. Undefined-name check (symtable) on every changed file: none. The classifier, parser and trimming tests run standalone against the module: passed (PyPI is unreachable from the build session, so the full suite runs on the owner's machine).
+TESTS RUN: Owner run pending.
+RESULT: Pending the owner's test run.
+BLOCKERS: None.
+NEXT TASK: The MYCO Phase 0 correction mission, run on the fixed engine.

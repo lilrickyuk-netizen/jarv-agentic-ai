@@ -60,6 +60,10 @@ def progress_note(result: Dict[str, Any]) -> str:
     if commands:
         lines.append("Commands run (latest last):")
         lines += commands[-80:]
+    verification = result.get("verification") if isinstance(result.get("verification"), dict) else {}
+    if verification.get("unmet"):
+        lines.append("THE INDEPENDENT CHECK FOUND THESE REQUIREMENTS NOT MET (fix each one, then verify):")
+        lines += [f"- {item}" for item in verification["unmet"][:30]]
     summary = str(result.get("response") or "").strip()
     if summary:
         lines.append("Last round's summary:")
@@ -115,6 +119,29 @@ async def queue_resume(db: AsyncSession, task: Task, *, operator: str, reason: s
             "reply": "Carrying on with that mission from where it stopped."}
 
 
+async def recall_for_mission(db: AsyncSession, workspace_id, text: str) -> str:
+    """What JARV remembers and has verified for this workspace, for the mission's agent."""
+    from app.core.command.service import _known_for_mission
+    from app.core.jarv_memory import memory_service
+    from app.core.learning import learning_service
+
+    context: Dict[str, Any] = {"relevant_memory": [], "verified_lessons": []}
+    if workspace_id is None:
+        return ""
+    try:
+        hits = await memory_service.search_scored(db, text[:2000], limit=5, workspace_id=workspace_id)
+        context["relevant_memory"] = [{"type": h.memory.memory_type, "content": h.memory.content} for h in hits]
+    except Exception as exc:  # noqa: BLE001 - recall is advisory; the round runs without it
+        logger.warning(f"memory recall for continuation failed: {exc}")
+    try:
+        lessons = await learning_service.retrieve_lessons(db, workspace_id=workspace_id, agent_name="orchestrator",
+                                                          query=text[:2000], limit=3)
+        context["verified_lessons"] = [{"lesson": i["lesson"], "outcome": i["polarity"]} for i in lessons]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"lesson recall for continuation failed: {exc}")
+    return _known_for_mission(context)
+
+
 async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Dict[str, Any]:
     """Run the next continuation round. The task must already be ``running``."""
     now = datetime.now(timezone.utc)
@@ -138,9 +165,12 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
     executor = AgentExecutor(runtime, model, root)
     note = progress_note(res)
     result = await executor.run(f"{mission}\n\n{note}" if note else mission, steps_per_round=8,
-                                max_continuations=max_cont, start_continuation=prior)
+                                max_continuations=max_cont, start_continuation=prior,
+                                known=await recall_for_mission(db, task.workspace_id, str(mission)))
 
-    if result["needs_continuation"]:
+    if result["needs_continuation"] and result.get("finished"):
+        outcome, reason = lifecycle.NEEDS_CONTINUATION, "The independent check found work still to do."
+    elif result["needs_continuation"]:
         outcome, reason = lifecycle.NEEDS_CONTINUATION, "Reached the step limit again; checkpoint saved."
     elif result["success"]:
         outcome, reason = lifecycle.COMPLETED, None
@@ -161,6 +191,7 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
         "remaining_steps": result["remaining_steps"],
         "checkpoint_id": checkpoint_id,
         "final_status_reason": reason,
+        "verification": result.get("verification"),
         "tool_calls": (res.get("tool_calls") or []) + runtime.calls,
     })
     task.result = updated

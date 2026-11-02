@@ -152,6 +152,7 @@ async def delete_file_with_boundary(tb, args: Dict[str, Any]) -> Dict[str, Any]:
         return {"success": False, "blocked": True, "reason": "The workspace folder itself is never deleted."}
     if not path.exists():
         return {"success": False, "error": f"{args.get('path')} does not exist"}
+    tb.runtime.pending_tool_args = {"path": host, "reason": args.get("reason"), "root": tb.root_host}
     denied = await _gate(tb, "delete_file_with_boundary", host, approval=True,
                          description=f"Delete {'folder' if path.is_dir() else 'file'} {host}"
                                      + (f": {args.get('reason')}" if args.get("reason") else ""))
@@ -472,6 +473,7 @@ async def git_push_with_boundary(tb, args: Dict[str, Any]) -> Dict[str, Any]:
         return {"success": False, "error": "Invalid branch name."}
     # No shell command is run (git is called with an argument list), so the gate is
     # the tool's own approval policy rather than the shell command classifier.
+    tb.runtime.pending_tool_args = {"path": host, "remote": remote, "branch": branch, "root": tb.root_host}
     denied = await _gate(tb, "git_push_with_boundary", host, approval=True,
                          description=f"Push branch {branch} to {remote} from {host}")
     if denied:

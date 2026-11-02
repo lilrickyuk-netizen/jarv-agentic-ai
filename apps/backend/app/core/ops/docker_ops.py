@@ -34,6 +34,24 @@ logger = logging.getLogger(__name__)
 RESTARTABLE = frozenset({"backend", "worker", "scheduler", "dashboard", "local-runner", "cloud-runner",
                          "voicebox", "prometheus", "grafana", "alertmanager"})
 NEVER_RESTART = frozenset({"postgres", "redis", "docker-proxy"})
+# Services JARV runs without: switched on by a compose profile or the monitoring file, or only for local
+# development. One not running is reported as such, never as JARV being degraded.
+OPTIONAL_SERVICES = frozenset({"voicebox", "prometheus", "grafana", "alertmanager", "postgres-exporter",
+                               "redis-exporter", "node-exporter", "local-runner", "cloud-runner"})
+# Jobs that run once and exit (database migrations): exited with code 0 is their finished state.
+ONE_SHOT_SERVICES = frozenset({"migrate"})
+
+
+def container_problem(container: "Container") -> Optional[str]:
+    """Why a container counts against JARV's health, or None when it is where it should be."""
+    if container.service in ONE_SHOT_SERVICES:
+        return None if container.state == "running" or "Exited (0)" in container.status else (
+            f"{container.service} did not finish cleanly ({container.status})")
+    if container.state != "running":
+        return f"{container.service} is {container.state or 'not running'}"
+    if container.health == "unhealthy":
+        return f"{container.service} is unhealthy"
+    return None
 _PROJECT_LABEL = "com.docker.compose.project"
 _SERVICE_LABEL = "com.docker.compose.service"
 _MAX_LOG_LINES = 400

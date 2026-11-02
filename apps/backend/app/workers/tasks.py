@@ -128,7 +128,11 @@ async def _run_scheduled_loop(job_name: str, description: str) -> dict[str, Any]
         if ops.available:
             try:
                 containers = await ops.containers()
-                broken = [c.service for c in containers if c.state != "running" or c.health == "unhealthy"]
+                problems = {c.service: docker_ops.container_problem(c) for c in containers}
+                broken = [svc for svc, why in problems.items() if why and svc not in docker_ops.OPTIONAL_SERVICES]
+                optional_off = [svc for svc, why in problems.items() if why and svc in docker_ops.OPTIONAL_SERVICES]
+                health["optional_unavailable"] = sorted(set(health.get("optional_unavailable") or [])
+                                                        | set(optional_off))
             except docker_ops.OpsUnavailable as exc:
                 health["failing"].append("containers")
                 health["checks"]["containers"] = {"ok": False, "error": str(exc)}
@@ -153,6 +157,8 @@ async def _run_scheduled_loop(job_name: str, description: str) -> dict[str, Any]
         failing = sorted(set(health["failing"]) | {f"service:{s}" for s in broken})
         state = "healthy" if not failing else "degraded: " + ", ".join(failing)
         summary = f"Scheduled '{job_name}': {state}."
+        if health.get("optional_unavailable"):
+            summary += " Optional, not running: " + ", ".join(sorted(health["optional_unavailable"])) + "."
         if repairs:
             summary += " Repairs: " + "; ".join(
                 f"{r['service']} {'restarted' if 'restarted' in r else 'not restarted (' + r['error'] + ')'}"

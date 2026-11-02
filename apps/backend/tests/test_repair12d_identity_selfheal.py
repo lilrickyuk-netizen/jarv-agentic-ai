@@ -139,3 +139,29 @@ def test_scheduled_loop_writes_the_feed_only_when_state_changes(loop_env):
                 LiveOperationsFeedItem.workspace_id == ws_id))).scalars().all()
 
     assert _run(run()) == ["JARV health check"]
+
+
+@pytest.mark.integration
+def test_optional_services_and_finished_jobs_do_not_make_jarv_degraded(loop_env):
+    """The status loop said JARV was degraded because Voicebox (an optional voice profile) and the one-off
+    migration job were not running. Optional services are reported as optional; a job that finished cleanly is
+    finished. A core service that stops still counts."""
+    from app.workers.tasks import _run_scheduled_loop
+
+    loop_env.add("aaaaaaaaaaaa", "backend")
+    loop_env.add("cccccccccccc", "voicebox", state="exited", health=None)
+    loop_env.add("eeeeeeeeeeee", "migrate", state="exited", health=None, exit_code=0)
+
+    async def run():
+        await _owner_with_workspace()
+        healthy = await _run_scheduled_loop(f"optional-{uuid4().hex[:6]}", "test")
+        loop_env.add("ffffffffffff", "worker", state="exited", health=None)
+        degraded = await _run_scheduled_loop(f"optional-{uuid4().hex[:6]}", "test")
+        return healthy, degraded
+
+    healthy, degraded = _run(run())
+    # Only container state is under test here; other checks run against the shared test database.
+    assert [f for f in healthy["failing"] if f.startswith("service:")] == [], healthy
+    assert "Optional, not running: voicebox" in healthy["summary"]
+    assert loop_env.restarts() == []
+    assert [f for f in degraded["failing"] if f.startswith("service:")] == ["service:worker"]

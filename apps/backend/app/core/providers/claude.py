@@ -28,6 +28,21 @@ logger = logging.getLogger(__name__)
 _UNSAFE_NAME = re.compile(r"[^a-zA-Z0-9_-]")
 
 
+_CACHE = {"type": "ephemeral"}
+
+
+def _usage(raw: Dict[str, Any]) -> Dict[str, int]:
+    """Token counts, counting cached input too: input_tokens excludes what the prompt cache served."""
+    usage = {
+        "input_tokens": int(raw.get("input_tokens") or 0),
+        "output_tokens": int(raw.get("output_tokens") or 0),
+        "cache_read_input_tokens": int(raw.get("cache_read_input_tokens") or 0),
+        "cache_creation_input_tokens": int(raw.get("cache_creation_input_tokens") or 0),
+    }
+    usage["total_tokens"] = sum(usage.values())
+    return usage
+
+
 def _claude_name(name: str) -> str:
     """A tool name Claude accepts (letters, digits, _ and -, at most 64): "boundary.detect" -> "boundary__detect"."""
     return _UNSAFE_NAME.sub("__", name)[:64]
@@ -204,7 +219,10 @@ class ClaudeProvider(BaseLLMProvider):
             return 0.0
 
         model_pricing = self.MODELS[request.model]
-        input_tokens = response.usage.get("input_tokens", 0)
+        # Cache reads cost a tenth of normal input and cache writes a quarter more (Anthropic pricing).
+        input_tokens = (response.usage.get("input_tokens", 0)
+                        + 0.1 * response.usage.get("cache_read_input_tokens", 0)
+                        + 1.25 * response.usage.get("cache_creation_input_tokens", 0))
         output_tokens = response.usage.get("output_tokens", 0)
 
         # Calculate cost (pricing is per million tokens)
@@ -280,11 +298,26 @@ class ClaudeProvider(BaseLLMProvider):
         if system:
             claude_request["system"] = system
 
+        # Agent loops re-send the same tools, instructions and growing conversation every step: mark the
+        # stable prefix and the newest turn so Anthropic serves the repeated part from its prompt cache.
+        if request.tools:
+            if isinstance(system, str) and system:
+                claude_request["system"] = [{"type": "text", "text": system, "cache_control": _CACHE}]
+            if messages:
+                last = messages[-1]
+                blocks = last["content"]
+                if isinstance(blocks, str):
+                    blocks = [{"type": "text", "text": blocks}] if blocks else []
+                if blocks and isinstance(blocks[-1], dict):
+                    blocks = list(blocks[:-1]) + [{**blocks[-1], "cache_control": _CACHE}]
+                    messages[-1] = {**last, "content": blocks}
+
         if request.stop:
             claude_request["stop_sequences"] = request.stop
 
         if request.tools:
             claude_request["tools"] = [_claude_tool(tool) for tool in request.tools]
+            claude_request["tools"][-1] = {**claude_request["tools"][-1], "cache_control": _CACHE}
 
         if request.tool_choice:
             claude_request["tool_choice"] = {"type": request.tool_choice}
@@ -319,12 +352,7 @@ class ClaudeProvider(BaseLLMProvider):
             content=content,
             role=data["role"],
             finish_reason=data.get("stop_reason", "stop"),
-            usage={
-                "input_tokens": data["usage"]["input_tokens"],
-                "output_tokens": data["usage"]["output_tokens"],
-                "total_tokens": data["usage"]["input_tokens"]
-                + data["usage"]["output_tokens"],
-            },
+            usage=_usage(data["usage"]),
             tool_calls=tool_calls,
             provider="claude",
         )

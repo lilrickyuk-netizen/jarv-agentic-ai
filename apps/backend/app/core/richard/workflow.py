@@ -103,6 +103,10 @@ def coerce_user_id(value: Any) -> Optional[UUID]:
         return uuid5(NAMESPACE_DNS, f"jarv-user-{value}")
 
 
+
+# Boundary tools whose approved action is replayed exactly from its checkpoint.
+_EXACT_TOOLS = ("delete_file_with_boundary", "git_push_with_boundary")
+
 class RichardBoundaryWorkflow:
     """Coordinator for the full hard-boundary -> decision -> resume loop.
 
@@ -1100,6 +1104,8 @@ class RichardBoundaryWorkflow:
             return await callback(step)
         if scope_action is not None and step.get("tool") == "run_command" and step.get("command"):
             return await self._run_approved_command(step, workspace_id, user_id, session_id)
+        if scope_action is not None and step.get("tool") in _EXACT_TOOLS and step.get("tool_args"):
+            return await self._run_approved_tool(step, workspace_id, user_id, session_id)
 
         agent_name = step.get("agent") or step.get("assigned_agent")
         description = step.get("description") or scope_action or ""
@@ -1118,6 +1124,42 @@ class RichardBoundaryWorkflow:
             approved_tools=approved_tools,
         )
         return result
+
+    async def _run_approved_tool(self, step: Dict[str, Any], workspace_id: Optional[UUID],
+                                 user_id: Optional[UUID], session_id: UUID) -> Dict[str, Any]:
+        """Run the exact delete or push Richard approved, with its recorded arguments, through the same
+        toolbox and permission gate: the approval covers this one tool, nothing else."""
+        from app.core.command.agent_executor import mission_toolbox
+        from app.core.command.tool_runtime import ToolRuntime
+        from app.core.agents import workspace_ops
+        from app.models.workspace import Workspace
+
+        tool = str(step.get("tool"))
+        args = dict(step.get("tool_args") or {})
+        workspace = None
+        if workspace_id is not None:
+            workspace = (await self.db.execute(
+                select(Workspace).where(Workspace.id == workspace_id))).scalar_one_or_none()
+        try:
+            task_id = UUID(str(step.get("task_id"))) if step.get("task_id") else None
+        except (TypeError, ValueError):
+            task_id = None
+        authority = max(int(getattr(workspace, "authority_level", 0) or 0),
+                        int(step.get("requested_authority_level") or 0))
+        runtime = ToolRuntime(self.db, workspace_id, task_id, operator=str(user_id or ""),
+                              authority_level=authority, user_id=user_id, session_id=session_id,
+                              open_boundary_flows=False)
+        toolbox = mission_toolbox(runtime, args.pop("root", None), approval_granted=True, approved_tools=[tool])
+        try:
+            await toolbox.prepare()
+        except Exception as exc:  # noqa: BLE001
+            return {"success": False, "output_text": "", "error": f"the workspace could not be opened: {exc}"}
+        result = await workspace_ops.HANDLERS[tool](toolbox, args)
+        done = bool(result.get("success"))
+        summary = (f"Deleted {args.get('path')}" if tool == "delete_file_with_boundary"
+                   else f"Pushed {args.get('branch')} to {args.get('remote')}")
+        return {"success": done, "output_text": summary if done else "",
+                "error": None if done else str(result.get("reason") or result.get("error") or "")[:1000]}
 
     async def _run_approved_command(self, step: Dict[str, Any], workspace_id: Optional[UUID],
                                     user_id: Optional[UUID], session_id: UUID) -> Dict[str, Any]:

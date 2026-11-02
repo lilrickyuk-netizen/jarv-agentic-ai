@@ -24,10 +24,11 @@ scans return a structured "not accessible" result instead of raising.
 from __future__ import annotations
 
 import os
+import glob as globlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, NamedTuple, Optional
 
 from app.core.config import settings
 
@@ -481,10 +482,6 @@ BUILD_TEST_PREFIXES = (
 # Commands that change the folder they run in: they only run with a workspace folder as their
 # working directory, never in JARV's own directory.
 WORKSPACE_ONLY_PREFIXES = ("git init", "git add", "git commit")
-# git commit with one plain double-quoted message. The message is checked for shell syntax, not
-# for the destructive-command words above, so "Add platform docs" is a valid message.
-# git add with plain paths only ("dd " inside "git add ." is not the dd command).
-_GIT_ADD_RE = re.compile(r"^git add(?: (?:-a|--all|[\w./@-]+))+$")
 # A project script run by name ("pnpm type-check", "pnpm format", "yarn lint", "pnpm run e2e"):
 # one plain name, no arguments. pnpm and yarn commands that publish, deploy, sign in, change
 # configuration or the store are their own commands, not scripts, and are never matched here.
@@ -506,7 +503,6 @@ _TASK_RE = re.compile(r"^task ([a-z0-9][a-z0-9:_.-]{0,80})(?: -- [a-z0-9_.:-]{1,
 _TERRAFORM_RE = re.compile(
     r"^terraform(?: -chdir=[a-z0-9_./-]{1,200})? (fmt|validate|version|providers|show|graph|output|plan|init|test)(?: |$)")
 _HELM_RE = re.compile(r"^helm (lint|template|version|show|dependency (?:build|update|list)|env)(?: |$)")
-_GIT_COMMIT_RE = re.compile(r'^git commit(?: -a)? -m "([^"`$\\;&|<>\n]{1,500})"$')
 
 # Trusted project package-manager install commands (project-local). Allowed to
 # run automatically INSIDE an approved workspace (PackageInstallPolicy:
@@ -525,49 +521,202 @@ INSTALL_PREFIXES = (
     "mvn package", "bundle install",
 )
 
-# Always-blocked dangerous tokens (destructive / privilege / chaining / network-exec).
-DANGEROUS_COMMAND_TOKENS = (
-    "rm ", "rm -", "rmdir", "del ", "del/", "format", "mkfs", "dd ", "shutdown",
-    "reboot", "ssh ", "scp ", "chmod", "chown", ">", ">>", "|", "&&", ";", "`",
-    "$(", "kill", "pkill", "mv ", "cp ", "git push", "git reset --hard",
-    "apt", "apt-get", "yum", "brew",
-)
+# Programs that are never run by an agent, whatever their arguments: they delete, wipe, power off,
+# change ownership or permissions, kill processes, reach other machines, fetch from the network,
+# move or copy outside write_file's audit, or install system packages.
+DANGEROUS_PROGRAMS = frozenset((
+    "rm", "rmdir", "unlink", "shred", "del", "erase", "rd", "format", "dd", "shutdown", "reboot",
+    "halt", "poweroff", "init", "systemctl", "service", "chmod", "chown", "chgrp", "chattr",
+    "kill", "pkill", "killall", "ssh", "scp", "sftp", "rsync", "nc", "ncat", "netcat", "telnet",
+    "curl", "wget", "mv", "cp", "apt", "apt-get", "aptitude", "dpkg", "yum", "dnf", "rpm", "apk",
+    "brew", "snap", "pacman", "mount", "umount", "crontab", "useradd", "userdel", "passwd",
+))
+# Running as another user is never allowed.
+PRIVILEGE_PROGRAMS = frozenset(("sudo", "su", "doas", "runas", "pkexec"))
+# Global installs change the machine, not the workspace.
+_GLOBAL_FLAGS = frozenset(("-g", "--global", "--location=global", "--system", "--user"))
+# Terraform commands that change or rewrite real infrastructure or its state.
+_TERRAFORM_DESTRUCTIVE = frozenset((
+    "apply", "destroy", "import", "state", "taint", "untaint", "force-unlock", "refresh", "workspace",
+))
+# find options that run or delete instead of listing.
+_FIND_ACTIONS = frozenset(("-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fls"))
+# Shell operators: an agent runs one command at a time, so chaining, piping, redirection,
+# background jobs and subshells are refused rather than guessed at.
+_SHELL_OPERATORS = frozenset(";&|<>`")
+_GLOB_CHARS = frozenset("*?[")
 
-# Tokens that make ANY command (including installs) unsafe: privilege escalation,
-# global installs, pipe-to-shell, network-exec.
-_HARD_BLOCK_TOKENS = (
-    "sudo ", " -g", "--global", "| bash", "|bash", "| sh", "|sh",
-    "curl ", "wget ", "$(", "`",
-)
+
+class ParsedCommand(NamedTuple):
+    """A command split into words exactly as a POSIX shell would, before any expansion."""
+    argv: List[str]
+    # For each word: True when it holds an unquoted *, ? or [ the runner expands as a file pattern.
+    globs: List[bool]
 
 
-def _is_hard_blocked(c: str) -> bool:
-    cc = f" {c} "
-    return any(tok in cc or tok in c for tok in _HARD_BLOCK_TOKENS)
+def parse_command(command: str) -> Optional[ParsedCommand]:
+    """Split a command into words, honouring single quotes, double quotes and backslashes.
+
+    Returns None when the command uses anything a single plain command does not need: an unquoted
+    ; & | < > or backtick, any $ expansion (unquoted or inside double quotes), a newline, or an
+    unterminated quote. Text inside quotes is data, so "git commit -m 'drop rm step'" is one
+    commit with one message, never the rm command.
+    """
+    text = (command or "").strip()
+    if not text or "\n" in text or "\r" in text or "\x00" in text:
+        return None
+    argv: List[str] = []
+    globs: List[bool] = []
+    word: List[str] = []
+    in_word = has_glob = False
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch in " \t":
+            if in_word:
+                argv.append("".join(word)); globs.append(has_glob)
+                word, in_word, has_glob = [], False, False
+            i += 1
+            continue
+        if ch == "'":
+            close = text.find("'", i + 1)
+            if close < 0:
+                return None
+            word.append(text[i + 1:close]); in_word = True
+            i = close + 1
+            continue
+        if ch == '"':
+            i += 1
+            while i < n and text[i] != '"':
+                c = text[i]
+                if c in "$`":
+                    return None
+                if c == "\\" and i + 1 < n and text[i + 1] in '"\\$`':
+                    word.append(text[i + 1]); i += 2
+                    continue
+                word.append(c); i += 1
+            if i >= n:
+                return None
+            in_word = True
+            i += 1
+            continue
+        if ch == "\\":
+            if i + 1 >= n:
+                return None
+            word.append(text[i + 1]); in_word = True
+            i += 2
+            continue
+        if ch in _SHELL_OPERATORS or ch == "$":
+            return None
+        if ch in _GLOB_CHARS:
+            has_glob = True
+        if ch == "~" and not in_word:
+            # Leading ~ is the agent's home; the runner expands it.
+            has_glob = True
+        word.append(ch); in_word = True
+        i += 1
+    if in_word:
+        argv.append("".join(word)); globs.append(has_glob)
+    return ParsedCommand(argv, globs) if argv else None
+
+
+def _program(word: str) -> str:
+    name = word.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    for suffix in (".exe", ".cmd", ".bat"):
+        if name.endswith(suffix):
+            name = name[: -len(suffix)]
+    return name
+
+
+def _dangerous_words(argv: List[str]) -> bool:
+    """The command itself (not text inside its arguments) is destructive, privileged or global."""
+    prog = _program(argv[0])
+    args = [a.lower() for a in argv[1:]]
+    if prog in PRIVILEGE_PROGRAMS or prog in DANGEROUS_PROGRAMS or prog.startswith("mkfs"):
+        return True
+    if prog in ("npm", "pnpm", "yarn", "pip", "pip3", "uv", "poetry", "bun") and any(
+            a in _GLOBAL_FLAGS for a in args):
+        return True
+    if prog == "git" and args:
+        sub = args[0]
+        if sub == "push" or (sub == "reset" and "--hard" in args):
+            return True
+        if sub in ("filter-branch", "filter-repo", "gc") and "--prune=now" in args:
+            return True
+    if prog == "terraform":
+        subs = [a for a in args if not a.startswith("-")]
+        if subs and subs[0] in _TERRAFORM_DESTRUCTIVE:
+            return True
+    return False
+
+
+def _risky_words(argv: List[str]) -> bool:
+    """Read-only commands that, with these arguments, change something and so need approval."""
+    prog = _program(argv[0])
+    args = [a.lower() for a in argv[1:]]
+    if prog == "find" and any(a in _FIND_ACTIONS for a in args):
+        return True
+    if prog == "git" and args:
+        sub, rest = args[0], args[1:]
+        if sub == "branch" and any(a in ("-d", "--delete", "-m", "--move", "-c", "--copy", "-f", "--force")
+                                   for a in rest):
+            return True
+        if sub == "remote" and rest and rest[0] not in ("-v", "--verbose", "show", "get-url"):
+            return True
+        if sub == "tag" and rest and rest[0] not in ("-l", "--list"):
+            return True
+        if sub == "stash" and rest and rest[0] not in ("list", "show"):
+            return True
+    return False
+
+
+def _git_add(argv: List[str]) -> bool:
+    if len(argv) < 3 or [a.lower() for a in argv[:2]] != ["git", "add"]:
+        return False
+    flags = {"-a", "--all", "-u", "--update", "-n", "--dry-run", "-v", "--verbose", "-n",
+             "--intent-to-add", "--"}
+    return all(a.lower() in flags or not a.startswith("-") for a in argv[2:])
+
+
+def _git_commit(argv: List[str]) -> bool:
+    """git commit [-a] -m <one message>: the message is data, whatever words it contains."""
+    words = [a.lower() for a in argv]
+    if words[:2] != ["git", "commit"]:
+        return False
+    rest = argv[2:]
+    if rest[:1] and rest[0].lower() in ("-a", "--all"):
+        rest = rest[1:]
+    return len(rest) == 2 and rest[0] in ("-m", "--message") and 0 < len(rest[1]) <= 500
 
 
 def classify_command(command: str) -> str:
     """
-    Classify a command:
-      'safe'      — read-only, runnable anywhere (Level 1).
-      'build'     — build/test of an approved workspace (Level 3).
-      'install'   — trusted project-local package install (PackageInstallPolicy).
-      'dangerous' — destructive/privilege/global/pipe-to-shell; always blocked.
-      'risky'     — anything else; requires approval.
+    Classify a command by the program it runs and that program's arguments, never by text that
+    happens to appear inside it ("terraform version" is not rm, "git add ." is not dd,
+    "pytest tests/test_capture.py" is not apt):
+      'safe'      - read-only, runnable anywhere (Level 1).
+      'build'     - build/test of an approved workspace (Level 3).
+      'install'   - trusted project-local package install (PackageInstallPolicy).
+      'dangerous' - destructive/privileged/global/network-fetch, or shell chaining,
+                    piping, redirection or expansion; always blocked.
+      'risky'     - anything else; requires approval.
     """
-    c = (command or "").strip().lower()
-    if not c:
+    parsed = parse_command(command)
+    if parsed is None:
         return "dangerous"
-    # Privilege / global / pipe-to-shell always block (even for package managers).
-    if _is_hard_blocked(c):
+    argv = parsed.argv
+    if _dangerous_words(argv):
         return "dangerous"
-    if _GIT_COMMIT_RE.match(c) or _GIT_ADD_RE.match(c):
+    if _risky_words(argv):
+        return "risky"
+    if _git_commit(argv) or _git_add(argv):
         return "build"
+    words = [_program(argv[0])] + [a.lower() for a in argv[1:]]
+    c = " ".join(words)
     if c == "yarn":
         return "install"
     terraform = _TERRAFORM_RE.match(c)
     if terraform:
-        # Matched before the destructive-token check: "terraform " itself contains "rm ".
         return {"init": "install", "version": "safe"}.get(terraform.group(1), "build")
     if _HELM_RE.match(c):
         if c.startswith("helm version"):
@@ -582,13 +731,9 @@ def classify_command(command: str) -> str:
     script = _SCRIPT_RE.match(c)
     if script and script.group(2) not in _PACKAGE_MANAGER_COMMANDS:
         return "build"
-    # Trusted local installs (checked before generic dangerous tokens).
     for pre in INSTALL_PREFIXES:
         if c == pre or c.startswith(pre + " "):
             return "install"
-    for tok in DANGEROUS_COMMAND_TOKENS:
-        if tok in c:
-            return "dangerous"
     for pre in SAFE_COMMAND_PREFIXES:
         if c == pre or c.startswith(pre + " ") or c == pre.split()[0]:
             return "safe"
@@ -596,6 +741,31 @@ def classify_command(command: str) -> str:
         if c == pre or c.startswith(pre + " "):
             return "build"
     return "risky"
+
+
+def command_argv(command: str, cwd: Optional[str] = None) -> Optional[List[str]]:
+    """The exact argument list a classified command runs with: no shell sits between the policy
+    and the process. Unquoted file patterns expand against the working directory the way a shell
+    would (a pattern with no match stays as written) and a leading ~ becomes the agent's home."""
+    parsed = parse_command(command)
+    if parsed is None:
+        return None
+    out: List[str] = []
+    base = Path(cwd) if cwd else Path.cwd()
+    for word, glob_word in zip(parsed.argv, parsed.globs):
+        if not glob_word:
+            out.append(word)
+            continue
+        if word.startswith("~"):
+            word = os.path.expanduser(word)
+        if any(ch in word for ch in _GLOB_CHARS):
+            pattern = word if os.path.isabs(word) else str(base / word)
+            matches = sorted(globlib.glob(pattern))
+            if matches:
+                out.extend(m if os.path.isabs(word) else os.path.relpath(m, base) for m in matches)
+                continue
+        out.append(word)
+    return out
 
 
 def needs_workspace(command: str) -> bool:

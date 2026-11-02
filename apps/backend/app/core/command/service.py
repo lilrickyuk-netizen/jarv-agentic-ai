@@ -127,6 +127,21 @@ def _maybe_uuid(value: Any) -> Optional[UUID]:
         return None
 
 
+def _known_for_mission(system_context: Optional[Dict[str, Any]]) -> str:
+    """What JARV recalled for this mission (workspace memory and verified lessons), as short lines."""
+    context = system_context or {}
+    lines: List[str] = []
+    for item in context.get("verified_lessons") or []:
+        lesson = str(item.get("lesson") or "").strip()
+        if lesson:
+            lines.append(f"- Lesson ({item.get('outcome') or 'verified'}): {lesson[:400]}")
+    for item in context.get("relevant_memory") or []:
+        content = str(item.get("content") or "").strip()
+        if content:
+            lines.append(f"- Memory ({item.get('type') or 'note'}): {content[:400]}")
+    return "\n".join(lines[:8])
+
+
 def classify_command_safety(command_text: str) -> SafetyDecision:
     """
     Deterministically classify whether a command needs an approval gate.
@@ -420,7 +435,7 @@ class CommandService:
 
             if intent == "agent_task":
                 answer, plan_steps, selected_agents, result_extra = (
-                    await self._handle_agent_task(db, runtime, command_text)
+                    await self._handle_agent_task(db, runtime, command_text, system_context)
                 )
                 total_tokens = result_extra.pop("agent_tokens", 0)
             elif intent == "launch_readiness":
@@ -1915,7 +1930,8 @@ class CommandService:
         return answer, steps, agents, {"infra_readiness": report, "workspace_path": root}
 
     async def _handle_agent_task(
-        self, db: AsyncSession, runtime: ToolRuntime, command_text: str
+        self, db: AsyncSession, runtime: ToolRuntime, command_text: str,
+        system_context: Optional[Dict[str, Any]] = None,
     ) -> tuple[str, List[str], List[str], Dict[str, Any]]:
         """Autonomous tool-using agent loop: inspect -> edit -> build/test -> iterate."""
         from app.core.command.agent_executor import AgentExecutor
@@ -1933,8 +1949,11 @@ class CommandService:
         root = await self._resolve_ws_root(db, command_text)
         max_cont = 4
         executor = AgentExecutor(runtime, self.model, root)
-        result = await executor.run(command_text, steps_per_round=8, max_continuations=max_cont)
+        result = await executor.run(command_text, steps_per_round=8, max_continuations=max_cont,
+                                    known=_known_for_mission(system_context))
         extra: Dict[str, Any] = {
+            "agent_tools": result.get("tools", []),
+            "verification": result.get("verification"),
             "agent_iterations": result["iterations"],
             "agent_success": result["success"],
             "agent_needs_continuation": result["needs_continuation"],
@@ -1954,7 +1973,10 @@ class CommandService:
             # the same workspace. Auto-continuation already ran up to the cap.
             checkpoint_id = str(uuid4())
             extra["checkpoint_id"] = checkpoint_id
+            unmet = (result.get("verification") or {}).get("unmet") or []
             extra["final_status_reason"] = (
+                "The independent check found work still to do: " + "; ".join(unmet)[:800]
+                if result.get("finished") and unmet else
                 "Reached the auto-continuation cap; checkpoint saved. Resume continues "
                 "the SAME task in the SAME workspace (prior work preserved on disk).")
             await self._feed(db, runtime.workspace_id, runtime.task_id, item_type="checkpoint",
@@ -1967,7 +1989,13 @@ class CommandService:
                               success=True, target_id=str(runtime.task_id),
                               metadata={"checkpoint_id": checkpoint_id, "resume_from_step": result["resume_from_step"]})
 
-        if result["needs_continuation"]:
+        verification = result.get("verification") or {}
+        if result["needs_continuation"] and result.get("finished"):
+            head = (f"**Autonomous engineering run — the agent finished, but the independent check found "
+                    f"work still to do** ({result['iterations']} steps, {len(runtime.calls)} tool calls). "
+                    f"JARV carries on with it automatically; checkpoint `{extra['checkpoint_id'][:8]}`.\n\n"
+                    f"- Workspace: `{root}`\n\n**Progress so far:**\n")
+        elif result["needs_continuation"]:
             head = (f"**Autonomous engineering run — NEEDS CONTINUATION** "
                     f"(not complete; {result['iterations']} steps, "
                     f"{result['continuation_count']} continuations, {len(runtime.calls)} tool calls).\n\n"
@@ -1977,7 +2005,7 @@ class CommandService:
                     f"- Workspace: `{root}`\n\n**Progress so far:**\n")
         else:
             head = (f"**Autonomous engineering run "
-                    f"({'succeeded' if result['success'] else 'incomplete'}, "
+                    f"({'succeeded and independently verified' if result['success'] and verification.get('verified') else 'succeeded' if result['success'] else 'incomplete'}, "
                     f"{result['iterations']} steps, {result['continuation_count']} continuations, "
                     f"{len(runtime.calls)} tool calls).**\n\n"
                     + (f"_Workspace:_ `{root}`\n\n" if root else
