@@ -13488,3 +13488,15 @@ TESTS RUN: Owner run by install-ball.sh: tsc --noEmit and jest in node:20.
 RESULT: Committed by the owner's script only after both pass.
 BLOCKERS: None.
 NEXT TASK: Upgrade 3 (Artifact Intelligence Graph).
+
+TASK ID: UI-FIELD-BRIGHT
+TASK NAME: Swarm field brighter, every light on
+STATUS: COMPLETE
+PROBLEM: Richard (2 Nov 2026): it needs to be brighter, every light on.
+FILES MODIFIED:
+- apps/dashboard/src/components/cockpit-core.tsx (every light stays at 85% or more of full brightness (it was as low as about 20%): the rings and heartbeat only lift lights higher; edge dimming removed; each light 1.6 times as bright and drawn with a fuller glow; lights larger (0.55 to 1.15 from 0.3 to 0.9); a little more white in every light)
+COMMANDS RUN: None locally.
+TESTS RUN: Owner run by install-bright.sh: tsc --noEmit and jest in node:20.
+RESULT: Committed by the owner's script only after both pass.
+BLOCKERS: None.
+NEXT TASK: Upgrade 3 (Artifact Intelligence Graph).
