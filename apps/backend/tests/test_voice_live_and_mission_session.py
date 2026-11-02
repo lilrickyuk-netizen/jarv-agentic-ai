@@ -478,3 +478,83 @@ def test_voice_answers_from_jarvs_memory_and_missions_never_another_owners(voice
     assert "f0a60a1" in seen["content"] and "eu-west-2" in seen["content"] and "Stranger" not in seen["content"]
     assert "Answer only from the facts given" in seen["system"]
     assert approvals["count"] == 0 and "never by voice" in approvals["note"]
+
+
+@pytest.mark.api
+def test_talk_with_jarv_carries_on_from_the_last_conversation(client, voice, monkeypatch):  # noqa: F811
+    """Every Talk with JARV began as a new conversation with no memory of the last. Both sides of each spoken
+    turn are now kept per operator (secrets redacted) and open the next session, oldest first; another
+    operator's conversation is never included."""
+    async def seed():
+        async with AsyncTestingSessionLocal() as db:
+            return await _seed(db)
+
+    owner, _ws = _run(seed())
+    stranger, _other = _run(seed())
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "sk-test-not-real")
+    voice["routes"][("POST", live.REALTIME_SECRETS)] = lambda r, b: httpx.Response(
+        200, json={"value": "ek_test", "expires_at": 1893456000})
+    try:
+        app.dependency_overrides[get_current_user_id] = lambda: str(stranger)
+        client.post("/api/voice/live/turn", json={"who": "you", "text": "Stranger's private plan."})
+        app.dependency_overrides[get_current_user_id] = lambda: str(owner)
+        kept = [client.post("/api/voice/live/turn", json=turn) for turn in (
+            {"who": "you", "text": "MYCO is being built, not launched: no AWS in Phase 0."},
+            {"who": "jarv", "text": "Understood, Phase 0 stays offline."},
+            {"who": "you", "text": "My key is sk-abcdefghijklmnopqrstuvwxyz123456"})]
+        bad = client.post("/api/voice/live/turn", json={"who": "system", "text": "x"})
+        started = client.post("/api/voice/live/session")
+    finally:
+        app.dependency_overrides.pop(get_current_user_id, None)
+
+    assert all(r.status_code == 200 and r.json()["kept"] for r in kept) and bad.status_code == 422
+    assert started.status_code == 200, started.text
+    instructions = json.loads(voice["requests"][-1][1])["session"]["instructions"]
+    assert "YOUR RECENT CONVERSATION WITH RICHARD" in instructions
+    first = instructions.index("Richard: MYCO is being built, not launched")
+    assert first < instructions.index("JARV: Understood, Phase 0 stays offline.")
+    assert "sk-abcdefghijklmnopqrstuvwxyz123456" not in instructions
+    assert "Stranger's private plan." not in instructions
+
+
+def test_a_running_mission_is_described_from_its_own_activity(monkeypatch):
+    """Asked how the running correction mission was going, JARV said it had committed and passed its tests:
+    that was the previous mission's report. A running mission is now marked in_progress with its own latest
+    activity, and the answer must come from that."""
+    from app.core.providers import CompletionResponse
+    from app.models.company_operations import LiveOperationsFeedItem
+
+    seen = {}
+
+    class Router:
+        async def complete(self, request):
+            seen["system"], seen["content"] = request.system, request.messages[0].content
+            return CompletionResponse(id="r", model="test", content="It is still editing the Taskfile.",
+                                      usage={"total_tokens": 1}, tool_calls=[])
+
+    monkeypatch.setattr("app.core.providers.get_router", lambda: Router())
+
+    async def run():
+        async with AsyncTestingSessionLocal() as db:
+            owner, ws_id = await _seed(db)
+            db.add(Task(id=uuid4(), workspace_id=ws_id, title="Align Phase 0", task_type="command",
+                        status="completed", priority=5, meta_data={},
+                        result={"response": "Committed f0a60a1; tests passed."}))
+            running = Task(id=uuid4(), workspace_id=ws_id, title="Correct MYCO Phase 0", task_type="command",
+                           status="running", priority=5, meta_data={}, result={})
+            db.add(running)
+            await db.flush()
+            now = datetime.now(timezone.utc)
+            db.add(LiveOperationsFeedItem(id=uuid4(), workspace_id=ws_id, item_type="tool", severity="info",
+                                          title="Tool: write_file", message="wrote Taskfile.yml",
+                                          related_task_id=running.id, requires_action=False,
+                                          created_at=now, updated_at=now))
+            await db.commit()
+            return await live.run_tool(db, owner, "ask_jarv", {"question": "How's the correction mission going?"})
+
+    answer = _run(run())
+    assert answer["answer"] == "It is still editing the Taskfile."
+    facts = json.loads(seen["content"].split("Facts:\n", 1)[1])
+    running = next(m for m in facts["recent_missions"] if m["status"] == "running")
+    assert running["in_progress"] is True and any("wrote Taskfile.yml" in a for a in running["latest_activity"])
+    assert "never from another mission's last_report" in seen["system"]

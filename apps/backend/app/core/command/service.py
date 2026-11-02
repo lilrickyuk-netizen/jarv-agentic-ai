@@ -376,8 +376,12 @@ class CommandService:
             execution_time=time.time() - start,
         )
 
-    async def run_task(self, db: AsyncSession, task: Task) -> CommandResult:
-        """Execute a mission that has already been claimed (status ``running``)."""
+    async def run_task(self, db: AsyncSession, task: Task, *,
+                       pause_on_provider_error: bool = False) -> CommandResult:
+        """Execute a mission that has already been claimed (status ``running``).
+
+        With ``pause_on_provider_error`` (the mission runner), an AI provider outage is raised to the
+        runner, which pauses the mission to be carried on instead of failing it."""
         start = time.time()
         meta = task.meta_data or {}
         self.operator = meta.get("operator") or getattr(self, "operator", None) or "operator"
@@ -654,6 +658,12 @@ class CommandService:
             )
 
         except Exception as exc:  # noqa: BLE001 - surface real failure on the task
+            from app.core.providers.base import ProviderError
+
+            if pause_on_provider_error and isinstance(exc, ProviderError):
+                # The AI provider stopped answering (connection, rate limit, credit): the runner pauses the
+                # mission so it can be carried on; it is not a failure of the mission itself.
+                raise
             logger.error(f"Command execution failed: {exc}", exc_info=True)
             await self._finish(db, task, lifecycle.FAILED, str(exc))
             task.error_message = str(exc)

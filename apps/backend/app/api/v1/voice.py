@@ -55,6 +55,11 @@ class LiveToolRequest(BaseModel):
     arguments: Dict[str, Any] = Field(default_factory=dict)
 
 
+class LiveTurnRequest(BaseModel):
+    who: str = Field(..., pattern="^(you|jarv)$")
+    text: str = Field(..., min_length=1, max_length=4000)
+
+
 class VoiceStatusRequest(BaseModel):
     status_type: str
     details: Optional[str] = None
@@ -201,6 +206,12 @@ async def live_session(user_id: CurrentUserId, db: AsyncSession = Depends(get_db
         raise HTTPException(status_code=503, detail=str(exc))
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
+
+
+@router.post("/live/turn")
+async def live_turn(request: LiveTurnRequest, user_id: CurrentUserId) -> Dict[str, Any]:
+    """Keep one spoken turn so the next conversation carries on from this one."""
+    return await live.remember_turn(UUID(str(user_id)), request.who, request.text)
 
 
 @router.post("/live/tool")

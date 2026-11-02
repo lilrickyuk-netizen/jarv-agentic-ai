@@ -183,12 +183,21 @@ class MissionRunner:
                     from app.core.command import CommandService
 
                     service = CommandService(model=meta.get("model"))
-                    outcome = (await service.run_task(db, task)).to_dict()
+                    outcome = (await service.run_task(db, task, pause_on_provider_error=True)).to_dict()
             except Exception as exc:  # noqa: BLE001 - recorded on the mission, never swallowed silently
-                logger.error(f"mission {task_id} crashed: {exc}", exc_info=True)
+                from app.core.providers.base import ProviderError
+
                 await db.rollback()
-                await self._fail(task_id, f"Mission runner error: {exc}")
-                outcome = {"task_id": str(task_id), "status": lifecycle.FAILED, "error": str(exc)}
+                if isinstance(exc, ProviderError):
+                    # The AI provider stopped answering (connection dropped, rate limit, no credit): the work
+                    # so far is on disk, so the mission pauses to be carried on, it does not fail.
+                    logger.warning(f"mission {task_id} paused: AI provider unavailable: {exc}")
+                    await self._pause_for_provider(task_id, str(exc))
+                    outcome = {"task_id": str(task_id), "status": lifecycle.PARTIAL, "error": str(exc)}
+                else:
+                    logger.error(f"mission {task_id} crashed: {exc}", exc_info=True)
+                    await self._fail(task_id, f"Mission runner error: {exc}")
+                    outcome = {"task_id": str(task_id), "status": lifecycle.FAILED, "error": str(exc)}
             finally:
                 heartbeat.cancel()
                 try:
@@ -200,6 +209,22 @@ class MissionRunner:
         outcome["claimed"] = True
         outcome["continued"] = await self._auto_continue(task_id)
         return outcome
+
+    async def _pause_for_provider(self, task_id: UUID, error: str) -> None:
+        reason = ("Paused: the AI provider stopped answering (" + error[:300] + "). The work so far is in the "
+                  "workspace folder. Check the provider (connection, rate limit or credit), then Carry on.")
+        async with self.session_factory() as db:
+            task = (await db.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
+            if task is None or not lifecycle.can_transition(task.status, lifecycle.PARTIAL):
+                return
+            lifecycle.transition(task, lifecycle.PARTIAL, reason=reason, actor=self.worker_id)
+            result = task.result if isinstance(task.result, dict) else {}
+            task.result = {**result, "final_status_reason": reason, "provider_unavailable": True,
+                           "response": str(result.get("response") or "") + ("\n\n" if result.get("response") else "")
+                           + reason}
+            task.error_message = reason[:4000]
+            _feed(db, task, "Mission paused: AI provider unavailable", reason, severity="warning")
+            await db.commit()
 
     async def _fail(self, task_id: UUID, reason: str) -> None:
         async with self.session_factory() as db:

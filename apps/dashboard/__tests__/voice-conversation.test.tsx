@@ -100,6 +100,11 @@ describe('VoiceConversation', () => {
     expect(screen.getByText('Hello Richard, what do you need?')).toBeInTheDocument();
     expect(screen.getByText('What changed in MYCO this week?')).toBeInTheDocument();
     expect(onStateChange).toHaveBeenCalledWith('listening');
+    // Both sides are kept, so the next conversation carries on from this one.
+    expect(mockPosts).toContainEqual({ path: '/api/voice/live/turn',
+      body: { who: 'jarv', text: 'Hello Richard, what do you need?' } });
+    expect(mockPosts).toContainEqual({ path: '/api/voice/live/turn',
+      body: { who: 'you', text: 'What changed in MYCO this week?' } });
 
     await waitFor(() => expect(mockPosts).toContainEqual({ path: '/api/voice/live/tool', body: {
       name: 'start_mission', arguments: { instruction: 'Summarise what changed in MYCO this week', workspace: 'MYCO' } } }));
