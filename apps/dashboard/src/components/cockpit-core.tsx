@@ -73,6 +73,7 @@ const SWARM_VERTEX = `
   uniform float uRing;
   uniform float uBeat;
   uniform float uHue;
+  uniform float uTalk;
   uniform vec3 uCentre;
   uniform vec3 uColor;
   uniform float uSpectrum;
@@ -82,6 +83,11 @@ const SWARM_VERTEX = `
   // Blues only: deep blue through electric blue to pale blue.
   vec3 spectrum(float t) {
     return mix(vec3(0.10, 0.30, 1.00), vec3(0.55, 0.80, 1.00), 0.5 + 0.5 * cos(6.28318 * t));
+  }
+
+  // While JARV talks: cyan, violet, magenta and teal flowing through the swarm.
+  vec3 talking(float t) {
+    return vec3(0.50, 0.50, 0.80) + vec3(0.50, 0.45, 0.20) * cos(6.28318 * (t + vec3(0.00, 0.33, 0.67)));
   }
 
   mat3 turn(vec3 axis, float angle) {
@@ -114,7 +120,8 @@ const SWARM_VERTEX = `
 
     // Colour rings move outward with the light.
     float hue = rad * 0.6 - uHue + glowRing * 0.1;
-    vColor = mix(uColor, spectrum(hue), clamp(uSpectrum + uAudio * 0.6, 0.0, 1.0));
+    vec3 calm = mix(uColor, spectrum(hue), clamp(uSpectrum + uAudio * 0.6, 0.0, 1.0));
+    vColor = mix(calm, talking(hue * 1.5 + rad * 0.4), uTalk);
 
     gl_PointSize = aSize * uPixelRatio * (1.1 + glowRing * 0.45 + uAudio * 0.8) * (16.0 / -mv.z);
     gl_Position = projectionMatrix * mv;
@@ -172,6 +179,7 @@ function swarmMaterial(map: THREE.Texture, color: THREE.Color, options: { white:
       uRing: { value: 0 },
       uBeat: { value: 0 },
       uHue: { value: 0 },
+      uTalk: { value: 0 },
       uCentre: { value: new THREE.Vector3() },
       uColor: { value: color },
       uSpectrum: { value: options.spectrum },
@@ -295,6 +303,7 @@ export function CockpitCore({ state }: { state: CoreState }) {
     let ringPhase = 0;
     let beatPhase = 0;
     let huePhase = 0;
+    let talk = 0;
     let frame = 0;
     const animate = () => {
       frame = window.requestAnimationFrame(animate);
@@ -317,8 +326,11 @@ export function CockpitCore({ state }: { state: CoreState }) {
         spin += delta * (0.3 + audioLevel * 0.15);
         ringPhase += delta * (2.0 + audioLevel * 1.6);
         beatPhase += delta * (1.2 + audioLevel * 0.8);
-        huePhase += delta * (0.05 + audioLevel * 0.06);
+        huePhase += delta * (0.05 + audioLevel * 0.06 + talk * 0.12);
       }
+      // Colour changes while JARV talks: it fades into the talking colours over about a second and back to blue after.
+      const talkTarget = !reducedMotion && current === 'speaking' ? 0.65 + audioLevel * 0.35 : 0;
+      talk += (talkTarget - talk) * Math.min(delta * 1.4, 1);
       // The whole body travels slowly around the field.
       centre.set(Math.sin(flowTime * 0.12) * 0.25, Math.sin(flowTime * 0.1 + 1.3) * 0.12, 0);
       // The whole swarm gathers or opens together, smoothly, and swells with each word JARV says.
@@ -333,6 +345,7 @@ export function CockpitCore({ state }: { state: CoreState }) {
         material.uniforms.uRing.value = ringPhase;
         material.uniforms.uBeat.value = beatPhase;
         material.uniforms.uHue.value = huePhase;
+        material.uniforms.uTalk.value = talk;
         (material.uniforms.uCentre.value as THREE.Vector3).copy(centre);
       });
 
