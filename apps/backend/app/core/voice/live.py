@@ -70,6 +70,22 @@ TOOLS: List[Dict[str, Any]] = [
          "workspace": {"type": "string", "description": "Workspace name."},
          "path": {"type": "string", "description": "File path inside the workspace, e.g. docs/MYCO-V3-spec.md."}},
          "required": ["workspace", "path"], "additionalProperties": False}},
+    {"type": "function", "name": "ask_jarv",
+     "description": "Ask JARV's own reasoning core a question about Richard's projects, missions, decisions, "
+                    "progress or plans. It answers from JARV's memory, verified lessons, recent missions and "
+                    "what waits for approval, so use it for anything you would otherwise guess.",
+     "parameters": {"type": "object", "properties": {
+         "question": {"type": "string", "description": "The question in Richard's words, with every detail."},
+         "workspace": _NO_WORKSPACE},
+         "required": ["question"], "additionalProperties": False}},
+    {"type": "function", "name": "search_memory",
+     "description": "What JARV remembers about a subject (decisions, facts, preferences, past work), best first.",
+     "parameters": {"type": "object", "properties": {
+         "query": {"type": "string", "description": "What to look for."}, "workspace": _NO_WORKSPACE},
+         "required": ["query"], "additionalProperties": False}},
+    {"type": "function", "name": "list_approvals",
+     "description": "What is waiting for Richard's decision on the Approvals page. Read-only: you never approve.",
+     "parameters": {"type": "object", "properties": {}, "additionalProperties": False}},
     {"type": "function", "name": "list_workspaces",
      "description": "Richard's workspaces (projects) by name.",
      "parameters": {"type": "object", "properties": {}, "additionalProperties": False}},
@@ -110,8 +126,10 @@ def instructions(spaces: List[Any]) -> str:
         "Speak naturally and warmly, like a capable chief of staff: short spoken sentences, no lists or markdown, "
         "British English. Let him interrupt; keep answers brief unless he asks for detail.\n"
         f"His workspaces: {projects}.\n"
-        "Answer questions and talk things through yourself. For anything about his projects or what JARV is "
-        "doing, use get_status, get_mission or list_workspaces rather than guessing. When he asks for work to "
+        "You are the voice of JARV's whole system, not a separate assistant: JARV's memory, missions, workspaces "
+        "and approvals are yours through your tools. Talk things through yourself, but for anything about his "
+        "projects, decisions, progress or what JARV is doing, use ask_jarv, search_memory, get_status, "
+        "get_mission, list_approvals or list_workspaces rather than guessing. When he asks for work to "
         "be done, say in one sentence what you'll do and call start_mission with his full request; JARV's agents "
         "then do the work and you'll receive a message beginning [mission update] when it finishes or pauses; "
         "tell him the outcome in a sentence or two. When he asks to continue, resume or carry on with a mission, "
@@ -246,6 +264,85 @@ async def _mission(db: AsyncSession, user_id: UUID, task_id: Optional[str]) -> D
             "result": str(summary)[:1500], "error": (task.error_message or "")[:300] or None}
 
 
+async def _memories(db: AsyncSession, user_id: UUID, query: str, workspace_id: Optional[UUID],
+                    limit: int = 8) -> List[Dict[str, Any]]:
+    """JARV's memories that match, from the named workspace or all of his, best first (never another owner's)."""
+    from app.core.jarv_memory import memory_service
+
+    scopes = [workspace_id] if workspace_id else [w.id for w in await _workspaces(db, user_id)]
+    hits: List[Any] = []
+    for scope in scopes:
+        hits += await memory_service.search_scored(db, query, limit=limit, workspace_id=scope)
+    hits.sort(key=lambda hit: hit.score, reverse=True)
+    return [{"content": str(hit.memory.content)[:600], "type": hit.memory.memory_type,
+             "category": hit.memory.memory_category, "score": round(hit.score, 3)} for hit in hits[:limit]]
+
+
+async def _approvals(db: AsyncSession, user_id: UUID) -> Dict[str, Any]:
+    from app.core.richard.workflow import RichardBoundaryWorkflow
+
+    pending = await RichardBoundaryWorkflow(db).list_pending_decisions(owner=user_id)
+    return {"count": len(pending), "waiting": [
+        {"action": str(item.get("action_description") or "")[:200], "type": item.get("boundary_type"),
+         "expires_at": item.get("expires_at")} for item in pending[:10]],
+        "note": "Richard approves these on the Approvals page; never by voice."}
+
+
+async def _recent_missions(db: AsyncSession, user_id: UUID, limit: int = 6) -> List[Dict[str, Any]]:
+    from app.core.scoping import owned_workspaces
+    from app.models.task import Task
+
+    rows = (await db.execute(select(Task).where(
+        Task.workspace_id.in_(owned_workspaces(user_id)), Task.task_type == "command")
+        .order_by(Task.created_at.desc()).limit(limit * 3))).scalars().all()
+    missions = []
+    for task in rows:
+        if (task.meta_data or {}).get("archived_at"):
+            continue
+        result = task.result if isinstance(task.result, dict) else {}
+        missions.append({"id": str(task.id)[:8], "title": (task.title or "")[:120], "status": task.status,
+                         "folder": result.get("workspace_path"),
+                         "report": str(result.get("response") or task.error_message or "")[:700]})
+        if len(missions) == limit:
+            break
+    return missions
+
+
+async def _ask_jarv(db: AsyncSession, user_id: UUID, question: str, workspace_id: Optional[UUID]) -> Dict[str, Any]:
+    """Answer from JARV's own memory, lessons, missions and approvals with JARV's reasoning model."""
+    import json
+
+    from app.core.command import CommandService
+    from app.core.learning import learning_service
+    from app.core.providers import CompletionRequest, Message, get_router
+
+    facts: Dict[str, Any] = {
+        "workspaces": [{"name": w.name, "folder": _root(w), "authority_level": w.authority_level}
+                       for w in await _workspaces(db, user_id)],
+        "recent_missions": await _recent_missions(db, user_id),
+        "waiting_for_approval": (await _approvals(db, user_id))["waiting"],
+        "memories": await _memories(db, user_id, question, workspace_id),
+    }
+    if workspace_id is not None:
+        try:
+            facts["verified_lessons"] = [
+                {"lesson": item["lesson"], "outcome": item["polarity"]} for item in
+                await learning_service.retrieve_lessons(db, workspace_id=workspace_id, agent_name="orchestrator",
+                                                        query=question, limit=3)]
+        except Exception:  # noqa: BLE001 - lessons are an addition, never a reason to fail the answer
+            facts["verified_lessons"] = []
+    service = CommandService()
+    response = await get_router().complete(CompletionRequest(
+        model=service.model, max_tokens=700, temperature=0.2,
+        system=("You are JARV's reasoning core answering Richard Curley's spoken question. Answer only from the "
+                "facts given (JARV's memory, missions, workspaces and approvals); when they do not contain the "
+                "answer, say so plainly and say what JARV would need to find out. Two to five spoken sentences, "
+                "British English, no lists or markdown."),
+        messages=[Message(role="user", content=f"Question: {question}\n\nFacts:\n{json.dumps(facts, default=str)}")]))
+    return {"answer": (response.content or "").strip() or "I could not form an answer from what I know.",
+            "missions_considered": len(facts["recent_missions"]), "memories_considered": len(facts["memories"])}
+
+
 def _best_to_resume(candidates: List[Any]) -> Optional[Any]:
     """The mission "carry on" means: one that works in a folder and is not archived, a mission that
     paused at its step limit before one that ended partial, the newest first. A mission without a
@@ -297,6 +394,20 @@ async def run_tool(db: AsyncSession, user_id: UUID, name: str, arguments: Dict[s
         output = await _mission(db, user_id, args.get("task_id"))
     elif name == "resume_mission":
         output = await _resume(db, user_id, args.get("task_id"))
+    elif name == "list_approvals":
+        output = await _approvals(db, user_id)
+    elif name in ("ask_jarv", "search_memory"):
+        workspace_id, problem = await _resolve_workspace(db, user_id, args.get("workspace"))
+        if problem:
+            output = {"error": problem}
+        elif name == "search_memory":
+            query = str(args.get("query") or "").strip()
+            output = {"memories": await _memories(db, user_id, query, workspace_id)} if query else \
+                {"error": "Say what to look for."}
+        else:
+            question = str(args.get("question") or "").strip()
+            output = await _ask_jarv(db, user_id, question, workspace_id) if question else \
+                {"error": "The question is empty."}
     elif name in ("get_status", "start_mission", "cancel_mission"):
         workspace_id, problem = await _resolve_workspace(db, user_id, args.get("workspace"))
         if problem:

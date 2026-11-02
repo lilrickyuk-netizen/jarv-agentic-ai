@@ -13146,7 +13146,7 @@ NEXT TASK: Richard sets MYCO's authority level and resumes the V3.2 Phase 0 miss
 
 TASK ID: FIX-MISSION-UI
 TASK NAME: The dashboard and voice show and act on the right mission; any mission can be closed or archived
-STATUS: IN_PROGRESS
+STATUS: COMPLETE
 PROBLEM: On the night of the V3.2 Phase 0 run the dashboard and voice reported the wrong mission: a stray mission voice had created (no folder, partial, "2 of 8 delegated steps failed") was newer than the real Phase 0 mission, so it was shown and resumed again and again while the real mission worked in the background. A partial mission could not be closed or hidden, and nothing on screen said which mission was which. Voice's get_mission also read the report from keys missions never write ("response_text", "output", "summary" instead of "response"), so it could not say what a mission had done.
 FILES CREATED: None.
 FILES MODIFIED:
@@ -13159,7 +13159,47 @@ FILES MODIFIED:
 - apps/backend/tests/test_repair12_mission_runtime.py (folder, close, archive and unarchive through the API; a running mission cannot be archived; an archived step-limited mission is cancelled and cannot be resumed; voice resumes the mission with a folder over a newer stray one and reports the stored result)
 - apps/dashboard/__tests__/command-page.test.tsx (mission identity shown; any mission opens; Close and Archive post to the API; Unarchive offered)
 COMMANDS RUN: python -m py_compile on the changed backend files: passed.
-TESTS RUN: Owner run of the PostgreSQL suite and the dashboard tests.
-RESULT: Awaiting the owner run.
+TESTS RUN: PostgreSQL suite (owner run): 747 passed, 1 failed (archive read updated_at after commit; fixed by reloading the mission), mission and voice tests rerun: 38 passed. Dashboard (owner run): tsc clean, 21 passed.
+RESULT: Passed.
 BLOCKERS: None.
 NEXT TASK: The root causes behind the night's failures (one mission engine with every tool, command policy that parses commands, independent verification before completion, token-efficient long missions); then the Phase 0 correction mission.
+
+---
+
+TASK ID: UPGRADE-QUEUE-1
+TASK NAME: Upgrades Richard approved, gated on JARV working as designed
+STATUS: NOT_STARTED
+GATE: Starts only after the dashboard/UI fixes, the root-cause fixes to JARV's mission engine, and JARV's correction of MYCO Phase 0 all pass, and JARV completes missions as designed without operator rescue.
+SCOPE (in this order unless Richard reorders):
+1. Deep specialist knowledge for all 31 agents.
+2. Knowledge-enhanced reasoning: expert references combined with model capabilities.
+3. Artifact Intelligence Graph: knowledge, decisions and outcomes connected.
+4. Synthesizer: coherent, evidence-backed conclusions.
+5. More efficient routing and proactive contextual intelligence, only where JARV's existing mechanisms demonstrably benefit (measured before and after).
+6. Rename JARV to JAI.
+7. User interface upgrade.
+FILES CREATED: None.
+FILES MODIFIED: None.
+COMMANDS RUN: None.
+TESTS RUN: None.
+RESULT: Recorded.
+BLOCKERS: The gate above.
+NEXT TASK: FIX-MISSION-UI owner test run.
+
+---
+
+TASK ID: FIX-VOICE-BRAIN
+TASK NAME: One voice: Talk with JARV, connected to JARV's memory, missions, approvals and reasoning
+STATUS: COMPLETE
+PROBLEM: The voice panel still offered push-to-talk and hands-free through the self-hosted Voicebox, which never answered in time ("Voicebox did not answer in time (ConnectTimeout)"), while Talk with JARV held a natural conversation. That conversation was a separate realtime model with eight tools: it could start and follow missions but knew nothing JARV remembered, had decided or had done, and could not see what waited for approval. Richard asked for the Voicebox controls to go and for Talk with JARV to connect to JARV's brain.
+FILES CREATED: None.
+FILES MODIFIED:
+- apps/dashboard/src/components/voice-operator.tsx (the panel is the live conversation only: push-to-talk, hands-free, wake-word and Voicebox controls removed; it shows whether Talk with JARV is ready and that approvals are never taken by voice)
+- apps/backend/app/core/voice/live.py (ask_jarv: answers with JARV's reasoning model from JARV's memory, verified lessons, recent missions with their reports and folders, workspaces and what waits for approval, and says so when those do not hold the answer; search_memory: JARV's memories across Richard's workspaces, best first, never another owner's; list_approvals: read-only; instructions: the voice is JARV's whole system and uses these instead of guessing)
+- apps/backend/tests/test_voice_live_and_mission_session.py (the session offers the new tools; ask_jarv answers from the owner's memory and mission report and never sees another owner's memory; search_memory scoping; list_approvals read-only)
+- apps/dashboard/__tests__/voice-operator.test.tsx (only Talk with JARV is offered; setup shown when unavailable)
+COMMANDS RUN: python -m py_compile on the changed backend files: passed.
+TESTS RUN: PostgreSQL suite (owner run): 749 passed, 1 skipped. Dashboard (owner run): tsc clean, 20 passed.
+RESULT: Passed.
+BLOCKERS: None. The Voicebox backend adapter and its Compose service (profile "voice") remain for anyone who runs it; nothing in the dashboard depends on it.
+NEXT TASK: The root causes behind the Phase 0 failures, then the Phase 0 correction mission.
