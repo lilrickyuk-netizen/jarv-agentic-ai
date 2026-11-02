@@ -13301,3 +13301,22 @@ TESTS RUN: Owner run pending.
 RESULT: Pending the owner's test run.
 BLOCKERS: None.
 NEXT TASK: Let the MYCO correction mission (8ca4f55a) finish, then review it against V3.2.
+
+TASK ID: FIX-DASHBOARD-LIVE-DOCK
+TASK NAME: The mission and Talk with JARV stay on screen on every page; leaving a page no longer reloads the dashboard
+STATUS: IN_PROGRESS
+PROBLEM: Richard: "every time I go off the dashboard page it refreshes and I don't know anything". Every link in the dashboard was a plain link, so each page change reloaded the whole site: the live conversation with JARV ended, and the mission panel, filled only for a mission started from that page, came back blank. There was no single place showing what the running mission was doing.
+FILES CREATED:
+- apps/dashboard/src/components/live-mission-dock.tsx (on every dashboard page: the mission being worked on, else the latest; status, folder, when JARV was last heard from, its latest actions with times, the outcome when it ends; Open missions and Approvals; Talk with JARV, kept mounted when hidden so the conversation carries on; restored from JARV's records after a reload)
+- apps/dashboard/__tests__/live-mission-dock.test.tsx (the running mission is shown with its heartbeat and latest action, not an old note; the conversation stays mounted when hidden; links inside the dashboard change page without reloading; the dock is on every page)
+FILES MODIFIED:
+- apps/dashboard/src/app/dashboard/layout.tsx (links inside the dashboard change page without reloading; the dock is part of the frame)
+- apps/dashboard/src/app/dashboard/page.tsx (Talk with JARV moved from the Command Center into the dock, so there is one conversation, not one per page)
+- apps/dashboard/src/components/voice-conversation.tsx (shows the conversation so far from JARV's records when it opens)
+- apps/backend/app/api/v1/voice.py (GET /api/voice/live/history: the operator's recent turns, oldest first)
+- apps/dashboard/__tests__/voice-conversation.test.tsx, apps/backend/tests/test_voice_live_and_mission_session.py (the conversation so far is shown; history is the operator's own)
+COMMANDS RUN: python ast parse and undefined-name check of the changed backend files: passed. The dashboard's packages are not installed in the build session, so its type-check and tests run on the owner's machine.
+TESTS RUN: Owner run pending.
+RESULT: Pending the owner's test run.
+BLOCKERS: None.
+NEXT TASK: Let the MYCO correction mission (8ca4f55a) finish, then review it against V3.2.

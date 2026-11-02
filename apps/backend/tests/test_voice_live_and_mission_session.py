@@ -504,6 +504,7 @@ def test_talk_with_jarv_carries_on_from_the_last_conversation(client, voice, mon
             {"who": "you", "text": "My key is sk-abcdefghijklmnopqrstuvwxyz123456"})]
         bad = client.post("/api/voice/live/turn", json={"who": "system", "text": "x"})
         started = client.post("/api/voice/live/session")
+        shown = client.get("/api/voice/live/history").json()["turns"]
     finally:
         app.dependency_overrides.pop(get_current_user_id, None)
 
@@ -516,6 +517,8 @@ def test_talk_with_jarv_carries_on_from_the_last_conversation(client, voice, mon
     assert first < instructions.index("JARV: Understood, Phase 0 stays offline.")
     assert "sk-abcdefghijklmnopqrstuvwxyz123456" not in instructions
     assert "Stranger's private plan." not in instructions
+    # The panel shows the same conversation after a reload, oldest first, only this operator's.
+    assert [t["who"] for t in shown] == ["you", "jarv", "you"] and shown[1]["text"].startswith("Understood")
 
 
 def test_a_running_mission_is_described_from_its_own_activity(monkeypatch):
