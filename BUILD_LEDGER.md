@@ -13163,3 +13163,25 @@ TESTS RUN: Owner run of the PostgreSQL suite and the dashboard tests.
 RESULT: Awaiting the owner run.
 BLOCKERS: None.
 NEXT TASK: The root causes behind the night's failures (one mission engine with every tool, command policy that parses commands, independent verification before completion, token-efficient long missions); then the Phase 0 correction mission.
+
+---
+
+TASK ID: UPGRADE-QUEUE-1
+TASK NAME: Upgrades Richard approved, gated on JARV working as designed
+STATUS: NOT_STARTED
+GATE: Starts only after the dashboard/UI fixes, the root-cause fixes to JARV's mission engine, and JARV's correction of MYCO Phase 0 all pass, and JARV completes missions as designed without operator rescue.
+SCOPE (in this order unless Richard reorders):
+1. Deep specialist knowledge for all 31 agents.
+2. Knowledge-enhanced reasoning: expert references combined with model capabilities.
+3. Artifact Intelligence Graph: knowledge, decisions and outcomes connected.
+4. Synthesizer: coherent, evidence-backed conclusions.
+5. More efficient routing and proactive contextual intelligence, only where JARV's existing mechanisms demonstrably benefit (measured before and after).
+6. Rename JARV to JAI.
+7. User interface upgrade.
+FILES CREATED: None.
+FILES MODIFIED: None.
+COMMANDS RUN: None.
+TESTS RUN: None.
+RESULT: Recorded.
+BLOCKERS: The gate above.
+NEXT TASK: FIX-MISSION-UI owner test run.
