@@ -1,5 +1,5 @@
 """
-JARV Backend - Support API
+JAI Backend - Support API
 
 The workspace's support inbox on persisted tickets (app.core.business.support):
 create tickets (including from an inbound email webhook), list and read them,

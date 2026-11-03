@@ -1,5 +1,5 @@
 """
-JARV Backend - Authentication Tests
+JAI Backend - Authentication Tests
 
 Tests for authentication endpoints and utilities.
 """

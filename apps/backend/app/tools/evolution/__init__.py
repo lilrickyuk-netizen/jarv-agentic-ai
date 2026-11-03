@@ -1,5 +1,5 @@
 """
-JARV Backend - Self-evolution tools (Repair 12e-3d)
+JAI Backend - Self-evolution tools (Repair 12e-3d)
 
 propose_rule_improvement, propose_runbook_improvement,
 propose_agent_instruction_update, propose_tool_selection_update,

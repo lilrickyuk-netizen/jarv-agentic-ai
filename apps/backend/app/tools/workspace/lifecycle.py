@@ -1,5 +1,5 @@
 """
-JARV Backend - Workspace lifecycle tools (Repair 12e-3c)
+JAI Backend - Workspace lifecycle tools (Repair 12e-3c)
 
 create_workspace, import_folder_workspace, import_repository_workspace,
 import_document_pack_workspace, import_live_platform_workspace,
@@ -11,7 +11,7 @@ app.core.workspaces.lifecycle: folders stay inside the approved workspace
 root, new workspaces never get more authority than the calling workspace,
 changes to protected rules (safety, boundary, authority, security, logging,
 audit, verification, secrets) pause for Richard's approval, and deleting a
-workspace removes JARV's records only, never files.
+workspace removes JAI's records only, never files.
 """
 from __future__ import annotations
 
@@ -116,7 +116,7 @@ class _Roadmap(BaseModel):
 
 class _Checklist(BaseModel):
     items: Optional[List[Any]] = Field(None, description="{title, status, evidence} by title")
-    refresh: bool = Field(True, description="Re-verify the checks JARV can confirm from files and the live URL")
+    refresh: bool = Field(True, description="Re-verify the checks JAI can confirm from files and the live URL")
     workspace_id: Optional[str] = None
 
 
@@ -243,7 +243,7 @@ class UpdateRoadmapTool(_LifecycleTool):
 
 class UpdateLaunchChecklistTool(_LifecycleTool):
     _name = "update_launch_checklist"
-    _description = ("Update the launch checklist and re-verify what JARV can confirm itself (README, env "
+    _description = ("Update the launch checklist and re-verify what JAI can confirm itself (README, env "
                     "template, tests, container build, CI, licence, live site, HTTPS).")
     _input = _Checklist
 

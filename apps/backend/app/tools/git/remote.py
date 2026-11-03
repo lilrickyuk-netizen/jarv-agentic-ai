@@ -1,5 +1,5 @@
 """
-JARV Backend - Git Remote Tools
+JAI Backend - Git Remote Tools
 
 Git remote operations: push, pull, fetch.
 """

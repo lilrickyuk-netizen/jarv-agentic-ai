@@ -54,9 +54,9 @@ function glowTexture(): THREE.CanvasTexture {
 
 /**
  * Every light is moved on the graphics card, and every one follows the same rules, so the swarm moves as one
- * coordinated body: it gathers into a small ball or opens into a big one together (uRadius, set from JARV's state
+ * coordinated body: it gathers into a small ball or opens into a big one together (uRadius, set from JAI's state
  * and voice), turns as one with the inner lights wheeling a little faster than the outer, and carries rings of light
- * and colour that travel outward through it in step. JARV's voice (uAudio) swells the ball and sends faster rings
+ * and colour that travel outward through it in step. JAI's voice (uAudio) swells the ball and sends faster rings
  * through it with every word.
  */
 const SWARM_VERTEX = `
@@ -85,7 +85,7 @@ const SWARM_VERTEX = `
     return mix(vec3(0.10, 0.30, 1.00), vec3(0.55, 0.80, 1.00), 0.5 + 0.5 * cos(6.28318 * t));
   }
 
-  // While JARV talks: greens, from deep emerald to bright lime, flowing through the swarm.
+  // While JAI talks: greens, from deep emerald to bright lime, flowing through the swarm.
   vec3 talking(float t) {
     return mix(vec3(0.05, 0.72, 0.32), vec3(0.55, 1.00, 0.45), 0.5 + 0.5 * cos(6.28318 * t));
   }
@@ -105,7 +105,7 @@ const SWARM_VERTEX = `
     float angle = uSpin + (1.0 - rad) * 0.9 * sin(uTime * 0.25);
     vec3 p = turn(axis, angle) * aHome;
 
-    // Rings travelling outward through the body, in step; faster and deeper while JARV speaks.
+    // Rings travelling outward through the body, in step; faster and deeper while JAI speaks.
     float ring = sin(rad * 9.0 - uRing);
     p *= uRadius * (1.0 + ring * (0.035 + uAudio * 0.07));
     p += uCentre;
@@ -247,7 +247,7 @@ export function CockpitCore({ state }: { state: CoreState }) {
     resizeObserver.observe(mount);
     resize();
 
-    // JARV's voice: an analyser on the live voice stream gives the loudness the swarm moves with.
+    // JAI's voice: an analyser on the live voice stream gives the loudness the swarm moves with.
     let audioContext: AudioContext | null = null;
     let analyser: AnalyserNode | null = null;
     let source: MediaStreamAudioSourceNode | null = null;
@@ -288,7 +288,7 @@ export function CockpitCore({ state }: { state: CoreState }) {
         }
         return Math.min(1, Math.sqrt(sum / samples.length) * 4.5);
       }
-      // No analysable stream (the browser blocked it): a speech-like rhythm while JARV speaks.
+      // No analysable stream (the browser blocked it): a speech-like rhythm while JAI speaks.
       return speaking ? 0.35 + 0.3 * Math.abs(Math.sin(time * 7.3) * Math.sin(time * 2.9 + 1.1)) : 0;
     };
 
@@ -318,7 +318,7 @@ export function CockpitCore({ state }: { state: CoreState }) {
       audioLevel += (level - audioLevel) * Math.min(delta * (level > audioLevel ? 3.5 : 1.2), 1);
       const beat = current === 'approval' ? 0.5 + 0.5 * Math.sin(time * 1.4) : active ? 0.5 + 0.5 * Math.sin(time * 3.2) : 0;
       pulse += ((reducedMotion ? 0 : beat) - pulse) * Math.min(delta * 6, 1);
-      // The swarm's own clock runs faster while JARV works and faster again while it speaks.
+      // The swarm's own clock runs faster while JAI works and faster again while it speaks.
       flowTime += reducedMotion ? 0 : delta * ((active ? 0.9 : 0.6) + audioLevel * 0.35);
 
       if (!reducedMotion) {
@@ -328,12 +328,12 @@ export function CockpitCore({ state }: { state: CoreState }) {
         beatPhase += delta * (1.2 + audioLevel * 0.8);
         huePhase += delta * (0.05 + audioLevel * 0.06 + talk * 0.12);
       }
-      // Colour changes while JARV talks: it fades into the talking colours over about a second and back to blue after.
+      // Colour changes while JAI talks: it fades into the talking colours over about a second and back to blue after.
       const talkTarget = !reducedMotion && current === 'speaking' ? 0.65 + audioLevel * 0.35 : 0;
       talk += (talkTarget - talk) * Math.min(delta * 1.4, 1);
       // The whole body travels slowly around the field.
       centre.set(Math.sin(flowTime * 0.12) * 0.25, Math.sin(flowTime * 0.1 + 1.3) * 0.12, 0);
-      // The whole swarm gathers or opens together, smoothly, and swells with each word JARV says.
+      // The whole swarm gathers or opens together, smoothly, and swells with each word JAI says.
       const targetRadius = stateRadius[current] + audioLevel * 0.4 + pulse * 0.05;
       radius += (targetRadius - radius) * Math.min(delta * (targetRadius > radius ? 1.5 : 0.9), 1);
       materials.forEach((material) => {
@@ -367,5 +367,5 @@ export function CockpitCore({ state }: { state: CoreState }) {
     };
   }, []);
 
-  return <div ref={mountRef} className="core-canvas" role="img" aria-label={`Intelligence field: a swarm of 90,000 lights moving together with JARV. Current state: ${state}.`} data-state={state} />;
+  return <div ref={mountRef} className="core-canvas" role="img" aria-label={`Intelligence field: a swarm of 90,000 lights moving together with JAI. Current state: ${state}.`} data-state={state} />;
 }

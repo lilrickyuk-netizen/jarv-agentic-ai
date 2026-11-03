@@ -1,5 +1,5 @@
 """
-JARV Backend - Live Operations Feed API
+JAI Backend - Live Operations Feed API
 
 RESTful API endpoints for live operations feed and real-time updates.
 """

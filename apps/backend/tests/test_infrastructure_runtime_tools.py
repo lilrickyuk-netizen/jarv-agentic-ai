@@ -133,7 +133,7 @@ def test_cloud_provision_is_left_to_richard_and_creates_no_resource():
             return result, resources
 
     result, resources = asyncio.run(run())
-    assert result.success is False  # JARV does not open cloud accounts or buy resources: Richard's boundary
+    assert result.success is False  # JAI does not open cloud accounts or buy resources: Richard's boundary
     assert "account setup and spending are hard boundaries" in result.error_message
     assert resources == []
 

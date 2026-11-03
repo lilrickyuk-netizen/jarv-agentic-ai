@@ -1,12 +1,12 @@
 """
-JARV Backend - Voice engine (Repair 12e-4c)
+JAI Backend - Voice engine (Repair 12e-4c)
 
 Speech in, speech out, the wake phrase, and voice commands, on real backends:
 
 - Speech-to-text: the self-hosted Voicebox service (local, free) when
   VOICEBOX_BASE_URL is set, otherwise OpenAI transcription when OPENAI_API_KEY
   is set. STT_PROVIDER picks one explicitly (auto, voicebox, openai).
-- Text-to-speech: Voicebox with the JARV voice profile, ElevenLabs
+- Text-to-speech: Voicebox with the JAI voice profile, ElevenLabs
   (ELEVENLABS_API_KEY) or OpenAI speech. TTS_PROVIDER picks one (auto,
   voicebox, elevenlabs, openai). Audio is written to VOICE_AUDIO_DIR with its
   owner and served only to that owner.
@@ -179,8 +179,8 @@ async def transcribe(audio: bytes, *, filename: str = "speech.wav", language: st
                                              headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
                                              data={"model": getattr(settings, "OPENAI_STT_MODEL", "whisper-1"),
                                                    "language": lang, "response_format": "json",
-                                                   # Spells JARV's name for the recogniser.
-                                                   "prompt": "JARV, talk to me."},
+                                                   # Spells JAI's name for the recogniser.
+                                                   "prompt": "JAI, talk to me."},
                                              files={"file": (filename, audio, mime)})
     except httpx.HTTPError as exc:
         raise RuntimeError(_unreachable(backend, exc)) from exc
@@ -233,7 +233,7 @@ async def _voicebox_profile() -> Optional[str]:
 async def _voicebox_speech(client: httpx.AsyncClient, text: str, language: str) -> tuple[bytes, str]:
     profile = await _voicebox_profile()
     if not profile:
-        raise VoiceUnavailable("Voicebox needs the JARV voice profile: an admin runs POST /api/voicebox/profile/provision "
+        raise VoiceUnavailable("Voicebox needs the JAI voice profile: an admin runs POST /api/voicebox/profile/provision "
                                "(or set VOICEBOX_PROFILE_ID).")
     base = settings.VOICEBOX_BASE_URL.rstrip("/")
     response = await client.post(f"{base}/generate", json={"profile_id": profile, "text": text, "language": language})
@@ -397,15 +397,17 @@ async def detect_wake(audio: bytes, *, sample_format: str = "wav") -> Dict[str, 
 # ----- commands ---------------------------------------------------------------------------------
 
 # The wake phrase as the dashboard listens for it ("Talk to me"), and a plain spoken address
-# ("JARV, ...", "hey JARV ...", and "Jarvis", a common mishearing). Both are removed before the command is read, so "Talk to me,
+# ("JAI, ...", "hey JAI ..."). Both are removed before the command is read, so "Talk to me,
 # approve the release" is recognised as an approval and refused like any other.
-# Saying the name first ("JARV, talk to me") still wakes JARV. "JARV" is not a dictionary word, so speech
-# recognisers write it as the nearest one ("Jarvis", "Java", "Jav") or spell it out ("J.A.R.V."); the
-# name in any of those forms is removed with the phrase.
-_WAKE_NAME = (r"(?:jarv(?:is|ie|ey|e|y)?|java|jav|jaav|jahv|jarb|jarf|"
+# Saying the name first ("JAI, talk to me") still wakes JAI. Speech recognisers write "JAI" as the nearest
+# dictionary word ("Jay", "Jie") or spell it out ("J.A.I."). The earlier name, JARV, and its usual
+# mishearings ("Jarvis", "Java", "Jav", "J.A.R.V.") are still recognised, so either name works.
+_JAI_NAME = r"jai|jay|jaye|jie|jye|j[\s.-]*a[\s.-]*i\b\.?"
+_WAKE_NAME = (r"(?:" + _JAI_NAME + r"|jarv(?:is|ie|ey|e|y)?|java|jav|jaav|jahv|jarb|jarf|"
               r"j[\s.-]*a[\s.-]*r[\s.-]*v|j[\s.-]*r[\s.-]*v)")
 _WAKE = re.compile(rf"(?:\b{_WAKE_NAME}\b[\s,.;:!?-]*)?\btalk\s+(?:to|with)\s+me\b[\s,.;:!?-]*", re.I)
-_ADDRESS = re.compile(r"^\s*(?:(?:hey|hi|ok|okay)[\s,]+)?(?:jarv|jarve|jarvis|j[\s-]*r[\s-]*v)\b[\s,.;:!?-]*", re.I)
+_ADDRESS = re.compile(r"^\s*(?:(?:hey|hi|ok|okay)[\s,]+)?(?:" + _JAI_NAME +
+                      r"|jarv|jarve|jarvis|j[\s-]*r[\s-]*v)\b[\s,.;:!?-]*", re.I)
 _LEAD = re.compile(r"^\s*(?:(?:please|now|then|and|so|just)\s+|(?:can|could|would|will)\s+you\s+(?:please\s+)?|"
                    r"i\s+(?:want|need)\s+you\s+to\s+|i'?d\s+like\s+you\s+to\s+)+", re.I)
 _APPROVE = re.compile(r"^\s*(please\s+)?(approve|authori[sz]e|grant|sign off|go ahead with|accept|ok(ay)? the|"

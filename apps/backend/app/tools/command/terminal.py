@@ -1,5 +1,5 @@
 """
-JARV Backend - Terminal Management Tools
+JAI Backend - Terminal Management Tools
 
 Terminal session management tools: open, send, read, close.
 """

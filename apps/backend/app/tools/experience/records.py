@@ -1,5 +1,5 @@
 """
-JARV Backend - Experience record tools (Repair 12e-3c)
+JAI Backend - Experience record tools (Repair 12e-3c)
 
 create_experience_record, summarise_experience, extract_lesson,
 link_experience_to_workspace, link_experience_to_task,

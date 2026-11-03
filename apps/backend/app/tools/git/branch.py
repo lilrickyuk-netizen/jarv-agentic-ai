@@ -1,5 +1,5 @@
 """
-JARV Backend - Git Branch Tools
+JAI Backend - Git Branch Tools
 
 Git branch operations: branch, checkout, merge, rebase.
 """

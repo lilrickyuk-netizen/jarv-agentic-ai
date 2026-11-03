@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# JARV Backup Script
+# JAI Backup Script
 # Backs up PostgreSQL database and application data
 #
 # Usage: ./scripts/backup.sh [backup-type]
@@ -121,7 +121,7 @@ create_backup_manifest() {
     log_info "Creating backup manifest..."
 
     cat > "$BACKUP_DIR/$BACKUP_NAME/manifest.txt" <<EOF
-JARV Backup Manifest
+JAI Backup Manifest
 ====================
 Backup Type: $BACKUP_TYPE
 Backup Date: $(date)
@@ -215,7 +215,7 @@ send_notification() {
 
 # Main execution
 main() {
-    log_info "Starting JARV backup process..."
+    log_info "Starting JAI backup process..."
     log_info "Backup type: $BACKUP_TYPE"
 
     check_prerequisites

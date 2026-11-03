@@ -1,5 +1,5 @@
 """
-JARV Backend - OnboardingAgent
+JAI Backend - OnboardingAgent
 
 Drafts onboarding flows and welcome / activation emails.
 

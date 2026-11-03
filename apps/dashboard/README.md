@@ -1,6 +1,6 @@
-# JARV Dashboard
+# JAI Dashboard
 
-Private web dashboard for the JARV Agentic AI System.
+Private web dashboard for the JAI Agentic AI System.
 
 ## Tech Stack
 

@@ -1,5 +1,5 @@
 """
-JARV Backend - Monitoring Tools
+JAI Backend - Monitoring Tools
 
 Tools for SSL certificate checks, DNS verification, and resource metrics monitoring.
 """

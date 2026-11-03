@@ -1,11 +1,11 @@
 """
-JARV Backend - CRM Tools
+JAI Backend - CRM Tools
 
 Real CRM operations using local database (from Phase 2 CRM models).
 
 SETUP INSTRUCTIONS:
 - CRM data is stored in local PostgreSQL database (Contact, Deal tables from Phase 2)
-- No external service required - uses JARV's built-in CRM system
+- No external service required - uses JAI's built-in CRM system
 - Set CRM_EXTERNAL_SYNC_ENABLED=true to sync with external CRM (Salesforce, HubSpot, etc.)
 - External sync credentials:
   - Salesforce: SALESFORCE_CLIENT_ID, SALESFORCE_CLIENT_SECRET, SALESFORCE_INSTANCE_URL

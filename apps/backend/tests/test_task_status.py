@@ -1,6 +1,6 @@
 """
 Regression tests for the task-status / command-validation bug:
-JARV must never mark a failed/incomplete command as COMPLETED.
+JAI must never mark a failed/incomplete command as COMPLETED.
 
 Runnable with pytest OR directly (`python tests/test_task_status.py`) since the
 slim runtime image has no pytest — these exercise pure functions only.

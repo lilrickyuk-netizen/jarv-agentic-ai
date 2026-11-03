@@ -1,7 +1,7 @@
 """
-JARV Local Runner - Main Service
+JAI Local Runner - Main Service
 
-Secure local execution service for JARV backend.
+Secure local execution service for JAI backend.
 """
 from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.responses import StreamingResponse
@@ -36,21 +36,21 @@ task_manager = TaskManager()
 async def lifespan(app: FastAPI):
     """Application lifespan events"""
     # Startup
-    logger.info("Starting JARV Local Runner")
+    logger.info("Starting JAI Local Runner")
     logger.info(f"Allowed folders: {settings.ALLOWED_FOLDERS}")
     logger.info(f"Audit logging: {settings.AUDIT_ENABLED}")
 
     yield
 
     # Shutdown
-    logger.info("Shutting down JARV Local Runner")
+    logger.info("Shutting down JAI Local Runner")
     await task_manager.cancel_all_tasks()
 
 
 # Create FastAPI application
 app = FastAPI(
-    title="JARV Local Runner",
-    description="Secure local execution service for JARV",
+    title="JAI Local Runner",
+    description="Secure local execution service for JAI",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -64,7 +64,7 @@ app = FastAPI(
 async def root():
     """Root endpoint"""
     return {
-        "service": "JARV Local Runner",
+        "service": "JAI Local Runner",
         "version": "1.0.0",
         "status": "running",
         "allowed_folders": settings.ALLOWED_FOLDERS,

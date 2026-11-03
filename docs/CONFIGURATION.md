@@ -1,10 +1,10 @@
-# JARV Configuration Guide
+# JAI Configuration Guide
 
-Complete configuration guide for JARV Agentic AI System.
+Complete configuration guide for JAI Agentic AI System.
 
 ## Environment Files
 
-JARV uses environment variables for configuration. Several example files are provided:
+JAI uses environment variables for configuration. Several example files are provided:
 
 - `.env.example` - Development configuration template
 - `.env.production.example` - Production configuration template
@@ -88,7 +88,7 @@ OLLAMA_BASE_URL=http://localhost:11434
 ### Memory Embedding Configuration
 
 Every memory is embedded on write and searched by semantic similarity plus
-keyword overlap. No key is needed: by default JARV uses its built-in local
+keyword overlap. No key is needed: by default JAI uses its built-in local
 embedder (`jarv-hash-v1`), which runs offline and matches word, phrase, and
 sub-word overlap. Set a provider for neural embeddings that also match
 synonyms.
@@ -149,10 +149,10 @@ BANNED_FOLDERS=/path/to/banking,/path/to/crypto
 
 ### Voice Configuration
 
-**Live conversation** ("Talk with JARV" in the voice panel) is a natural spoken conversation:
+**Live conversation** ("Talk with JAI" in the voice panel) is a natural spoken conversation:
 the browser connects the microphone to OpenAI's Realtime model over WebRTC, which hears you,
-decides when you have finished, lets you interrupt and answers in its own voice. JARV's backend
-mints a short-lived session secret (the API key never reaches the browser) carrying JARV's
+decides when you have finished, lets you interrupt and answers in its own voice. JAI's backend
+mints a short-lived session secret (the API key never reaches the browser) carrying JAI's
 instructions and five actions it can take, each run by the backend as you and audit-logged:
 status, start a mission (under the same approval gate as typed missions), a mission's state,
 cancel the mission in progress, and your workspaces. A mission started in conversation is
@@ -187,18 +187,18 @@ first time it is used; until then transcription answers that the model is downlo
 
 Voicebox is an optional CPU service in the private Compose network. Start it with
 `docker compose --profile voice up -d --build voicebox`; do not publish its port,
-because the upstream API has no authentication. JARV proxies authenticated
+because the upstream API has no authentication. JAI proxies authenticated
 transcription, speech generation, status, cancellation, and audio requests.
 
 After the backend and Voicebox are healthy, sign in as an administrator and use
-the cockpit's **Set up JARV voice** action to create the persistent Kokoro
+the cockpit's **Set up JAI voice** action to create the persistent Kokoro
 American-male profile. Use **Install wake model** to download and checksum-verify
 the Apache-2.0 English sherpa-onnx model into `WAKEWORD_MODEL_DIR`. Browser
 hands-free operation is opt-in: microphone access is requested explicitly and
-16 kHz audio frames are sent to the self-hosted JARV detector while enabled. Use
+16 kHz audio frames are sent to the self-hosted JAI detector while enabled. Use
 **Update wake phrase** to regenerate and runtime-validate the installed keyword
 file as “Talk to me”; disable hands-free before updating it. The local detector
-and Voicebox Whisper recognizer accept “Talk to me” without a JARV prefix. After
+and Voicebox Whisper recognizer accept “Talk to me” without a JAI prefix. After
 the phrase, the captured instruction is sent through the normal authenticated
 command/authority pipeline. Voicebox spoken replies can be interrupted by wake
 detection or the explicit interrupt control.
@@ -243,7 +243,7 @@ IMAP_PORT=993
 IMAP_USER=you@your-domain.com
 IMAP_PASSWORD=app-password-from-your-provider
 IMAP_FOLDER=INBOX
-NOTIFY_EMAIL=you@your-domain.com        # where JARV notifies you (defaults to your login email)
+NOTIFY_EMAIL=you@your-domain.com        # where JAI notifies you (defaults to your login email)
 NOTIFY_WEBHOOK_URL=https://ntfy.sh/your-topic   # optional: Slack, Discord or ntfy webhook
 ```
 

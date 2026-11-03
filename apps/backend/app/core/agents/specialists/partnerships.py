@@ -1,5 +1,5 @@
 """
-JARV Backend - PartnershipsAgent
+JAI Backend - PartnershipsAgent
 
 Drafts partner shortlists, outreach messages, and partnership proposals.
 

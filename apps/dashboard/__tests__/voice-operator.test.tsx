@@ -1,6 +1,6 @@
 /**
- * Voice panel: one live conversation with JARV. The push-to-talk, hands-free and Voicebox controls are gone
- * (the self-hosted Voicebox never answered in time); the panel shows Talk with JARV, whether it is ready,
+ * Voice panel: one live conversation with JAI. The push-to-talk, hands-free and Voicebox controls are gone
+ * (the self-hosted Voicebox never answered in time); the panel shows Talk with JAI, whether it is ready,
  * and that approvals are never taken by voice. The API client is replaced; the components are real.
  */
 import { render, screen } from '@testing-library/react';
@@ -22,7 +22,7 @@ describe('VoiceOperator', () => {
     mockProviders = { live: { ready: true, backend: 'openai' } };
     render(<VoiceOperator onMission={jest.fn()} onStateChange={jest.fn()} />);
     expect(await screen.findByText(/search its memory and read your workspaces/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Talk with JARV' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Talk with JAI' })).toBeEnabled();
     expect(screen.queryByText(/Push to talk/)).not.toBeInTheDocument();
     expect(screen.queryByText(/hands-free/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Voicebox/)).not.toBeInTheDocument();
@@ -33,7 +33,7 @@ describe('VoiceOperator', () => {
     mockProviders = { live: { ready: false, setup: 'Live conversation uses OpenAI Realtime: set OPENAI_API_KEY' } };
     render(<VoiceOperator onMission={jest.fn()} onStateChange={jest.fn()} />);
     expect((await screen.findAllByText(/set OPENAI_API_KEY/)).length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: 'Talk with JARV' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Talk with JAI' })).toBeDisabled();
   });
 });
 

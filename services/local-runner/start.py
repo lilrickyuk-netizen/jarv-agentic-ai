@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-JARV Local Runner - Start Script
+JAI Local Runner - Start Script
 
 Starts the local runner service.
 """
@@ -17,7 +17,7 @@ from runner.config import settings
 def start():
     """Start local runner service"""
     print("=" * 60)
-    print("JARV Local Runner - Starting")
+    print("JAI Local Runner - Starting")
     print("=" * 60)
     print()
     print(f"Host: {settings.HOST}")

@@ -1,5 +1,5 @@
 """
-JARV Backend - ResearchAgent
+JAI Backend - ResearchAgent
 
 Researches a query using the real model router/provider when one is
 configured, plus the local execution context (memories, prior step results,

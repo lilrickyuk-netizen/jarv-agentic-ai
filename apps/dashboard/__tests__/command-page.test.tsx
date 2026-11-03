@@ -1,5 +1,5 @@
 /**
- * Command Center: missions run in JARV's worker, not in the page. Leaving the page (for example to approve
+ * Command Center: missions run in JAI's worker, not in the page. Leaving the page (for example to approve
  * something) and coming back used to show nothing, so a mission still running looked stopped. The page now
  * picks up the mission that is still running and follows it again. The API client is replaced; the page is real.
  */

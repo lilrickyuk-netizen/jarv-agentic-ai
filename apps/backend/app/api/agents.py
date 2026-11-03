@@ -1,7 +1,7 @@
 """
-JARV Backend - Agent Management API
+JAI Backend - Agent Management API
 
-Endpoints for discovering and managing JARV agents.
+Endpoints for discovering and managing JAI agents.
 """
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
@@ -573,7 +573,7 @@ async def department_memory(slug: str, user_id: CurrentUserId, db: AsyncSession 
     from app.models.memory import Memory
     name = _dept_from_slug(slug)
     members = set(_dept_members(name))
-    # The operator's workspace memories and JARV's global memory (no workspace).
+    # The operator's workspace memories and JAI's global memory (no workspace).
     rows = (await db.execute(select(Memory).where(
         Memory.workspace_id.in_(owned_workspaces(user_id)) | Memory.workspace_id.is_(None))
         .order_by(Memory.created_at.desc()).limit(200))).scalars().all()

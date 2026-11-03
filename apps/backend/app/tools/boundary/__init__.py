@@ -1,4 +1,4 @@
-"""JARV Boundary tools (Design section 6 / 12).
+"""JAI Boundary tools (Design section 6 / 12).
 
 Real, executable boundary tools that detect hard boundaries from real input and
 persist/read BoundaryReport records through a real DB session. No fake records,

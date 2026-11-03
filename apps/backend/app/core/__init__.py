@@ -1,5 +1,5 @@
 """
-JARV Backend Core Module
+JAI Backend Core Module
 """
 from .config import settings, Settings
 

@@ -1,5 +1,5 @@
 """
-JARV Backend - Command Execution Package
+JAI Backend - Command Execution Package
 
 Provides the live command pipeline that turns a dashboard text/voice command
 into: real Claude planning -> agent selection -> task lifecycle -> execution ->

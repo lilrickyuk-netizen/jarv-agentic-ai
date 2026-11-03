@@ -1,5 +1,5 @@
 """
-JARV Backend - Content Models
+JAI Backend - Content Models
 
 Content items, onboarding flows, and community items.
 """

@@ -1,5 +1,5 @@
 """
-JARV Backend - CustomerSupportAgent
+JAI Backend - CustomerSupportAgent
 
 Works the workspace's support inbox through the support tools
 (app.tools.business, backed by app.core.business.support): reads tickets,

@@ -1,5 +1,5 @@
 """
-JARV Backend - Command Tools
+JAI Backend - Command Tools
 
 Command execution and process management tools.
 """

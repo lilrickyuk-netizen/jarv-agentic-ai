@@ -1,7 +1,7 @@
 """
-JARV Backend - Calendar Tools
+JAI Backend - Calendar Tools
 
-JARV's own calendar: events are stored in the database (calendar_events), scoped to the
+JAI's own calendar: events are stored in the database (calendar_events), scoped to the
 workspace and the agent that created them. Richard sees them in his own calendar app by
 subscribing to the workspace's private feed (GET /api/calendar/{workspace_id}/feed gives the
 link; Google Calendar, Apple Calendar and Outlook all accept it), so no calendar password or

@@ -109,7 +109,7 @@ def _alert(status="firing", fingerprint="a1b2c3d4e5f60718", severity="critical")
     return {"status": status, "receiver": "jarv", "alerts": [{
         "status": status, "fingerprint": fingerprint,
         "labels": {"alertname": "JarvWorkersDown", "severity": severity, "job": "jarv-backend"},
-        "annotations": {"summary": "No JARV workers are running",
+        "annotations": {"summary": "No JAI workers are running",
                         "description": "No Celery worker answered a ping for 3 minutes."},
         "startsAt": "2026-10-23T10:00:00Z", "endsAt": "0001-01-01T00:00:00Z",
     }]}

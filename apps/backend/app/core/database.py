@@ -1,5 +1,5 @@
 """
-JARV Backend Database Configuration
+JAI Backend Database Configuration
 SQLAlchemy setup with async support
 """
 from typing import AsyncGenerator

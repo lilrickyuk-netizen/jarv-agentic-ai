@@ -1,5 +1,5 @@
 """
-JARV Backend - GrowthAgent
+JAI Backend - GrowthAgent
 
 Drafts growth-experiment IDEAS as model-generated advisory output only.
 

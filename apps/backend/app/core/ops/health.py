@@ -1,5 +1,5 @@
 """
-JARV Backend - Operational health
+JAI Backend - Operational health
 
 Facts the monitoring and self-healing agents act on, each measured directly:
 database, Redis, Celery workers and queue, stuck missions, Prometheus targets,
@@ -104,7 +104,7 @@ async def service_health(db: AsyncSession) -> Dict[str, Any]:
         "prometheus": await _timed(_prometheus_targets()),
     }
     # Prometheus is optional monitoring (docker-compose.monitoring.yml): when it is unreachable that is
-    # reported, but JARV itself is not degraded by it.
+    # reported, but JAI itself is not degraded by it.
     checks["prometheus"]["optional"] = True
     failing = [name for name, result in checks.items() if not result["ok"] and not result.get("optional")]
     optional_down = [name for name, result in checks.items() if not result["ok"] and result.get("optional")]

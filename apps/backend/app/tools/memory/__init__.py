@@ -1,5 +1,5 @@
 """
-JARV Backend - Memory Tools
+JAI Backend - Memory Tools
 
 Tools for agent memory storage, retrieval, and management.
 """

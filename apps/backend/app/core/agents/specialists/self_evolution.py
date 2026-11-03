@@ -1,7 +1,7 @@
 """
-JARV Backend - SelfEvolutionAgent
+JAI Backend - SelfEvolutionAgent
 
-Improves JARV's way of working in a workspace through the verified
+Improves JAI's way of working in a workspace through the verified
 self-evolution pipeline (app.core.evolution.engine, via the self-evolution
 tools): it proposes changes to rules, runbooks, agent instructions, tool
 selection, operating plans and swarm strategy from the workspace's
@@ -44,7 +44,7 @@ class SelfEvolutionAgentOutput(BaseModel):
 
 class SelfEvolutionAgent(AgentBase):
     """
-    SelfEvolutionAgent - Improves JARV's behavior from experience with safety guards
+    SelfEvolutionAgent - Improves JAI's behavior from experience with safety guards
     """
 
     @property
@@ -53,7 +53,7 @@ class SelfEvolutionAgent(AgentBase):
 
     @property
     def role(self) -> str:
-        return "Improves JARV's behavior from experience with safety guards"
+        return "Improves JAI's behavior from experience with safety guards"
 
     @property
     def input_schema(self) -> Type[BaseModel]:
@@ -150,9 +150,9 @@ class SelfEvolutionAgent(AgentBase):
                 ) or "(no context supplied)"
                 seed = ("Candidate changes from caller: " + "; ".join(proposals)) if proposals else ""
                 prompt = (
-                    f"JARV self-evolution trigger: {trigger}. Context: {ctx_text}. "
+                    f"JAI self-evolution trigger: {trigger}. Context: {ctx_text}. "
                     f"{seed}\n\n"
-                    "Propose concrete, safe improvement ideas to JARV's "
+                    "Propose concrete, safe improvement ideas to JAI's "
                     "workflows, runbooks, prompts, or strategies. Do NOT propose "
                     "anything that weakens safety, authority, logging, or "
                     "boundaries. Respond in plain text: a short rationale "

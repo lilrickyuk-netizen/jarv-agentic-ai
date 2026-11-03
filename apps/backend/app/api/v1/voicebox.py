@@ -120,8 +120,8 @@ async def provision_jarv_voice_profile(
     try:
         profile_id = settings.VOICEBOX_PROFILE_ID or await redis.get(PROFILE_KEY)
         profile = {
-            "name": "JARV",
-            "description": "JARV's conversational British male voice.",
+            "name": "JAI",
+            "description": "JAI's conversational British male voice.",
             "language": "en",
             "voice_type": "preset",
             "preset_engine": "kokoro",
@@ -135,7 +135,7 @@ async def provision_jarv_voice_profile(
                 listed.raise_for_status()
                 profiles = listed.json()
                 if isinstance(profiles, list):
-                    existing = next((item for item in profiles if item.get("name") == "JARV"), None)
+                    existing = next((item for item in profiles if item.get("name") in ("JAI", "JARV")), None)
                     if existing and isinstance(existing.get("id"), str):
                         profile_id = existing["id"]
             if profile_id:

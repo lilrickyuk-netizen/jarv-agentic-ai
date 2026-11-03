@@ -11,7 +11,7 @@ echo "Generating self-signed SSL certificate for $DOMAIN..."
 openssl req -x509 -nodes -days $DAYS -newkey rsa:2048 \
     -keyout "$CERT_DIR/key.pem" \
     -out "$CERT_DIR/cert.pem" \
-    -subj "/C=US/ST=State/L=City/O=JARV/CN=$DOMAIN" \
+    -subj "/C=US/ST=State/L=City/O=JAI/CN=$DOMAIN" \
     -addext "subjectAltName=DNS:$DOMAIN,DNS:*.${DOMAIN},DNS:localhost"
 
 chmod 600 "$CERT_DIR/key.pem"

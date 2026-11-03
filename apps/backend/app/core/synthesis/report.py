@@ -1,5 +1,5 @@
 """
-JARV Backend - The Synthesizer (Upgrade 4)
+JAI Backend - The Synthesizer (Upgrade 4)
 
 Every mission report is assembled from numbered evidence, and anything that claims a result without evidence is
 removed before Richard sees it.
@@ -55,7 +55,7 @@ REPORT_TOOL = {
 }
 
 _SYSTEM = (
-    "You are JARV's report writer. Write the mission report for Richard from the evidence ledger only. For each "
+    "You are JAI's report writer. Write the mission report for Richard from the evidence ledger only. For each "
     "requirement give its status, one plain sentence, and the ledger ids that show it. Cite only entries that "
     "really show the statement: a failed command or refused action does not show that something is done. If "
     "nothing in the ledger shows a requirement, say so and leave the evidence empty. Do not claim anything the "
@@ -176,7 +176,7 @@ def check(draft: Dict[str, Any], requirements: Sequence[Dict[str, Any]], ledger:
 
 
 def _confidence(items, failures, waiting, ledger, verification) -> tuple:
-    """How sure JARV is, worked out from the evidence (never from the draft's tone), and what is risky."""
+    """How sure JAI is, worked out from the evidence (never from the draft's tone), and what is risky."""
     total = len(items)
     done = sum(1 for i in items if i["status"] == "done")
     verified = bool((verification or {}).get("verified"))

@@ -1,5 +1,5 @@
 """
-JARV Backend - Richard Boundary Operator (legacy facade, Repair 9)
+JAI Backend - Richard Boundary Operator (legacy facade, Repair 9)
 
 History: this module was originally a persistence-less stub (it built Pydantic
 objects and persisted nothing). The REAL hard-boundary -> decision -> approval

@@ -1,5 +1,5 @@
 """
-JARV Backend - Company operations service
+JAI Backend - Company operations service
 
 Every method reads and writes the real company tables for one workspace:
 OperatingPlan / OperatingPlanVersion, DailyOperatingLoop, WeeklyExecutionPlan,

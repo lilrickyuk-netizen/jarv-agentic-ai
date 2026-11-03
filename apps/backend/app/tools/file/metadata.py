@@ -1,5 +1,5 @@
 """
-JARV Backend - File Metadata Tools
+JAI Backend - File Metadata Tools
 
 File metadata tools: metadata, permissions.
 """

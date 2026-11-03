@@ -126,7 +126,7 @@ def test_calendar_feed_is_valid_icalendar():
     text = to_ics(ws, [event])
     lines = text.split("\r\n")
     assert lines[0] == "BEGIN:VCALENDAR" and lines[-2] == "END:VCALENDAR" and text.endswith("\r\n")
-    assert "X-WR-CALNAME:JARV - MYCO\\; launch\\, team" in lines
+    assert "X-WR-CALNAME:JAI - MYCO\\; launch\\, team" in lines
     assert "SUMMARY:Launch review\\, final" in lines and "DESCRIPTION:Line one\\nLine two\\; done" in lines
     assert "DTSTART:20261102T093000Z" in lines and "DTEND:20261102T103000Z" in lines
     assert "TRIGGER:-PT15M" in lines and "TRIGGER:-PT60M" in lines

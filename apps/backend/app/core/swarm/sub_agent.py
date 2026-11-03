@@ -1,5 +1,5 @@
 """
-JARV Backend - Sub-agents
+JAI Backend - Sub-agents
 
 Follow-up work for sub-agents a swarm has already spawned, all persisted and
 owner-scoped: assign another task (run through the real AgentRunner inside

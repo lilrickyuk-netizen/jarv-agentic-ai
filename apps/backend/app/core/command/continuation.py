@@ -1,11 +1,11 @@
 """
-JARV Backend - Mission continuation
+JAI Backend - Mission continuation
 
 Continues a mission that stopped at its step limit (status
 ``needs_continuation``). The same task continues in the same workspace: prior
 work stays on disk and in the task record; nothing restarts.
 
-The mission runner calls this automatically (routine continuation is JARV's
+The mission runner calls this automatically (routine continuation is JAI's
 job, not Richard's), up to ``MAX_AUTO_CONTINUATIONS`` per mission. The tasks
 API exposes the same path for an explicit resume.
 """
@@ -99,7 +99,7 @@ RESUMABLE = (lifecycle.NEEDS_CONTINUATION, lifecycle.PARTIAL)
 async def queue_resume(db: AsyncSession, task: Task, *, operator: str, reason: str) -> Dict[str, Any]:
     """Send a paused mission back to the worker to carry on: the same task, workspace and progress.
 
-    The next round runs in JARV's worker, never inside a web request, so closing or leaving the
+    The next round runs in JAI's worker, never inside a web request, so closing or leaving the
     dashboard cannot stop it. A resume Richard asks for gives the mission a fresh allowance of
     automatic rounds.
     """
@@ -165,7 +165,7 @@ async def newer_mission(db: AsyncSession, task: Task):
 
 
 async def recall_for_mission(db: AsyncSession, workspace_id, text: str) -> str:
-    """What JARV remembers and has verified for this workspace, for the mission's agent."""
+    """What JAI remembers and has verified for this workspace, for the mission's agent."""
     from app.core.command.service import _known_for_mission
     from app.core.jarv_memory import memory_service
     from app.core.learning import learning_service

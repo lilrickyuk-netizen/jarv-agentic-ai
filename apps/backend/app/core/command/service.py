@@ -1,5 +1,5 @@
 """
-JARV Backend - Command Execution Service
+JAI Backend - Command Execution Service
 
 The live command pipeline. A command typed or spoken in the dashboard flows:
 
@@ -141,7 +141,7 @@ def _metrics_line(metrics: Optional[Dict[str, Any]]) -> str:
 
 
 def _known_for_mission(system_context: Optional[Dict[str, Any]]) -> str:
-    """What JARV recalled for this mission (workspace memory and verified lessons), as short lines."""
+    """What JAI recalled for this mission (workspace memory and verified lessons), as short lines."""
     context = system_context or {}
     lines: List[str] = []
     for item in context.get("verified_lessons") or []:
@@ -164,7 +164,7 @@ def classify_command_safety(command_text: str) -> SafetyDecision:
     """
     text = command_text.lower()
 
-    # Explicit read-only/plan-only constraints win: the user has told JARV not
+    # Explicit read-only/plan-only constraints win: the user has told JAI not
     # to perform the risky action, so it may run as inspect/plan only.
     for pat in _FORCE_SAFE_PATTERNS:
         if re.search(pat, text):
@@ -364,7 +364,7 @@ class CommandService:
                 status="blocked",
                 requires_approval=True,
                 response_text=(
-                    "This command requires your approval before JARV will execute it.\n\n"
+                    "This command requires your approval before JAI will execute it.\n\n"
                     f"Reason: {safety.reason}\n\n"
                     "The action has been paused (task is blocked) and recorded in the "
                     "Operations Feed. Approve it on the Approvals page to continue, or "
@@ -412,7 +412,7 @@ class CommandService:
             item_type="agent_execution",
             severity="info",
             title="Orchestrator running" if attempt == 0 else f"Orchestrator recovering (attempt {attempt + 1})",
-            message=f"JARV is planning and executing: {command_text[:200]}",
+            message=f"JAI is planning and executing: {command_text[:200]}",
         )
         await db.commit()
 
@@ -639,7 +639,7 @@ class CommandService:
                 item_type="task",
                 severity=_sev,
                 title=f"Command {status}",
-                message=f"JARV {status}: {command_text[:200]}"
+                message=f"JAI {status}: {command_text[:200]}"
                         + (f" — {failure.get('reason')}" if failure else ""),
             )
             await self._audit(
@@ -702,7 +702,7 @@ class CommandService:
                 command=command_text,
                 status="failed",
                 requires_approval=False,
-                response_text=f"JARV could not complete the command: {exc}",
+                response_text=f"JAI could not complete the command: {exc}",
                 provider=self.provider_name,
                 model=self.model,
                 execution_time=time.time() - start,
@@ -898,7 +898,7 @@ class CommandService:
         if re.search(r"\b(run|execute)\b.*\b(command|cmd|ls|dir|git|build|test|script)\b", text):
             return "run_command"
         # Creating or writing a file is real work: the agents decide its content from the
-        # request and the workspace (a fixed-text shortcut once wrote "JARV Write Test" into
+        # request and the workspace (a fixed-text shortcut once wrote "JAI Write Test" into
         # whatever file was named, e.g. a requested BUILD_PLAN.md).
         if re.search(r"\b(create|write|add|make)\b.*\b(file|\.md|\.txt|\.json|\.py|\.ts)\b", text):
             return "agent_task"
@@ -967,7 +967,7 @@ class CommandService:
             if orch.get("boundaries"):
                 return "waiting_on_approval", {
                     "reason": f"{len(orch['boundaries'])} step(s) reached a hard boundary; the rest ran.",
-                    "next": "Approve or reject on the Approvals page; JARV resumes from the checkpoint."}
+                    "next": "Approve or reject on the Approvals page; JAI resumes from the checkpoint."}
             if orch.get("attempted") and not orch.get("completed"):
                 return fail("Every delegated step failed.",
                             errors=[r for r in orch.get("task_results", []) if r.get("status") == "failed"][:5],
@@ -1530,7 +1530,7 @@ class CommandService:
             answer = (
                 "**Self-evolution change BLOCKED by the safety guard.**\n\n"
                 "The proposal would weaken safety, authority, logging, boundaries, or approval "
-                "controls. JARV cannot self-modify in a way that reduces its own safety. "
+                "controls. JAI cannot self-modify in a way that reduces its own safety. "
                 "No change was applied; the block is logged and recorded in memory."
             )
             return answer, steps, agents, {"self_evolution": {
@@ -1605,7 +1605,7 @@ class CommandService:
         brief = (
             "# PROJECT BRIEF\n\n"
             f"Sandbox: {root}\n\n"
-            "JARV Swarm employee proof: the Swarm Manager spawns role-specific scoped "
+            "JAI Swarm employee proof: the Swarm Manager spawns role-specific scoped "
             "employees, each producing a verified output artifact, then dissolves them.\n\n"
             f"Requested employees ({len(requested)}): "
             + ", ".join(r[0] for r in requested) + "\n"
@@ -1766,7 +1766,7 @@ class CommandService:
 
         router = get_router()
         system = (
-            f"You are JARV's {func} agent in an autonomous software company. Produce {draft_kind} "
+            f"You are JAI's {func} agent in an autonomous software company. Produce {draft_kind} "
             f"as a concrete, usable DRAFT (not a plan to make one). Be specific and ready to review. "
             f"This is a draft for operator approval; do not claim it has been sent or published."
         )
@@ -1894,7 +1894,7 @@ class CommandService:
             f"**Rollback plan:**\n" + "\n".join(f"  - {x}" for x in report['rollback_plan']) + "\n\n"
             f"**Backup plan:**\n" + "\n".join(f"  - {x}" for x in report['backup_plan']) + "\n\n"
             f"**Live release:** {report['live_release']}\n\n"
-            f"_Read-only assessment. JARV will not perform the live release without your explicit approval._"
+            f"_Read-only assessment. JAI will not perform the live release without your explicit approval._"
         )
         return answer, steps, agents, {"launch_readiness": report, "workspace_path": root}
 
@@ -2020,7 +2020,7 @@ class CommandService:
         if result["needs_continuation"] and result.get("finished"):
             head = (f"**Autonomous engineering run — the agent finished, but the independent check found "
                     f"work still to do** ({result['iterations']} steps, {len(runtime.calls)} tool calls). "
-                    f"JARV carries on with it automatically; checkpoint `{extra['checkpoint_id'][:8]}`.\n\n"
+                    f"JAI carries on with it automatically; checkpoint `{extra['checkpoint_id'][:8]}`.\n\n"
                     f"- Workspace: `{root}`\n\n**Progress so far:**\n")
         elif result["needs_continuation"]:
             head = (f"**Autonomous engineering run — NEEDS CONTINUATION** "
@@ -2116,7 +2116,7 @@ class CommandService:
         ]
         agents = self._validate_agents(["orchestrator", "monitoring"])
         msg_match = re.search(r"[`\"']([^`\"']+)[`\"']", command_text)
-        message = msg_match.group(1) if msg_match else "JARV test notification."
+        message = msg_match.group(1) if msg_match else "JAI test notification."
         text = command_text.lower()
         wants_live = bool(re.search(r"\b(live|not dry[- ]?run|really send|actually send)\b", text))
         is_email = "email" in text
@@ -2326,7 +2326,7 @@ class CommandService:
             f"- **Exists on disk:** Yes (confirmed by read-only check)\n"
             f"- **Scope:** Access is limited to this approved folder. No files were "
             f"modified, and none will be without your approval.\n\n"
-            f"You can now ask JARV to run a read-only scan of this workspace."
+            f"You can now ask JAI to run a read-only scan of this workspace."
         )
         return answer, steps, agents, {
             "workspace_id": str(ws.id),
@@ -2585,7 +2585,7 @@ class CommandService:
         """Produce the final user-facing answer with Claude over real context and real results."""
         router = get_router()
         system_prompt = (
-            "You are JARV, a private autonomous multi-agent AI operations system. "
+            "You are JAI, a private autonomous multi-agent AI operations system. "
             "Answer the operator's command directly and concretely using the REAL "
             "system context and the execution plan provided. "
             "If the command says not to modify files, only inspect and plan - never "

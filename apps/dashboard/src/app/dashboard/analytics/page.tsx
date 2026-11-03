@@ -139,7 +139,7 @@ function Board({ workspaceId }: { workspaceId: string }) {
 
 export default function AnalyticsPage() {
   return (
-    <WorkspacePage title="Analytics" subtitle="How JARV is performing here: missions, tools, cost against budget, and the product's own traffic">
+    <WorkspacePage title="Analytics" subtitle="How JAI is performing here: missions, tools, cost against budget, and the product's own traffic">
       {(workspaceId) => <Board key={workspaceId} workspaceId={workspaceId} />}
     </WorkspacePage>
   );

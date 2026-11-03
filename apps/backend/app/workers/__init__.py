@@ -1,5 +1,5 @@
 """
-JARV Backend Workers
+JAI Backend Workers
 
 Background task workers for async operations. Importing this package marks the
 process as a worker before the database engine is created, so the engine opens

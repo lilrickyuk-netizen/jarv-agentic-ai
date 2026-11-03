@@ -1,5 +1,5 @@
 """
-JARV Backend - User Model
+JAI Backend - User Model
 
 User authentication and profile information.
 """

@@ -1,5 +1,5 @@
 """
-JARV Backend - Company operating layer (persisted)
+JAI Backend - Company operating layer (persisted)
 
 Operating plans with versions, daily operating loops, weekly execution plans,
 AI standups, KPIs, the risk register, the decision log and the live

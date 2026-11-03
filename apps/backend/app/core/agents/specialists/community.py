@@ -1,5 +1,5 @@
 """
-JARV Backend - CommunityAgent
+JAI Backend - CommunityAgent
 
 Drafts community replies, posts, and announcements.
 

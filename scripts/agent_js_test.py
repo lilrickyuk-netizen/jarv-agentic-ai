@@ -27,7 +27,7 @@ def main():
     mission = (
         f"In the workspace at {WS}, create a Node.js file src/greet.js that exports a "
         f"function greet(name) returning `Hello, ${{name}}!`, and a src/run_greet.js that "
-        f"requires it, asserts greet('JARV') === 'Hello, JARV!', and prints OK. Then run "
+        f"requires it, asserts greet('JAI') === 'Hello, JAI!', and prints OK. Then run "
         f"node src/run_greet.js and make sure it passes."
     )
     print("MISSION:", mission[:100], "...")

@@ -1,9 +1,9 @@
 """
-JARV Backend - Scheduler API
+JAI Backend - Scheduler API
 
 Surfaces the autonomous scheduler: registered scheduled jobs, their enable/
 disable state, and recent scheduled runs (read from the audit entry each run
-writes). Lets the dashboard prove JARV self-triggers work.
+writes). Lets the dashboard prove JAI self-triggers work.
 """
 import logging
 from typing import Any, Dict, List

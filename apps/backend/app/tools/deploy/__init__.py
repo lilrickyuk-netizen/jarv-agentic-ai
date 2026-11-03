@@ -1,5 +1,5 @@
 """
-JARV Backend - Deployment tools (Repair 12e-2)
+JAI Backend - Deployment tools (Repair 12e-2)
 
 Spec names: deploy_staging, deploy_production_with_boundary, rollback, plus
 deployment_status, deployment_logs and check_deploy_target. All of them go

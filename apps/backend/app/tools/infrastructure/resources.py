@@ -1,5 +1,5 @@
 """
-JARV Backend - Resource Management Tools
+JAI Backend - Resource Management Tools
 
 Tools for provisioning, scaling, monitoring, and terminating infrastructure resources.
 """
@@ -32,8 +32,8 @@ async def _resource_db(context: ToolContext):
             yield session
 
 
-# ===== JARV's infrastructure model =====
-# JARV runs services with Docker Compose on Richard's deployment server (provider "vps"). Provisioning
+# ===== JAI's infrastructure model =====
+# JAI runs services with Docker Compose on Richard's deployment server (provider "vps"). Provisioning
 # starts a service of a deployed app there; scaling changes its replicas under the budget rules of
 # scale_service_with_budget_boundary; terminating stops it and keeps its data. A resource Richard bought
 # elsewhere (a domain, a managed database) is recorded with provider "external" so its cost counts
@@ -187,7 +187,7 @@ class ResourceProvisionTool(ToolBase):
                     status = "recorded"
                 else:
                     raise ValueError(
-                        f"JARV runs services on your deployment server (provider 'vps'). Opening a {provider or 'cloud'} "
+                        f"JAI runs services on your deployment server (provider 'vps'). Opening a {provider or 'cloud'} "
                         "account or buying a resource there is Richard's to do: account setup and spending are hard "
                         "boundaries. Once it exists, record it with provider 'external' and its monthly_cost so it "
                         "counts toward the budget.")
@@ -664,7 +664,7 @@ class ResourceTerminateTool(ToolBase):
                     note = "Data volumes were kept; provisioning it again starts it with its data."
                 else:
                     row.status = "ended"
-                    note = f"JARV stopped counting its cost. Cancel it with {row.provider} if you have not already."
+                    note = f"JAI stopped counting its cost. Cancel it with {row.provider} if you have not already."
                 row.is_active = False
                 row.updated_at = now
                 row.meta_data = {**(row.meta_data or {}), "terminated_at": now.isoformat()}

@@ -1,5 +1,5 @@
 """
-JARV Backend - Checkpoints API
+JAI Backend - Checkpoints API
 
 RESTful API endpoints for safe checkpoints and resume actions.
 """

@@ -1,5 +1,5 @@
 """
-JARV Backend - API Tools
+JAI Backend - API Tools
 
 Tools for HTTP requests, webhooks, and API key management.
 """

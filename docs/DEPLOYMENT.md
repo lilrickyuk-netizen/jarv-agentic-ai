@@ -1,19 +1,19 @@
 # Deploying projects to your VPS
 
-JARV deploys a workspace project to your server over SSH. On the server it runs
+JAI deploys a workspace project to your server over SSH. On the server it runs
 the project's Docker Compose file. There are two environments, `staging` and
 `production`, kept as separate Compose projects on the same server.
 
 ## How a release works
 
-1. **Package.** JARV takes the committed code at `HEAD` of the workspace
+1. **Package.** JAI takes the committed code at `HEAD` of the workspace
    repository (`git archive`). It refuses to deploy if there are uncommitted
    changes, so every release matches a commit.
 2. **Upload.** The code goes to `/srv/jarv/<app>-<env>/releases/<release id>`.
    The server's `/srv/jarv/<app>-<env>/shared/.env` is linked into the release.
-   The app's secrets live only on the server, never in git or in JARV.
-3. **Start.** JARV runs `docker compose -p <app>-<env> up -d --build --remove-orphans`.
-4. **Health check.** JARV polls the app's health URL until it answers below 500.
+   The app's secrets live only on the server, never in git or in JAI.
+3. **Start.** JAI runs `docker compose -p <app>-<env> up -d --build --remove-orphans`.
+4. **Health check.** JAI polls the app's health URL until it answers below 500.
    - **Pass:** `current` switches to the new release, and the newest 5
      releases are kept.
    - **Fail** (or the build or start fails): the previous release is brought
@@ -44,16 +44,16 @@ These steps use a fresh Ubuntu 24.04 VPS.
    mkdir -p /srv/jarv && chown deploy:deploy /srv/jarv
    ```
 2. **Make a dedicated deploy key** (run on your PC, in WSL). Use this key for
-   JARV only, never your personal key:
+   JAI only, never your personal key:
    ```bash
    ssh-keygen -t ed25519 -f ~/.ssh/jarv_deploy -N "" -C "jarv-deploy"
    ssh-copy-id -i ~/.ssh/jarv_deploy.pub deploy@YOUR_SERVER_IP
    ```
-3. **Pin the server's host key**, so JARV only ever connects to this server:
+3. **Pin the server's host key**, so JAI only ever connects to this server:
    ```bash
    ssh-keyscan -t ed25519 YOUR_SERVER_IP
    ```
-4. **Give JARV the settings.** Add these lines to `apps/backend/.env`. That file
+4. **Give JAI the settings.** Add these lines to `apps/backend/.env`. That file
    is git-ignored and never committed.
    ```bash
    DEPLOY_SSH_HOST=YOUR_SERVER_IP
@@ -61,7 +61,7 @@ These steps use a fresh Ubuntu 24.04 VPS.
    DEPLOY_SSH_PRIVATE_KEY=<output of: base64 -w0 ~/.ssh/jarv_deploy>
    DEPLOY_SSH_KNOWN_HOSTS=<the line printed by ssh-keyscan>
    ```
-   Then restart JARV's backend and worker:
+   Then restart JAI's backend and worker:
    ```bash
    docker compose up -d backend worker
    ```
@@ -81,5 +81,5 @@ These steps use a fresh Ubuntu 24.04 VPS.
    A `http://localhost:PORT/...` health URL is checked from the server itself.
    Use that form when the app isn't public yet.
 
-Ask JARV to "check the deploy target" to confirm the setup. Putting the key on
+Ask JAI to "check the deploy target" to confirm the setup. Putting the key on
 the server and approving production releases are the only steps that need you.

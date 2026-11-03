@@ -1,5 +1,5 @@
 """
-JARV Backend - Swarm tools (Repair 12e-3b)
+JAI Backend - Swarm tools (Repair 12e-3b)
 
 spawn_sub_agent, assign_sub_agent_task, check_sub_agent_status,
 collect_sub_agent_output, dissolve_sub_agent, list_active_sub_agents,

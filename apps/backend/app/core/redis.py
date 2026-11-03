@@ -1,5 +1,5 @@
 """
-JARV Backend - Redis Connection
+JAI Backend - Redis Connection
 
 Provides Redis client for caching, session storage, and worker queue.
 """

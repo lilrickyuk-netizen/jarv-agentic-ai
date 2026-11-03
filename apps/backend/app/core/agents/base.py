@@ -1,7 +1,7 @@
 """
-JARV Backend - Agent Base Class
+JAI Backend - Agent Base Class
 
-Abstract base class for all JARV agents with standardized interface,
+Abstract base class for all JAI agents with standardized interface,
 logging, error handling, and authority management.
 """
 from abc import ABC, abstractmethod
@@ -207,7 +207,7 @@ class AgentAuthorizationError(AgentError):
 
 class AgentBase(ABC):
     """
-    Abstract base class for all JARV agents.
+    Abstract base class for all JAI agents.
 
     All agents must inherit from this class and implement the required methods.
     This ensures consistent interface, logging, error handling, and authority

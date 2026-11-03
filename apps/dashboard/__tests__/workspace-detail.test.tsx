@@ -20,7 +20,7 @@ jest.mock('@/lib/api', () => ({
     get: jest.fn(async (path: string) => { calls.push({ method: 'GET', path }); return { status: 200, data: { ...current } }; }),
     patch: jest.fn(async (path: string, body: Record<string, unknown>) => {
       calls.push({ method: 'PATCH', path, body });
-      if (body.folder === 'C:\\Users\\lilri\\Elsewhere') return { status: 400, error: "'C:\\Users\\lilri\\Elsewhere' is not an existing folder that JARV can see" };
+      if (body.folder === 'C:\\Users\\lilri\\Elsewhere') return { status: 400, error: "'C:\\Users\\lilri\\Elsewhere' is not an existing folder that JAI can see" };
       if (body.folder) current = { ...current, folder: body.folder };
       if (body.is_archived === false) current = { ...current, is_archived: false, is_active: true };
       return { status: 200, data: { ...current } };
@@ -58,7 +58,7 @@ describe('WorkspaceDetailPage', () => {
 
     fireEvent.change(input, { target: { value: 'C:\\Users\\lilri\\Projects\\MYCO' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save folder' }));
-    expect(await screen.findByText('JARV now works in C:\\Users\\lilri\\Projects\\MYCO.')).toBeInTheDocument();
+    expect(await screen.findByText('JAI now works in C:\\Users\\lilri\\Projects\\MYCO.')).toBeInTheDocument();
     expect(calls).toContainEqual({ method: 'PATCH', path: `/api/workspaces/${WS}`, body: { folder: 'C:\\Users\\lilri\\Projects\\MYCO' } });
   });
 

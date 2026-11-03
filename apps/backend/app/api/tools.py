@@ -1,5 +1,5 @@
 """
-JARV Backend - Tools API
+JAI Backend - Tools API
 
 REST API endpoints for tool management and discovery.
 """

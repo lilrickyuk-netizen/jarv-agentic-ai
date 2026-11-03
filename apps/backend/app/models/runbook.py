@@ -1,5 +1,5 @@
 """
-JARV Backend - Runbook Models
+JAI Backend - Runbook Models
 
 Runbooks and runbook versions for operational procedures.
 """

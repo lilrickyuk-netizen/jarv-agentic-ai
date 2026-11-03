@@ -1,5 +1,5 @@
 """
-JARV Backend - CreationAgent
+JAI Backend - CreationAgent
 
 Drafts an asset SPECIFICATION / manifest (e.g. for an image, video, design,
 presentation, or document).

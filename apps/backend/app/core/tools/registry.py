@@ -1,7 +1,7 @@
 """
-JARV Backend - Tool Registry
+JAI Backend - Tool Registry
 
-Central registry for all JARV tools with discovery, instantiation, and metadata.
+Central registry for all JAI tools with discovery, instantiation, and metadata.
 Tracks 100+ tools across 9 categories for agent use.
 """
 from typing import Dict, List, Optional, Type, Any
@@ -28,7 +28,7 @@ class ToolMetadata:
 
 class ToolRegistry:
     """
-    Central registry for all JARV tools.
+    Central registry for all JAI tools.
 
     The registry:
     - Discovers and registers all available tools

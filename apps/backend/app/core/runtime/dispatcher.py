@@ -1,5 +1,5 @@
 """
-JARV Backend - Mission dispatch
+JAI Backend - Mission dispatch
 
 Hands a queued mission to something that will run it. Modes
 (``MISSION_EXECUTION_MODE``):

@@ -1,5 +1,5 @@
 """
-JARV Backend - Agent Session Model
+JAI Backend - Agent Session Model
 
 Agent execution sessions with state, checkpoints, and resume capability.
 """

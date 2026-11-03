@@ -1,5 +1,5 @@
 """
-JARV Backend - Git Tools
+JAI Backend - Git Tools
 
 Git version control tools for repository management.
 """

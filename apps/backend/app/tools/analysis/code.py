@@ -1,5 +1,5 @@
 """
-JARV Backend - Code Analysis Tools
+JAI Backend - Code Analysis Tools
 
 Tools for analyzing code quality, complexity, duplication, and metrics.
 

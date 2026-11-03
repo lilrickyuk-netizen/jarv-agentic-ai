@@ -115,15 +115,15 @@ def test_the_mission_answer_is_the_cited_report(monkeypatch):
 
         async def complete(self, request):
             system = request.system or ""
-            if system.startswith("You are JARV's requirements analyst"):
+            if system.startswith("You are JAI's requirements analyst"):
                 calls = [call("record_requirements", {"requirements": [
                     {"text": "src/app.py compiles", "source": "mission"},
                     {"text": "pushed to GitHub", "source": "mission"}]})]
-            elif system.startswith("You are JARV's Verifier Agent"):
+            elif system.startswith("You are JAI's Verifier Agent"):
                 calls = [call("verdict", {"verified": True, "unmet": [], "checks": [
                     {"requirement": "R1", "met": True, "evidence": "python3 -m py_compile src/app.py exit 0"},
                     {"requirement": "R2", "met": True, "evidence": "git log shows it"}]})]
-            elif system.startswith("You are JARV's report writer"):
+            elif system.startswith("You are JAI's report writer"):
                 found = re.search(r"(E\d+) \(mission\): run_command python3 -m py_compile", request.messages[0].content)
                 self.cited = found.group(1)
                 calls = [call("write_report", {"overall": "All done.", "items": [

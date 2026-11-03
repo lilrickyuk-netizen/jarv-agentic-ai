@@ -1,5 +1,5 @@
 """
-JARV Backend - Company operating-layer tools (Repair 12e-3c)
+JAI Backend - Company operating-layer tools (Repair 12e-3c)
 
 create_operating_plan, update_operating_plan, create_daily_operating_loop,
 run_daily_operating_loop, create_weekly_execution_plan,

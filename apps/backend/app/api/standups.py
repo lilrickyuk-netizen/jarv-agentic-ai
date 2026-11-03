@@ -1,5 +1,5 @@
 """
-JARV Backend - AI Standups API
+JAI Backend - AI Standups API
 
 RESTful API endpoints for AI team standups and daily updates.
 """

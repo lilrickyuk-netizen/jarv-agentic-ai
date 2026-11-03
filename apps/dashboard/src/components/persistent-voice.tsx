@@ -7,11 +7,11 @@ import { followMission } from '@/lib/missions';
 import { VoiceOperator } from '@/components/voice-operator';
 import { setVoiceState } from '@/lib/voice-signal';
 
-/** Where Talk with JARV is shown: the Command Center's mission panel puts this element where it wants it. */
+/** Where Talk with JAI is shown: the Command Center's mission panel puts this element where it wants it. */
 export const VOICE_SLOT_ID = 'voice-slot';
 
 /**
- * Talk with JARV, kept connected while Richard moves between dashboard pages. It is mounted once in the dashboard
+ * Talk with JAI, kept connected while Richard moves between dashboard pages. It is mounted once in the dashboard
  * frame and its element is moved into the Command Center's slot whenever that page is open; on other pages it is
  * kept, unseen, so the conversation carries on. Moving an element does not restart it, so the call never drops.
  * Nothing is added to any page.

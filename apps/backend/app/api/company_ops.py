@@ -1,5 +1,5 @@
 """
-JARV Backend - Company operating layer API (Repair 12e-3c)
+JAI Backend - Company operating layer API (Repair 12e-3c)
 
 Authenticated, owner-scoped endpoints over app.core.company_ops: the
 workspace's operating overview (plan, daily loop, weekly plan, standup, KPIs,

@@ -1,5 +1,5 @@
 """
-JARV Local Runner - Executors
+JAI Local Runner - Executors
 
 Command and file execution with safety validation.
 """

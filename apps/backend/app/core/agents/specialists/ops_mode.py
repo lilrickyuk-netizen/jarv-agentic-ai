@@ -1,5 +1,5 @@
 """
-JARV Backend - Operations agents on real tools (Repair 12d)
+JAI Backend - Operations agents on real tools (Repair 12d)
 
 The monitoring, self-healing, rollback and infrastructure agents work through
 the operations tools (``app.tools.ops``) via their toolbox, so every check and
@@ -10,7 +10,7 @@ Two ways to run, chosen per task:
   with its tools (``AgentBase.use_tools``), like the engineering agents.
 - Direct operations: without a provider, the agent still does its job with a
   fixed procedure: monitoring measures; self-healing measures, repairs what
-  JARV may repair (stuck missions, crashed services), and verifies; rollback
+  JAI may repair (stuck missions, crashed services), and verifies; rollback
   and infrastructure report real state and run backups.
 
 Both need a database session and a workspace. The unit-test suite opts in per
@@ -30,7 +30,7 @@ EXTERNAL = ["check_uptime", "ssl_check", "dns_verify"]
 BACKUP_READ = ["list_backups", "verify_backup"]
 INFRA_CONFIG = ["check_ssl_certificate", "check_domain_dns", "generate_nginx_config", "generate_docker_compose",
                 "validate_cloud_config", "estimate_infrastructure_cost", "scale_service_with_budget_boundary"]
-# Resources JARV manages: services on the deployment server and external resources tracked for cost.
+# Resources JAI manages: services on the deployment server and external resources tracked for cost.
 # resource_terminate stays with Richard (it is on the toolbox's agent blocklist).
 RESOURCES = ["resource_status", "resource_health_check", "resource_provision", "resource_scale"]
 
@@ -52,7 +52,7 @@ MODES: Dict[str, OpsMode] = {
             "query_metrics for trends; for a live product also check_payment_events, check_reviews and "
             "check_analytics. Do not change anything. In outputs, give one line per target or "
             "check as 'OK: ...', 'WARN: ...' or 'CRITICAL: ...' with the measured value."),
-        brief=lambda d: _lines([("Targets", ", ".join(d.get("targets") or []) or "all JARV services"),
+        brief=lambda d: _lines([("Targets", ", ".join(d.get("targets") or []) or "all JAI services"),
                                 ("Metrics", ", ".join(d.get("metrics") or [])),
                                 ("Alert thresholds", d.get("alert_threshold"))]),
     ),
@@ -62,7 +62,7 @@ MODES: Dict[str, OpsMode] = {
         instructions=(
             "Diagnose before acting: check_health, check_container_status, check_crashes, check_errors and the "
             "logs of the affected service. Then repair only what the evidence shows: recover_stuck_missions "
-            "for missions that stopped heartbeating; restart_service for a crashed or unhealthy JARV service "
+            "for missions that stopped heartbeating; restart_service for a crashed or unhealthy JAI service "
             "(never postgres or redis; they are refused). After each repair, verify with check_health. If the "
             "cause is in code, state the file and evidence so the debugging agent can fix it. Summarise root "
             "cause, actions taken, and the verified result."),
@@ -194,7 +194,7 @@ async def _monitor(toolbox, input_data: Dict[str, Any]):
                              "detail": str(probe.get("status_code") or probe.get("error") or "probe refused")})
         elif target.lower() not in by_service and not any(s["target"].endswith(f":{target}") for s in statuses):
             statuses.append({"target": target, "status": "unknown",
-                             "detail": "not a URL or a JARV service; nothing to probe"})
+                             "detail": "not a URL or a JAI service; nothing to probe"})
 
     server = _data(seen["server"])
     thresholds = input_data.get("alert_threshold") or {}
@@ -286,7 +286,7 @@ async def _heal(toolbox, input_data: Dict[str, Any]):
     }
     if not findings:
         text = "Self-healing: no fault found; all measured checks healthy." if healthy_after else \
-            f"Self-healing: checks failing ({', '.join(health.get('failing', []))}) with no repair JARV may apply."
+            f"Self-healing: checks failing ({', '.join(health.get('failing', []))}) with no repair JAI may apply."
         return data, text, True, False
     text = (f"Self-healing: {len(findings)} finding(s), {len(actions)} action(s); "
             f"{'verified healthy afterwards' if resolved else 'NOT resolved'}"
@@ -341,7 +341,7 @@ async def _rollback(toolbox, input_data: Dict[str, Any]):
     backups = _data(await _call(toolbox, "list_backups")).get("backups", [])
     git_log = await _call(toolbox, "git_log", {"count": 10}) if "git_log" in toolbox.available else {}
     data["requirements"] = [
-        "A deployment rollback needs the deployment id (or 'staging'/'production') of a release JARV made "
+        "A deployment rollback needs the deployment id (or 'staging'/'production') of a release JAI made "
         "with its deploy tools.",
         "Data is rolled back by restoring a verified backup into a new database "
         "(restore_backup_with_boundary), which pauses for Richard's approval.",

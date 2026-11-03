@@ -1,5 +1,5 @@
 """
-JARV Backend - Agent tool-use loop
+JAI Backend - Agent tool-use loop
 
 Lets any specialist agent work a task the way an engineer does: decide which
 tool to use, use it through the agent's toolbox, read the result, and repeat
@@ -90,7 +90,7 @@ async def run_tool_loop(
         logger.warning(f"self-evolution guidance unavailable for {agent.name}: {exc}")
     tools = toolbox.model_tools() + [FINISH_TOOL]
     system = "\n\n".join(p for p in (
-        f"You are JARV's {agent.name.replace('_', ' ')} agent. Role: {agent.role}.",
+        f"You are JAI's {agent.name.replace('_', ' ')} agent. Role: {agent.role}.",
         instructions,
         (f"Workspace folder: {toolbox.root_host}" if toolbox.root_host
          else "This workspace has no registered folder, so file and command tools are unavailable."),

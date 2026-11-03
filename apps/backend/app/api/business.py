@@ -1,5 +1,5 @@
 """
-JARV Backend - Business API (Repair 12e-4a)
+JAI Backend - Business API (Repair 12e-4a)
 
 Authenticated, owner-scoped endpoints for the business pages: grounded drafts
 by group (marketing, content, onboarding, community, partnership, sales),

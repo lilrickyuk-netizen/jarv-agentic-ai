@@ -1,10 +1,10 @@
 """
-JARV Backend - What a mission costs (Upgrade 5: measure first)
+JAI Backend - What a mission costs (Upgrade 5: measure first)
 
 Every model call a mission makes (its steps, the requirements step, the independent check, the report draft) goes
 through ``MeteredRouter``, which adds the call's tokens to the mission's ``Usage``: uncached input, cached input,
 cache writes, output and reasoning, per role, and the cost in US dollars from the model's price table. The figures
-are stored with the mission's result, so each change to how JARV works is kept only when the numbers improve.
+are stored with the mission's result, so each change to how JAI works is kept only when the numbers improve.
 
 The router also gives every call in one mission the same prompt-cache key, so the provider can reuse the cached
 opening of the conversation across the mission's steps.

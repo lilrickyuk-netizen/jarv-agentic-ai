@@ -1,5 +1,5 @@
 """
-JARV Backend - Memory System
+JAI Backend - Memory System
 
 The memory store itself is ``app.core.jarv_memory.memory_service``. This package
 holds the parts it is built from: embeddings, the 23-category taxonomy, and the

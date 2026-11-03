@@ -1,5 +1,5 @@
 """
-JARV Backend - Workspace Rules Models
+JAI Backend - Workspace Rules Models
 
 Workspace rules and runbooks for workspace-specific behavior.
 """

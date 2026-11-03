@@ -8,7 +8,7 @@ import { setVoiceStream } from '@/lib/voice-signal';
 type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking';
 type Phase = 'off' | 'connecting' | 'live';
 
-/** An operations-feed entry, as the update JARV may speak about. */
+/** An operations-feed entry, as the update JAI may speak about. */
 interface FeedUpdate { id: string; title: string; message: string; severity: string; requires_action?: boolean; created_at: string }
 
 /** POST /api/voice/live/session: a short-lived secret for one OpenAI Realtime conversation. */
@@ -44,9 +44,9 @@ const ACTION_LABELS: Record<string, string> = {
 };
 
 /**
- * A live spoken conversation with JARV (OpenAI Realtime over WebRTC). The microphone streams to the model and
+ * A live spoken conversation with JAI (OpenAI Realtime over WebRTC). The microphone streams to the model and
  * its voice plays back; it decides when Richard has finished speaking and stops when he talks over it. Each
- * action it takes is run by JARV's backend as the signed-in operator, and a mission it starts is followed to
+ * action it takes is run by JAI's backend as the signed-in operator, and a mission it starts is followed to
  * its end and the outcome spoken.
  */
 export function VoiceConversation({ ready, setup, beforeStart, onMission, onStateChange }: Props) {
@@ -60,18 +60,18 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
   const respondingRef = useRef(false);
   const replyQueuedRef = useRef(false);
   const mountedRef = useRef(true);
-  // Looks for new activity to tell Richard about; also run as soon as JARV finishes speaking.
+  // Looks for new activity to tell Richard about; also run as soon as JAI finishes speaking.
   const updateRef = useRef<(() => Promise<void>) | null>(null);
 
   const add = (line: ConversationLine) => {
     setLines((current) => [...current.slice(-11), line]);
-    // JARV keeps the spoken conversation, so the next one carries on from here.
+    // JAI keeps the spoken conversation, so the next one carries on from here.
     if (line.who === 'you' || line.who === 'jarv') {
       void apiClient.post('/api/voice/live/turn', { who: line.who, text: line.text });
     }
   };
 
-  // JARV speaks up on its own (Upgrade 5): while the conversation is live, important new activity (a mission
+  // JAI speaks up on its own (Upgrade 5): while the conversation is live, important new activity (a mission
   // finished, blocked or failed, something waiting for Richard) is told to him without being asked.
   useEffect(() => {
     if (phase !== 'live') return undefined;
@@ -85,14 +85,14 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
       const fresh = response.data.filter((item) => !seen.has(item.id)
         && new Date(item.created_at).getTime() >= startedAt
         && (item.requires_action || ['success', 'warning', 'error'].includes(item.severity)));
-      // One update at a time, never over JARV or Richard speaking, at most every 20 seconds; anything not told
+      // One update at a time, never over JAI or Richard speaking, at most every 20 seconds; anything not told
       // yet is told at the next chance.
       if (!fresh.length || respondingRef.current || Date.now() - lastSpoken < 20000) return;
       fresh.forEach((item) => seen.add(item.id));
       lastSpoken = Date.now();
       const text = fresh.slice(0, 3).map((item) => `${item.title}: ${item.message}`).join(' | ');
       send({ type: 'conversation.item.create', item: { type: 'message', role: 'system',
-        content: [{ type: 'input_text', text: `New activity in JARV (not from Richard): ${text.slice(0, 1200)}` }] } });
+        content: [{ type: 'input_text', text: `New activity in JAI (not from Richard): ${text.slice(0, 1200)}` }] } });
       requestReply({ instructions: 'Tell Richard about this new activity in one or two short sentences: what '
         + 'happened and whether anything needs him. Then stop and listen.' });
     };
@@ -142,7 +142,7 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
 
   useEffect(() => {
     mountedRef.current = true;
-    // The conversation so far, from JARV's records: a reload or another page never shows it blank.
+    // The conversation so far, from JAI's records: a reload or another page never shows it blank.
     void apiClient.get<{ turns: { who: string; text: string }[] }>('/api/voice/live/history').then((response) => {
       if (!mountedRef.current || !response?.data?.turns) return;
       const kept = response.data.turns
@@ -254,7 +254,7 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
       }
       peer.ontrack = (track) => {
         if (audioRef.current) audioRef.current.srcObject = track.streams[0];
-        // The intelligence field listens to JARV's voice and moves with it.
+        // The intelligence field listens to JAI's voice and moves with it.
         setVoiceStream(track.streams[0] ?? null);
       };
       peer.onconnectionstatechange = () => {
@@ -300,7 +300,7 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
         <span>{phase === 'live' ? 'IN CONVERSATION — JUST TALK' : phase === 'connecting' ? 'CONNECTING…' : 'CONVERSATION'}</span>
         <div className="voice-controls">
           {phase === 'off'
-            ? <button type="button" className="voice-toggle" onClick={() => void start()} disabled={!ready}>Talk with JARV</button>
+            ? <button type="button" className="voice-toggle" onClick={() => void start()} disabled={!ready}>Talk with JAI</button>
             : <button type="button" className="voice-toggle voice-toggle-on" onClick={stop}>End conversation</button>}
         </div>
       </div>
@@ -310,7 +310,7 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
         <ol className="voice-live-lines" aria-live="polite">
           {lines.map((line, index) => (
             <li key={`${index}-${line.who}`} className={`voice-live-${line.who}`}>
-              <strong>{line.who === 'you' ? 'You' : line.who === 'jarv' ? 'JARV' : '·'}</strong> {line.text}
+              <strong>{line.who === 'you' ? 'You' : line.who === 'jarv' ? 'JAI' : '·'}</strong> {line.text}
             </li>
           ))}
         </ol>

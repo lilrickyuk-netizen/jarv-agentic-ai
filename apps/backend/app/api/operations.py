@@ -1,8 +1,8 @@
 """
-JARV Backend - Operations API (Repair 12d)
+JAI Backend - Operations API (Repair 12d)
 
 What the dashboard's Infrastructure page and an operator need: live health,
-JARV's containers, the server's resources, and database backups. Every
+JAI's containers, the server's resources, and database backups. Every
 endpoint requires authentication. Restarting a service and taking a backup
 are recorded in the audit log; restoring a backup stays with the approval-gated
 restore tool and is not offered here.

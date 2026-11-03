@@ -1,9 +1,9 @@
 """
-JARV Backend - Webhook Tools
+JAI Backend - Webhook Tools
 
 Tools for registering and managing webhook endpoints.
 
-Webhooks allow external services to notify JARV of events.
+Webhooks allow external services to notify JAI of events.
 """
 from typing import Dict, Any, Type, List, Optional
 from pydantic import BaseModel, Field, HttpUrl

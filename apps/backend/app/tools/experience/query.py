@@ -1,5 +1,5 @@
 """
-JARV Backend - Experience Query Tools
+JAI Backend - Experience Query Tools
 
 Tools for querying learned patterns and getting suggestions from experience.
 """

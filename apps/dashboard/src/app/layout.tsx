@@ -5,7 +5,7 @@ import './globals.css'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'JARV - Agentic AI System',
+  title: 'JAI - Agentic AI System',
   description: 'Private autonomous multi-agent AI execution system',
 }
 

@@ -1,5 +1,5 @@
 """
-JARV Backend - Infrastructure Tools
+JAI Backend - Infrastructure Tools
 
 Backups and restores, the resource register (services on the deployment server and external
 resources tracked for cost), SSL, DNS and resource metrics, and cost estimation. Deployments

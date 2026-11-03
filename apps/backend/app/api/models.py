@@ -1,5 +1,5 @@
 """
-JARV Backend - Model Management API
+JAI Backend - Model Management API
 
 Endpoints for managing LLM providers and models.
 """

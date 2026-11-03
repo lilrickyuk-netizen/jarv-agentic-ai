@@ -1,7 +1,7 @@
 """
-JARV Backend - Agent Registry
+JAI Backend - Agent Registry
 
-Central registry for all JARV agents with discovery, instantiation, and metadata.
+Central registry for all JAI agents with discovery, instantiation, and metadata.
 """
 from typing import Dict, List, Optional, Type, Any
 from dataclasses import dataclass
@@ -27,7 +27,7 @@ class AgentMetadata:
 
 class AgentRegistry:
     """
-    Central registry for all JARV agents.
+    Central registry for all JAI agents.
 
     The registry:
     - Discovers and registers all available agents
@@ -69,7 +69,7 @@ class AgentRegistry:
         # Intelligence (3)
         "research": "Researches technologies, solutions, best practices",
         "memory": "Stores, retrieves, links memory and experience",
-        "self_evolution": "Improves JARV from experience with safety guards",
+        "self_evolution": "Improves JAI from experience with safety guards",
 
         # Customer / Growth (8)
         "marketing": "Marketing content, campaigns, positioning",
@@ -503,7 +503,7 @@ def _register_implemented_agents(registry: AgentRegistry) -> None:
 
         registry.register(ResearchAgent, category="business", description="Researches technologies, solutions, and best practices")
         registry.register(MemoryAgent, category="specialized", description="Manages memories, learns from experiences, retrieves context")
-        registry.register(SelfEvolutionAgent, category="specialized", description="Improves JARV's behavior from experience with safety guards")
+        registry.register(SelfEvolutionAgent, category="specialized", description="Improves JAI's behavior from experience with safety guards")
 
         # Business Agents (6)
         from app.core.agents.specialists.company_operator import CompanyOperatorAgent

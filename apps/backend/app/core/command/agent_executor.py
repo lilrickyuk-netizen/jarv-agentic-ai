@@ -1,10 +1,10 @@
 """
-JARV Backend - Autonomous Agent Executor (tool-using loop)
+JAI Backend - Autonomous Agent Executor (tool-using loop)
 
 This is the core agentic capability: given ANY mission, Claude iteratively
 decides which tools to call — list/read/write files, run builds and tests —
 observes each result, and keeps going until the mission is done or a boundary
-is hit. This is what lets JARV inspect a repo, edit code, run the build, read
+is hit. This is what lets JAI inspect a repo, edit code, run the build, read
 the error, fix it, and re-run, scoped to an approved workspace.
 
 The mission works with the same toolbox every specialist agent uses (AgentToolbox): reading,
@@ -16,7 +16,7 @@ pushing are offered through their boundary tools and pause for Richard's approva
 Safety is enforced by the tool layer (ToolRuntime + fs_inspector):
   * file writes are scoped to the approved workspace; secrets/out-of-scope blocked,
   * commands are classified — read-only, build/test, local git and installs from the official
-    registries (inside the workspace or into JARV's tool home) run; delete/deploy/push, chaining,
+    registries (inside the workspace or into JAI's tool home) run; delete/deploy/push, chaining,
     sudo and global installs are blocked,
   * every tool call is authority-checked, logged to audit + the operations feed,
     and recorded on the task (visible in task detail).
@@ -46,7 +46,7 @@ MISSION_TOOLS = tuple(sorted(name for name in WORKSPACE_TOOLS
 
 
 class MissionLead:
-    """The agent identity a mission's toolbox acts as: JARV's orchestrator, at the mission's authority."""
+    """The agent identity a mission's toolbox acts as: JAI's orchestrator, at the mission's authority."""
 
     name = "orchestrator"
 
@@ -117,7 +117,7 @@ _VERDICT = {
 }
 
 _VERIFIER_SYSTEM = (
-    "You are JARV's Verifier Agent. Another agent says it has completed the mission below. You did not do "
+    "You are JAI's Verifier Agent. Another agent says it has completed the mission below. You did not do "
     "the work and you do not take its word for anything: check every requirement of the mission against the "
     "workspace yourself, with the tools, and decide whether it is really done. Read the files the mission "
     "names. Run the project's real checks (build, tests, lint, type-check, the project's own verify task) "
@@ -336,7 +336,7 @@ class AgentExecutor:
                 from app.core.verification.checks import render_findings
 
                 known = (f"{known}\n\n" if known else "") + (
-                    "WHAT JARV'S HARD CHECKS FIND IN THE WORKSPACE NOW (files compared with the authority documents. "
+                    "WHAT JAI'S HARD CHECKS FIND IN THE WORKSPACE NOW (files compared with the authority documents. "
                     "A conformance mission is not accepted while any remain; any mission is refused if it adds a "
                     "new one or leaves one in a file it changed):\n"
                     + render_findings(standing))
@@ -368,7 +368,7 @@ class AgentExecutor:
         names = {tool["name"] for tool in tools}
         full = self.toolbox is not None
         system = (
-            "You are JARV, an autonomous software engineer operating a real machine. "
+            "You are JAI, an autonomous software engineer operating a real machine. "
             "You complete the operator's mission by USING TOOLS — inspect files, edit "
             "code, run builds and tests — iterating until the mission is genuinely done. "
             f"You operate ONLY inside the approved workspace"
@@ -380,7 +380,7 @@ class AgentExecutor:
                "project's real install/build/test commands, run_build, run_tests, install_package, "
                "check_installed, run_command, git_status, git_diff, git_log, git_create_branch, "
                "check_package_registry and check_cve before adding a dependency, fetch_url for public "
-               "documentation, memory_search for what JARV already knows about this workspace, memory_add "
+               "documentation, memory_search for what JAI already knows about this workspace, memory_add "
                "for decisions and lessons worth keeping, and consult_specialist_knowledge for reference "
                "material in your field. Deleting (delete_file_with_boundary) and pushing "
                "(git_push_with_boundary) pause for Richard's approval: ask for them only when the mission "
@@ -408,7 +408,7 @@ class AgentExecutor:
             Message(role="user", content=(
                 f"MISSION:\n{mission}\n\n"
                 + (f"Approved workspace root: {self.workspace_root}\n" if self.workspace_root else "")
-                + (f"\nWHAT JARV ALREADY KNOWS (its memory and verified lessons for this workspace, and source "
+                + (f"\nWHAT JAI ALREADY KNOWS (its memory and verified lessons for this workspace, and source "
                    f"documentation; check memory against the files before relying on it):\n{known}\n\n"
                    if known else "")
                 + (f"REQUIREMENTS (work from this list; mark each with requirement_status as you finish it, "
@@ -564,7 +564,7 @@ class AgentExecutor:
         }
 
     async def hard_checks(self) -> Optional[Dict[str, Any]]:
-        """JARV's deterministic conformance checks on the workspace folder (Upgrade 1a), with the workspace's
+        """JAI's deterministic conformance checks on the workspace folder (Upgrade 1a), with the workspace's
         authority_docs and superseded_docs. None when the folder or its record cannot be read."""
         import asyncio
 
@@ -642,7 +642,7 @@ class AgentExecutor:
                     for key in named:
                         trace = await graph_service.trace(self.runtime.db, self.runtime.workspace_id, key, depth=2)
                         if trace["nodes"]:
-                            parts.append(f"What JARV has recorded about {key}:\n"
+                            parts.append(f"What JAI has recorded about {key}:\n"
                                          + graph_service.describe(trace, limit=8))
                 except Exception as exc:  # noqa: BLE001
                     logger.info(f"starting context: graph unavailable: {exc}")
@@ -770,7 +770,7 @@ class AgentExecutor:
             from app.core.verification.checks import Finding, render_findings
 
             hard_failures = [Finding(**f).text()[:500] for f in self._hard_in_scope(mission, hard)][:30]
-            hard_text = ("JARV'S HARD CHECKS (deterministic; " + (
+            hard_text = ("JAI'S HARD CHECKS (deterministic; " + (
                 f"{len(hard_failures)} of these are unmet for this mission whatever you find" if hard_failures
                 else "none of these is in this mission's scope") + "; check everything else the mission "
                 "requires yourself):\n" + render_findings(hard) + "\n\n")

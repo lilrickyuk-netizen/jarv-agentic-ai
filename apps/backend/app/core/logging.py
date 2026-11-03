@@ -1,5 +1,5 @@
 """
-JARV Backend Structured Logging
+JAI Backend Structured Logging
 """
 import logging
 import sys

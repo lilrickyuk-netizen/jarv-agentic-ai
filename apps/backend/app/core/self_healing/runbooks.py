@@ -1,5 +1,5 @@
 """
-JARV Backend - Self-Healing Runbooks
+JAI Backend - Self-Healing Runbooks
 
 Automated runbooks for diagnosing and fixing common issues.
 """
@@ -225,7 +225,7 @@ class WebsiteDownRunbook(RunbookBase):
         return False
 
     async def _check_application_health(self) -> bool:
-        """True when the JARV API is down or unhealthy (container health, else /health)."""
+        """True when the JAI API is down or unhealthy (container health, else /health)."""
         from app.core.ops.repair import service_state
 
         return (await service_state("backend")).get("healthy") is False
@@ -273,7 +273,7 @@ class WebsiteDownRunbook(RunbookBase):
         )
 
     async def _verify_recovery(self) -> bool:
-        """Recovered when the JARV API reports healthy again."""
+        """Recovered when the JAI API reports healthy again."""
         from app.core.ops.repair import service_state
 
         state = await service_state("backend")

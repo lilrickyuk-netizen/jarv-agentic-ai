@@ -1,5 +1,5 @@
 """
-JARV Backend - Voice tools (Repair 12e-4c)
+JAI Backend - Voice tools (Repair 12e-4c)
 
 transcribe_voice, speak_response, listen_push_to_talk, wake_word_detect and
 route_voice_command on the voice engine (app.core.voice.engine). Audio comes
@@ -87,12 +87,12 @@ class TranscribeVoiceTool(_VoiceTool):
 class _Speak(BaseModel):
     text: str = Field(..., min_length=1, max_length=4000)
     language: str = "en"
-    voice: Optional[str] = Field(None, description="Backend voice id; defaults to JARV's configured voice")
+    voice: Optional[str] = Field(None, description="Backend voice id; defaults to JAI's configured voice")
 
 
 class SpeakResponseTool(_VoiceTool):
     _name = "speak_response"
-    _description = "Turn a reply into speech in JARV's voice; returns the audio link for the owner."
+    _description = "Turn a reply into speech in JAI's voice; returns the audio link for the owner."
     _input = _Speak
 
     async def act(self, db, context, owner, data):

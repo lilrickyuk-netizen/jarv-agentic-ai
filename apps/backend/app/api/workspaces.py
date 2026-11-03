@@ -1,5 +1,5 @@
 """
-JARV Backend - Workspace Management API
+JAI Backend - Workspace Management API
 
 Endpoints for managing dynamic project workspaces.
 """
@@ -438,7 +438,7 @@ async def _move_folder(db: Any, workspace: Workspace, folder: str) -> str:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=check.reason or "That folder is not allowed")
     if not check.exists or not check.is_dir:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail=f"'{folder}' is not an existing folder that JARV can see")
+                            detail=f"'{folder}' is not an existing folder that JAI can see")
     other = await workspace_lifecycle.by_root(db, workspace.owner_id, folder)
     if other is not None and other.id != workspace.id:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT,

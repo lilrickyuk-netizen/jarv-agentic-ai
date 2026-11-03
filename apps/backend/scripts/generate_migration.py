@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-JARV Backend - Generate Alembic Migration
+JAI Backend - Generate Alembic Migration
 
 Generates Alembic migration from all SQLAlchemy models using autogenerate.
 
@@ -25,7 +25,7 @@ def generate_migration(message: str = "auto-generated migration") -> None:
         message: Migration message
     """
     print("=" * 60)
-    print("JARV Backend - Generate Alembic Migration")
+    print("JAI Backend - Generate Alembic Migration")
     print("=" * 60)
     print(f"Message: {message}")
     print("=" * 60)

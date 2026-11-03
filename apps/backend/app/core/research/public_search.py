@@ -30,7 +30,7 @@ async def search_public_sources(query: str, limit: int = _MAX_RESULTS) -> List[D
         raise RuntimeError(f"Public source endpoint failed SSRF validation: {reason}")
 
     timeout = httpx.Timeout(FETCH_TIMEOUT)
-    headers = {"User-Agent": "JARV-Research/1.0 (public source retrieval)"}
+    headers = {"User-Agent": "JAI-Research/1.0 (public source retrieval)"}
     stopwords = {"about", "after", "also", "and", "are", "for", "from", "how",
                  "into", "more", "that", "the", "this", "with", "what"}
     terms = [term for term in re.findall(r"[a-zA-Z0-9_-]{3,}", normalized)

@@ -1,5 +1,5 @@
 """
-JARV Backend Test Configuration and Fixtures
+JAI Backend Test Configuration and Fixtures
 """
 import os
 
@@ -162,7 +162,7 @@ def _reset_redis_singleton():
     Normal test runs use the configured fakeredis test double. When
     JARV_TEST_REAL_REDIS=1, use the configured real Redis service and flush only
     its explicitly selected test database before and after each test. The
-    acceptance runner uses Redis database 15, separate from JARV's database 0.
+    acceptance runner uses Redis database 15, separate from JAI's database 0.
     """
     import app.core.redis as _redis_mod
     from app.core.config import settings

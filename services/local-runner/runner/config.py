@@ -1,5 +1,5 @@
 """
-JARV Local Runner Configuration
+JAI Local Runner Configuration
 """
 from typing import List
 from pydantic import Field

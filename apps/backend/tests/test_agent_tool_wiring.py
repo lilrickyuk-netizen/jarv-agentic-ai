@@ -1,4 +1,4 @@
-"""Hard gates for JARV's 31-agent tool and authority wiring."""
+"""Hard gates for JAI's 31-agent tool and authority wiring."""
 
 import asyncio
 from types import SimpleNamespace

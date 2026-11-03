@@ -27,7 +27,7 @@ def runtime_knowledge():
     The orchestrator delegates through AgentRunner without a session, so the
     runner reads knowledge from settings.DATABASE_URL. Test mode does not run
     the startup catalog install, so without this the tests would depend on a
-    database that JARV had already been started against. Ingest is idempotent.
+    database that JAI had already been started against. Ingest is idempotent.
     """
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
     from sqlalchemy.pool import NullPool

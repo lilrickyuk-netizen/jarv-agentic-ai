@@ -1,5 +1,5 @@
 """
-JARV Backend - Base Database Model
+JAI Backend - Base Database Model
 
 Base model class with common fields for all models.
 """

@@ -1,5 +1,5 @@
 """
-JARV Backend - Revenue and business monitoring tools (Repair 12e-4b)
+JAI Backend - Revenue and business monitoring tools (Repair 12e-4b)
 
 check_revenue_metrics, check_conversion_metrics, check_subscription_metrics,
 check_failed_payments, create_revenue_experiment,
@@ -105,7 +105,7 @@ class CreateRevenueExperimentTool(_RevenueTool):
         row = ContentItem(id=uuid4(), workspace_id=context.workspace_id, title=data["name"][:500],
                           content_type="revenue_experiment", category="revenue",
                           slug=f"experiment-{uuid4().hex[:12]}", content_body=body, content_format="markdown",
-                          status="planned", is_published=False, author_id=owner, author_name="JARV",
+                          status="planned", is_published=False, author_id=owner, author_name="JAI",
                           tags=["experiment", data["metric"]], meta_data=plan, created_at=now, updated_at=now)
         db.add(row)
         await db.flush()

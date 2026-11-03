@@ -1,3 +1,3 @@
 """
-JARV Backend API
+JAI Backend API
 """

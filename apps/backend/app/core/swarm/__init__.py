@@ -1,5 +1,5 @@
 """
-JARV Backend - Swarm Management Layer
+JAI Backend - Swarm Management Layer
 
 Enables controlled parallel execution through temporary scoped sub-agents.
 """

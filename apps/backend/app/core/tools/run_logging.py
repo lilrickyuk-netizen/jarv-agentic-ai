@@ -1,5 +1,5 @@
 """
-JARV Backend - ToolRun logging.
+JAI Backend - ToolRun logging.
 
 Writes a real ToolRun record for a tool execution when a DB session and an
 executing agent are available. Input/output are redacted before persistence.

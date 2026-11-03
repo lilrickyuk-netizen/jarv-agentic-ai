@@ -1,5 +1,5 @@
 """
-JARV Backend - Slack Tools
+JAI Backend - Slack Tools
 
 Real Slack operations with local draft mode when unconfigured.
 

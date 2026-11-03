@@ -25,10 +25,10 @@ def main():
 
     print("\n##### BLOCKER 1 — MEMORY #####")
     s, d = call("POST", "/api/command/execute", token,
-                {"command": 'JARV, remember this safe test fact: "JARV memory verification marker 001". Do not modify files.'})
+                {"command": 'JAI, remember this safe test fact: "JAI memory verification marker 001". Do not modify files.'})
     print("remember status:", d["status"], "| agents:", d["selected_agents"])
     s, d = call("POST", "/api/command/execute", token,
-                {"command": "JARV, recall the memory verification marker. Do not modify files."})
+                {"command": "JAI, recall the memory verification marker. Do not modify files."})
     print("recall status:", d["status"])
     print("recall response:", d["response_text"][:300])
     s, mem = call("GET", "/api/memory/list?limit=5", token)
@@ -42,7 +42,7 @@ def main():
 
     print("\n##### BLOCKER 3 + 5 — TOOLS + QA (scan) #####")
     s, d = call("POST", "/api/command/execute", token,
-                {"command": "JARV, perform a read-only scan of the approved test workspace at C:\\Users\\lilri\\OneDrive\\Desktop\\JARV_WORKSPACE_TEST. List real files only. Do not modify files."})
+                {"command": "JAI, perform a read-only scan of the approved test workspace at C:\\Users\\lilri\\OneDrive\\Desktop\\JARV_WORKSPACE_TEST. List real files only. Do not modify files."})
     t_scan = d["task_id"]
     print("scan status:", d["status"], "| agents:", d["selected_agents"])
     s, dt = call("GET", f"/api/tasks/{t_scan}", token)

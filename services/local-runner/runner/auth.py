@@ -1,5 +1,5 @@
 """
-JARV Local Runner - Authentication
+JAI Local Runner - Authentication
 
 Secure token authentication between backend and local runner.
 """

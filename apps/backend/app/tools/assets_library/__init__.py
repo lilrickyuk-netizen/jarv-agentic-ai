@@ -1,5 +1,5 @@
 """
-JARV Backend - Asset tools (Repair 12e-4b)
+JAI Backend - Asset tools (Repair 12e-4b)
 
 web_search (public web search), download_asset, check_licence,
 save_source_record, generate_asset_manifest and update_asset_licence_file,

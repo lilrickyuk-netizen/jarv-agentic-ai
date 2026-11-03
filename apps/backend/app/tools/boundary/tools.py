@@ -1,5 +1,5 @@
 """
-JARV Backend - Boundary Tools (real implementations)
+JAI Backend - Boundary Tools (real implementations)
 
 Design-aligned boundary tools:
   - boundary.detect                  (detect hard boundaries in real input)
@@ -120,7 +120,7 @@ class BoundaryReportCreateInput(BaseModel):
     authority_level_required: int = Field(8, description="Authority level the action needs")
     authority_level_available: int = Field(0, description="Authority level currently available")
     was_blocked: bool = Field(True, description="Whether the blocked action was paused")
-    action_taken: str = Field("paused_blocked_action", description="What JARV did")
+    action_taken: str = Field("paused_blocked_action", description="What JAI did")
     context: Dict[str, Any] = Field(default_factory=dict, description="Extra context")
 
 
@@ -467,7 +467,7 @@ class BoundaryRecommendNextActionTool(ToolBase):
 
     @property
     def description(self) -> str:
-        return ("Recommend JARV's next action for a potential boundary, derived from real detection "
+        return ("Recommend JAI's next action for a potential boundary, derived from real detection "
                 "and (if a DB session + approval_id are supplied) the persisted approval state.")
 
     @property

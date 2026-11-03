@@ -1,5 +1,5 @@
 """
-JARV Backend - Workspace Management Tools
+JAI Backend - Workspace Management Tools
 
 Workspace management: create, delete, list, switch, info, update.
 """

@@ -1,5 +1,5 @@
 """
-JARV Backend - Checkpoint & Resume Tools (real implementations)
+JAI Backend - Checkpoint & Resume Tools (real implementations)
 
 Design-aligned tools:
   - checkpoint.create   (persist a real SafeCheckpoint)

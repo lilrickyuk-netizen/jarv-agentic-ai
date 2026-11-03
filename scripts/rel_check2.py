@@ -19,13 +19,13 @@ def call(m, p, b=None, t=None):
 _, tok = call("POST", "/auth/login", b={"username": "testadmin", "password": "testpass123"})
 T = tok["access_token"]
 d = call("POST", "/api/command/execute",
-         {"command": f"JARV, run the command `ls /nonexistent_xyz_path` in the workspace at {WS}."}, T)[1]
+         {"command": f"JAI, run the command `ls /nonexistent_xyz_path` in the workspace at {WS}."}, T)[1]
 dt = call("GET", f"/api/tasks/{d['task_id']}", t=T)[1]
 f = dt.get("failure") or {}
 print("FAILED CMD: task=", dt.get("status"), "exit=", f.get("exit_code"),
       "stderr=", (f.get("stderr") or "")[:70])
 d = call("POST", "/api/command/execute",
-         {"command": f"JARV, install dependencies using `npm install yet please` in {WS}."}, T)[1]
+         {"command": f"JAI, install dependencies using `npm install yet please` in {WS}."}, T)[1]
 print("INVALID PKG: resp=", d.get("status"))
 s, feed = call("GET", "/api/operations-feed/list?limit=10", T)
 items = feed if isinstance(feed, list) else feed.get("items", [])

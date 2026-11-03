@@ -1,5 +1,5 @@
 """
-JARV Backend - Google Gemini Provider
+JAI Backend - Google Gemini Provider
 
 Implementation of Google Gemini API provider for LLM completions.
 """

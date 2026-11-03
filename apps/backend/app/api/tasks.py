@@ -1,5 +1,5 @@
 """
-JARV Backend - Task Management API
+JAI Backend - Task Management API
 
 Endpoints for managing tasks and task state transitions.
 """

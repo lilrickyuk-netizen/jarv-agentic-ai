@@ -1,5 +1,5 @@
 """
-JARV Backend - Swarm Manager
+JAI Backend - Swarm Manager
 
 Manages swarm runs and sub-agent lifecycle.
 """

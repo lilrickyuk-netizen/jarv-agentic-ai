@@ -126,7 +126,7 @@ export default function SettingsPage() {
   const sendTest = async (target: string) => {
     setNotified(null);
     const result = await notifyAction.run('/api/integrations/notify', {
-      target, dry_run: false, message: 'Test notification from JARV Settings. If you can read this, notifications reach you.',
+      target, dry_run: false, message: 'Test notification from JAI Settings. If you can read this, notifications reach you.',
     });
     if (result) setNotified(result);
   };
@@ -140,7 +140,7 @@ export default function SettingsPage() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-3xl md:text-4xl font-bold mb-1">Settings</h1>
-            <p className="text-muted-foreground">What JARV is connected to, read live. Values are set in the server&apos;s environment and never shown here.</p>
+            <p className="text-muted-foreground">What JAI is connected to, read live. Values are set in the server&apos;s environment and never shown here.</p>
           </div>
           <Button kind="secondary" onClick={() => void reload()} disabled={loading}>Refresh</Button>
         </div>

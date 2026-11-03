@@ -1,5 +1,5 @@
 """
-JARV Backend - Workspace tools in the tool registry under the design's names (Repair 12e-3a)
+JAI Backend - Workspace tools in the tool registry under the design's names (Repair 12e-3a)
 
 list_files, read_file, write_file, edit_file, create_folder, move_file,
 copy_file, delete_file_with_boundary, get_file_metadata, search_files,

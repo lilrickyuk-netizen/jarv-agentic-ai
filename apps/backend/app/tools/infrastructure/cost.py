@@ -1,5 +1,5 @@
 """
-JARV Backend - Cost Estimation Tool
+JAI Backend - Cost Estimation Tool
 
 Tool for estimating infrastructure costs.
 """

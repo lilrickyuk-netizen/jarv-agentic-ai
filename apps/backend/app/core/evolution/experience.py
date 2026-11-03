@@ -1,5 +1,5 @@
 """
-JARV Backend - Experience Management
+JAI Backend - Experience Management
 
 Database-backed experience capture for the self-evolution API. Records are
 stored as ``ExperienceRecord`` rows through the verified-learning service, so

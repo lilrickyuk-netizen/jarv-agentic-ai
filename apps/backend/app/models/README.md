@@ -1,6 +1,6 @@
-# JARV Database Models
+# JAI Database Models
 
-Complete SQLAlchemy 2.0 models for the JARV Agentic AI System.
+Complete SQLAlchemy 2.0 models for the JAI Agentic AI System.
 
 ## Models Overview
 

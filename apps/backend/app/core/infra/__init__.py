@@ -1,3 +1,3 @@
 """
-JARV Backend - Infrastructure configuration (generators, validation, cost, scaling budget).
+JAI Backend - Infrastructure configuration (generators, validation, cost, scaling budget).
 """

@@ -9,7 +9,7 @@ type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking';
 interface VoicePart { backend?: string | null; ready: boolean; setup?: string | null }
 
 export interface VoiceProviders {
-  /** Live spoken conversation (OpenAI Realtime), connected to JARV's missions, memory and approvals. */
+  /** Live spoken conversation (OpenAI Realtime), connected to JAI's missions, memory and approvals. */
   live?: VoicePart;
 }
 
@@ -35,7 +35,7 @@ export function spokenSummary(text: string, limit = 400): string {
 }
 
 /**
- * Talking with JARV: one live spoken conversation. JARV hears, answers and acts through its own backend
+ * Talking with JAI: one live spoken conversation. JAI hears, answers and acts through its own backend
  * (missions, memory, workspaces and what waits for approval). Approvals are never taken by voice.
  */
 export function VoiceOperator({ onMission, onStateChange }: Props) {
@@ -61,7 +61,7 @@ export function VoiceOperator({ onMission, onStateChange }: Props) {
       <div className="voice-operator-details" role="status">
         <span>{providers === null
           ? error ?? 'Checking voice…'
-          : providers.live?.ready ? 'Talk with JARV: it can check status, start and carry on missions, search its memory and read your workspaces.'
+          : providers.live?.ready ? 'Talk with JAI: it can check status, start and carry on missions, search its memory and read your workspaces.'
             : providers.live?.setup ?? 'Live conversation is not set up.'}</span>
         <span>Approvals are never taken by voice: approve on the Approvals page.</span>
       </div>

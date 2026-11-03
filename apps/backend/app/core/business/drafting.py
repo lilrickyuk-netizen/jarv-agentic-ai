@@ -1,5 +1,5 @@
 """
-JARV Backend - Grounded business drafting
+JAI Backend - Grounded business drafting
 
 One engine writes every marketing, content, onboarding, community,
 partnership, sales and support draft. Each kind of document has a fixed
@@ -350,7 +350,7 @@ async def _model_text(kind: DraftKind, facts: Facts, inputs: Dict[str, Any], ext
               + f"\nFACTS (use only these; never invent numbers, customers, quotes or features; write "
                 f"[confirm: what is needed] where a fact is missing):\n{facts.summary()}")
     reply = await helpers.llm_complete(model or "claude-sonnet-4-6", prompt,
-                                       system="You are JARV's writer. Accurate, specific, no hype, no invented facts.",
+                                       system="You are JAI's writer. Accurate, specific, no hype, no invented facts.",
                                        temperature=0.4, max_tokens=2500)
     return reply
 
@@ -436,7 +436,7 @@ async def _store(db: AsyncSession, workspace_id: UUID, kind: DraftKind, title: s
         row = CommunityItem(
             id=uuid4(), workspace_id=workspace_id, title=title[:500], item_type=kind.tool.replace("create_", "").replace(
                 "draft_", "")[:50], category=inputs.get("channel") or "community", content=body, content_format="markdown",
-            author_id=owner, author_name="JARV (draft for Richard)", status="draft", is_published=False,
+            author_id=owner, author_name="JAI (draft for Richard)", status="draft", is_published=False,
             parent_item_id=_uuid(inputs["reply_to"]) if inputs.get("reply_to") else None,
             is_reply=bool(inputs.get("reply_to")), tags=["jarv-draft"], meta_data=meta, created_at=now, updated_at=now)
         db.add(row)
@@ -446,7 +446,7 @@ async def _store(db: AsyncSession, workspace_id: UUID, kind: DraftKind, title: s
         id=uuid4(), workspace_id=workspace_id, title=title, content_type=kind.tool.replace("create_", "")[:50],
         category=kind.group, slug=f"{_slug(title)[:100]}-{uuid4().hex[:8]}", content_body=body,
         content_format="markdown", excerpt=body[:300], status="draft", is_published=False, author_id=owner,
-        author_name="JARV", tags=["jarv-draft", kind.group], meta_data=meta, created_at=now, updated_at=now)
+        author_name="JAI", tags=["jarv-draft", kind.group], meta_data=meta, created_at=now, updated_at=now)
     db.add(row)
     await db.flush()
     return row.id, "content_item"

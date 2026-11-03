@@ -2,7 +2,7 @@
 Upgrade 1a: the specialist agents' source documentation (ingestion, licence gate, versions, hybrid search, the
 places it reaches the agents) and the Verifier's hard conformance checks.
 
-The hard-check fixtures reproduce the five defects JARV's Verifier passed in MYCO Phase 0 (commit ce5582f):
+The hard-check fixtures reproduce the five defects JAI's Verifier passed in MYCO Phase 0 (commit ce5582f):
 Python 3.12.8 against a locked 3.14.7 with an ADR claiming 3.14.7, TypeScript and Vitest below the locked
 versions, an ADR still "Open - blocking", a planning file calling the superseded design authoritative, and stray
 scripts. Each is found; the corrected copy passes.
@@ -271,8 +271,8 @@ class _Router:
         from app.core.providers import CompletionResponse
 
         system = request.system or ""
-        who = ("analyst" if system.startswith("You are JARV's requirements analyst") else
-               "verifier" if system.startswith("You are JARV's Verifier Agent") else "mission")
+        who = ("analyst" if system.startswith("You are JAI's requirements analyst") else
+               "verifier" if system.startswith("You are JAI's Verifier Agent") else "mission")
         self.first.setdefault(who, request.messages[0].content)
         if who == "analyst":
             return CompletionResponse(id="r", model="test", content="", usage={"total_tokens": 1}, tool_calls=[])
@@ -330,7 +330,7 @@ def test_a_failed_hard_check_is_unmet_whatever_the_verifier_says(monkeypatch, mi
     finally:
         shutil.rmtree(folder, ignore_errors=True)
     assert "HARD CHECKS FIND" in router.first["mission"] and ".python-version" in router.first["mission"]
-    assert "JARV'S HARD CHECKS" in router.first["verifier"]
+    assert "JAI'S HARD CHECKS" in router.first["verifier"]
     verification = result["verification"]
     assert verification["hard_checks"]["findings"]
     if not blocked:

@@ -1,5 +1,5 @@
 """
-JARV Backend - Search the agents' source documentation (Upgrade 1a)
+JAI Backend - Search the agents' source documentation (Upgrade 1a)
 
 Hybrid search over active passages: by meaning (pgvector cosine distance on the HNSW index, comparing only vectors
 from the same embedding model) and by words (Postgres full-text search, websearch_to_tsquery + ts_rank_cd), fused
@@ -179,7 +179,7 @@ async def search_everything(db: AsyncSession, query: str, *, agent: Optional[str
 
             memories = await memory_service.search(db, query, limit=limit, workspace_id=workspace_id)
             lists.append([add("memory", str(m.id), {"title": f"memory ({m.memory_type})", "content": m.content,
-                                                    "citation": f"JARV memory {str(m.id)[:8]}"})
+                                                    "citation": f"JAI memory {str(m.id)[:8]}"})
                           for m in memories])
         except Exception as exc:  # noqa: BLE001
             logger.info(f"memories not searched: {exc}")

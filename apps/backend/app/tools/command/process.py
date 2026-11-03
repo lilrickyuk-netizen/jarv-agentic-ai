@@ -1,5 +1,5 @@
 """
-JARV Backend - Process Management Tools
+JAI Backend - Process Management Tools
 
 Process management tools: list, kill.
 """

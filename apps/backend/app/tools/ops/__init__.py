@@ -1,12 +1,12 @@
 """
-JARV Backend - Operations tools (Repair 12d)
+JAI Backend - Operations tools (Repair 12d)
 
 Real monitoring, container, server, and backup tools for the operations agents.
 Names follow the design's tool registry (section 12). Every tool runs through
 ToolBase.execute: authority check, central permission policy, ToolRun record.
 
 Gating follows the design's authority model: reading health, logs, metrics and
-errors is Level 1-2; restarting an approved JARV service and retrying stuck
+errors is Level 1-2; restarting an approved JAI service and retrying stuck
 missions are production repair (no approval, design section 6); restoring a
 backup and deleting backups pause for Richard's approval.
 """
@@ -96,7 +96,7 @@ class _OpsTool(ToolBase):
 
 class CheckHealthTool(_OpsTool):
     _name = "check_health"
-    _description = ("Check JARV's own services: database, Redis, Celery workers, stuck missions, "
+    _description = ("Check JAI's own services: database, Redis, Celery workers, stuck missions, "
                     "and Prometheus scrape targets. Reports each check with latency or the error.")
 
     async def run(self, input_data: Dict[str, Any], context: ToolContext) -> ToolResult:
@@ -159,7 +159,7 @@ class _MetricsInput(BaseModel):
 
 class QueryMetricsTool(_OpsTool):
     _name = "query_metrics"
-    _description = "Run a read-only PromQL query against JARV's Prometheus (missions, agents, tools, API, host)."
+    _description = "Run a read-only PromQL query against JAI's Prometheus (missions, agents, tools, API, host)."
     _input = _MetricsInput
 
     async def run(self, input_data: Dict[str, Any], context: ToolContext) -> ToolResult:
@@ -203,7 +203,7 @@ class CheckUptimeTool(_OpsTool):
 
 class InspectServerTool(_OpsTool):
     _name = "inspect_server"
-    _description = "CPU, memory, disk, load, and uptime of the machine JARV runs on."
+    _description = "CPU, memory, disk, load, and uptime of the machine JAI runs on."
 
     async def run(self, input_data: Dict[str, Any], context: ToolContext) -> ToolResult:
         disks = _disks()
@@ -304,7 +304,7 @@ class CheckEnvVarsTool(_OpsTool):
 
 class CheckContainerStatusTool(_OpsTool):
     _name = "check_container_status"
-    _description = "List JARV's containers with state and health (backend, worker, scheduler, dashboard, ...)."
+    _description = "List JAI's containers with state and health (backend, worker, scheduler, dashboard, ...)."
 
     async def run(self, input_data: Dict[str, Any], context: ToolContext) -> ToolResult:
         from app.core.ops.docker_ops import OpsUnavailable, get_docker_ops
@@ -320,12 +320,12 @@ class CheckContainerStatusTool(_OpsTool):
 
 class CheckDockerStatusTool(CheckContainerStatusTool):
     _name = "check_docker_status"
-    _description = "Whether JARV can reach Docker (through its restricted proxy) and the state of its containers."
+    _description = "Whether JAI can reach Docker (through its restricted proxy) and the state of its containers."
 
 
 class CheckCrashesTool(_OpsTool):
     _name = "check_crashes"
-    _description = "Find JARV services that crashed: restarts, non-zero exit codes, out-of-memory kills, failing health checks."
+    _description = "Find JAI services that crashed: restarts, non-zero exit codes, out-of-memory kills, failing health checks."
 
     async def run(self, input_data: Dict[str, Any], context: ToolContext) -> ToolResult:
         from app.core.ops.docker_ops import OpsUnavailable, get_docker_ops
@@ -349,7 +349,7 @@ class _LogsInput(BaseModel):
 
 class CheckContainerLogsTool(_OpsTool):
     _name = "check_container_logs"
-    _description = "Recent log lines of one JARV service (secrets redacted)."
+    _description = "Recent log lines of one JAI service (secrets redacted)."
     _input = _LogsInput
     _authority = AuthorityLevel.LEVEL_2_FILE_OPERATIONS
 
@@ -366,7 +366,7 @@ class CheckContainerLogsTool(_OpsTool):
 
 class CheckServiceLogsTool(CheckContainerLogsTool):
     _name = "check_service_logs"
-    _description = "Recent log lines of one JARV service (secrets redacted)."
+    _description = "Recent log lines of one JAI service (secrets redacted)."
 
 
 class _AppLogsInput(BaseModel):
@@ -375,7 +375,7 @@ class _AppLogsInput(BaseModel):
 
 class CheckLogsTool(_OpsTool):
     _name = "check_logs"
-    _description = "Recent JARV application logs (API and worker), secrets redacted, with error lines pulled out."
+    _description = "Recent JAI application logs (API and worker), secrets redacted, with error lines pulled out."
     _input = _AppLogsInput
     _authority = AuthorityLevel.LEVEL_2_FILE_OPERATIONS
 
@@ -403,7 +403,7 @@ class _RestartInput(BaseModel):
 
 class RestartServiceTool(_OpsTool):
     _name = "restart_service"
-    _description = ("Restart one JARV service container (production repair). Databases and Redis are never "
+    _description = ("Restart one JAI service container (production repair). Databases and Redis are never "
                     "restarted automatically. Verify recovery with check_health afterwards.")
     _input = _RestartInput
     _authority = AuthorityLevel.LEVEL_7_DEPLOYMENT
@@ -448,7 +448,7 @@ class _BackupCreateInput(BaseModel):
 
 class CreateBackupTool(_OpsTool):
     _name = "create_backup"
-    _description = "Back up JARV's PostgreSQL database (pg_dump, checksummed, recorded)."
+    _description = "Back up JAI's PostgreSQL database (pg_dump, checksummed, recorded)."
     _input = _BackupCreateInput
     _authority = AuthorityLevel.LEVEL_4_SYSTEM_CHANGES
 

@@ -1,5 +1,5 @@
 """
-JARV Backend - Remaining infrastructure tools (Repair 12e-4b)
+JAI Backend - Remaining infrastructure tools (Repair 12e-4b)
 
 check_ssl_certificate and check_domain_dns (the real TLS and DNS checks under
 the design's names), generate_nginx_config, generate_docker_compose,

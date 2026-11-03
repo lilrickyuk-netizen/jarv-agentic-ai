@@ -93,7 +93,7 @@ function Board({ workspaceId }: { workspaceId: string }) {
               )}
             </Panel>
             <Panel title="Operating plan" eyebrow="STRATEGY">
-              {!o.operating_plan ? <Empty title="No active operating plan">Ask JARV to create one from the Command page.</Empty> : (
+              {!o.operating_plan ? <Empty title="No active operating plan">Ask JAI to create one from the Command page.</Empty> : (
                 <>
                   <p className="text-sm mb-2"><span className="font-medium">{o.operating_plan.name}</span> · <Pill>{o.operating_plan.status}</Pill> · ends {o.operating_plan.end_date}</p>
                   <div className="h-2 bg-muted rounded"><div className="h-2 bg-primary rounded" style={{ width: `${Math.min(100, o.operating_plan.completion_percentage)}%` }} /></div>

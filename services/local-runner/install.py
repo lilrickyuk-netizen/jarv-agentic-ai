@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-JARV Local Runner - Installer
+JAI Local Runner - Installer
 
 Sets up local runner with secure token generation.
 """
@@ -18,7 +18,7 @@ from runner.config import settings
 def install():
     """Install local runner"""
     print("=" * 60)
-    print("JARV Local Runner - Installation")
+    print("JAI Local Runner - Installation")
     print("=" * 60)
     print()
 
@@ -71,7 +71,7 @@ def install():
     print("Authentication Token:")
     print(f"  {token}")
     print()
-    print("IMPORTANT: Add this token to your JARV backend configuration:")
+    print("IMPORTANT: Add this token to your JAI backend configuration:")
     print(f"  RUNNER_TOKEN={token}")
     print()
     print("To start the local runner:")

@@ -1,5 +1,5 @@
 """
-JARV Local Runner - Audit Logger
+JAI Local Runner - Audit Logger
 
 Local audit logging for all runner operations.
 """

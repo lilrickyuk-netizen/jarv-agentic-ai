@@ -1,7 +1,7 @@
 """
-JARV Backend - Outbound notification integrations
+JAI Backend - Outbound notification integrations
 
-How JARV notifies Richard: by email to his own address (NOTIFY_EMAIL, or the
+How JAI notifies Richard: by email to his own address (NOTIFY_EMAIL, or the
 SMTP_FROM account itself) through the mailer, or by an HTTPS webhook
 (NOTIFY_WEBHOOK_URL: Slack, Discord, ntfy and most chat tools accept a JSON
 POST). A dry run is the default and sends nothing; the local_mock target only
@@ -100,7 +100,7 @@ class IntegrationRegistry:
                 to = notify_email(operator_email)
                 if not to:
                     raise ValueError("No address to notify: set NOTIFY_EMAIL")
-                sent = await mailer.send_email(to, "JARV notification", message)
+                sent = await mailer.send_email(to, "JAI notification", message)
                 return {"ok": True, "mode": "live", "target": target, "sent": True, "summary": "notification emailed",
                         "message_id": sent["message_id"]}
             async with http_client(timeout=httpx.Timeout(15.0)) as client:

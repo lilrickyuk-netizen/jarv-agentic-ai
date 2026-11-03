@@ -1,5 +1,5 @@
 """
-JARV Backend - BusinessAgent
+JAI Backend - BusinessAgent
 
 Produces business analysis/recommendations as model-generated advisory DRAFTS
 only.

@@ -1,5 +1,5 @@
 """
-JARV Backend - Agent Model
+JAI Backend - Agent Model
 
 Agent instances with configuration, state, and execution history.
 """

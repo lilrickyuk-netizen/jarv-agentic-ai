@@ -276,7 +276,7 @@ def test_repository_document_pack_and_live_platform_imports(tmp_path, monkeypatc
     source.mkdir()
     (source / "package.json").write_text('{"name": "site", "scripts": {"build": "next build"}, '
                                          '"dependencies": {"next": "14.2.0"}}')
-    git = ["git", "-c", "user.email=jarv@test", "-c", "user.name=JARV", "-c", f"safe.directory={source}"]
+    git = ["git", "-c", "user.email=jarv@test", "-c", "user.name=JAI", "-c", f"safe.directory={source}"]
     subprocess.run(git + ["init", "-q"], cwd=source, check=True)
     subprocess.run(git + ["add", "-A"], cwd=source, check=True)
     subprocess.run(git + ["commit", "-qm", "init"], cwd=source, check=True)

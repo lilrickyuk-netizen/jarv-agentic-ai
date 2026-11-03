@@ -1,5 +1,5 @@
 """
-JARV Backend - Metrics endpoint
+JAI Backend - Metrics endpoint
 
 ``GET /metrics`` in the Prometheus text format. When ``METRICS_TOKEN`` is set,
 scrapers must send ``Authorization: Bearer <token>``. The production nginx

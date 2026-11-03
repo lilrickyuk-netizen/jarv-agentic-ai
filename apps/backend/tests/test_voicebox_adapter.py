@@ -213,7 +213,7 @@ def test_admin_provisions_persistent_voicebox_profile_for_speech(client: TestCli
     )
 
     provisioned = client.post("/api/voicebox/profile/provision")
-    spoken = client.post("/api/voicebox/speak", json={"text": "Hello from JARV"})
+    spoken = client.post("/api/voicebox/speak", json={"text": "Hello from JAI"})
 
     assert provisioned.status_code == 200, provisioned.text
     assert provisioned.json()["profile_id"] == "profile-jarv"

@@ -1,5 +1,5 @@
 """
-JARV Local Runner - Task Manager
+JAI Local Runner - Task Manager
 
 Manages background tasks with status tracking and cancellation.
 """

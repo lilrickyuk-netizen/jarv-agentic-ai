@@ -1,5 +1,5 @@
 """
-JARV Backend - Pydantic Schemas
+JAI Backend - Pydantic Schemas
 
 Request and response models for API endpoints.
 """

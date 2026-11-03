@@ -1,7 +1,7 @@
 """
-JARV Backend Database Models
+JAI Backend Database Models
 
-All SQLAlchemy models for the JARV system - Complete implementation.
+All SQLAlchemy models for the JAI system - Complete implementation.
 """
 # Base models
 from app.models.base import Base, TimestampMixin, UUIDMixin

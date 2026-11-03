@@ -1,5 +1,5 @@
 """
-JARV Backend - Central Tool Permission Policy (Repair 10)
+JAI Backend - Central Tool Permission Policy (Repair 10)
 
 ONE shared permission-enforcement function for every tool-execution path in the
 system. Both runtimes route through it BEFORE any tool acts:

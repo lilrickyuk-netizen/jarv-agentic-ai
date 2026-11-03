@@ -1,13 +1,13 @@
 """
-JARV Backend - Live voice conversation (OpenAI Realtime)
+JAI Backend - Live voice conversation (OpenAI Realtime)
 
-A natural spoken conversation with JARV: the browser streams the microphone to
+A natural spoken conversation with JAI: the browser streams the microphone to
 OpenAI's Realtime model over WebRTC and plays its voice back, with turn-taking
 and interruption handled by the model. The browser never sees the OpenAI key:
-JARV mints a short-lived client secret for one session, carrying JARV's
+JAI mints a short-lived client secret for one session, carrying JAI's
 instructions and tools.
 
-Everything JARV does during the conversation goes through ``run_tool`` on the
+Everything JAI does during the conversation goes through ``run_tool`` on the
 backend under the operator's own sign-in: reading status, starting a Command
 Center mission (under the same approval gate as typed missions), checking or
 cancelling a mission. Approvals are refused by voice here exactly as in
@@ -34,11 +34,11 @@ _NO_WORKSPACE = {"type": "string", "description": "Workspace name, when Richard 
 
 TOOLS: List[Dict[str, Any]] = [
     {"type": "function", "name": "get_status",
-     "description": "What JARV is working on right now: missions in progress, what waits for Richard's approval, "
+     "description": "What JAI is working on right now: missions in progress, what waits for Richard's approval, "
                     "recent failures and the latest activity.",
      "parameters": {"type": "object", "properties": {"workspace": _NO_WORKSPACE}, "additionalProperties": False}},
     {"type": "function", "name": "start_mission",
-     "description": "Start real work: hands Richard's request to JARV's agents as a Command Center mission. Use it "
+     "description": "Start real work: hands Richard's request to JAI's agents as a Command Center mission. Use it "
                     "when Richard asks for something to be done (built, fixed, researched, written, checked, "
                     "deployed), not for a question you can answer in conversation.",
      "parameters": {"type": "object", "properties": {
@@ -71,15 +71,15 @@ TOOLS: List[Dict[str, Any]] = [
          "path": {"type": "string", "description": "File path inside the workspace, e.g. docs/MYCO-V3-spec.md."}},
          "required": ["workspace", "path"], "additionalProperties": False}},
     {"type": "function", "name": "ask_jarv",
-     "description": "Ask JARV's own reasoning core a question about Richard's projects, missions, decisions, "
-                    "progress or plans. It answers from JARV's memory, verified lessons, recent missions and "
+     "description": "Ask JAI's own reasoning core a question about Richard's projects, missions, decisions, "
+                    "progress or plans. It answers from JAI's memory, verified lessons, recent missions and "
                     "what waits for approval, so use it for anything you would otherwise guess.",
      "parameters": {"type": "object", "properties": {
          "question": {"type": "string", "description": "The question in Richard's words, with every detail."},
          "workspace": _NO_WORKSPACE},
          "required": ["question"], "additionalProperties": False}},
     {"type": "function", "name": "search_memory",
-     "description": "What JARV remembers about a subject (decisions, facts, preferences, past work), best first.",
+     "description": "What JAI remembers about a subject (decisions, facts, preferences, past work), best first.",
      "parameters": {"type": "object", "properties": {
          "query": {"type": "string", "description": "What to look for."}, "workspace": _NO_WORKSPACE},
          "required": ["query"], "additionalProperties": False}},
@@ -130,25 +130,25 @@ def instructions(spaces: List[Any]) -> str:
     projects = "; ".join(f"{w.name} (folder {_root(w)})" if _root(w) else f"{w.name} (no folder registered)"
                          for w in spaces) or "none yet"
     return (
-        "You are JARV, Richard Curley's autonomous AI operating system, talking with him by voice. "
+        "You are JAI, Richard Curley's autonomous AI operating system, talking with him by voice. "
         "Speak naturally and warmly, like a capable chief of staff: short spoken sentences, no lists or markdown, "
         "British English. Let him interrupt; keep answers brief unless he asks for detail.\n"
         f"His workspaces: {projects}.\n"
-        "You are the voice of JARV's whole system, not a separate assistant: JARV's memory, missions, workspaces "
+        "You are the voice of JAI's whole system, not a separate assistant: JAI's memory, missions, workspaces "
         "and approvals are yours through your tools. Talk things through yourself, but for anything about his "
-        "projects, decisions, progress or what JARV is doing, use ask_jarv, search_memory, get_status, "
+        "projects, decisions, progress or what JAI is doing, use ask_jarv, search_memory, get_status, "
         "get_mission, list_approvals or list_workspaces rather than guessing. When he asks for work to "
-        "be done, say in one sentence what you'll do and call start_mission with his full request; JARV's agents "
+        "be done, say in one sentence what you'll do and call start_mission with his full request; JAI's agents "
         "then do the work and you'll receive a message beginning [mission update] when it finishes or pauses; "
         "tell him the outcome in a sentence or two. When he asks to continue, resume or carry on with a mission, "
         "call resume_mission; never start a new mission to continue an old one.\n"
-        "Each workspace is a folder on his computer that JARV and its agents work in. Never tell him you cannot "
+        "Each workspace is a folder on his computer that JAI and its agents work in. Never tell him you cannot "
         "access his files: use list_workspace_files and read_workspace_file to look at what is there, and "
         "start_mission for work on it, naming where to look, e.g. 'Read the design in the MYCO workspace's docs "
         "folder and write a build plan to docs/BUILD_PLAN.md'. If a workspace has no folder registered, say so "
         "and offer to register one when he gives the path.\n"
         "If a mission fails, tell him plainly what the error says. Do not claim you will fix it behind the "
-        "scenes: you cannot change JARV's own code from a conversation. Restart a failed mission at most once, "
+        "scenes: you cannot change JAI's own code from a conversation. Restart a failed mission at most once, "
         "and only if he asks.\n"
         "You never approve anything, publish, spend money or send messages for him by voice: those wait on the "
         "Approvals page, because anyone near the microphone could speak. If he asks you to approve, say so and "
@@ -156,12 +156,12 @@ def instructions(spaces: List[Any]) -> str:
     )
 
 
-# Talk with JARV remembers the conversation: every spoken turn is kept per operator (newest 60, for 30 days)
+# Talk with JAI remembers the conversation: every spoken turn is kept per operator (newest 60, for 30 days)
 # and the recent ones open each new session, so a new conversation carries on from the last one.
 HISTORY_TURNS = 60
 HISTORY_IN_SESSION = 30
 HISTORY_TTL_SECONDS = 30 * 24 * 3600
-_SPEAKERS = {"you": "Richard", "jarv": "JARV"}
+_SPEAKERS = {"you": "Richard", "jarv": "JAI"}
 
 
 def _history_key(user_id: UUID) -> str:
@@ -169,7 +169,7 @@ def _history_key(user_id: UUID) -> str:
 
 
 async def remember_turn(user_id: UUID, who: str, text: str) -> Dict[str, Any]:
-    """Keep one spoken turn ("you" is Richard, "jarv" is JARV). Secrets never enter the history."""
+    """Keep one spoken turn ("you" is Richard, "jarv" is JAI). Secrets never enter the history."""
     import json
     from datetime import datetime, timezone
 
@@ -210,7 +210,7 @@ async def recent_turns(user_id: UUID, limit: int = HISTORY_IN_SESSION) -> List[D
 
 
 def now_block() -> str:
-    """Today's date and time where Richard is (Europe/London), so JARV knows how long ago things happened."""
+    """Today's date and time where Richard is (Europe/London), so JAI knows how long ago things happened."""
     from datetime import datetime, timezone
 
     try:
@@ -227,7 +227,7 @@ def now_block() -> str:
 def history_block(turns: List[Dict[str, Any]]) -> str:
     if not turns:
         return ""
-    lines = [f"[{str(t.get('at', ''))[:16].replace('T', ' ')}] {_SPEAKERS.get(t.get('who'), 'JARV')}: {t.get('text', '')}"
+    lines = [f"[{str(t.get('at', ''))[:16].replace('T', ' ')}] {_SPEAKERS.get(t.get('who'), 'JAI')}: {t.get('text', '')}"
              for t in turns]
     return ("\nYOUR RECENT CONVERSATION WITH RICHARD (earlier sessions, oldest first). Carry on from it as one "
             "continuous relationship: remember what he told you and what you said, and do not re-introduce "
@@ -236,7 +236,7 @@ def history_block(turns: List[Dict[str, Any]]) -> str:
 
 
 async def create_session(db: AsyncSession, user_id: UUID) -> Dict[str, Any]:
-    """A short-lived Realtime client secret for this operator, carrying JARV's instructions and tools."""
+    """A short-lived Realtime client secret for this operator, carrying JAI's instructions and tools."""
     if not available():
         raise LiveUnavailable(setup_hint())
     from app.core.audit import AuditLogger
@@ -362,7 +362,7 @@ async def _mission(db: AsyncSession, user_id: UUID, task_id: Optional[str]) -> D
 
 async def _memories(db: AsyncSession, user_id: UUID, query: str, workspace_id: Optional[UUID],
                     limit: int = 8) -> List[Dict[str, Any]]:
-    """JARV's memories that match, from the named workspace or all of his, best first (never another owner's)."""
+    """JAI's memories that match, from the named workspace or all of his, best first (never another owner's)."""
     from app.core.jarv_memory import memory_service
 
     scopes = [workspace_id] if workspace_id else [w.id for w in await _workspaces(db, user_id)]
@@ -420,7 +420,7 @@ async def _recent_missions(db: AsyncSession, user_id: UUID, limit: int = 6) -> L
 
 
 async def _ask_jarv(db: AsyncSession, user_id: UUID, question: str, workspace_id: Optional[UUID]) -> Dict[str, Any]:
-    """Answer from JARV's own memory, lessons, missions and approvals with JARV's reasoning model."""
+    """Answer from JAI's own memory, lessons, missions and approvals with JAI's reasoning model."""
     import json
 
     from app.core.command import CommandService
@@ -434,7 +434,7 @@ async def _ask_jarv(db: AsyncSession, user_id: UUID, question: str, workspace_id
         "waiting_for_approval": (await _approvals(db, user_id))["waiting"],
         "memories": await _memories(db, user_id, question, workspace_id),
         "now": now_block().strip(),
-        "recent_conversation": [f"[{str(t.get('at', ''))[:16]}] {_SPEAKERS.get(t.get('who'), 'JARV')}: "
+        "recent_conversation": [f"[{str(t.get('at', ''))[:16]}] {_SPEAKERS.get(t.get('who'), 'JAI')}: "
                                 f"{t.get('text', '')[:300]}" for t in await recent_turns(user_id, 16)],
     }
     if workspace_id is not None:
@@ -448,9 +448,9 @@ async def _ask_jarv(db: AsyncSession, user_id: UUID, question: str, workspace_id
     service = CommandService()
     response = await get_router().complete(CompletionRequest(
         model=service.model, max_tokens=700, temperature=0.2,
-        system=("You are JARV's reasoning core answering Richard Curley's spoken question. Answer only from the "
-                "facts given (JARV's memory, missions, workspaces, approvals and your recent conversation with "
-                "him); when they do not contain the answer, say so plainly and say what JARV would need to find "
+        system=("You are JAI's reasoning core answering Richard Curley's spoken question. Answer only from the "
+                "facts given (JAI's memory, missions, workspaces, approvals and your recent conversation with "
+                "him); when they do not contain the answer, say so plainly and say what JAI would need to find "
                 "out. A mission marked in_progress is still running: describe it only from its own "
                 "latest_activity, never from another mission's last_report, and do not say it committed, passed "
                 "or finished unless its own activity shows that. Each last_report belongs only to its own "

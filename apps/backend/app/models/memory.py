@@ -1,5 +1,5 @@
 """
-JARV Backend - Memory Model
+JAI Backend - Memory Model
 
 Agent memory storage with vector embeddings for semantic search.
 """

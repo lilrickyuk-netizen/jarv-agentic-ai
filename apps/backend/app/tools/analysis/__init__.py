@@ -1,5 +1,5 @@
 """
-JARV Backend - Analysis Tools
+JAI Backend - Analysis Tools
 
 Tools for code analysis, quality checking, and architectural insights.
 """

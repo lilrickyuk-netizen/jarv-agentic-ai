@@ -1,7 +1,7 @@
 """
-JARV Backend - Self-evolution engine (persisted)
+JAI Backend - Self-evolution engine (persisted)
 
-How JARV changes its own way of working, safely:
+How JAI changes its own way of working, safely:
 
 1. Propose. A change to one component (workspace rule, runbook, agent
    instructions, tool selection, operating plan, swarm strategy, or a workflow

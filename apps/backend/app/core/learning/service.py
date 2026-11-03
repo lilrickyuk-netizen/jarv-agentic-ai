@@ -1,7 +1,7 @@
 """
-JARV Backend - Verified learning
+JAI Backend - Verified learning
 
-How JARV learns from experience without learning the wrong thing:
+How JAI learns from experience without learning the wrong thing:
 
 1. Capture. Every agent run and command-center mission is stored as an
    ``ExperienceRecord`` (situation, action, result, outcome) and as an

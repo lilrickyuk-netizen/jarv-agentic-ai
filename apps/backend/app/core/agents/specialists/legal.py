@@ -1,5 +1,5 @@
 """
-JARV Backend - LegalAgent
+JAI Backend - LegalAgent
 
 Drafts compliance, policy, and terms text (e.g. TOS, privacy policy, NDA).
 

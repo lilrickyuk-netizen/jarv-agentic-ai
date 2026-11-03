@@ -1,5 +1,5 @@
 """
-JARV Backend - Customer support (persisted)
+JAI Backend - Customer support (persisted)
 
 A local ticket inbox (SupportTicket rows; the conversation is kept on the
 ticket), fed by the API, the email inbox (IMAP, when configured) or tools.
@@ -291,7 +291,7 @@ class SupportService:
             row = ContentItem(id=uuid4(), workspace_id=workspace_id, title=question[:500], content_type="faq",
                               category="support", slug=f"faq-{re.sub(r'[^a-z0-9]+', '-', question.lower())[:80]}-{uuid4().hex[:6]}",
                               content_body=answer, content_format="markdown", status="published", is_published=False,
-                              author_id=author, author_name="JARV", tags=["faq"], meta_data={"version": 1, "history": []},
+                              author_id=author, author_name="JAI", tags=["faq"], meta_data={"version": 1, "history": []},
                               created_at=now, updated_at=now)
             db.add(row)
         else:

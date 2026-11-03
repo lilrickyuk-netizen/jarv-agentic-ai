@@ -1,5 +1,5 @@
 """
-JARV Backend - Structure Analysis Tools
+JAI Backend - Structure Analysis Tools
 
 Tools for analyzing dependencies, imports, architecture, and performance.
 """

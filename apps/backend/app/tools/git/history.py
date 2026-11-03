@@ -1,5 +1,5 @@
 """
-JARV Backend - Git History Tools
+JAI Backend - Git History Tools
 
 Git history operations: diff, log, blame.
 """

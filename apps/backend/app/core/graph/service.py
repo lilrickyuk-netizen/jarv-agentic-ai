@@ -1,7 +1,7 @@
 """
-JARV Backend - The Artifact Intelligence Graph (Upgrade 3)
+JAI Backend - The Artifact Intelligence Graph (Upgrade 3)
 
-Ties each requirement to the files, commands, checks and decisions behind it, so JARV answers "what proves this?"
+Ties each requirement to the files, commands, checks and decisions behind it, so JAI answers "what proves this?"
 and "what did this change touch?" from records, not from a summary.
 
 How it fills:

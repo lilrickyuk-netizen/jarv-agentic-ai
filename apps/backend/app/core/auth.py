@@ -1,5 +1,5 @@
 """
-JARV Backend - Authentication Dependencies
+JAI Backend - Authentication Dependencies
 
 FastAPI dependencies for authentication and authorization.
 """
@@ -92,8 +92,8 @@ async def resolve_user_id(db: AsyncSession, redis: Redis, subject: str) -> "UUID
     """Map a token subject to a users-table id, creating the row on first use.
 
     - A UUID subject is already a users-table id.
-    - An administrator is JARV's owner: the earliest persisted user, which is
-      the account JARV has always assigned new workspaces to. When no user
+    - An administrator is JAI's owner: the earliest persisted user, which is
+      the account JAI has always assigned new workspaces to. When no user
       exists yet, the owner row is created for this administrator.
     - Any other login gets its own user row with a stable id.
     The mapping is cached in Redis.

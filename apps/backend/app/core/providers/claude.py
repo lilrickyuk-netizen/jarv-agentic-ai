@@ -1,5 +1,5 @@
 """
-JARV Backend - Claude (Anthropic) Provider
+JAI Backend - Claude (Anthropic) Provider
 
 Implementation of Claude API provider for LLM completions.
 """
@@ -138,7 +138,7 @@ class ClaudeProvider(BaseLLMProvider):
             if response.status_code != 200:
                 await self._handle_error(response)
 
-            # Parse response; tool names come back as sent, so restore JARV's own names.
+            # Parse response; tool names come back as sent, so restore JAI's own names.
             data = response.json()
             result = self._convert_response(data, request.model)
             original = {}

@@ -1,5 +1,5 @@
 """
-JARV Backend - Audit Logging System
+JAI Backend - Audit Logging System
 
 Comprehensive audit logging for all agent actions and system events.
 Every agent execution is logged to the AuditLog database table.

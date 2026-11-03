@@ -1,5 +1,5 @@
 """
-JARV Backend - Workspace System
+JAI Backend - Workspace System
 
 fs_inspector: scope-checked reads, writes, scans and command classification inside a
 workspace's registered folder. lifecycle: creating workspaces from a folder or a repository.

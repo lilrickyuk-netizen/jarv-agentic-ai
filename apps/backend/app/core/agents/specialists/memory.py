@@ -1,5 +1,5 @@
 """
-JARV Backend - MemoryAgent
+JAI Backend - MemoryAgent
 
 Reports on the memory ACTUALLY available in the execution context, honestly.
 

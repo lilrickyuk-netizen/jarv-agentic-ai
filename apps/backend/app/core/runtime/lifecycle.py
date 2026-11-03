@@ -1,5 +1,5 @@
 """
-JARV Backend - Mission lifecycle
+JAI Backend - Mission lifecycle
 
 Every command mission moves through these statuses and only along these
 transitions. ``transition`` is the single place a mission's status changes;

@@ -1,5 +1,5 @@
 """
-JARV Backend - Company Operating Layer Models
+JAI Backend - Company Operating Layer Models
 
 Company roles, departments, and organizational structure.
 """

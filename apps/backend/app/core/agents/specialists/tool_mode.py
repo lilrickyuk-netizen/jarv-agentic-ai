@@ -1,5 +1,5 @@
 """
-JARV Backend - Specialist tool mode (Repair 12c)
+JAI Backend - Specialist tool mode (Repair 12c)
 
 How each engineering specialist works a task through its toolbox. Every agent
 listed here runs its tool loop whenever a model provider is configured and the

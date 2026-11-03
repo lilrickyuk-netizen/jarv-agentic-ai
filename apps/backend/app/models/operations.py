@@ -1,5 +1,5 @@
 """
-JARV Backend - Operations Models
+JAI Backend - Operations Models
 
 Incidents, audit logs, infrastructure, backups, deployments, and authority policies.
 """

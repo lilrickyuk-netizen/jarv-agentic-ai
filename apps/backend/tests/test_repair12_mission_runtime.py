@@ -278,7 +278,7 @@ def test_resuming_a_paused_mission_queues_it_on_the_worker(client, test_user, te
 @pytest.mark.integration
 def test_voice_carries_on_with_the_paused_mission_instead_of_starting_a_new_one(test_user, test_workspace,
                                                                               monkeypatch):
-    """Asked by voice to resume the mission, JARV started a new mission that had none of the old one's
+    """Asked by voice to resume the mission, JAI started a new mission that had none of the old one's
     progress. resume_mission queues the paused mission itself."""
     from app.core.voice.live import run_tool
 
@@ -536,7 +536,7 @@ def test_only_one_mission_works_in_a_workspace_folder_at_a_time(test_user, test_
 @pytest.mark.integration
 def test_a_mission_carried_on_after_a_provider_pause_is_not_reported_as_paused(test_user, test_workspace,
                                                                               monkeypatch):
-    """After Carry on, Talk with JARV still said the mission was paused because the provider had stopped
+    """After Carry on, Talk with JAI still said the mission was paused because the provider had stopped
     answering: it read the old pause note. Carrying on clears the note, and a running mission is described by
     its latest activity, not by an earlier report."""
     from app.core.voice.live import run_tool

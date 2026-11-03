@@ -1,5 +1,5 @@
 """
-JARV Backend - consult_specialist_knowledge (Repair 13)
+JAI Backend - consult_specialist_knowledge (Repair 13)
 
 Lets an agent look up its field's knowledge library mid-task (or another
 field's, by name): source-attributed, versioned topics ranked by relevance.
@@ -44,7 +44,7 @@ class ConsultSpecialistKnowledgeTool(ScopedTool):
         topics = [{"title": r["title"], "guidance": r["content"], "source": r["source_title"],
                    "publisher": r["source_publisher"], "url": r["source_url"], "version": r["version"],
                    "relevance": round(r["relevance_score"], 3)} for r in found if r["relevance_score"] > 0]
-        # Source documentation: the field's own, or every field's for JARV's mission lead (the orchestrator).
+        # Source documentation: the field's own, or every field's for JAI's mission lead (the orchestrator).
         try:
             documentation = await search_passages(
                 db, data["query"], agents=None if field == "orchestrator" else [field],

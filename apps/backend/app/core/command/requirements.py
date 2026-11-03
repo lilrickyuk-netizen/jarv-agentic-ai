@@ -1,5 +1,5 @@
 """
-JARV Backend - Requirements first (Upgrade 2)
+JAI Backend - Requirements first (Upgrade 2)
 
 Before a mission's first tool call, one model call turns the mission and the governing specification's relevant
 sections into a numbered list of requirements, each naming where it comes from. The list is saved with the
@@ -53,7 +53,7 @@ STATUS_TOOL = {
 }
 
 _SYSTEM = (
-    "You are JARV's requirements analyst. Read the mission and the specification sections given, and list "
+    "You are JAI's requirements analyst. Read the mission and the specification sections given, and list "
     "every requirement the finished work must meet, each one concrete enough to check (a file and the value it "
     "must hold, a command that must pass, a document that must say a particular thing). Include requirements "
     "the specification imposes on what the mission covers, citing the section. Do not invent work the mission "

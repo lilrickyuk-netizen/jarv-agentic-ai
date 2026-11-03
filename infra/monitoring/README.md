@@ -1,4 +1,4 @@
-# JARV Monitoring
+# JAI Monitoring
 
 Prometheus, Alertmanager, and Grafana, plus exporters for PostgreSQL, Redis,
 and the host. Defined in `docker-compose.monitoring.yml` at the repository root.
@@ -15,7 +15,7 @@ docker compose -f docker-compose.prod.yml -f docker-compose.monitoring.yml up -d
 
 | Service      | URL                    | Notes                                       |
 |--------------|------------------------|---------------------------------------------|
-| Grafana      | http://localhost:3001  | user `admin`; opens on the JARV Overview dashboard |
+| Grafana      | http://localhost:3001  | user `admin`; opens on the JAI Overview dashboard |
 | Prometheus   | http://localhost:9090  | Status → Targets shows every scrape target  |
 | Alertmanager | http://localhost:9093  |                                             |
 
@@ -44,7 +44,7 @@ The exporters add `pg_*`, `redis_*`, and `node_*` metrics.
 ## Alerts
 
 Rules are in `alerting-rules.yml`. Alertmanager delivers every alert to
-`POST /api/observability/alerts` on the backend. JARV opens an incident per
+`POST /api/observability/alerts` on the backend. JAI opens an incident per
 alert (one per alert fingerprint, so a repeating alert updates the same
 incident), posts it to the Live Operations Feed, and resolves the incident when
 the alert clears. Critical alerts are flagged as needing action.

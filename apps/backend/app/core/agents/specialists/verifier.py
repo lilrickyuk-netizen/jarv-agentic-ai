@@ -1,5 +1,5 @@
 """
-JARV Backend - VerifierAgent
+JAI Backend - VerifierAgent
 
 Performs REAL, honest verification of provided code and files.
 

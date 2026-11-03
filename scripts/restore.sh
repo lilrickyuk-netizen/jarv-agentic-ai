@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# JARV Restore Script
+# JAI Restore Script
 # Restores PostgreSQL database and application data from backup
 #
 # Usage: ./scripts/restore.sh <backup-name>
@@ -189,7 +189,7 @@ cleanup() {
 
 # Main execution
 main() {
-    log_info "Starting JARV restore process..."
+    log_info "Starting JAI restore process..."
 
     check_prerequisites
     confirm_restore

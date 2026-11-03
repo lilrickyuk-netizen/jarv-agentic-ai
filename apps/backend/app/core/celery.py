@@ -1,5 +1,5 @@
 """
-JARV Backend - Celery Configuration
+JAI Backend - Celery Configuration
 
 Celery worker queue for background tasks and scheduled jobs.
 """
@@ -52,7 +52,7 @@ celery_app.conf.update(
     task_reject_on_worker_lost=True,
     task_track_started=True,
 
-    # Beat schedule (for periodic tasks). JARV self-triggers these — no operator
+    # Beat schedule (for periodic tasks). JAI self-triggers these — no operator
     # command required. Enable/disable is controlled by SCHEDULED_JOBS below.
     beat_schedule={
         "mission-recovery": {
@@ -123,7 +123,7 @@ SCHEDULED_JOBS = [
         "interval_seconds": float(getattr(settings, "BACKUP_INTERVAL_HOURS", 24)) * 3600,
         "enabled": True,
         "type": "operations/backup",
-        "description": "Back up JARV's PostgreSQL database (pg_dump), then verify the archive.",
+        "description": "Back up JAI's PostgreSQL database (pg_dump), then verify the archive.",
     },
     {
         "name": "company_daily_loop",

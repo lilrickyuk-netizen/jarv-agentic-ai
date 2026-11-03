@@ -1,5 +1,5 @@
 """
-JARV Backend - Richard Boundary Operator API (Repair 8)
+JAI Backend - Richard Boundary Operator API (Repair 8)
 
 Authenticated entry points for the real hard-boundary -> decision -> resume loop.
 

@@ -1,4 +1,4 @@
-# JARV alert rules (Repair 12b). Every expression uses a metric that is
+# JAI alert rules (Repair 12b). Every expression uses a metric that is
 # actually exported: the backend's /metrics, postgres-exporter,
 # redis-exporter, or node-exporter.
 groups:
@@ -9,7 +9,7 @@ groups:
         for: 2m
         labels: {severity: critical}
         annotations:
-          summary: "JARV backend is not responding"
+          summary: "JAI backend is not responding"
           description: "Prometheus could not scrape the backend for 2 minutes."
 
       - alert: JarvWorkersDown
@@ -17,7 +17,7 @@ groups:
         for: 3m
         labels: {severity: critical}
         annotations:
-          summary: "No JARV workers are running"
+          summary: "No JAI workers are running"
           description: "No Celery worker answered a ping for 3 minutes; queued missions are not being executed."
 
       - alert: JarvMetricsDatabaseUnavailable
@@ -25,7 +25,7 @@ groups:
         for: 2m
         labels: {severity: critical}
         annotations:
-          summary: "JARV cannot read its database"
+          summary: "JAI cannot read its database"
           description: "Database-backed metrics have failed for 2 minutes."
 
       - alert: DatabaseDown

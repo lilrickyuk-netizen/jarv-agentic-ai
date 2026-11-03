@@ -1,5 +1,5 @@
 """
-JARV Backend - App reviews
+JAI Backend - App reviews
 
 Reads the public App Store customer-review feed for an app (no credentials
 needed), stores new reviews as community messages on the "app_store" channel

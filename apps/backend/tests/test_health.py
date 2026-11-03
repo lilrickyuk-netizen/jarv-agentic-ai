@@ -1,5 +1,5 @@
 """
-JARV Backend Health Endpoint Tests
+JAI Backend Health Endpoint Tests
 """
 import pytest
 from fastapi import status

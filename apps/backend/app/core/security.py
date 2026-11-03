@@ -1,5 +1,5 @@
 """
-JARV Backend - Security Utilities
+JAI Backend - Security Utilities
 
 Password hashing, JWT token generation and validation.
 """

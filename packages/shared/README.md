@@ -1,10 +1,10 @@
-# JARV Shared
+# JAI Shared
 
-Shared packages and utilities for JARV Agentic AI System.
+Shared packages and utilities for JAI Agentic AI System.
 
 ## Purpose
 
-This package contains shared code used across multiple JARV services:
+This package contains shared code used across multiple JAI services:
 - Common data models and schemas
 - Shared utilities and helpers
 - Constants and enums
@@ -24,7 +24,7 @@ jarv_shared/
 
 ## Usage
 
-Install as a dependency in other JARV services:
+Install as a dependency in other JAI services:
 
 ```bash
 # In backend, workers, or local-runner

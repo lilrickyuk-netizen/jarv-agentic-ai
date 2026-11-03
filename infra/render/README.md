@@ -1,6 +1,6 @@
 # Render Deployment Guide
 
-Deploy JARV to Render with managed PostgreSQL and Redis. Good for quick deployment with automatic SSL and simple management.
+Deploy JAI to Render with managed PostgreSQL and Redis. Good for quick deployment with automatic SSL and simple management.
 
 ## Cost Estimate
 
@@ -15,7 +15,7 @@ Or use free tier for testing (services sleep after inactivity).
 ## Prerequisites
 
 1. Render account (render.com)
-2. GitHub repository with JARV code
+2. GitHub repository with JAI code
 3. Domain name (optional, Render provides subdomains)
 
 ## Step 1: Create PostgreSQL Database
@@ -140,9 +140,9 @@ Update environment variables:
 - Backend `CORS_ORIGINS`: Add your custom domain
 - Dashboard `NEXT_PUBLIC_API_URL`: Update if using custom domain for API
 
-## Step 9: Access JARV
+## Step 9: Access JAI
 
-Your JARV instance is now running:
+Your JAI instance is now running:
 - Dashboard: `https://jarv-dashboard.onrender.com` (or your custom domain)
 - API: `https://jarv-backend.onrender.com` (or your custom domain)
 
@@ -152,7 +152,7 @@ Render automatically redeploys when you push to your main branch:
 
 ```bash
 git add .
-git commit -m "Update JARV"
+git commit -m "Update JAI"
 git push origin main
 ```
 

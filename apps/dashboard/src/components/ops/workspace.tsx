@@ -80,7 +80,7 @@ export function WorkspacePage({ title, subtitle, children }: {
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
         {!loading && !error && workspaces.length === 0 && (
           <Empty title="No workspace yet">
-            Register a project on the <a className="underline" href="/dashboard/workspaces">Workspaces</a> page or give JARV a
+            Register a project on the <a className="underline" href="/dashboard/workspaces">Workspaces</a> page or give JAI a
             mission on the <a className="underline" href="/dashboard/command">Command</a> page; its workspace appears here.
           </Empty>
         )}

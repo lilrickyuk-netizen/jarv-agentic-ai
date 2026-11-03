@@ -1,5 +1,5 @@
 """
-JARV Backend - Spoken Status Replies
+JAI Backend - Spoken Status Replies
 
 Generates spoken status replies for voice feedback.
 """

@@ -1,5 +1,5 @@
 """
-JARV Backend - Swarm limits
+JAI Backend - Swarm limits
 
 Limits come from three places, the tightest winning:
 - global defaults (settings: SWARM_MAX_CONCURRENT, SWARM_MAX_SUBAGENTS_PER_SWARM,

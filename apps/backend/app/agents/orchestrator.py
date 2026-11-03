@@ -1,5 +1,5 @@
 """
-JARV Backend - Orchestrator Agent
+JAI Backend - Orchestrator Agent
 
 Core orchestration agent that receives missions, creates task plans,
 delegates to specialist agents, and produces final reports.
@@ -229,7 +229,7 @@ class OrchestratorAgent(AgentBase):
             success=mission_status in ("completed", "partial"),
             result_data=validated_output,
             output_text=execution_summary,
-            # Delegation/planning above use JARV's internal orchestration
+            # Delegation/planning above use JAI's internal orchestration
             # services, not ToolRegistry executions. Do not fabricate tool use.
             tools_used=[],
             iterations_used=max(1, delegation["attempted"]),
@@ -854,7 +854,7 @@ class OrchestratorAgent(AgentBase):
     ) -> str:
         """Build LLM prompt for task planning"""
         prompt_parts = [
-            "You are the Orchestrator Agent in the JARV AI system.",
+            "You are the Orchestrator Agent in the JAI AI system.",
             "Your job is to analyze missions and create detailed task plans.",
             "",
             f"MISSION: {mission}",

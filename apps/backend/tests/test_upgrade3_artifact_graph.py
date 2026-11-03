@@ -35,11 +35,11 @@ class _Router:
 
     async def complete(self, request):
         system = request.system or ""
-        if system.startswith("You are JARV's requirements analyst"):
+        if system.startswith("You are JAI's requirements analyst"):
             calls = [_call("record_requirements", {"requirements": [
                 {"text": "sub(a, b) in src/app.py", "source": "mission"},
                 {"text": "src/app.py compiles", "source": "mission"}]})]
-        elif system.startswith("You are JARV's Verifier Agent"):
+        elif system.startswith("You are JAI's Verifier Agent"):
             calls = [_call("verdict", {"verified": True, "unmet": [], "checks": [
                 {"requirement": "R1 sub in src/app.py", "met": True, "evidence": "read src/app.py: def sub is there"},
                 {"requirement": "R2 compiles", "met": True,

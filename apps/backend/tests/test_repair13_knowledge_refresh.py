@@ -1,6 +1,6 @@
-"""Repair 13 refresh: specialist knowledge that matches how JARV now works.
+"""Repair 13 refresh: specialist knowledge that matches how JAI now works.
 
-The infrastructure, rollback, growth and creation briefs described tools JARV
+The infrastructure, rollback, growth and creation briefs described tools JAI
 does not use (Kubernetes rollouts, Google Analytics, Unsplash hotlinking); they
 now come from the Compose production guide, release-rollback practice,
 Plausible's Stats API and the Creative Commons licence elements. Updating the

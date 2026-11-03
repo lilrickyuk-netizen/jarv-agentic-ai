@@ -1,5 +1,5 @@
 """
-JARV Backend - Voice Command API (Repair 12e-4c)
+JAI Backend - Voice Command API (Repair 12e-4c)
 
 Authenticated voice endpoints on the voice engine:
 - POST /api/voice/push-to-talk: recording in; transcript, the action taken
@@ -14,8 +14,8 @@ Authenticated voice endpoints on the voice engine:
 - GET /api/voice/providers and /api/voice/health: which backends are ready
   and what to set for the others.
 - POST /api/voice/live/session: a short-lived OpenAI Realtime client secret for a
-  live spoken conversation with JARV (the API key never reaches the browser).
-- POST /api/voice/live/tool: one action JARV takes during that conversation
+  live spoken conversation with JAI (the API key never reaches the browser).
+- POST /api/voice/live/tool: one action JAI takes during that conversation
   (status, mission start, mission state, cancel, workspaces), run as the operator.
 """
 from __future__ import annotations
@@ -185,7 +185,7 @@ async def providers() -> Dict[str, Any]:
             "live": {"ready": live.available(), "backend": "openai realtime" if live.available() else None,
                      "setup": live.setup_hint()},
             "options": {"speech_to_text": ["voicebox (self-hosted, VOICEBOX_BASE_URL)", "openai (OPENAI_API_KEY)"],
-                        "text_to_speech": ["voicebox (self-hosted, JARV voice profile)",
+                        "text_to_speech": ["voicebox (self-hosted, JAI voice profile)",
                                            "elevenlabs (ELEVENLABS_API_KEY + ELEVENLABS_VOICE_ID)",
                                            "openai (OPENAI_API_KEY)"]}}
 

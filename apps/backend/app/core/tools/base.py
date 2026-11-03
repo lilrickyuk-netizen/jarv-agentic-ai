@@ -1,7 +1,7 @@
 """
-JARV Backend - Tool Base Class
+JAI Backend - Tool Base Class
 
-Abstract base class for all JARV tools with standardized interface,
+Abstract base class for all JAI tools with standardized interface,
 logging, error handling, and authority management.
 """
 from abc import ABC, abstractmethod
@@ -149,7 +149,7 @@ class ToolAuthorizationError(ToolError):
 
 class ToolBase(ABC):
     """
-    Abstract base class for all JARV tools.
+    Abstract base class for all JAI tools.
 
     All tools must inherit from this class and implement the required methods.
     This ensures consistent interface, logging, error handling, and authority

@@ -1,5 +1,5 @@
 """
-JARV Backend - Hard conformance checks for the Verifier (Upgrade 1a)
+JAI Backend - Hard conformance checks for the Verifier (Upgrade 1a)
 
 Deterministic checks that read the workspace's files and compare them with the workspace's authority documents.
 They run before the Verifier agent forms its view and any failure is an unmet requirement whatever the agent

@@ -1,13 +1,13 @@
 """
-JARV Backend - Container operations
+JAI Backend - Container operations
 
-Lets JARV inspect and restart its own services, which is what turns
+Lets JAI inspect and restart its own services, which is what turns
 self-healing from "alert" into "fix". It talks to the Docker Engine API
 through a restricted socket proxy (``docker-proxy`` in the compose files),
 never to the raw Docker socket.
 
 What this adapter will do, and nothing else:
-- list, inspect, and read logs of containers in JARV's own Compose project;
+- list, inspect, and read logs of containers in JAI's own Compose project;
 - restart a container in that project whose service is in RESTARTABLE,
   never the container making the request (it would die mid-operation).
   With replicas, only the unhealthy containers of the service are restarted.
@@ -34,8 +34,8 @@ logger = logging.getLogger(__name__)
 RESTARTABLE = frozenset({"backend", "worker", "scheduler", "dashboard", "local-runner", "cloud-runner",
                          "voicebox", "prometheus", "grafana", "alertmanager"})
 NEVER_RESTART = frozenset({"postgres", "redis", "docker-proxy"})
-# Services JARV runs without: switched on by a compose profile or the monitoring file, or only for local
-# development. One not running is reported as such, never as JARV being degraded.
+# Services JAI runs without: switched on by a compose profile or the monitoring file, or only for local
+# development. One not running is reported as such, never as JAI being degraded.
 OPTIONAL_SERVICES = frozenset({"voicebox", "prometheus", "grafana", "alertmanager", "postgres-exporter",
                                "redis-exporter", "node-exporter", "local-runner", "cloud-runner"})
 # Jobs that run once and exit (database migrations): exited with code 0 is their finished state.
@@ -43,7 +43,7 @@ ONE_SHOT_SERVICES = frozenset({"migrate"})
 
 
 def container_problem(container: "Container") -> Optional[str]:
-    """Why a container counts against JARV's health, or None when it is where it should be."""
+    """Why a container counts against JAI's health, or None when it is where it should be."""
     if container.service in ONE_SHOT_SERVICES:
         return None if container.state == "running" or "Exited (0)" in container.status else (
             f"{container.service} did not finish cleanly ({container.status})")
@@ -62,7 +62,7 @@ class OpsUnavailable(RuntimeError):
 
 
 class OpsRefused(PermissionError):
-    """The requested container operation is outside what JARV may do."""
+    """The requested container operation is outside what JAI may do."""
 
 
 @dataclass
@@ -155,7 +155,7 @@ class DockerOps:
         for container in await self.containers():
             if container.service == service or container.name == service:
                 return container
-        raise OpsRefused(f"No container for service '{service}' in this JARV project.")
+        raise OpsRefused(f"No container for service '{service}' in this JAI project.")
 
     async def inspect(self, service: str) -> Dict[str, Any]:
         container = await self._resolve(service)
@@ -182,15 +182,15 @@ class DockerOps:
         service = (service or "").strip().lower()
         matches = [c for c in await self.containers() if service in (c.service, c.name)]
         if not matches:
-            raise OpsRefused(f"No container for service '{service}' in this JARV project.")
+            raise OpsRefused(f"No container for service '{service}' in this JAI project.")
         name = matches[0].service
         if name in NEVER_RESTART or name not in RESTARTABLE:
-            raise OpsRefused(f"JARV does not restart '{name}' automatically.")
+            raise OpsRefused(f"JAI does not restart '{name}' automatically.")
         own = socket.gethostname()
         others = [c for c in matches if not (c.id and own.startswith(c.id))]
         if not others:
             raise OpsRefused(f"'{name}' is the container running this request; "
-                             "another JARV service (API or worker) must restart it.")
+                             "another JAI service (API or worker) must restart it.")
         broken = [c for c in others if c.state != "running" or c.health == "unhealthy"]
         targets = broken or others
         restarted: List[str] = []

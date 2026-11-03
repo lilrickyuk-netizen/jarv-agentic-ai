@@ -1,10 +1,10 @@
-# JARV Backup and Recovery
+# JAI Backup and Recovery
 
-Comprehensive backup and disaster recovery procedures for JARV production systems.
+Comprehensive backup and disaster recovery procedures for JAI production systems.
 
 ## Overview
 
-JARV backup system includes:
+JAI backup system includes:
 - **Database backups**: PostgreSQL dumps with compression
 - **Redis backups**: RDB snapshots
 - **Application data**: Uploaded assets and logs
@@ -64,7 +64,7 @@ Create `/etc/systemd/system/jarv-backup.service`:
 
 ```ini
 [Unit]
-Description=JARV Backup Service
+Description=JAI Backup Service
 After=docker.service
 
 [Service]
@@ -80,7 +80,7 @@ Create `/etc/systemd/system/jarv-backup.timer`:
 
 ```ini
 [Unit]
-Description=JARV Backup Timer
+Description=JAI Backup Timer
 Requires=jarv-backup.service
 
 [Timer]
@@ -361,7 +361,7 @@ if [ $? -ne 0 ]; then
     # Send alert
     curl -X POST "https://hooks.slack.com/services/YOUR/WEBHOOK/URL" \
         -H "Content-Type: application/json" \
-        -d '{"text":"JARV backup failed!"}'
+        -d '{"text":"JAI backup failed!"}'
 fi
 ```
 

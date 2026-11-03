@@ -1,10 +1,10 @@
 """
-JARV Backend - Embedding Service
+JAI Backend - Embedding Service
 
 Generates vector embeddings for semantic memory search.
 
 Providers:
-- ``local``  : JARV's built-in feature-hashing embedder (``jarv-hash-v1``). It
+- ``local``  : JAI's built-in feature-hashing embedder (``jarv-hash-v1``). It
                runs offline with no model download or API key, is deterministic
                across processes, and captures word, phrase, and sub-word overlap.
                It is a lexical-semantic embedding, not a neural one: it ranks
@@ -155,7 +155,7 @@ class EmbeddingService:
         api_base: Optional[str] = None,
         dimensions: int = DEFAULT_DIMENSIONS,
     ):
-        # JARV loads its keys from apps/backend/.env into settings, not into the process environment, so the
+        # JAI loads its keys from apps/backend/.env into settings, not into the process environment, so the
         # environment alone left this service on the local embedder even with an OpenAI key configured.
         self.api_key = api_key or os.getenv("OPENAI_API_KEY") or _settings_key() or None
         requested = (provider or "auto").lower()

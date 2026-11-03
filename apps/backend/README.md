@@ -1,6 +1,6 @@
-# JARV Backend
+# JAI Backend
 
-FastAPI backend for the JARV Agentic AI System.
+FastAPI backend for the JAI Agentic AI System.
 
 ## Tech Stack
 

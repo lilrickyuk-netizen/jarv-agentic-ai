@@ -1,5 +1,5 @@
 """
-JARV Backend - External Integrations API
+JAI Backend - External Integrations API
 
 Surfaces the notification targets and sends to the signed-in operator: a dry
 run by default, a live email or webhook when configured, and the disabled
@@ -27,7 +27,7 @@ router = APIRouter(prefix="/integrations", tags=["integrations"])
 
 class NotifyRequest(BaseModel):
     target: str = "local_mock"
-    message: str = "JARV test notification (dry-run)."
+    message: str = "JAI test notification (dry-run)."
     dry_run: bool = True
 
 

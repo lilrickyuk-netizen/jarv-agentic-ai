@@ -1,4 +1,4 @@
-"""JARV reliability gate: prove failed/partial/blocked/completed are honest."""
+"""JAI reliability gate: prove failed/partial/blocked/completed are honest."""
 import json
 import urllib.error
 import urllib.request
@@ -32,22 +32,22 @@ def main():
                 "failure": fail, "task_id": d["task_id"]}
 
     print("===== 1. INVALID COMMAND (npm install yet) =====")
-    r = run(f"JARV, install dependencies using `npm install yet` in the test workspace at {WS}.")
+    r = run(f"JAI, install dependencies using `npm install yet` in the test workspace at {WS}.")
     print(f"  resp={r['resp_status']} task={r['task_status']} reason={r['failure'].get('reason')}")
 
     print("\n===== 2. FAILED COMMAND (non-zero exit) =====")
-    r = run(f"JARV, run the command `python3 -c \"import sys; sys.exit(5)\"` in the workspace at {WS}.")
+    r = run(f"JAI, run the command `python3 -c \"import sys; sys.exit(5)\"` in the workspace at {WS}.")
     f = r["failure"]
     print(f"  resp={r['resp_status']} task={r['task_status']} exit={f.get('exit_code')} cmd={f.get('command')}")
 
     print("\n===== 3. STEP-LIMIT (unfixable) =====")
-    r = run(f"JARV, fix the failing assertion in src/impossible.py in {WS} WITHOUT editing impossible.py; make it pass.")
+    r = run(f"JAI, fix the failing assertion in src/impossible.py in {WS} WITHOUT editing impossible.py; make it pass.")
     print(f"  resp={r['resp_status']} task={r['task_status']} next={r['failure'].get('next')}")
 
     print("\n===== 4. SUCCESSFUL COMMAND =====")
-    r = run(f"JARV, run the command `ls -la` in the workspace at {WS}.")
+    r = run(f"JAI, run the command `ls -la` in the workspace at {WS}.")
     print(f"  resp={r['resp_status']} task={r['task_status']}")
-    r2 = run("JARV, confirm you are online. Do not modify files.")
+    r2 = run("JAI, confirm you are online. Do not modify files.")
     print(f"  status cmd: resp={r2['resp_status']} task={r2['task_status']}")
 
     print("\n===== 6. OPERATIONS FEED (invalid command rejected) =====")

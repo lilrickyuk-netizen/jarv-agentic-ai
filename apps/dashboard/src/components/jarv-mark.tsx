@@ -11,8 +11,8 @@ const SWARM: [number, number, number, number][] = [
   [8.15, 13.13, 1.11, 0.71], [15.08, 13.61, 0.49, 0.84],
 ];
 
-/** JARV's mark: original artwork, drawn in code. The orbiting light turns slowly unless reduced motion is asked for. */
-export function JarvMark({ size = 36, title = 'JARV' }: { size?: number; title?: string }) {
+/** JAI's mark: original artwork, drawn in code. The orbiting light turns slowly unless reduced motion is asked for. */
+export function JarvMark({ size = 36, title = 'JAI' }: { size?: number; title?: string }) {
   const id = useId().replace(/:/g, '');
   return (
     <svg className="jarv-mark" width={size} height={size} viewBox="0 0 36 36" {...(title ? { role: 'img', 'aria-label': title } : { 'aria-hidden': true })}>

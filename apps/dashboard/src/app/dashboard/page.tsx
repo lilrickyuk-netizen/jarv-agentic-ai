@@ -123,8 +123,8 @@ export default function CommandCenterPage() {
   const [commandResult, setCommandResult] = useState<CommandResult | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [commandLoading, setCommandLoading] = useState(false);
-  // Talk with JARV is kept connected by the dashboard frame (PersistentVoice) and shown in this panel's slot;
-  // its state reaches the intelligence field here, so the field listens and speaks with JARV.
+  // Talk with JAI is kept connected by the dashboard frame (PersistentVoice) and shown in this panel's slot;
+  // its state reaches the intelligence field here, so the field listens and speaks with JAI.
   const voiceState: VoiceState = useVoiceState();
 
   const refresh = useCallback(async () => {
@@ -157,8 +157,8 @@ export default function CommandCenterPage() {
     return () => window.clearInterval(interval);
   }, [refresh]);
 
-  // Coming back to this page (or reloading it) picks up the mission JARV is working on, so the panel shows it
-  // instead of being blank: missions run in JARV's worker, not in this page.
+  // Coming back to this page (or reloading it) picks up the mission JAI is working on, so the panel shows it
+  // instead of being blank: missions run in JAI's worker, not in this page.
   useEffect(() => {
     const stop = new AbortController();
     void (async () => {
@@ -169,7 +169,7 @@ export default function CommandCenterPage() {
         const mission = await followMission(working.task_id, { onUpdate: setCommandResult, signal: stop.signal });
         setCommandResult(mission);
       } catch {
-        // Stopped following (left the page); the mission carries on in JARV.
+        // Stopped following (left the page); the mission carries on in JAI.
       }
     })();
     return () => stop.abort();
@@ -215,8 +215,8 @@ export default function CommandCenterPage() {
     <main className="cockpit min-h-screen text-[#E5E7EB]">
       <div className="cockpit-grid" aria-hidden="true" />
       <header className="cockpit-header">
-        <a href="/dashboard" className="cockpit-brand" aria-label="JARV command center">
-          <span className="brand-mark"><JarvMark size={38} /></span><span><strong>JARV</strong><small>INTELLIGENCE SYSTEM</small></span>
+        <a href="/dashboard" className="cockpit-brand" aria-label="JAI command center">
+          <span className="brand-mark"><JarvMark size={38} /></span><span><strong>JAI</strong><small>INTELLIGENCE SYSTEM</small></span>
         </a>
         <div className="header-center"><span className={`status-dot ${healthOk ? 'is-live' : ''}`} />{healthOk ? 'SYSTEM ONLINE' : loading ? 'CONNECTING' : 'BACKEND DEGRADED'}</div>
         <div className="header-actions">
@@ -257,7 +257,7 @@ export default function CommandCenterPage() {
 
           <section className="cockpit-grid-main" aria-label="Live system cockpit">
             <article className="cockpit-panel core-panel">
-              <div className="panel-heading"><div><p className="eyebrow">JARV CORE</p><h2>Intelligence field</h2></div><span className="panel-index">CORE / 01</span></div>
+              <div className="panel-heading"><div><p className="eyebrow">JAI CORE</p><h2>Intelligence field</h2></div><span className="panel-index">CORE / 01</span></div>
               <div className="core-visual"><CockpitCore state={state} /></div><div className="core-readout"><span>OPERATIONAL STATE</span><strong>{state.toUpperCase()}</strong><small>{activeTasks.length ? `${activeTasks.length} active task${activeTasks.length === 1 ? '' : 's'}` : 'No active tasks'}</small></div>
               <div className="core-legend"><span><i className="legend-dot cyan" />LIVE SIGNAL</span><span><i className="legend-dot silver" />SYSTEM STATUS</span><span>{loading ? 'SYNCING' : 'SYNC · 15 SEC'}</span></div>
             </article>
@@ -265,7 +265,7 @@ export default function CommandCenterPage() {
             <article className="cockpit-panel mission-panel">
               <div className="panel-heading"><div><p className="eyebrow">MISSION CONTROL</p><h2>Send an instruction</h2></div><a className="text-link" href="/dashboard/command">Mission log ↗</a></div>
               <form className="mission-form" onSubmit={(event) => { event.preventDefault(); void sendCommand(command); }}>
-                <label htmlFor="mission-command">What should JARV work on?</label>
+                <label htmlFor="mission-command">What should JAI work on?</label>
                 <textarea id="mission-command" value={command} onChange={(event) => setCommand(event.target.value)} placeholder="Describe a task or ask for an operational update" disabled={commandLoading} rows={3} />
                 <div className="mission-actions">
                   <button type="submit" className="primary-button" disabled={commandLoading || !command.trim()}>{commandLoading ? 'Working…' : 'Send instruction ↗'}</button>
@@ -311,7 +311,7 @@ export default function CommandCenterPage() {
           </section>
         </div>
       </div>
-      <footer className="cockpit-footer"><span>JARV / PRIVATE OPERATIONS</span><span>LIVE SOURCES · HEALTH · AGENTS · TASKS · OPERATIONS FEED</span><span>{loading ? 'SYNCING' : 'SESSION ACTIVE'}</span></footer>
+      <footer className="cockpit-footer"><span>JAI / PRIVATE OPERATIONS</span><span>LIVE SOURCES · HEALTH · AGENTS · TASKS · OPERATIONS FEED</span><span>{loading ? 'SYNCING' : 'SESSION ACTIVE'}</span></footer>
     </main>
   );
 }

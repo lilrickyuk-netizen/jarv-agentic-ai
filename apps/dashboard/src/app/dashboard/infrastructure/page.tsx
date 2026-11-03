@@ -171,7 +171,7 @@ export default function InfrastructurePage() {
           <div>
             <h1 className="text-4xl font-bold mb-2">Infrastructure</h1>
             <p className="text-muted-foreground">
-              Live health of JARV&apos;s services, the server, containers, and database backups.
+              Live health of JAI&apos;s services, the server, containers, and database backups.
               {health && ` Checked ${new Date(health.checked_at).toLocaleTimeString()}.`}
             </p>
           </div>

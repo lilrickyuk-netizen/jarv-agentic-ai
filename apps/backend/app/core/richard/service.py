@@ -1,5 +1,5 @@
 """
-JARV Backend - Richard Boundary Service / Repository (Repair 9)
+JAI Backend - Richard Boundary Service / Repository (Repair 9)
 
 A focused query + access-control layer for Richard Boundary Operator operations.
 It is the single place the API talks to: it enforces workspace/task ownership

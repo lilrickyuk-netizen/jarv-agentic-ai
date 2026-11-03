@@ -5,9 +5,9 @@ import { useSyncExternalStore } from 'react';
 export type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking';
 
 /**
- * What Talk with JARV is doing right now, and the audio of JARV's voice, shared with the rest of the dashboard.
+ * What Talk with JAI is doing right now, and the audio of JAI's voice, shared with the rest of the dashboard.
  * The conversation lives in the dashboard frame (PersistentVoice), so the Command Center's intelligence field
- * reads it here: its state, and the live voice stream it listens to so it moves with JARV's speech.
+ * reads it here: its state, and the live voice stream it listens to so it moves with JAI's speech.
  */
 let state: VoiceState = 'idle';
 let stream: MediaStream | null = null;

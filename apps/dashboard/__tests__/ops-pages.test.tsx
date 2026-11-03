@@ -140,7 +140,7 @@ describe('Settings', () => {
                   check_note: 'Use Send test notification.' }),
       ],
       voice: { speech_to_text: { backend: 'openai', ready: true }, text_to_speech: { backend: null, ready: false, setup: 'Set ELEVENLABS_API_KEY' },
-               wake_word: { ready: false, phrase: 'Hey JARV', setup: 'Install the model' }, commands: { ready: true, route: 'missions' } },
+               wake_word: { ready: false, phrase: 'Hey JAI', setup: 'Install the model' }, commands: { ready: true, route: 'missions' } },
       notifications: [{ name: 'email_smtp', status: 'disabled_no_creds', message: 'Set SMTP_HOST' },
                       { name: 'webhook', status: 'enabled', message: null }, { name: 'local_mock', status: 'enabled', message: null }],
     };

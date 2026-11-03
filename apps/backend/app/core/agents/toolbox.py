@@ -1,5 +1,5 @@
 """
-JARV Backend - Agent toolbox
+JAI Backend - Agent toolbox
 
 The single way a specialist agent touches the world. Every call is
 authority-checked, permission-checked (hard boundaries pause only the blocked
@@ -269,7 +269,7 @@ class AgentToolbox:
     def __init__(self, agent: Any, context: Any, *, runtime: Any = None, root_host: Optional[str] = None):
         """``runtime``: an existing ToolRuntime to act through (a mission's own, so its calls, authority
         and boundary handling stay the mission's). ``root_host``: the folder to confine to when the mission
-        works in a folder other than its workspace's registered one; it must still map into JARV's mounts."""
+        works in a folder other than its workspace's registered one; it must still map into JAI's mounts."""
         self.agent = agent
         self.context = context
         self.calls: List[ToolCallRecord] = []

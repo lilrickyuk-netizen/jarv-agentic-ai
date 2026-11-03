@@ -1,4 +1,4 @@
-"""JARV Approval tools (Design section 6 / 12).
+"""JAI Approval tools (Design section 6 / 12).
 
 Real approval-request / decision tools backed by the BoundaryApproval table.
 Requests persist real pending records; grant/reject require an explicit authorised

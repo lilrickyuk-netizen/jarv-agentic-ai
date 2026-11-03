@@ -1,5 +1,5 @@
 """
-JARV Backend - File Tools
+JAI Backend - File Tools
 
 File operation tools for reading, writing, searching, and managing files.
 """

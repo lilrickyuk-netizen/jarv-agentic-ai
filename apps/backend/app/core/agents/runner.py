@@ -1,5 +1,5 @@
 """
-JARV Backend - Agent Runner
+JAI Backend - Agent Runner
 
 Invokes any of the 31 registered lead agents on a real, role-specific task and
 returns structured, verified, audited output. Also lets eligible lead agents

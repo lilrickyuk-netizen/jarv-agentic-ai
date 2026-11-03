@@ -1,5 +1,5 @@
 /**
- * JARV Dashboard Environment Configuration
+ * JAI Dashboard Environment Configuration
  * Type-safe environment variable access
  */
 

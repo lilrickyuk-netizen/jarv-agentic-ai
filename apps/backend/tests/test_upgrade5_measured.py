@@ -72,10 +72,10 @@ class _Router:
 
         system = request.system or ""
         usage = {"prompt_tokens": 1000, "completion_tokens": 50, "cached_tokens": 800, "total_tokens": 1050}
-        if system.startswith("You are JARV's Verifier Agent"):
+        if system.startswith("You are JAI's Verifier Agent"):
             calls = [("verdict", {"verified": True, "unmet": [], "checks": [
                 {"requirement": "sub", "met": True, "evidence": "read src/sub.py"}]})]
-        elif system.startswith("You are JARV's"):
+        elif system.startswith("You are JAI's"):
             calls = []
         else:
             # A snapshot at call time: the conversation list grows after each step.

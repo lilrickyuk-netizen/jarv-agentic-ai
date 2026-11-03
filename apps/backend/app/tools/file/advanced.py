@@ -1,5 +1,5 @@
 """
-JARV Backend - Advanced File Tools
+JAI Backend - Advanced File Tools
 
 Advanced file tools: watch, diff, patch.
 """

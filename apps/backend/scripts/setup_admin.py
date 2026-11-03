@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-JARV Backend - Setup Admin User
+JAI Backend - Setup Admin User
 
 Creates initial admin user in Redis for local authentication.
 This is a temporary solution for Phase 1. In Phase 2, users will be stored in PostgreSQL.
@@ -83,7 +83,7 @@ async def create_admin_user(username: str, password: str) -> None:
 def main():
     """Main function"""
     parser = argparse.ArgumentParser(
-        description="Create admin user for JARV backend"
+        description="Create admin user for JAI backend"
     )
     parser.add_argument(
         "--username",
@@ -98,7 +98,7 @@ def main():
     args = parser.parse_args()
 
     print("=" * 60)
-    print("JARV Backend - Admin User Setup")
+    print("JAI Backend - Admin User Setup")
     print("=" * 60)
     print(f"Environment: {settings.ENVIRONMENT}")
     print(f"Redis URL:   {settings.REDIS_URL}")

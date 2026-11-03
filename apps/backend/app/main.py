@@ -1,5 +1,5 @@
 """
-JARV Backend - FastAPI Application
+JAI Backend - FastAPI Application
 """
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan events"""
     # Startup
-    logger.info(f"Starting JARV Backend v{__version__}")
+    logger.info(f"Starting JAI Backend v{__version__}")
     logger.info(f"Environment: {settings.ENVIRONMENT}")
     logger.info(f"Debug mode: {settings.DEBUG}")
     logger.info(f"Log level: {settings.LOG_LEVEL}")
@@ -70,15 +70,15 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
-    logger.info("Shutting down JARV Backend")
+    logger.info("Shutting down JAI Backend")
     await close_db()
     await close_redis()
 
 
 # Create FastAPI application
 app = FastAPI(
-    title="JARV Agentic AI System",
-    description="Backend API for JARV - A private autonomous multi-agent AI execution system",
+    title="JAI Agentic AI System",
+    description="Backend API for JAI - A private autonomous multi-agent AI execution system",
     version=__version__,
     docs_url="/docs",
     redoc_url="/redoc",
@@ -226,7 +226,7 @@ app.include_router(internet_api.assets_lic_router, prefix="/api")
 async def root():
     """Root endpoint"""
     return {
-        "service": "JARV Agentic AI System - Backend API",
+        "service": "JAI Agentic AI System - Backend API",
         "version": __version__,
         "docs": "/docs",
         "health": "/health",

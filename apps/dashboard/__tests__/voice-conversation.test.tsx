@@ -1,7 +1,7 @@
 /**
- * Live conversation: the panel gets a short-lived session from JARV's backend, connects the microphone to the
+ * Live conversation: the panel gets a short-lived session from JAI's backend, connects the microphone to the
  * realtime voice service over WebRTC, shows both sides of the conversation, runs each action the model asks for
- * through JARV's backend, follows a mission it starts and has the outcome spoken. The API client, the browser's
+ * through JAI's backend, follows a mission it starts and has the outcome spoken. The API client, the browser's
  * WebRTC connection, microphone and the SDP exchange are replaced; the component is real.
  */
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -78,15 +78,15 @@ beforeEach(() => {
 });
 
 describe('VoiceConversation', () => {
-  it('holds a spoken conversation, runs the actions JARV takes and speaks a mission outcome', async () => {
+  it('holds a spoken conversation, runs the actions JAI takes and speaks a mission outcome', async () => {
     const beforeStart = jest.fn(async () => undefined);
     const onStateChange = jest.fn();
     const onMission = jest.fn(async () => ({ status: 'completed', response_text: 'Three changes this week.', finished: true }));
     render(<VoiceConversation ready beforeStart={beforeStart} onMission={onMission} onStateChange={onStateChange} />);
 
-    // The conversation so far comes back from JARV's records before anything is said.
+    // The conversation so far comes back from JAI's records before anything is said.
     expect(await screen.findByText('Earlier: keep Phase 0 offline.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Talk with JARV' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Talk with JAI' }));
     await waitFor(() => expect(global.fetch).toHaveBeenCalled());
     const [url, init] = (global.fetch as jest.Mock).mock.calls[0];
     expect(url).toBe('https://api.openai.com/v1/realtime/calls');
@@ -128,7 +128,7 @@ describe('VoiceConversation', () => {
     await waitFor(() => expect(update()).toBeDefined());
     expect(JSON.stringify(update())).toContain('Three changes this week.');
 
-    // One reply at a time: the requests made while JARV was answering go out after it finishes.
+    // One reply at a time: the requests made while JAI was answering go out after it finishes.
     const replies = () => channel.sent.filter((event) => event.type === 'response.create').length;
     expect(replies()).toBe(1);
     act(() => channel.emit({ type: 'response.done' }));
@@ -137,12 +137,12 @@ describe('VoiceConversation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'End conversation' }));
     expect(closed).toContain('peer');
     expect(trackStop).toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: 'Talk with JARV' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Talk with JAI' })).toBeInTheDocument();
   });
 
   it('speaks up on its own about important new activity once it has finished speaking', async () => {
     render(<VoiceConversation ready beforeStart={async () => undefined} onMission={async () => null} onStateChange={jest.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Talk with JARV' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Talk with JAI' }));
     await waitFor(() => expect(global.fetch).toHaveBeenCalled());
     act(() => channel.open());
     expect(await screen.findByText('IN CONVERSATION — JUST TALK')).toBeInTheDocument();
@@ -152,7 +152,7 @@ describe('VoiceConversation', () => {
       { id: 'f2', title: 'Heartbeat', message: 'routine', severity: 'info', created_at: new Date(Date.now() + 60000).toISOString() });
     act(() => channel.emit({ type: 'response.done' }));  // the greeting has been spoken
     const told = () => channel.sent.find((event) => event.type === 'conversation.item.create'
-      && JSON.stringify(event).includes('New activity in JARV'));
+      && JSON.stringify(event).includes('New activity in JAI'));
     await waitFor(() => expect(told()).toBeDefined());
     expect(JSON.stringify(told())).toContain('Mission blocked: git push waits for your approval.');
     expect(JSON.stringify(told())).not.toContain('Heartbeat');
@@ -163,14 +163,14 @@ describe('VoiceConversation', () => {
   it('says what to set up when live conversation is unavailable', () => {
     render(<VoiceConversation ready={false} setup="Live conversation uses OpenAI Realtime: set OPENAI_API_KEY"
       beforeStart={jest.fn()} onMission={jest.fn()} onStateChange={jest.fn()} />);
-    expect(screen.getByRole('button', { name: 'Talk with JARV' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Talk with JAI' })).toBeDisabled();
     expect(screen.getByText(/set OPENAI_API_KEY/)).toBeInTheDocument();
   });
 
   it('shows why the connection was refused and releases the microphone', async () => {
     global.fetch = jest.fn(async () => ({ ok: false, status: 401, text: async () => 'invalid client secret' })) as unknown as typeof fetch;
     render(<VoiceConversation ready beforeStart={jest.fn(async () => undefined)} onMission={jest.fn()} onStateChange={jest.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Talk with JARV' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Talk with JAI' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('refused the connection (401): invalid client secret');
     expect(trackStop).toHaveBeenCalled();
   });

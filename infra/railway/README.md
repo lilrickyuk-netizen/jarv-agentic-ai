@@ -1,18 +1,18 @@
 # Railway Deployment Guide
 
-Deploy JARV to Railway with simple Docker-based deployment. Railway offers $5/month free credit and pay-as-you-go pricing.
+Deploy JAI to Railway with simple Docker-based deployment. Railway offers $5/month free credit and pay-as-you-go pricing.
 
 ## Cost Estimate
 
 Railway charges based on usage (CPU, RAM, Network):
 - **Starter Plan**: $5/month included credit
-- **Typical JARV Usage**: $15-25/month after free credit
+- **Typical JAI Usage**: $15-25/month after free credit
 - **Resources**: Scales automatically based on load
 
 ## Prerequisites
 
 1. Railway account (railway.app)
-2. GitHub repository with JARV code
+2. GitHub repository with JAI code
 3. Domain name (optional, Railway provides subdomains)
 
 ## Step 1: Create New Project
@@ -21,7 +21,7 @@ Railway charges based on usage (CPU, RAM, Network):
 2. Click **New Project**
 3. Select **Deploy from GitHub repo**
 4. Authorize Railway to access your repository
-5. Select your JARV repository
+5. Select your JAI repository
 
 ## Step 2: Add PostgreSQL Database
 
@@ -45,7 +45,7 @@ Railway charges based on usage (CPU, RAM, Network):
 ## Step 4: Configure Backend Service
 
 1. In project, click **New** > **GitHub Repo**
-2. Select your JARV repository
+2. Select your JAI repository
 3. Settings:
    - Name: `backend`
    - Root Directory: `apps/backend`
@@ -75,7 +75,7 @@ Railway charges based on usage (CPU, RAM, Network):
 ## Step 5: Configure Dashboard Service
 
 1. Click **New** > **GitHub Repo**
-2. Select your JARV repository
+2. Select your JAI repository
 3. Settings:
    - Name: `dashboard`
    - Root Directory: `apps/dashboard`
@@ -93,7 +93,7 @@ Railway charges based on usage (CPU, RAM, Network):
 ## Step 6: Add Celery Worker
 
 1. Click **New** > **GitHub Repo**
-2. Select your JARV repository
+2. Select your JAI repository
 3. Settings:
    - Name: `worker`
    - Root Directory: `apps/backend`
@@ -106,7 +106,7 @@ Railway charges based on usage (CPU, RAM, Network):
 ## Step 7: Add Celery Beat Scheduler
 
 1. Click **New** > **GitHub Repo**
-2. Select your JARV repository
+2. Select your JAI repository
 3. Settings:
    - Name: `scheduler`
    - Root Directory: `apps/backend`
@@ -183,9 +183,9 @@ Redeploy backend service.
    ```
 5. Update backend CORS_ORIGINS
 
-## Step 11: Access JARV
+## Step 11: Access JAI
 
-Your JARV instance is now running:
+Your JAI instance is now running:
 - Dashboard: `https://dashboard-production-xxxx.up.railway.app`
 - API: `https://backend-production-xxxx.up.railway.app`
 
@@ -195,7 +195,7 @@ Railway automatically redeploys when you push to your main branch:
 
 ```bash
 git add .
-git commit -m "Update JARV"
+git commit -m "Update JAI"
 git push origin main
 ```
 
@@ -306,7 +306,7 @@ railway variables -s backend
 
 ### Free Trial
 
-Railway provides $5/month free credit. Typical JARV usage:
+Railway provides $5/month free credit. Typical JAI usage:
 - First month: Free (with $5 credit)
 - Subsequent months: $15-25/month
 

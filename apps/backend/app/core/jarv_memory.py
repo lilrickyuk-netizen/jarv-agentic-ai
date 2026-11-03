@@ -1,5 +1,5 @@
 """
-JARV Backend - Persistent Agent Memory Service
+JAI Backend - Persistent Agent Memory Service
 
 The single memory store used by the command center, the tool runtime, agent
 execution, and the memory API.

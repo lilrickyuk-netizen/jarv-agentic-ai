@@ -35,7 +35,7 @@ def _run(coro):
 
 
 def _git(root, *args):
-    subprocess.run(["git", "-c", "user.email=jarv@test", "-c", "user.name=JARV", "-c", f"safe.directory={root}",
+    subprocess.run(["git", "-c", "user.email=jarv@test", "-c", "user.name=JAI", "-c", f"safe.directory={root}",
                     *args], cwd=root, check=True, capture_output=True)
 
 

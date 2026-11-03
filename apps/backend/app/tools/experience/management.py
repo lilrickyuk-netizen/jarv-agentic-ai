@@ -1,5 +1,5 @@
 """
-JARV Backend - Experience Management Tools
+JAI Backend - Experience Management Tools
 
 Tools for managing experience data: export, import, analysis, visualization, pruning, consolidation.
 """

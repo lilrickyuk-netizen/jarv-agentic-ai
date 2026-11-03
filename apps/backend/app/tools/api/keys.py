@@ -1,5 +1,5 @@
 """
-JARV Backend - API Key Management Tool
+JAI Backend - API Key Management Tool
 
 Tool for managing API keys used by agents.
 

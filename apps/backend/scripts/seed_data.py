@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-JARV Backend - Database Seed Data
+JAI Backend - Database Seed Data
 
 Creates optional, editable seed/demo data for development and testing.
 All seed data is clearly labeled and can be modified or deleted by users.
@@ -43,12 +43,12 @@ async def create_seed_user(session: AsyncSession) -> User:
         id=uuid4(),
         username="admin",
         email="admin@jarv.local",
-        full_name="JARV Administrator",
+        full_name="JAI Administrator",
         password_hash=password_hash,  # Change in production!
         is_active=True,
         is_admin=True,
         timezone="UTC",
-        bio="Seed administrator account for JARV system",
+        bio="Seed administrator account for JAI system",
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
@@ -74,7 +74,7 @@ async def create_seed_workspace(session: AsyncSession, owner: User) -> Workspace
         id=uuid4(),
         name="Demo Workspace",
         slug="demo-workspace",
-        description="[SEED DATA] Demo workspace for exploring JARV capabilities. Feel free to edit or delete.",
+        description="[SEED DATA] Demo workspace for exploring JAI capabilities. Feel free to edit or delete.",
         owner_id=owner.id,
         workspace_type="general",
         is_active=True,
@@ -93,7 +93,7 @@ async def create_seed_workspace(session: AsyncSession, owner: User) -> Workspace
         self_evolution_enabled=True,
         company_mode_enabled=True,
         company_name="Demo Company",
-        company_mission="Exploring AI agent capabilities with JARV",
+        company_mission="Exploring AI agent capabilities with JAI",
         company_structure={
             "industry": "Technology",
             "size": "startup",
@@ -182,8 +182,8 @@ async def create_seed_agent(session: AsyncSession, workspace: Workspace, role: C
         workspace_id=workspace.id,
         name="Demo Agent",
         agent_type="general",
-        description="[SEED DATA] Demo agent for exploring JARV capabilities",
-        system_prompt="You are a helpful demo agent in the JARV system. You can help users understand how agents work by performing sample tasks and demonstrations.",
+        description="[SEED DATA] Demo agent for exploring JAI capabilities",
+        system_prompt="You are a helpful demo agent in the JAI system. You can help users understand how agents work by performing sample tasks and demonstrations.",
         company_role_id=role.id,
         authority_level=5,
         current_state="idle",
@@ -220,7 +220,7 @@ async def create_seed_task(session: AsyncSession, workspace: Workspace, agent: A
     result = await session.execute(
         select(Task).where(
             Task.workspace_id == workspace.id,
-            Task.title == "Demo Task: Welcome to JARV"
+            Task.title == "Demo Task: Welcome to JAI"
         )
     )
     existing_task = result.scalar_one_or_none()
@@ -233,8 +233,8 @@ async def create_seed_task(session: AsyncSession, workspace: Workspace, agent: A
         id=uuid4(),
         workspace_id=workspace.id,
         assigned_agent_id=agent.id,
-        title="Demo Task: Welcome to JARV",
-        description="[SEED DATA] This is a sample task demonstrating the JARV task management system. Explore the JARV interface and understand how tasks work. Feel free to edit, complete, or delete this task.",
+        title="Demo Task: Welcome to JAI",
+        description="[SEED DATA] This is a sample task demonstrating the JAI task management system. Explore the JAI interface and understand how tasks work. Feel free to edit, complete, or delete this task.",
         task_type="example",
         status="pending",
         priority=5,
@@ -244,8 +244,8 @@ async def create_seed_task(session: AsyncSession, workspace: Workspace, agent: A
             "seed_data": True,
             "demo_mode": True,
             "purpose": "User onboarding and system demonstration",
-            "instructions": "Explore the JARV interface",
-            "expected_output": "Understanding of JARV task system",
+            "instructions": "Explore the JAI interface",
+            "expected_output": "Understanding of JAI task system",
         },
         meta_data={
             "seed_data": True,
@@ -337,7 +337,7 @@ async def create_seed_tools(session: AsyncSession) -> list[Tool]:
 async def seed_all() -> None:
     """Create all seed data"""
     print("=" * 60)
-    print("JARV Backend - Creating Seed Data")
+    print("JAI Backend - Creating Seed Data")
     print("=" * 60)
     print("\n[INFO]  All seed data is clearly labeled and can be edited or deleted")
     print("[INFO]  Seed data is for development and demonstration purposes\n")

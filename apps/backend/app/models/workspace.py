@@ -1,5 +1,5 @@
 """
-JARV Backend - Workspace Model
+JAI Backend - Workspace Model
 
 Dynamic project workspaces with configuration and state.
 """

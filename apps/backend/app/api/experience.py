@@ -1,5 +1,5 @@
 """
-JARV Backend - Experience API
+JAI Backend - Experience API
 
 Authenticated access to experience records and the verified-learning
 lifecycle (candidate -> verified -> retired, or rejected). Every call is

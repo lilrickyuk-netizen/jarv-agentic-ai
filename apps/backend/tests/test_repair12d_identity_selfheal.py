@@ -138,12 +138,12 @@ def test_scheduled_loop_writes_the_feed_only_when_state_changes(loop_env):
             return (await db.execute(select(LiveOperationsFeedItem.title).where(
                 LiveOperationsFeedItem.workspace_id == ws_id))).scalars().all()
 
-    assert _run(run()) == ["JARV health check"]
+    assert _run(run()) == ["JAI health check"]
 
 
 @pytest.mark.integration
 def test_optional_services_and_finished_jobs_do_not_make_jarv_degraded(loop_env):
-    """The status loop said JARV was degraded because Voicebox (an optional voice profile) and the one-off
+    """The status loop said JAI was degraded because Voicebox (an optional voice profile) and the one-off
     migration job were not running. Optional services are reported as optional; a job that finished cleanly is
     finished. A core service that stops still counts."""
     from app.workers.tasks import _run_scheduled_loop

@@ -1,5 +1,5 @@
 """
-JARV Backend - DocumentationAgent
+JAI Backend - DocumentationAgent
 
 Drafts technical documentation.
 

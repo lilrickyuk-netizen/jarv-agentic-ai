@@ -165,8 +165,8 @@ async def _runtime(session):
 
 @pytest.mark.integration
 def test_agent_initialises_stages_and_commits_inside_the_workspace(monkeypatch):
-    for key, value in (("GIT_AUTHOR_NAME", "JARV"), ("GIT_AUTHOR_EMAIL", "jarv@localhost"),
-                       ("GIT_COMMITTER_NAME", "JARV"), ("GIT_COMMITTER_EMAIL", "jarv@localhost")):
+    for key, value in (("GIT_AUTHOR_NAME", "JAI"), ("GIT_AUTHOR_EMAIL", "jarv@localhost"),
+                       ("GIT_COMMITTER_NAME", "JAI"), ("GIT_COMMITTER_EMAIL", "jarv@localhost")):
         monkeypatch.setenv(key, value)
     name = f"toolchain-{uuid4().hex[:8]}"
     folder = Path(SANDBOX_CONTAINER_ROOT) / name
@@ -202,7 +202,7 @@ def test_agent_initialises_stages_and_commits_inside_the_workspace(monkeypatch):
     assert commit["success"] is True, commit
     assert push["success"] is False and push["blocked"] is True
     log = subprocess.run(["git", "log", "--format=%an %s"], cwd=folder, capture_output=True, text=True)
-    assert log.stdout.strip().splitlines() == ["JARV Keep; rm -rf keep.md", "JARV Phase 0: platform skeleton"]
+    assert log.stdout.strip().splitlines() == ["JAI Keep; rm -rf keep.md", "JAI Phase 0: platform skeleton"]
     shutil.rmtree(folder, ignore_errors=True)
 
 
@@ -223,7 +223,7 @@ def test_worker_image_carries_the_build_toolchain():
     assert runtime.count("sha256sum -c") == 3  # every downloaded binary is checksum-verified
     assert "build-essential" in runtime and "ripgrep" in runtime
     assert "PATH=/home/jarv/.local/bin:$PATH" in runtime
-    assert "HOME=/home/jarv" in runtime and "GIT_AUTHOR_NAME=JARV" in runtime
+    assert "HOME=/home/jarv" in runtime and "GIT_AUTHOR_NAME=JAI" in runtime
     assert "COREPACK_HOME=/home/jarv/.cache/corepack" in runtime
     assert "    nodejs \\" not in runtime  # the distribution's old Node is not installed
 
@@ -388,7 +388,7 @@ def test_read_only_git_commands_never_need_approval():
 
 @pytest.mark.integration
 def test_env_templates_are_project_files_and_real_env_files_stay_protected():
-    """Phase 0 asks for .env.example (setting names only); JARV refused to write it as a secret file."""
+    """Phase 0 asks for .env.example (setting names only); JAI refused to write it as a secret file."""
     name = f"envtpl-{uuid4().hex[:8]}"
     folder = Path(SANDBOX_CONTAINER_ROOT) / name
     shutil.rmtree(folder, ignore_errors=True)
@@ -524,10 +524,10 @@ class _MissionRouter:
         import json as _json
         from app.core.providers import CompletionResponse
 
-        if (request.system or "").startswith("You are JARV's requirements analyst"):
+        if (request.system or "").startswith("You are JAI's requirements analyst"):
             # The requirements step (Upgrade 2): these scripted missions add nothing to the mission itself.
             return CompletionResponse(id="r", model="test", content="", usage={"total_tokens": 1}, tool_calls=[])
-        who = "verifier" if (request.system or "").startswith("You are JARV's Verifier Agent") else "mission"
+        who = "verifier" if (request.system or "").startswith("You are JAI's Verifier Agent") else "mission"
         self.offered[who].append(sorted(t["name"] for t in request.tools or []))
         self.first_message.setdefault(who, request.messages[0].content)
         turn = self.turns[who].pop(0) if self.turns[who] else {"content": "done"}
@@ -724,7 +724,7 @@ def test_claude_requests_mark_the_repeated_prefix_for_the_prompt_cache():
     from app.core.providers.claude import ClaudeProvider, _usage
 
     provider = object.__new__(ClaudeProvider)
-    request = CompletionRequest(model="claude-sonnet-4-6", system="You are JARV.", max_tokens=100, messages=[
+    request = CompletionRequest(model="claude-sonnet-4-6", system="You are JAI.", max_tokens=100, messages=[
         Message(role="user", content="MISSION"),
         Message(role="assistant", content=[{"type": "tool_use", "id": "a", "name": "read_file", "input": {}}]),
         Message(role="user", content=[{"type": "tool_result", "tool_use_id": "a", "content": "text"}])],
@@ -801,7 +801,7 @@ def test_gpt_6_luna_agents_reason_through_the_responses_api():
     from app.core.providers.openai import OpenAIProvider
 
     provider = object.__new__(OpenAIProvider)
-    request = CompletionRequest(model="gpt-6-luna", system="You are JARV.", max_tokens=16000, messages=[
+    request = CompletionRequest(model="gpt-6-luna", system="You are JAI.", max_tokens=16000, messages=[
         Message(role="user", content="MISSION"),
         Message(role="assistant", content=[{"type": "text", "text": "Reading."},
                                            {"type": "tool_use", "id": "c1", "name": "boundary.detect", "input": {"a": 1}}]),
@@ -810,7 +810,7 @@ def test_gpt_6_luna_agents_reason_through_the_responses_api():
     assert OpenAIProvider._uses_responses(request) is True
     assert OpenAIProvider._uses_responses(CompletionRequest(model="gpt-6-luna", messages=[])) is False
     body = provider._responses_request(request)
-    assert body["reasoning"] == {"effort": "medium"} and body["instructions"] == "You are JARV."
+    assert body["reasoning"] == {"effort": "medium"} and body["instructions"] == "You are JAI."
     assert body["max_output_tokens"] == 16000 and body["store"] is False
     assert body["tools"][0]["name"] == "boundary__detect" and body["tools"][0]["type"] == "function"
     assert body["input"] == [

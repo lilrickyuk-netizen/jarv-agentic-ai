@@ -1,5 +1,5 @@
 """
-JARV Backend - Onboarding analysis and versioned copy, and the knowledge base
+JAI Backend - Onboarding analysis and versioned copy, and the knowledge base
 
 Activation friction is measured from what the workspace records: onboarding
 flow starts/completions and their weakest steps, support tickets about
@@ -139,7 +139,7 @@ async def update_knowledge_base(db: AsyncSession, workspace_id: UUID, *, title: 
                           category="knowledge_base", slug=f"kb-{re.sub(r'[^a-z0-9]+', '-', title.lower())[:80]}-{uuid4().hex[:6]}",
                           content_body=body, content_format="markdown", excerpt=body[:300],
                           status="published" if publish else "draft", is_published=False, author_id=author,
-                          author_name="JARV", tags=["knowledge_base"], meta_data={"version": 1, "history": []},
+                          author_name="JAI", tags=["knowledge_base"], meta_data={"version": 1, "history": []},
                           created_at=now, updated_at=now)
         db.add(row)
     else:

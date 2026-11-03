@@ -1,5 +1,5 @@
 """
-JARV Backend - Business Models
+JAI Backend - Business Models
 
 Support tickets, marketing, business plans, sales, and partnerships.
 """

@@ -1,5 +1,5 @@
 """
-JARV Backend - Workspace Backup Tools
+JAI Backend - Workspace Backup Tools
 
 Workspace backup/restore: backup, restore, export, import.
 """

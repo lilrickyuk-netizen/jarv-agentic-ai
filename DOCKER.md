@@ -1,6 +1,6 @@
-# JARV Docker Setup
+# JAI Docker Setup
 
-Complete Docker configuration for running JARV Agentic AI System.
+Complete Docker configuration for running JAI Agentic AI System.
 
 ## Prerequisites
 

@@ -1,5 +1,5 @@
 """
-JARV Backend - ContentAgent
+JAI Backend - ContentAgent
 
 Drafts blog posts, tutorials, changelogs, and educational content.
 

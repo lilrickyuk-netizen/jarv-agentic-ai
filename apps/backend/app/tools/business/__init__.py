@@ -1,5 +1,5 @@
 """
-JARV Backend - Business tools (Repair 12e-4a)
+JAI Backend - Business tools (Repair 12e-4a)
 
 Support, marketing, content, onboarding, community, partnership and sales
 tools, all on persisted records in the calling workspace.

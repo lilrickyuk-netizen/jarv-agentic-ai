@@ -1,7 +1,7 @@
 """
-JARV Backend - Analytics API (Repair 14a)
+JAI Backend - Analytics API (Repair 14a)
 
-How JARV itself is performing in a workspace, from its own records: missions
+How JAI itself is performing in a workspace, from its own records: missions
 by status (normalised to the mission lifecycle) and per day, success rate,
 duration and tokens; tool runs by tool and by agent, failures and approval
 pauses; and the estimated monthly cost against the budget. Product traffic

@@ -1,5 +1,5 @@
 """
-JARV Backend - Community inbox and moderation (persisted)
+JAI Backend - Community inbox and moderation (persisted)
 
 Community messages (from the API, webhooks or tools) are CommunityItem rows
 of type "message". Moderation follows the workspace's community_moderation

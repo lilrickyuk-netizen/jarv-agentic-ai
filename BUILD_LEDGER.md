@@ -13620,3 +13620,16 @@ TESTS RUN: dashboard type check and jest suite
 RESULT: The bordered box with the letter J is gone. JARV's mark is an original SVG drawn in code: a bright core inside a small swarm of blue lights, a dotted outer ring and a tilted orbit with one light circling slowly (still when the viewer asks for reduced motion). It carries no letter, so it stays right after the rename to JAI. It sits beside the JARV name on the Command Center and, smaller, on every other page's top bar.
 BLOCKERS: None
 NEXT TASK: Rename JARV to JAI
+
+---
+
+TASK ID: RENAME-JAI
+TASK NAME: Rename JARV to JAI
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: about 400 files across apps/backend (app, tests, scripts, Dockerfile, README), apps/dashboard (src, __tests__), services, infra, packages, scripts, README.md, DOCKER.md and docs (CONFIGURATION, DEPLOYMENT, OPERATIONS, RUNBOOK)
+COMMANDS RUN: backend test suite (pgvector test database); npm ci, npx tsc --noEmit, npx jest --ci (node:20); docker compose up -d --build backend worker scheduler dashboard
+TESTS RUN: full backend suite and dashboard type check and jest suite, with the wake-phrase tests extended for JAI
+RESULT: Everything Richard sees or hears now says JAI: the dashboard (top bar, Command Center brand, page title, Talk with JAI, every page's wording), agent and Verifier instructions, the voice persona, reports, drafts written by JAI, the voice profile name and the git author name on commits JAI makes in a workspace. The wake phrase hears "JAI" as recognisers write it ("Jai", "Jay", "J.A.I.") and still hears the old name and its mishearings, so either works. The voice profile is renamed in place, and one already named JARV is reused, not duplicated. Unchanged on purpose, so existing data, volumes and settings carry on: container names (jarv-*), JARV_* settings, code identifiers, the repo folder, the database, the migrations, the curated knowledge library text, CLAUDE.md and the build history in this ledger. The README says so.
+BLOCKERS: None
+NEXT TASK: Acceptance mission: bring MYCO Phase 0 into full conformance with MYCO_V3_SPEC.md, measured against the earlier baseline

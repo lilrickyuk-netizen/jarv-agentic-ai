@@ -29,13 +29,17 @@ def _run(coro):
 
 
 @pytest.mark.parametrize("spoken,command,woke", [
-    ("JARV, talk to me, check the weather", "check the weather", True),
+    ("JAI, talk to me, check the weather", "check the weather", True),
     ("J-R-V talk to me. Run the tests", "Run the tests", True),
-    ("JARV talk to me.", "", True),
-    ("Hey JARV, deploy staging", "deploy staging", False),
+    ("JAI talk to me.", "", True),
+    ("Hey JAI, deploy staging", "deploy staging", False),
     ("Jarvis, what's the status?", "what's the status?", False),
     ("Summarise this week", "Summarise this week", False),
-    # How speech recognisers write "JARV" in front of the wake phrase.
+    # How speech recognisers write "JAI" in front of the wake phrase.
+    ("Jay, talk to me, check the status", "check the status", True),
+    ("J.A.I. talk to me. Run the tests", "Run the tests", True),
+    ("Hey Jai, deploy staging", "deploy staging", False),
+    # The earlier name, JARV, as recognisers write it, still works.
     ("Jarvis, talk to me.", "", True),
     ("Java, talk to me, check the status", "check the status", True),
     ("Jav talk to me", "", True),
@@ -53,9 +57,9 @@ def test_wake_phrase_and_address_are_removed(spoken, command, woke):
 
 @pytest.mark.integration
 @pytest.mark.parametrize("spoken", [
-    "JARV, talk to me, approve the deploy", "Hey JARV, approve the release", "Jarvis approve it",
+    "JAI, talk to me, approve the deploy", "Hey JAI, approve the release", "Jarvis approve it",
     "Could you please approve the ad spend", "OK the production release", "Green light the launch",
-    "JARV, can you sign off the invoice",
+    "JAI, can you sign off the invoice",
 ])
 def test_a_spoken_approval_is_refused_however_it_is_introduced(voice, spoken):  # noqa: F811
     async def run():
@@ -75,11 +79,11 @@ def test_wake_status_cancel_and_questions_that_are_not_approvals(voice):  # noqa
     async def run():
         async with AsyncTestingSessionLocal() as db:
             owner, ws_id = await _seed(db)
-            woke = await engine.route(db, "JARV, talk to me.", user_id=owner, workspace_id=ws_id)
-            status = await engine.route(db, "JARV, talk to me, what's the status?", user_id=owner, workspace_id=ws_id)
+            woke = await engine.route(db, "JAI, talk to me.", user_id=owner, workspace_id=ws_id)
+            status = await engine.route(db, "JAI, talk to me, what's the status?", user_id=owner, workspace_id=ws_id)
             question = await engine.route(db, "Can you confirm whether last night's backup ran",
                                           user_id=owner, workspace_id=ws_id)
-            cancel = await engine.route(db, "JARV, can you cancel the current mission", user_id=owner,
+            cancel = await engine.route(db, "JAI, can you cancel the current mission", user_id=owner,
                                         workspace_id=ws_id)
             return woke, status, question, cancel
 
@@ -95,8 +99,8 @@ def test_voice_acceptance_with_cloud_speech_only(client, voice, monkeypatch):  #
     monkeypatch.setattr(settings, "OPENAI_API_KEY", "sk-test-not-real")
     monkeypatch.setattr(settings, "ELEVENLABS_API_KEY", "el-test-not-real")
     monkeypatch.setattr(settings, "ELEVENLABS_VOICE_ID", "voice123")
-    transcripts = iter(["JARV, talk to me, summarise what changed in the project this week",
-                        "JARV, talk to me, approve the deploy", "JARV talk to me"])
+    transcripts = iter(["JAI, talk to me, summarise what changed in the project this week",
+                        "JAI, talk to me, approve the deploy", "JAI talk to me"])
     voice["routes"].update({
         ("POST", "https://api.openai.com/v1/audio/transcriptions"):
             lambda r, b: httpx.Response(200, json={"text": next(transcripts)}),
@@ -137,7 +141,7 @@ def test_voice_acceptance_with_cloud_speech_only(client, voice, monkeypatch):  #
     assert reply_audio.status_code == 200 and reply_audio.content == b"ID3-spoken-mp3"
     assert refused.json()["intent"] == "approval_refused" and refused.json()["task_id"] is None
     assert refused.json()["speech"] is not None  # the refusal is spoken too
-    assert heard.json() == {"text": "JARV talk to me", "backend": "openai", "command": "", "wake_heard": True}
+    assert heard.json() == {"text": "JAI talk to me", "backend": "openai", "command": "", "wake_heard": True}
     assert followed.status_code == 200 and followed.json()["task_id"] == data["task_id"]
     assert stranger.status_code == 404
     assert len(rows) == 1 and (rows[0].meta_data or {}).get("channel") == "voice"

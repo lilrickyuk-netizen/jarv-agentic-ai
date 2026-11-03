@@ -77,7 +77,7 @@ export async function followMission(start: MissionResult | string, options: RunM
   const started = Date.now();
   while (!mission.finished) {
     if (Date.now() - started > FOLLOW_LIMIT_MS) {
-      return { ...mission, response_text: 'JARV is still working on this mission. Its result will appear in the mission history.' };
+      return { ...mission, response_text: 'JAI is still working on this mission. Its result will appear in the mission history.' };
     }
     await sleep(POLL_MS, options.signal);
     const latest = await apiClient.get<MissionResult>(`/api/command/tasks/${mission.task_id}`);
@@ -101,7 +101,7 @@ export async function archiveMission(taskId: string, archived = true): Promise<M
   return res.data ?? null;
 }
 
-/** Carry on with a paused (needs continuation) or partial mission: the same mission, on JARV's worker. */
+/** Carry on with a paused (needs continuation) or partial mission: the same mission, on JAI's worker. */
 export async function resumeMission(taskId: string): Promise<void> {
   const res = await apiClient.post(`/api/tasks/${taskId}/resume`);
   if (res.error) throw new Error(res.error);

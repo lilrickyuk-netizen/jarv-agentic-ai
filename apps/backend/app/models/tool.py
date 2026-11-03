@@ -1,5 +1,5 @@
 """
-JARV Backend - Tool Use Model
+JAI Backend - Tool Use Model
 
 Tool usage tracking and execution history.
 """

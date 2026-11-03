@@ -1,5 +1,5 @@
 """
-JARV Backend - Ollama Local Provider
+JAI Backend - Ollama Local Provider
 
 Implementation of Ollama local LLM provider for running models locally.
 """

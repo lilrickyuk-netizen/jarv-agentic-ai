@@ -1,7 +1,7 @@
 """
-JARV Backend - Workspace facts for business work
+JAI Backend - Workspace facts for business work
 
-Everything JARV writes for a product (posts, docs, emails, plans, scripts) is
+Everything JAI writes for a product (posts, docs, emails, plans, scripts) is
 grounded in what the workspace actually contains: its name and mission, the
 detected stack and commands, the README, recent commits, the API routes and
 app pages found in the code, the live URL, completed work, KPIs, plan

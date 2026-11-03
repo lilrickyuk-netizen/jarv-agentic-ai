@@ -1,5 +1,5 @@
 """
-JARV Backend - Base for database-backed, workspace-scoped registry tools
+JAI Backend - Base for database-backed, workspace-scoped registry tools
 
 Company operations, workspace lifecycle and experience tools all act on
 persisted records inside the calling context's workspace, for that

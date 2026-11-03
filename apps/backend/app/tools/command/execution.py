@@ -1,5 +1,5 @@
 """
-JARV Backend - Command Execution Tools
+JAI Backend - Command Execution Tools
 
 Command execution tools: run, background, pipe, sudo, timeout, env.
 """

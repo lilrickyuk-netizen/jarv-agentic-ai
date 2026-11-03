@@ -1,5 +1,5 @@
 """
-JARV Backend - Prometheus metrics
+JAI Backend - Prometheus metrics
 
 Exposed at ``GET /metrics`` in the Prometheus text format (0.0.4).
 

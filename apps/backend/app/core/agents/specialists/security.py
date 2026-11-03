@@ -1,5 +1,5 @@
 """
-JARV Backend - SecurityAgent
+JAI Backend - SecurityAgent
 
 Performs a REAL, honest static regex scan for secrets and dangerous code
 patterns in the provided files and/or text.

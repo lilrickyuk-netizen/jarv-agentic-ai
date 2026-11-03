@@ -1,5 +1,5 @@
 """
-JARV Backend - Advanced Git Tools
+JAI Backend - Advanced Git Tools
 
 Advanced git operations: tag, stash, reset, revert, config.
 """

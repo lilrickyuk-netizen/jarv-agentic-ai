@@ -1,5 +1,5 @@
 """
-JARV Backend - Authentication Endpoints
+JAI Backend - Authentication Endpoints
 
 Login, logout, token refresh, and password management.
 """

@@ -154,7 +154,7 @@ def test_live_conversation_needs_the_openai_key_and_never_hands_it_to_the_browse
                                                      "cancel_mission", "ask_jarv", "search_memory", "list_approvals",
                                                      "list_workspaces", "list_workspace_files", "read_workspace_file",
                                                      "trace_artifact"}
-    assert "voice of JARV's whole system" in session["instructions"]
+    assert "voice of JAI's whole system" in session["instructions"]
     assert "never start a new mission to continue an old one" in session["instructions"]
     assert "Never tell him you cannot access his files" in session["instructions"]
     assert "MYCO" in session["instructions"] and "Approvals page" in session["instructions"]
@@ -265,7 +265,7 @@ def test_consecutive_worker_tasks_reuse_clients_bound_to_the_first_loop():
 
 @pytest.mark.api
 def test_live_conversation_reads_the_workspace_folder_and_stays_inside_it(client, voice):  # noqa: F811
-    """JARV told Richard it could not access his files; it can look in each workspace's own folder."""
+    """JAI told Richard it could not access his files; it can look in each workspace's own folder."""
     import shutil
     from pathlib import Path
 
@@ -314,7 +314,7 @@ def test_live_conversation_reads_the_workspace_folder_and_stays_inside_it(client
     "Make a notes.txt file summarising the design",
 ])
 def test_requests_to_create_a_file_go_to_the_agents(request_text):
-    """A fixed-text shortcut once answered these by writing "JARV Write Test" into the named file and
+    """A fixed-text shortcut once answered these by writing "JAI Write Test" into the named file and
     reporting it written; the agents now write the content the request asks for."""
     from app.core.command.service import CommandService
 
@@ -434,12 +434,12 @@ def test_one_step_requests_keep_their_handlers(request_text, intent):
 
 
 
-# ----- talking with JARV reaches JARV's memory, missions and approvals -------------------------------------
+# ----- talking with JAI reaches JAI's memory, missions and approvals -------------------------------------
 
 def test_voice_answers_from_jarvs_memory_and_missions_never_another_owners(voice, monkeypatch):  # noqa: F811
-    """The live conversation was a separate model with a few tools: it could start missions but knew nothing JARV
-    remembered or had done. ask_jarv answers with JARV's reasoning model from JARV's memory, recent missions and
-    approvals; search_memory returns JARV's memories; neither ever reaches another owner's workspace."""
+    """The live conversation was a separate model with a few tools: it could start missions but knew nothing JAI
+    remembered or had done. ask_jarv answers with JAI's reasoning model from JAI's memory, recent missions and
+    approvals; search_memory returns JAI's memories; neither ever reaches another owner's workspace."""
     from app.core.jarv_memory import memory_service
     from app.core.providers import CompletionResponse
 
@@ -483,7 +483,7 @@ def test_voice_answers_from_jarvs_memory_and_missions_never_another_owners(voice
 
 @pytest.mark.api
 def test_talk_with_jarv_carries_on_from_the_last_conversation(client, voice, monkeypatch):  # noqa: F811
-    """Every Talk with JARV began as a new conversation with no memory of the last. Both sides of each spoken
+    """Every Talk with JAI began as a new conversation with no memory of the last. Both sides of each spoken
     turn are now kept per operator (secrets redacted) and open the next session, oldest first; another
     operator's conversation is never included."""
     async def seed():
@@ -513,9 +513,9 @@ def test_talk_with_jarv_carries_on_from_the_last_conversation(client, voice, mon
     assert started.status_code == 200, started.text
     instructions = json.loads(voice["requests"][-1][1])["session"]["instructions"]
     assert "YOUR RECENT CONVERSATION WITH RICHARD" in instructions
-    assert "It is now " in instructions and ("UK time" in instructions or "UTC." in instructions)  # JARV knows what day and time it is
+    assert "It is now " in instructions and ("UK time" in instructions or "UTC." in instructions)  # JAI knows what day and time it is
     first = instructions.index("Richard: MYCO is being built, not launched")
-    assert first < instructions.index("JARV: Understood, Phase 0 stays offline.")
+    assert first < instructions.index("JAI: Understood, Phase 0 stays offline.")
     assert "sk-abcdefghijklmnopqrstuvwxyz123456" not in instructions
     assert "Stranger's private plan." not in instructions
     # The panel shows the same conversation after a reload, oldest first, only this operator's.
@@ -523,7 +523,7 @@ def test_talk_with_jarv_carries_on_from_the_last_conversation(client, voice, mon
 
 
 def test_a_running_mission_is_described_from_its_own_activity(monkeypatch):
-    """Asked how the running correction mission was going, JARV said it had committed and passed its tests:
+    """Asked how the running correction mission was going, JAI said it had committed and passed its tests:
     that was the previous mission's report. A running mission is now marked in_progress with its own latest
     activity, and the answer must come from that."""
     from app.core.providers import CompletionResponse

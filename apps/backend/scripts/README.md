@@ -1,4 +1,4 @@
-# JARV Backend Scripts
+# JAI Backend Scripts
 
 Utility scripts for database management, migrations, and system administration.
 

@@ -1,5 +1,5 @@
 """
-JARV Backend - CompanyOperatorAgent
+JAI Backend - CompanyOperatorAgent
 
 Runs the autonomous company layer for a workspace through the company tools
 (app.tools.company.operations, backed by app.core.company_ops): operating
@@ -169,7 +169,7 @@ class CompanyOperatorAgent(AgentBase):
                     f"{k}={v}" for k, v in details.items()
                 ) if details else "(no extra details supplied)"
                 prompt = (
-                    f"You are JARV's company operator. Operation requested: "
+                    f"You are JAI's company operator. Operation requested: "
                     f"{operation}. Workspace id: {workspace_id or '(none)'}. "
                     f"Details: {detail_text}.\n\n"
                     "Produce a concise operating-plan DRAFT and a short list of "

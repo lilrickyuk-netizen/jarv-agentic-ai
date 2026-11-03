@@ -1,5 +1,5 @@
 """
-JARV Backend - Boundary Models
+JAI Backend - Boundary Models
 
 Richard Boundary Operator models, approval windows, safe checkpoints.
 """

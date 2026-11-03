@@ -1,3 +1,3 @@
 """
-JARV Backend Scripts
+JAI Backend Scripts
 """

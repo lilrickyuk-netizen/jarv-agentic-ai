@@ -1,5 +1,5 @@
 """
-JARV Backend - Task State Machine
+JAI Backend - Task State Machine
 
 State machine for task lifecycle management with 14 states and
 controlled state transitions.

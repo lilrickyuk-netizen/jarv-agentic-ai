@@ -68,7 +68,7 @@ async def reembed_memories() -> int:
     model = get_embedding_service().model_id
     print(f"Embedding model: {model}")
     if model.startswith("local:"):
-        print("No OpenAI key is visible to JARV, so memories stay on the local embedder. Nothing changed.")
+        print("No OpenAI key is visible to JAI, so memories stay on the local embedder. Nothing changed.")
         return 1
     total = 0
     async with AsyncSessionLocal() as db:

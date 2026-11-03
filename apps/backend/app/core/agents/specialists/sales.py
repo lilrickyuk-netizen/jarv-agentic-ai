@@ -1,5 +1,5 @@
 """
-JARV Backend - SalesAgent
+JAI Backend - SalesAgent
 
 Drafts sales scripts, outreach sequences, and prospect briefs as
 model-generated DRAFTS only.

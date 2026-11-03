@@ -1,5 +1,5 @@
 """
-JARV Backend - WorkspaceManagerAgent
+JAI Backend - WorkspaceManagerAgent
 
 Manages workspaces through the workspace lifecycle tools
 (app.tools.workspace.lifecycle): create, import (folder, repository, document

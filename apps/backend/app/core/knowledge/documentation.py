@@ -1,5 +1,5 @@
 """
-JARV Backend - Source documentation catalogue for all 31 agents (Upgrades 1a and 1b)
+JAI Backend - Source documentation catalogue for all 31 agents (Upgrades 1a and 1b)
 
 Official documentation pages an expert in each field looks things up in. ``licence`` and ``licence_evidence``
 were read from the publisher's own page on 2 November 2026; a source's text is stored only when that licence allows

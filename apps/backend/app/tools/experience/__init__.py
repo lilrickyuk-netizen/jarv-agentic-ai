@@ -1,5 +1,5 @@
 """
-JARV Backend - Experience Tools
+JAI Backend - Experience Tools
 
 Tools for agent learning from experience, pattern recognition, and continuous improvement.
 """

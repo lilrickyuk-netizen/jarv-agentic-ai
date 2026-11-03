@@ -1,5 +1,5 @@
 """
-JARV Backend - Memory Management Tools
+JAI Backend - Memory Management Tools
 
 Tools for memory listing, tagging, export/import, and statistics.
 """

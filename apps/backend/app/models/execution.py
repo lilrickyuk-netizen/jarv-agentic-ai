@@ -1,5 +1,5 @@
 """
-JARV Backend - Execution Models
+JAI Backend - Execution Models
 
 Command execution and file change tracking.
 """

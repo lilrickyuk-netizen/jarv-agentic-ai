@@ -1,5 +1,5 @@
 """
-JARV Backend - Email Tools
+JAI Backend - Email Tools
 
 email_send, email_read and email_search on the real mailbox through the
 mailer (app/core/business/mailer.py).
@@ -14,7 +14,7 @@ Settings page shows which are set and checks the connection.
   inside the workspace folder. Secrets are redacted from subject and body.
   Without SMTP the message is saved as a draft for Richard and nothing is sent.
 - Reading and searching open the mailbox read-only (nothing is marked read,
-  moved or deleted). The "drafts" folder is JARV's own saved drafts. Without
+  moved or deleted). The "drafts" folder is JAI's own saved drafts. Without
   IMAP only those drafts are available.
 """
 from typing import Dict, Any, Type, List, Optional
@@ -246,7 +246,7 @@ class EmailReadTool(ToolBase):
 
     @property
     def description(self) -> str:
-        return "Read the mailbox read-only (folder, unread only), or folder 'drafts' for JARV's saved drafts."
+        return "Read the mailbox read-only (folder, unread only), or folder 'drafts' for JAI's saved drafts."
 
     @property
     def input_schema(self) -> Type[BaseModel]:
@@ -269,7 +269,7 @@ class EmailReadTool(ToolBase):
         return "company"
 
     async def run(self, input_data: Dict[str, Any], context: ToolContext) -> ToolResult:
-        """Read the mailbox read-only, or JARV's saved drafts."""
+        """Read the mailbox read-only, or JAI's saved drafts."""
         folder = input_data.get("folder") or "inbox"
         limit = int(input_data.get("limit") or 50)
         unread_only = bool(input_data.get("unread_only"))
@@ -287,7 +287,7 @@ class EmailReadTool(ToolBase):
             else:
                 return self.create_result(success=False, error_message=(
                     "Mailbox reading is not set up (set " + ", ".join(mailer.status()["missing_for_reading"])
-                    + "); only folder 'drafts' (JARV's saved drafts) is available."))
+                    + "); only folder 'drafts' (JAI's saved drafts) is available."))
             return self.create_result(
                 success=True, result_data={"emails": emails, "count": len(emails), "mode": mode},
                 output_text=(f"Read {len(emails)} message(s) from {folder} (read-only)." if mode == "live" else
@@ -326,7 +326,7 @@ class EmailSearchTool(ToolBase):
 
     @property
     def description(self) -> str:
-        return "Search the mailbox read-only by text and sender, or JARV's saved drafts."
+        return "Search the mailbox read-only by text and sender, or JAI's saved drafts."
 
     @property
     def input_schema(self) -> Type[BaseModel]:
@@ -349,7 +349,7 @@ class EmailSearchTool(ToolBase):
         return "company"
 
     async def run(self, input_data: Dict[str, Any], context: ToolContext) -> ToolResult:
-        """Server-side search of the mailbox (read-only), or of JARV's saved drafts."""
+        """Server-side search of the mailbox (read-only), or of JAI's saved drafts."""
         query = input_data["query"]
         folder = input_data.get("folder")
         limit = int(input_data.get("limit") or 50)
@@ -369,7 +369,7 @@ class EmailSearchTool(ToolBase):
             else:
                 return self.create_result(success=False, error_message=(
                     "Mailbox search is not set up (set " + ", ".join(mailer.status()["missing_for_reading"])
-                    + "); only folder 'drafts' (JARV's saved drafts) can be searched."))
+                    + "); only folder 'drafts' (JAI's saved drafts) can be searched."))
             if input_data.get("has_attachments") is not None:
                 emails = [row for row in emails if row["has_attachments"] == input_data["has_attachments"]]
             return self.create_result(

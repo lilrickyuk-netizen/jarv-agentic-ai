@@ -1,5 +1,5 @@
 #!/bin/bash
-# JARV Backend - Celery Worker Startup Script
+# JAI Backend - Celery Worker Startup Script
 
 # Start Celery worker with appropriate configuration
 celery -A app.workers.celery_app worker \

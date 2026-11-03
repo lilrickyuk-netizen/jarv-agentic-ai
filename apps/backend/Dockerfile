@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y \
 
 # PostgreSQL 17 client tools from the PostgreSQL project's apt repository.
 # pg_dump must be at least as new as the server it backs up; 17 covers every
-# server JARV runs against (the compose image and pgvector 15/16/17).
+# server JAI runs against (the compose image and pgvector 15/16/17).
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
     && install -d /usr/share/postgresql-common/pgdg \
     && curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
@@ -50,7 +50,7 @@ RUN poetry install --no-interaction --no-ansi --only main
 # Test stage
 # Keeps development/test tooling out of the production runtime image while
 # providing a reproducible environment for pytest, fakeredis, aiosqlite,
-# Ruff, mypy, and the rest of JARV's backend verification suite.
+# Ruff, mypy, and the rest of JAI's backend verification suite.
 FROM builder AS test
 
 RUN poetry install --no-interaction --no-ansi --with dev
@@ -58,8 +58,8 @@ RUN poetry install --no-interaction --no-ansi --with dev
 CMD ["python", "-m", "pytest"]
 
 
-# Toolchains JARV's agents use to build projects in a workspace (copied into the runtime image).
-# Versions follow the most demanding project JARV builds (MYCO V3.2 §40): Node 24 LTS, uv 0.12,
+# Toolchains JAI's agents use to build projects in a workspace (copied into the runtime image).
+# Versions follow the most demanding project JAI builds (MYCO V3.2 §40): Node 24 LTS, uv 0.12,
 # Task 3.52, Terraform 1.16, Helm 4.3. Change them here, in one place.
 FROM ${NODE_IMAGE} AS node
 FROM ${UV_IMAGE} AS uv
@@ -71,13 +71,13 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 
-# Install runtime dependencies + the toolchain JARV's autonomous agent loop
+# Install runtime dependencies + the toolchain JAI's autonomous agent loop
 # needs to build/test real projects from the workspace: git (init/status/diff/commit),
 # Node.js 24 LTS with npm and Corepack (each project's pnpm or yarn version, from its
 # packageManager field), uv with Python 3.12 to 3.14 (Python projects; uv fetches any exact
 # version a project pins), Task (Taskfile.yml), Terraform and Helm (infrastructure modules),
 # a C/C++ compiler and make (native packages), jq, unzip and ripgrep.
-# Anything else a project needs, JARV installs itself from the official registries into its
+# Anything else a project needs, JAI installs itself from the official registries into its
 # tool home (/home/jarv, a persistent volume): uv tool install, uv python install, pnpm, npm.
 ARG TASK_VERSION=3.52.0
 ARG TERRAFORM_VERSION=1.16.3
@@ -125,7 +125,7 @@ RUN uv python install 3.12 3.13 3.14 && chmod -R a+rX /opt/uv-python
 
 # PostgreSQL 17 client tools from the PostgreSQL project's apt repository.
 # pg_dump must be at least as new as the server it backs up; 17 covers every
-# server JARV runs against (the compose image and pgvector 15/16/17).
+# server JAI runs against (the compose image and pgvector 15/16/17).
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
     && install -d /usr/share/postgresql-common/pgdg \
     && curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
@@ -140,13 +140,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 ARG JARV_UID=1000
 ARG JARV_GID=1000
 RUN groupadd -r -g "${JARV_GID}" jarv && useradd -r -m -d /home/jarv -u "${JARV_UID}" -g jarv jarv
-# Package caches and git need a home; commits JARV makes in a workspace are authored as JARV.
+# Package caches and git need a home; commits JAI makes in a workspace are authored as JAI.
 # Workspace folders are mounted from the host with another owner, so git is told they are
-# safe; JARV's own scope checks decide which folders a command may run in.
+# safe; JAI's own scope checks decide which folders a command may run in.
 ENV HOME=/home/jarv \
     PATH=/home/jarv/.local/bin:$PATH \
-    GIT_AUTHOR_NAME=JARV GIT_AUTHOR_EMAIL=jarv@localhost \
-    GIT_COMMITTER_NAME=JARV GIT_COMMITTER_EMAIL=jarv@localhost \
+    GIT_AUTHOR_NAME=JAI GIT_AUTHOR_EMAIL=jarv@localhost \
+    GIT_COMMITTER_NAME=JAI GIT_COMMITTER_EMAIL=jarv@localhost \
     GIT_CONFIG_COUNT=2 \
     GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0=* \
     GIT_CONFIG_KEY_1=init.defaultBranch GIT_CONFIG_VALUE_1=main

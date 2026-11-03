@@ -1,5 +1,5 @@
 """
-JARV Backend - Approvals API
+JAI Backend - Approvals API
 
 RESTful API endpoints for approval requests and boundary approvals.
 """

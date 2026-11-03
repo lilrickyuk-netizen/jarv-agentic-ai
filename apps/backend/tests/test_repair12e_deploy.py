@@ -60,7 +60,7 @@ class LocalShell:
 
 
 def _git(root, *args):
-    subprocess.run(["git", "-c", "user.email=jarv@test", "-c", "user.name=JARV", "-c",
+    subprocess.run(["git", "-c", "user.email=jarv@test", "-c", "user.name=JAI", "-c",
                     f"safe.directory={root}", *args], cwd=root, check=True, capture_output=True)
 
 

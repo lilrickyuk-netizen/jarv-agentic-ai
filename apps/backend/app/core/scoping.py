@@ -1,5 +1,5 @@
 """
-JARV Backend - Owner scoping for API reads and writes (Repair 15a)
+JAI Backend - Owner scoping for API reads and writes (Repair 15a)
 
 Every record the dashboard reads belongs to a workspace, or to an agent
 session that belongs to a workspace and an operator. These helpers turn the

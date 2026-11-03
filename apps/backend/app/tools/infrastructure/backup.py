@@ -1,5 +1,5 @@
 """
-JARV Backend - Backup and restore tools
+JAI Backend - Backup and restore tools
 
 The backup tools are implemented once, in ``app.tools.ops``, on top of
 ``app.core.ops.backups`` (pg_dump to the backups volume, SHA-256 checksum,

@@ -1,5 +1,5 @@
 """
-JARV Backend - DevOpsAgent
+JAI Backend - DevOpsAgent
 
 Detects CI/CD and deployment configuration LOCALLY and reports honestly.
 

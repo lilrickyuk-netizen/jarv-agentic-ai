@@ -1,5 +1,5 @@
 """
-JARV Backend - Company Operations Models
+JAI Backend - Company Operations Models
 
 AI standups, KPIs, revenue operations, and operational feeds.
 """

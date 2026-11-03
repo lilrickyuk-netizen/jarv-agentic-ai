@@ -1,5 +1,5 @@
 """
-JARV Backend - Assets
+JAI Backend - Assets
 
 The licence-checked asset library (library.py): sourcing from free-licence
 libraries, licence normalisation and checks, downloads into the workspace,

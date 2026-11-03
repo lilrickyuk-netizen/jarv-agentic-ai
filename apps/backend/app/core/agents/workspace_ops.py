@@ -1,5 +1,5 @@
 """
-JARV Backend - More workspace tools for agents (Repair 12e-3a)
+JAI Backend - More workspace tools for agents (Repair 12e-3a)
 
 The design's file, command, git, memory and workspace-analysis tools that the
 basic toolbox did not have: edit, create folder, move, copy, delete (approval),
@@ -293,7 +293,7 @@ def missing_files(root: Path, detected: Dict[str, Any]) -> List[Dict[str, str]]:
     if detected["stack"] and "test" not in detected["commands"]:
         missing.append({"file": "tests", "why": "no test command or test folder was found"})
     if detected["docker_files"] == [] and detected["workspace_type"] in ("backend_service", "full_stack_app"):
-        missing.append({"file": "Dockerfile", "why": "needed to deploy the service with JARV's deploy tools"})
+        missing.append({"file": "Dockerfile", "why": "needed to deploy the service with JAI's deploy tools"})
     return missing
 
 

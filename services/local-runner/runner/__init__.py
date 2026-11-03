@@ -1,7 +1,7 @@
 """
-JARV Local Runner
+JAI Local Runner
 
-Secure local execution service for JARV backend.
+Secure local execution service for JAI backend.
 """
 from runner.auth import verify_token, generate_token
 from runner.config import settings

@@ -1,7 +1,7 @@
 """
-JARV Backend - Agent System
+JAI Backend - Agent System
 
-Core agent infrastructure for the JARV multi-agent system.
+Core agent infrastructure for the JAI multi-agent system.
 """
 from app.core.agents.base import (
     AgentBase,

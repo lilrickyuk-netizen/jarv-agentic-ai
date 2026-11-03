@@ -1,5 +1,5 @@
 """
-JARV Backend - Revenue operations
+JAI Backend - Revenue operations
 
 Two sources, never mixed silently (every result says which it used):
 

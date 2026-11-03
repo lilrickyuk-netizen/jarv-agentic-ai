@@ -1,4 +1,6 @@
-# JARV Agentic AI System
+# JAI Agentic AI System
+
+JAI was called JARV until November 2026. Internal names keep the old spelling so existing data, volumes and settings carry on unchanged: the `jarv-*` containers, `JARV_*` settings, the `jarv-agentic-ai` folder and the database.
 
 **Version**: 1.0.0 - Final Production Build
 **Owner**: Richard Curley
@@ -6,9 +8,9 @@
 
 ## Overview
 
-JARV is a private autonomous multi-agent AI execution system that can finish, launch, operate, self-heal, market, support, onboard users, create content, manage community, build partnerships, manage infrastructure, run company operations, safely improve from experience, scale its own temporary sub-agent workforce, and scale any project given to it.
+JAI is a private autonomous multi-agent AI execution system that can finish, launch, operate, self-heal, market, support, onboard users, create content, manage community, build partnerships, manage infrastructure, run company operations, safely improve from experience, scale its own temporary sub-agent workforce, and scale any project given to it.
 
-### What JARV Is
+### What JAI Is
 
 - **Full Production System**: Not an MVP, prototype, or demo - this is the complete final production system
 - **31-Agent Architecture**: Fully autonomous multi-agent system with specialized roles
@@ -16,11 +18,11 @@ JARV is a private autonomous multi-agent AI execution system that can finish, la
 - **Self-Evolving**: Learns from experience and safely improves its own workflows, runbooks, and strategies
 - **Swarm-Capable**: Scales its agent team with scoped temporary sub-agents for parallel work
 - **Approval-Resume System**: Pauses only blocked actions at hard boundaries, continues safe work, resumes after approval
-- **Richard Boundary Operator**: Richard clears gates (sign-ins, passwords, payments, approvals), JARV does everything else
+- **Richard Boundary Operator**: Richard clears gates (sign-ins, passwords, payments, approvals), JAI does everything else
 
-### What JARV Does
+### What JAI Does
 
-JARV can autonomously:
+JAI can autonomously:
 - Read, write, edit files and create folders
 - Scan repositories and analyze document packs
 - Detect project type, tech stack, package manager, build/test/run/deploy commands
@@ -55,7 +57,7 @@ JARV can autonomously:
 - **Self-Evolution Layer**: Safely improves from experience without weakening safety
 - **Swarm Management Layer**: Controlled parallel execution with temporary scoped sub-agents
 - **Approval and Resume Layer**: Pauses blocked actions, continues safe work, resumes from checkpoints
-- **Richard Boundary Operator Layer**: Richard clears gates, JARV continues the mission
+- **Richard Boundary Operator Layer**: Richard clears gates, JAI continues the mission
 
 ### The 31 Agents
 
@@ -161,11 +163,11 @@ and checks each one. Production on a VPS, upgrades, tests and troubleshooting ar
 
 ## Documentation
 
-- [Runbook](./docs/RUNBOOK.md) - running, using, upgrading, testing and troubleshooting JARV
+- [Runbook](./docs/RUNBOOK.md) - running, using, upgrading, testing and troubleshooting JAI
 - [Configuration](./docs/CONFIGURATION.md) - every setting
-- [Deployment](./docs/DEPLOYMENT.md) - how JARV deploys your projects to your VPS
+- [Deployment](./docs/DEPLOYMENT.md) - how JAI deploys your projects to your VPS
 - [Operations](./docs/OPERATIONS.md) - self-healing, container operations, backups and restores
-- [JARV Final System Spec](./docs/JARV_FINAL_SYSTEM_SPEC.md) - the complete system specification
+- [JAI Final System Spec](./docs/JARV_FINAL_SYSTEM_SPEC.md) - the complete system specification
 - [Implementation Checklist](./docs/IMPLEMENTATION_CHECKLIST.md) - the build checklist
 - [Build Ledger](./BUILD_LEDGER.md) - what was built, how it was tested, and the results
 - [Build history](./docs/history/README.md) - superseded phase reports from the original build
@@ -212,7 +214,7 @@ See [BUILD_LEDGER.md](./BUILD_LEDGER.md) for detailed build progress and task tr
 
 ## Security & Safety
 
-JARV includes comprehensive safety systems:
+JAI includes comprehensive safety systems:
 
 - Authority-based permission system with 7 levels
 - Hard boundary detection and reporting

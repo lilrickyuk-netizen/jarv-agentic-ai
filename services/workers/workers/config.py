@@ -1,5 +1,5 @@
 """
-JARV Workers Configuration
+JAI Workers Configuration
 """
 from typing import Optional
 from pydantic import Field, PostgresDsn, RedisDsn, validator

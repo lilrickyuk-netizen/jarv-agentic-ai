@@ -1,5 +1,5 @@
 """
-JARV Backend - Asset Models
+JAI Backend - Asset Models
 
 Asset management and licensing tracking.
 """

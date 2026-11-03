@@ -1,5 +1,5 @@
 """
-JARV Backend Error Handling
+JAI Backend Error Handling
 """
 from typing import Any, Dict, Optional
 from fastapi import HTTPException, Request, status
@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class JARVException(Exception):
-    """Base exception for JARV application"""
+    """Base exception for JAI application"""
 
     def __init__(
         self,
@@ -76,9 +76,9 @@ class ServiceUnavailableError(JARVException):
 
 
 async def jarv_exception_handler(request: Request, exc: JARVException) -> JSONResponse:
-    """Handle JARV custom exceptions"""
+    """Handle JAI custom exceptions"""
     logger.error(
-        f"JARV Exception: {exc.message}",
+        f"JAI Exception: {exc.message}",
         extra={
             "status_code": exc.status_code,
             "details": exc.details,

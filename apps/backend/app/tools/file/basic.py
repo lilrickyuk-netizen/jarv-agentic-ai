@@ -1,5 +1,5 @@
 """
-JARV Backend - Basic File Tools
+JAI Backend - Basic File Tools
 
 Basic file operation tools: read, write, append.
 """

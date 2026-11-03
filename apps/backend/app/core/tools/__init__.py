@@ -1,7 +1,7 @@
 """
-JARV Backend - Tool System
+JAI Backend - Tool System
 
-Core tool infrastructure for the JARV multi-agent system.
+Core tool infrastructure for the JAI multi-agent system.
 Tools enable agents to interact with files, commands, APIs, and more.
 """
 from app.core.tools.base import (

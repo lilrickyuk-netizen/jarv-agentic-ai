@@ -1,5 +1,5 @@
 """
-JARV Backend - Repair actions used by the self-healing runbooks
+JAI Backend - Repair actions used by the self-healing runbooks
 
 Each action does one real thing and reports what happened:
 - service_state: container state/health through the Docker proxy, falling back

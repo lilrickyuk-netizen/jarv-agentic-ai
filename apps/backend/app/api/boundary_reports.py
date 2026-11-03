@@ -1,5 +1,5 @@
 """
-JARV Backend - Boundary Reports API
+JAI Backend - Boundary Reports API
 
 RESTful API endpoints for boundary violation reports.
 """

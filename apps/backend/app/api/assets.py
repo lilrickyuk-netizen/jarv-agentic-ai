@@ -1,5 +1,5 @@
 """
-JARV Backend - Assets API
+JAI Backend - Assets API
 
 Authenticated, owner-scoped endpoints for the Assets page: the assets in the
 user's workspaces and their statistics, a workspace's asset library with

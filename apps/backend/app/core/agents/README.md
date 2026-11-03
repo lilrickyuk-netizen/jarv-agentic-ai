@@ -1,8 +1,8 @@
-# JARV Agent System
+# JAI Agent System
 
 ## Overview
 
-The JARV Agent System provides a standardized framework for creating and managing AI agents with consistent interfaces, logging, error handling, and authority management.
+The JAI Agent System provides a standardized framework for creating and managing AI agents with consistent interfaces, logging, error handling, and authority management.
 
 ## Architecture
 
@@ -269,7 +269,7 @@ async def test_my_agent():
     assert "results" in result.result_data
 ```
 
-## Integration with JARV System
+## Integration with JAI System
 
 Agents integrate with:
 

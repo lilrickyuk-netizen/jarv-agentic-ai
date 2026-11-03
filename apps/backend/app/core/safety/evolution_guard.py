@@ -1,7 +1,7 @@
 """
-JARV Backend - Self-evolution safety guard
+JAI Backend - Self-evolution safety guard
 
-One classifier shared by every path that can change JARV's behaviour from
+One classifier shared by every path that can change JAI's behaviour from
 experience (self-evolution proposals in the command center and learned lessons
 injected into agent prompts). A change is unsafe if it would weaken safety,
 authority, logging, audit, boundaries, approvals, verification, secret

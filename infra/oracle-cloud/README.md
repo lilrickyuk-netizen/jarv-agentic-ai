@@ -1,6 +1,6 @@
 # Oracle Cloud Always Free Deployment
 
-This guide walks through deploying JARV on Oracle Cloud's Always Free tier - perfect for zero-cost 24/7 operation.
+This guide walks through deploying JAI on Oracle Cloud's Always Free tier - perfect for zero-cost 24/7 operation.
 
 ## Oracle Cloud Always Free Resources
 
@@ -12,7 +12,7 @@ Oracle provides the following **permanently free** resources:
 - Autonomous Database (20 GB)
 - Load Balancer (1 instance, 10 Mbps)
 
-**Recommended Setup**: Use 1 ARM VM (4 OCPUs, 24 GB RAM) for the entire JARV stack.
+**Recommended Setup**: Use 1 ARM VM (4 OCPUs, 24 GB RAM) for the entire JAI stack.
 
 ## Prerequisites
 
@@ -101,7 +101,7 @@ docker compose version
 exit
 ```
 
-## Step 4: Deploy JARV
+## Step 4: Deploy JAI
 
 ### Clone Repository
 
@@ -109,7 +109,7 @@ exit
 # SSH back into instance
 ssh ubuntu@<your-instance-ip>
 
-# Clone JARV repository
+# Clone JAI repository
 git clone https://github.com/yourusername/jarv.git
 cd jarv
 ```
@@ -166,9 +166,9 @@ docker compose -f docker-compose.prod.yml exec backend alembic upgrade head
 docker compose -f docker-compose.prod.yml exec backend python -m app.scripts.setup_admin
 ```
 
-## Step 6: Access JARV
+## Step 6: Access JAI
 
-Your JARV instance is now running at:
+Your JAI instance is now running at:
 - Dashboard: `https://<your-instance-ip>` or `https://yourdomain.com`
 - API: `https://<your-instance-ip>/api` or `https://yourdomain.com/api`
 - Health Check: `http://<your-instance-ip>/health`
@@ -209,7 +209,7 @@ Add:
 
 ```ini
 [Unit]
-Description=JARV Agentic AI System
+Description=JAI Agentic AI System
 Requires=docker.service
 After=docker.service
 
@@ -266,7 +266,7 @@ docker compose -f docker-compose.prod.yml exec postgres pg_dump -U jarv_prod jar
 cat backup.sql | docker compose -f docker-compose.prod.yml exec -T postgres psql -U jarv_prod jarv_production
 ```
 
-### Update JARV
+### Update JAI
 
 ```bash
 # Pull latest code
@@ -346,7 +346,7 @@ sudo kill -9 <PID>
 
 **Total Cost: $0/month** (Oracle Cloud Always Free)
 
-The entire JARV system runs on Oracle's generous free tier with:
+The entire JAI system runs on Oracle's generous free tier with:
 - 4 vCPU ARM processor
 - 24 GB RAM
 - 200 GB storage
@@ -354,4 +354,4 @@ The entire JARV system runs on Oracle's generous free tier with:
 - Public IP address
 - No time limits
 
-This is perfect for running JARV 24/7 with zero infrastructure costs.
+This is perfect for running JAI 24/7 with zero infrastructure costs.

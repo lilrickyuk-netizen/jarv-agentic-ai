@@ -1,5 +1,5 @@
 """
-JARV Backend - Permissions API (Repair 14a)
+JAI Backend - Permissions API (Repair 14a)
 
 The live authority model for the Permissions page, read from the registries
 and the safety code rather than restated: authority levels, every agent's

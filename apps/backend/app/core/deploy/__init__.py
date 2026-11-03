@@ -1,5 +1,5 @@
 """
-JARV Backend - Deployments to Richard's VPS (Repair 12e-2)
+JAI Backend - Deployments to Richard's VPS (Repair 12e-2)
 
 How a workspace project reaches a server:
 
@@ -8,7 +8,7 @@ How a workspace project reaches a server:
    commit.
 2. Upload over SSH into ``<base>/<app>-<env>/releases/<release id>`` and link
    the server-side ``shared/.env`` into it (secrets live on the server, never
-   in the repository or in JARV).
+   in the repository or in JAI).
 3. ``docker compose -p <app>-<env> up -d --build --remove-orphans`` in the
    release directory.
 4. Health check. Success moves the ``current`` link to the new release and
@@ -23,7 +23,7 @@ health-checked the same way.
 The SSH private key and the server's host key come from settings
 (``DEPLOY_SSH_PRIVATE_KEY`` base64, ``DEPLOY_SSH_KNOWN_HOSTS``). The key is
 written to a private temporary file only for the duration of a command, and
-the host key is pinned (StrictHostKeyChecking=yes), so JARV never connects to
+the host key is pinned (StrictHostKeyChecking=yes), so JAI never connects to
 a server it has not been told to trust. Every remote argument is shell-quoted.
 """
 from __future__ import annotations

@@ -1,5 +1,5 @@
 """
-JARV Backend - Richard Boundary Operator Workflow (Repair 8)
+JAI Backend - Richard Boundary Operator Workflow (Repair 8)
 
 This module connects the real Repair-7 pieces (hard-boundary detection,
 BoundaryReport / BoundaryApproval / SafeCheckpoint / ResumeAction persistence)
@@ -24,7 +24,7 @@ fake approval window, and no fake resume success. When a precondition is missing
 the methods return a truthful blocked/expired/rejected result naming the exact
 reason rather than fabricating success.
 
-Authority model: JARV is private single-user software owned by Richard. The
+Authority model: JAI is private single-user software owned by Richard. The
 "authenticated current user" is the trusted identity (FastAPI auth dependency /
 ToolContext.user_id). A boundary decision is authorised only when the
 authenticated user matches the owner who initiated the mission (the approval's

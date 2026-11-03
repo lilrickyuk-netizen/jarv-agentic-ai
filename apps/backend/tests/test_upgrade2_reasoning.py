@@ -100,8 +100,8 @@ class _Router:
 
     async def complete(self, request):
         system = request.system or ""
-        who = ("analyst" if system.startswith("You are JARV's requirements analyst") else
-               "verifier" if system.startswith("You are JARV's Verifier Agent") else "mission")
+        who = ("analyst" if system.startswith("You are JAI's requirements analyst") else
+               "verifier" if system.startswith("You are JAI's Verifier Agent") else "mission")
         self.first.setdefault(who, request.messages[0].content)
         if who == "analyst":
             calls = [_call("record_requirements", {"requirements": [

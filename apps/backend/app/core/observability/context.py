@@ -1,5 +1,5 @@
 """
-JARV Backend - Trace context
+JAI Backend - Trace context
 
 Every log line carries the request it came from and, when it belongs to a
 mission, the mission id. A command submitted through the API logs with its

@@ -1,5 +1,5 @@
 """
-JARV Workers Service
+JAI Workers Service
 """
 from .config import workers_settings, WorkersSettings
 

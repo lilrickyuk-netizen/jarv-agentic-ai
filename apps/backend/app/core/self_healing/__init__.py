@@ -1,5 +1,5 @@
 """
-JARV Backend - Self-Healing System
+JAI Backend - Self-Healing System
 
 Self-healing infrastructure that automatically detects, diagnoses, and fixes issues.
 """

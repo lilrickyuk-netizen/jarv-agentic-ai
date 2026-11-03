@@ -1,5 +1,5 @@
 """
-JARV Backend - Experience Logging Tools
+JAI Backend - Experience Logging Tools
 
 Tools for logging agent experiences (successes, failures, ratings).
 

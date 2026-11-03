@@ -55,7 +55,7 @@ export function SectionNav() {
   return (
     <nav aria-label="Dashboard sections" className="border-b bg-card/80 backdrop-blur sticky top-0 z-20">
       <div className="max-w-7xl mx-auto px-4 md:px-8 py-2 flex gap-6 overflow-x-auto text-sm">
-        <a href="/dashboard" className="font-bold tracking-wider shrink-0 py-1 inline-flex items-center gap-2"><JarvMark size={22} title="" />JARV</a>
+        <a href="/dashboard" className="font-bold tracking-wider shrink-0 py-1 inline-flex items-center gap-2"><JarvMark size={22} title="" />JAI</a>
         {SECTIONS.map((section) => (
           <div key={section.group} className="flex items-center gap-1 shrink-0">
             <span className="text-[10px] uppercase tracking-widest text-muted-foreground mr-1">{section.group}</span>

@@ -1,5 +1,5 @@
 """
-JARV Backend - Audit Log API
+JAI Backend - Audit Log API
 
 Read-only access to the persistent audit trail (audit_logs table). Used by the
 Operations page to show recent command/approval/execution/blocked events.

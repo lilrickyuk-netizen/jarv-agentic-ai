@@ -1,5 +1,5 @@
 """
-JARV Backend - Memory API
+JAI Backend - Memory API
 
 Authenticated memory endpoints. Every call is limited to workspaces the caller
 owns; global memories (no workspace) are readable but only workspace memories

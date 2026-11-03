@@ -1,5 +1,5 @@
 """
-JARV Backend - QAAgent
+JAI Backend - QAAgent
 
 Performs real, honest quality assurance on target files.
 

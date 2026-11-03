@@ -1,5 +1,5 @@
 """
-JARV Backend - Company Operations API
+JAI Backend - Company Operations API
 
 RESTful API endpoints for company organizational structure, roles, and operations.
 """

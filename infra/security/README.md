@@ -1,10 +1,10 @@
-# JARV Security Configuration
+# JAI Security Configuration
 
-Comprehensive security hardening and best practices for JARV production deployment.
+Comprehensive security hardening and best practices for JAI production deployment.
 
 ## Security Overview
 
-JARV implements defense-in-depth with multiple security layers:
+JAI implements defense-in-depth with multiple security layers:
 - **Network Security**: Firewall, SSL/TLS, rate limiting
 - **Application Security**: Input validation, CORS, CSRF protection
 - **Data Security**: Encryption at rest and in transit

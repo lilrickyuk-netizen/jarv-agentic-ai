@@ -125,7 +125,7 @@ class FlakyProvider(FakeProvider):
 def test_a_dropped_connection_is_retried_on_the_same_provider(monkeypatch):
     """The MYCO correction mission stopped twice on "peer closed connection without sending complete message
     body": one dropped reply, no retry, and with only OpenAI configured the step was lost. Transient failures
-    are now retried on the same provider before JARV gives up; account problems are not."""
+    are now retried on the same provider before JAI gives up; account problems are not."""
     dropped = ProviderError("HTTP error calling OpenAI API: peer closed connection without sending complete "
                             "message body (incomplete chunked read)", provider="openai")
     openai = FlakyProvider("openai", dropped, failures=2)

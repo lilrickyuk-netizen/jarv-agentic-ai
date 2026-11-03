@@ -1,4 +1,4 @@
-"""Repair 15c: final acceptance. Richard gives JARV a mission and JARV carries it through.
+"""Repair 15c: final acceptance. Richard gives JAI a mission and JAI carries it through.
 
 Through the authenticated API, as Richard uses it: a multi-agent mission is
 submitted in the Command Center; the orchestrator plans it and delegates each
@@ -7,7 +7,7 @@ and the verifier compiles it, both through their own authority-checked, logged
 toolboxes on the real filesystem; the production go-live step reaches a hard
 boundary and only that step pauses (boundary report, checkpoint, pending
 approval) while the safe steps complete; every handoff is a child task, an
-operations-feed entry and a delegation memory; Richard approves and JARV
+operations-feed entry and a delegation memory; Richard approves and JAI
 resumes from the checkpoint and finishes the step; another operator sees none
 of it.
 
@@ -86,7 +86,7 @@ class MissionRouter:
     async def complete(self, request):
         system = request.system or ""
         if request.tools:
-            agent = next((k for k in self.scripts if f"JARV's {k} agent" in system), None)
+            agent = next((k for k in self.scripts if f"JAI's {k} agent" in system), None)
             self.agents_called.append(agent)
             queue = self.scripts.get(agent) or []
             turn = queue.pop(0) if queue else {"tools": [("finish", {"summary": "Nothing more to do.",
@@ -207,7 +207,7 @@ def test_richard_gives_a_mission_and_jarv_carries_it_through(client, project, mi
     assert len(memories) == 3
     assert detail["status"] == "waiting_on_approval" and detail["events"]
 
-    # Richard clears the gate; JARV resumes from the checkpoint and finishes the paused step.
+    # Richard clears the gate; JAI resumes from the checkpoint and finishes the paused step.
     assert decided is not None and decided.status_code == 200, decided.text if decided else "no report"
     auto = decided.json()["auto_resume"]
     assert auto["dispatched"] is True and auto["result"]["resumed"] is True, auto

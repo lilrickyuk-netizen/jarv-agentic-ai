@@ -1,5 +1,5 @@
 """
-JARV Backend - Coding Agent
+JAI Backend - Coding Agent
 
 Performs REAL, honest local code analysis on provided files.
 

@@ -1,5 +1,5 @@
 """
-JARV Backend - InfrastructureAgent
+JAI Backend - InfrastructureAgent
 
 Works from measurements (Repair 12d): server CPU, memory and disk, containers,
 database internals, configuration presence, and PostgreSQL backups (create,

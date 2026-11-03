@@ -1,5 +1,5 @@
 """
-JARV Backend - trace_artifact (Upgrade 3)
+JAI Backend - trace_artifact (Upgrade 3)
 
 What a file, requirement, command or decision is connected to in the workspace's artifact graph: what a file
 implements, what verified a requirement, which checks contradict a decision, which mission changed it. Read-only,

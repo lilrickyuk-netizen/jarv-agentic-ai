@@ -1,4 +1,4 @@
-"""Authoritative JARV 31-agent roster regression tests."""
+"""Authoritative JAI 31-agent roster regression tests."""
 
 from app.core.agents.registry import get_registry
 from app.core.agents.runner import AgentRunner

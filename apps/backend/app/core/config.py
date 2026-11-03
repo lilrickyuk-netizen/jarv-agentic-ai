@@ -1,5 +1,5 @@
 """
-JARV Backend Configuration
+JAI Backend Configuration
 Uses Pydantic Settings for environment variable management
 """
 import json
@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     )
 
     # Application
-    PROJECT_NAME: str = "JARV Agentic AI System"
+    PROJECT_NAME: str = "JAI Agentic AI System"
     VERSION: str = "1.0.0"
     ENVIRONMENT: str = Field(default="development", pattern="^(development|staging|production)$")
     # Test-only flag. When true, infrastructure clients (e.g. Redis) use an
@@ -225,7 +225,7 @@ class Settings(BaseSettings):
     INFRA_MONTHLY_BUDGET: float = 0.0
     INFRA_REPLICA_MONTHLY_COST: float = 0.0
     INFRA_MAX_REPLICAS: int = 5
-    # Revenue and analytics adapters (read-only). Unset = disabled; JARV uses recorded data.
+    # Revenue and analytics adapters (read-only). Unset = disabled; JAI uses recorded data.
     STRIPE_SECRET_KEY: Optional[str] = None
     # Signing secret of the Stripe webhook endpoint (/api/revenue/{workspace}/stripe-webhook).
     STRIPE_WEBHOOK_SECRET: Optional[str] = None
@@ -315,7 +315,7 @@ class Settings(BaseSettings):
     IMAP_USER: Optional[str] = None
     IMAP_PASSWORD: Optional[str] = None
     IMAP_FOLDER: str = "INBOX"
-    # Where JARV notifies Richard: his own address (defaults to the signed-in operator, then
+    # Where JAI notifies Richard: his own address (defaults to the signed-in operator, then
     # SMTP_FROM) and an optional https webhook (Slack, Discord, ntfy).
     NOTIFY_EMAIL: Optional[str] = None
     NOTIFY_WEBHOOK_URL: Optional[str] = None

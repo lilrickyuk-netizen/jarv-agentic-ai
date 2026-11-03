@@ -1,5 +1,5 @@
 """
-JARV Backend - Model Router
+JAI Backend - Model Router
 
 Routes completion requests to the appropriate LLM provider based on model name.
 """
@@ -76,7 +76,7 @@ def _provider_order() -> List[str]:
 
 
 # A dropped connection, a timeout, an overloaded or briefly failing server: the same provider is asked
-# again after these pauses before JARV gives up on it. Account problems (bad key, no credit, quota) are
+# again after these pauses before JAI gives up on it. Account problems (bad key, no credit, quota) are
 # never retried: waiting does not fix them.
 RETRY_DELAYS_SECONDS = (2.0, 6.0, 15.0)
 _NO_CREDIT = ("insufficient_quota", "quota", "billing", "credit balance", "payment")

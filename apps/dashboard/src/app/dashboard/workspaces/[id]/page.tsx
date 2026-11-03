@@ -65,7 +65,7 @@ export default function WorkspaceDetailPage() {
     else if (res.data) {
       setWorkspace(res.data);
       setFolder(res.data.folder ?? '');
-      setMessage({ ok: true, text: `JARV now works in ${res.data.folder}.` });
+      setMessage({ ok: true, text: `JAI now works in ${res.data.folder}.` });
     }
     setBusy(false);
   };
@@ -163,7 +163,7 @@ export default function WorkspaceDetailPage() {
             <div className="bg-card border rounded-lg p-6">
               <h2 className="text-lg font-semibold mb-1">Folder</h2>
               <p className="text-sm text-muted-foreground mb-3">
-                JARV only works inside this folder. If you moved the folder, enter its new location. The workspace keeps
+                JAI only works inside this folder. If you moved the folder, enter its new location. The workspace keeps
                 its tasks, memory and history.
               </p>
               <label htmlFor="workspace-folder" className="text-xs text-muted-foreground">Folder on your computer</label>
@@ -190,8 +190,8 @@ export default function WorkspaceDetailPage() {
               <h2 className="text-lg font-semibold mb-1">{workspace.is_archived ? 'Restore' : 'Archive'}</h2>
               <p className="text-sm text-muted-foreground mb-3">
                 {workspace.is_archived
-                  ? 'Bring this workspace back so JARV can work in it again.'
-                  : 'Archiving hides this workspace from JARV. Nothing is deleted, and the folder is left untouched.'}
+                  ? 'Bring this workspace back so JAI can work in it again.'
+                  : 'Archiving hides this workspace from JAI. Nothing is deleted, and the folder is left untouched.'}
               </p>
               {workspace.is_archived ? (
                 <button onClick={restore} disabled={busy} className="px-4 py-2 rounded border disabled:opacity-50">

@@ -1,5 +1,5 @@
 """
-JARV Backend - Tool System Models
+JAI Backend - Tool System Models
 
 Tool registry, tool runs, and tool selection rules.
 """

@@ -1,5 +1,5 @@
 """
-JARV Backend - Command API
+JAI Backend - Command API
 
 Dashboard command control. A command (typed, or produced by speech-to-text) is
 safety-classified and recorded as a mission, then handed to the mission
@@ -121,9 +121,9 @@ def _mission_view(task: Task, events: List[LiveOperationsFeedItem]) -> MissionSt
     status = lifecycle.normalise(task.status)
     if status in lifecycle.IN_FLIGHT:
         text = "Mission accepted and queued for execution." if status == lifecycle.QUEUED else \
-            "JARV is working on this mission."
+            "JAI is working on this mission."
     elif status == lifecycle.BLOCKED:
-        text = ("This command requires your approval before JARV will execute it.\n\n"
+        text = ("This command requires your approval before JAI will execute it.\n\n"
                 f"Reason: {meta.get('blocked_reason') or (task.context or {}).get('safety_reason')}")
     else:
         text = res.get("response") or task.error_message or ""

@@ -1,8 +1,8 @@
 """
-JARV Backend - SelfHealingAgent
+JAI Backend - SelfHealingAgent
 
-Diagnoses and repairs JARV with the operations tools (Repair 12d): it
-re-queues missions whose worker stopped, restarts crashed or unhealthy JARV
+Diagnoses and repairs JAI with the operations tools (Repair 12d): it
+re-queues missions whose worker stopped, restarts crashed or unhealthy JAI
 services (never the data stores), and verifies recovery with a fresh health
 check. See ``ops_mode``. Without a database session or workspace, the
 fallback below does static analysis of provided files and drafts a plan, and

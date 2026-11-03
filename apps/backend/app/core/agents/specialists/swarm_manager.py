@@ -1,5 +1,5 @@
 """
-JARV Backend - SwarmManagerAgent
+JAI Backend - SwarmManagerAgent
 
 Manages agent swarming, sub-agent lifecycle, and parallel execution. This is
 agent #31 in the design (Design_md.txt section 11). It runs swarms through the

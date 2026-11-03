@@ -1,7 +1,7 @@
 """
-JARV Backend - MonitoringAgent
+JAI Backend - MonitoringAgent
 
-Measures JARV and the targets it is given with the operations tools
+Measures JAI and the targets it is given with the operations tools
 (Repair 12d): service and dependency health, containers, crashes, recent
 errors, server resources, Prometheus metrics, and uptime of public URLs.
 See ``ops_mode``. When no database session or workspace is available, the

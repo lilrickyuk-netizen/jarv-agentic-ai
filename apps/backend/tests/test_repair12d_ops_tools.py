@@ -187,7 +187,7 @@ def test_docker_ops_never_restarts_data_stores_or_itself(docker, monkeypatch):
         with pytest.raises(OpsRefused):
             _run(ops.restart(service))
     monkeypatch.setattr(docker_ops.socket, "gethostname", lambda: "aaaaaaaaaaaa")
-    with pytest.raises(OpsRefused, match="another JARV service"):
+    with pytest.raises(OpsRefused, match="another JAI service"):
         _run(ops.restart("backend"))
     assert docker.restarts() == []
     with pytest.raises(OpsUnavailable):

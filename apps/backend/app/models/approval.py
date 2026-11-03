@@ -1,5 +1,5 @@
 """
-JARV Backend - Approval Model
+JAI Backend - Approval Model
 
 Approval requests for Richard Boundary Operator actions.
 """

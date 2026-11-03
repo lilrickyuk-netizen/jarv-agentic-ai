@@ -1,5 +1,5 @@
 """
-JARV Backend - Swarm Models
+JAI Backend - Swarm Models
 
 Swarm management, subagent tracking, and swarm operations.
 """

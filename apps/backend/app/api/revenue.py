@@ -1,5 +1,5 @@
 """
-JARV Backend - Revenue API (Repair 12e-4b)
+JAI Backend - Revenue API (Repair 12e-4b)
 
 Owner-scoped revenue metrics for the Revenue Operations page (revenue,
 subscriptions, failed payments, conversion, payment events), recording a

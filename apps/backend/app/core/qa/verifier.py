@@ -1,9 +1,9 @@
 """
-JARV Backend - QA / Verifier Validation Loop
+JAI Backend - QA / Verifier Validation Loop
 
 An independent verifier (separate from the agent that produced the work) checks
 a task's output and produces a persistent VerificationResult artifact: expected
-vs actual, pass/fail, confidence, errors, findings. Used so JARV never trusts
+vs actual, pass/fail, confidence, errors, findings. Used so JAI never trusts
 its own output blindly.
 
 For a workspace scan, the verifier independently re-checks that every file the

@@ -1,5 +1,5 @@
 """
-JARV Backend - Task Model
+JAI Backend - Task Model
 
 Task management with dependencies, execution tracking, and results.
 """

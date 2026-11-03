@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# JARV Test Runner
+# JAI Test Runner
 # Runs all test suites with proper configuration
 #
 
@@ -14,7 +14,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}JARV Test Suite Runner${NC}"
+echo -e "${BLUE}JAI Test Suite Runner${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 

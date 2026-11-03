@@ -1,5 +1,5 @@
 """
-JARV Backend - Swarm API
+JAI Backend - Swarm API
 
 Authenticated, owner-scoped swarm management backed by the database: runs,
 sub-agents, their tasks and output, limits, costs, metrics, and activity.

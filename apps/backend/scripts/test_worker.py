@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-JARV Backend Worker Test Script
+JAI Backend Worker Test Script
 
 Tests the Celery worker queue by submitting test tasks.
 
@@ -26,7 +26,7 @@ def test_sync_task():
 
     # Submit task
     result = test_task.apply_async(
-        args=["Testing JARV worker queue"],
+        args=["Testing JAI worker queue"],
         countdown=0,
     )
 
@@ -52,7 +52,7 @@ def test_async_task():
 
     # Submit task
     result = async_test_task.apply_async(
-        args=["Testing JARV async worker"],
+        args=["Testing JAI async worker"],
         countdown=0,
     )
 
@@ -95,7 +95,7 @@ def test_health_check():
 def main():
     """Run all worker tests"""
     print("=" * 60)
-    print("JARV Backend Worker Queue Test")
+    print("JAI Backend Worker Queue Test")
     print("=" * 60)
     print(f"Environment: {settings.ENVIRONMENT}")
     print(f"Redis URL: {settings.REDIS_URL}")

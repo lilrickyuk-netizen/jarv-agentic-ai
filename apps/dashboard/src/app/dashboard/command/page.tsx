@@ -7,7 +7,7 @@ import {
   archiveMission, cancelMission, followMission, MissionResult, resumeMission, retryMission, runMission,
 } from '@/lib/missions';
 
-// A mission in one of these states is still being worked on by JARV's worker.
+// A mission in one of these states is still being worked on by JAI's worker.
 const IN_FLIGHT = new Set(['pending', 'queued', 'running', 'recovering']);
 
 type CommandResponse = MissionResult;
@@ -42,7 +42,7 @@ export default function CommandPage() {
   const showArchivedRef = useRef(false);
   const followingRef = useRef<AbortController | null>(null);
 
-  /** Show one mission and follow it while JARV is still working on it. */
+  /** Show one mission and follow it while JAI is still working on it. */
   const openMission = async (taskId: string) => {
     followingRef.current?.abort();
     const following = new AbortController();
@@ -87,7 +87,7 @@ export default function CommandPage() {
     apiClient.get<{ provider: string; model: string }>('/api/command/info').then((res) => {
       if (!res.error && res.data) setInfo(res.data);
     });
-    // Missions run in JARV's worker, not in this page: coming back to the page picks up the
+    // Missions run in JAI's worker, not in this page: coming back to the page picks up the
     // mission that is still running and follows it again.
     const following = new AbortController();
     followingRef.current = following;  // opening another mission stops following this one
@@ -188,7 +188,7 @@ export default function CommandPage() {
           <div>
             <h1 className="text-4xl font-bold mb-2">Command</h1>
             <p className="text-muted-foreground">
-              Type or speak a command. JARV plans with Claude, selects agents, and executes.
+              Type or speak a command. JAI plans with Claude, selects agents, and executes.
             </p>
           </div>
           <button
@@ -217,7 +217,7 @@ export default function CommandPage() {
             <textarea
               value={command}
               onChange={(e) => setCommand(e.target.value)}
-              placeholder="e.g. JARV, inspect system status and tell me whether all services are healthy. Do not modify files."
+              placeholder="e.g. JAI, inspect system status and tell me whether all services are healthy. Do not modify files."
               rows={3}
               disabled={loading}
               className="w-full px-4 py-3 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary resize-y"
@@ -247,7 +247,7 @@ export default function CommandPage() {
               {loading && (
                 <span className="text-sm text-muted-foreground flex items-center gap-2">
                   <span className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></span>
-                  JARV is planning and executing…
+                  JAI is planning and executing…
                 </span>
               )}
             </div>

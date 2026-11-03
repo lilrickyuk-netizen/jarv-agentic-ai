@@ -1,5 +1,5 @@
 """
-JARV Backend - Memory Storage Tools
+JAI Backend - Memory Storage Tools
 
 Real memory operations with database integration.
 

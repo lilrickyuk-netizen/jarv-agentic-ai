@@ -1,5 +1,5 @@
 """
-JARV Backend - Richard Boundary Operator
+JAI Backend - Richard Boundary Operator
 
 Special oversight system for boundary management and guidance.
 

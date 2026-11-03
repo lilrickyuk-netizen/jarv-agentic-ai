@@ -1,5 +1,5 @@
 """
-JARV Backend - Self-Evolution API Endpoints
+JAI Backend - Self-Evolution API Endpoints
 
 REST API for self-evolution management.
 """

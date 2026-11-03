@@ -31,7 +31,7 @@ def main():
 
     head("STEP 1  /dashboard/command  — run a safe status command")
     s, d = call("POST", "/api/command/execute", token,
-                {"command": "JARV, confirm you are online and give a short status report. Do not modify files."})
+                {"command": "JAI, confirm you are online and give a short status report. Do not modify files."})
     t1 = d["task_id"]
     print(f"  status   : {d['status']}")
     print(f"  provider : {d['provider']} / {d['model']}")
@@ -58,7 +58,7 @@ def main():
 
     head("STEP 4  /dashboard/command  — real read-only workspace scan (tools + QA)")
     s, d = call("POST", "/api/command/execute", token,
-                {"command": "JARV, perform a read-only scan of the approved test workspace at C:\\Users\\lilri\\OneDrive\\Desktop\\JARV_WORKSPACE_TEST. Do not modify files."})
+                {"command": "JAI, perform a read-only scan of the approved test workspace at C:\\Users\\lilri\\OneDrive\\Desktop\\JARV_WORKSPACE_TEST. Do not modify files."})
     t3 = d["task_id"]
     s, dt = call("GET", f"/api/tasks/{t3}", token)
     print(f"  status     : {dt['status']}")

@@ -1,5 +1,5 @@
 """
-JARV Backend - Agent Implementations
+JAI Backend - Agent Implementations
 
 All 31 specialist agent implementations.
 """

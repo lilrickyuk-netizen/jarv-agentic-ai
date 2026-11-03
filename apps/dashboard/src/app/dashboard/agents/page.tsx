@@ -99,7 +99,7 @@ export default function AgentsPage() {
         <div className="mb-8">
           <h1 className="text-4xl font-bold mb-2">Agents</h1>
           <p className="text-muted-foreground">
-            Registry of all AI agents in the JARV system
+            Registry of all AI agents in the JAI system
           </p>
         </div>
 

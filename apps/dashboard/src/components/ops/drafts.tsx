@@ -30,7 +30,7 @@ interface CreatedDraft {
 }
 
 /**
- * Grounded drafts for one business area: choose a document kind, give the brief, and JARV writes it from the
+ * Grounded drafts for one business area: choose a document kind, give the brief, and JAI writes it from the
  * workspace's real facts (README, code, commits, KPIs, records). Gaps come back as [confirm: ...] markers.
  * Nothing here is published or sent.
  */

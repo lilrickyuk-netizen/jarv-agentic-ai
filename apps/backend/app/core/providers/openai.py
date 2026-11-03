@@ -1,5 +1,5 @@
 """
-JARV Backend - OpenAI (GPT) Provider
+JAI Backend - OpenAI (GPT) Provider
 
 Implementation of OpenAI API provider for LLM completions.
 """
@@ -36,7 +36,7 @@ def _openai_name(name: str) -> str:
 def _openai_tool(tool: Dict[str, Any]) -> Dict[str, Any]:
     """A tool definition in OpenAI's shape ({"type": "function", "function": {...}}).
 
-    JARV defines tools in the Anthropic shape ({name, description, input_schema});
+    JAI defines tools in the Anthropic shape ({name, description, input_schema});
     OpenAI rejects those ("Missing required parameter: 'tools[0].type'")."""
     if tool.get("type") == "function" and isinstance(tool.get("function"), dict):
         function = tool["function"]
@@ -114,7 +114,7 @@ def _agent_effort(requested: Optional[str] = None) -> str:
 
 
 def _responses_input(request: CompletionRequest) -> tuple:
-    """(instructions, input items) for the Responses API, from JARV's Anthropic-shaped conversation."""
+    """(instructions, input items) for the Responses API, from JAI's Anthropic-shaped conversation."""
     instructions = [request.system] if request.system else []
     items: List[Dict[str, Any]] = []
     for msg in request.messages:
@@ -231,7 +231,7 @@ class OpenAIProvider(BaseLLMProvider):
                 if response.status_code != 200:
                     await self._handle_error(response)
 
-                # Parse response; tool names come back as sent, so restore JARV's own names.
+                # Parse response; tool names come back as sent, so restore JAI's own names.
                 result = self._convert_response(response.json())
             original = {_openai_name(_tool_name(t)): _tool_name(t) for t in (request.tools or [])}
             for call in result.tool_calls or []:
@@ -349,7 +349,7 @@ class OpenAIProvider(BaseLLMProvider):
                 "content": request.system,
             })
 
-        # Add conversation messages. JARV's agents speak the Anthropic shape (content
+        # Add conversation messages. JAI's agents speak the Anthropic shape (content
         # blocks: text, tool_use, tool_result); OpenAI needs assistant tool_calls and
         # one role "tool" message per result.
         for msg in request.messages:

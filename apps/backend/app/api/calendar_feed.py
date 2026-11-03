@@ -1,7 +1,7 @@
 """
-JARV Backend - Calendar feed API (Repair 15b)
+JAI Backend - Calendar feed API (Repair 15b)
 
-JARV's calendar events (calendar_events, created by the agents' calendar tools) as a private
+JAI's calendar events (calendar_events, created by the agents' calendar tools) as a private
 iCalendar (RFC 5545) subscription feed, so they appear in Richard's own calendar app with no
 calendar password or OAuth grant:
 
@@ -73,7 +73,7 @@ def _stamp(value: datetime) -> str:
 def to_ics(workspace: Workspace, events: List[CalendarEvent]) -> str:
     now = _stamp(datetime.now(timezone.utc))
     lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//JARV//Agentic AI//EN", "CALSCALE:GREGORIAN",
-             "METHOD:PUBLISH", f"X-WR-CALNAME:{_escape(f'JARV - {workspace.name}')}", "X-PUBLISHED-TTL:PT15M"]
+             "METHOD:PUBLISH", f"X-WR-CALNAME:{_escape(f'JAI - {workspace.name}')}", "X-PUBLISHED-TTL:PT15M"]
     for event in events:
         lines += ["BEGIN:VEVENT", f"UID:{event.id}@jarv", f"DTSTAMP:{now}",
                   f"DTSTART:{_stamp(event.start_time)}", f"DTEND:{_stamp(event.end_time)}",

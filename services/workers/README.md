@@ -1,6 +1,6 @@
-# JARV Workers
+# JAI Workers
 
-Background workers for JARV Agentic AI System using Celery.
+Background workers for JAI Agentic AI System using Celery.
 
 ## Workers
 

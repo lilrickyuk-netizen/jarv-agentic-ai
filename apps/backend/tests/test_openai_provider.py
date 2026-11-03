@@ -112,7 +112,7 @@ async def test_agent_tool_turns_are_sent_in_openai_shape():
     try:
         # Chat Completions shape (models other than gpt-6-luna; gpt-6-luna tool use goes to the Responses API).
         response = await provider.complete(CompletionRequest(
-            model="gpt-4-turbo", messages=messages, system="You are JARV's coding agent.", tools=tools,
+            model="gpt-4-turbo", messages=messages, system="You are JAI's coding agent.", tools=tools,
             max_tokens=256, temperature=0.0))
     finally:
         await provider.client.aclose()
@@ -194,7 +194,7 @@ async def test_gpt_6_luna_tool_turns_go_to_the_responses_api_with_reasoning():
     provider.client = httpx.AsyncClient(base_url=provider.API_BASE, transport=httpx.MockTransport(answer))
     try:
         response = await provider.complete(CompletionRequest(
-            model="gpt-6-luna", max_tokens=64, system="You are JARV.",
+            model="gpt-6-luna", max_tokens=64, system="You are JAI.",
             messages=[Message(role="user", content="Check this action."),
                       Message(role="assistant", content=[{"type": "tool_use", "id": "call_8",
                                                           "name": "boundary.detect", "input": {"action": "x"}}]),
@@ -210,7 +210,7 @@ async def test_gpt_6_luna_tool_turns_go_to_the_responses_api_with_reasoning():
     path, body = sent[0]
     assert path == "/v1/responses"
     assert body["reasoning"]["effort"] in ("low", "medium", "high", "xhigh", "max")
-    assert body["instructions"] == "You are JARV." and body["store"] is False
+    assert body["instructions"] == "You are JAI." and body["store"] is False
     assert body["tools"][0]["name"] == "boundary__detect"
     assert body["input"][1] == {"type": "function_call", "call_id": "call_8", "name": "boundary__detect",
                                 "arguments": '{"action": "x"}'}
@@ -260,7 +260,7 @@ def test_every_registered_tool_is_a_valid_openai_function():
 @pytest.mark.asyncio
 async def test_the_same_agent_turns_work_on_claude():
     """Missions run on Claude or OpenAI (with failover between them): the same agent conversation is sent
-    in Claude's shape, with names Claude accepts, and the reply comes back with JARV's own tool names."""
+    in Claude's shape, with names Claude accepts, and the reply comes back with JAI's own tool names."""
     import json
     import re
 
@@ -282,7 +282,7 @@ async def test_the_same_agent_turns_work_on_claude():
     provider.client = httpx.AsyncClient(base_url=provider.API_BASE, transport=httpx.MockTransport(answer))
     try:
         response = await provider.complete(CompletionRequest(
-            model="claude-sonnet-4-6", max_tokens=64, system="You are JARV's coding agent.",
+            model="claude-sonnet-4-6", max_tokens=64, system="You are JAI's coding agent.",
             messages=[Message(role="user", content="TASK:\nCheck the release."),
                       Message(role="assistant", content=[{"type": "tool_use", "id": "toolu_1",
                                                           "name": "boundary.detect", "input": {"action": "x"}}]),

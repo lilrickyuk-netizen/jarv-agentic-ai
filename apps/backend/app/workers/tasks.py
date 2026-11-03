@@ -1,5 +1,5 @@
 """
-JARV Backend - Worker Tasks
+JAI Backend - Worker Tasks
 
 Background tasks for async operations.
 """
@@ -48,7 +48,7 @@ class AsyncTask(Task):
 
 
 @celery_app.task(name="test_task", bind=True)
-def test_task(self: Task, message: str = "Hello from JARV worker") -> dict[str, Any]:
+def test_task(self: Task, message: str = "Hello from JAI worker") -> dict[str, Any]:
     """Test task to verify worker queue is functioning"""
     logger.info(f"Test task started: {message}")
 
@@ -65,7 +65,7 @@ def test_task(self: Task, message: str = "Hello from JARV worker") -> dict[str, 
 
 
 @celery_app.task(name="async_test_task", bind=True, base=AsyncTask)
-async def async_test_task(self: AsyncTask, message: str = "Hello from async JARV worker") -> dict[str, Any]:
+async def async_test_task(self: AsyncTask, message: str = "Hello from async JAI worker") -> dict[str, Any]:
     """Async test task to verify async worker support"""
     logger.info(f"Async test task started: {message}")
 
@@ -98,11 +98,11 @@ def health_check_task(self: Task) -> dict[str, Any]:
 async def _run_scheduled_loop(job_name: str, description: str) -> dict[str, Any]:
     """Autonomous health check and repair, run by Celery beat (no operator command).
 
-    Each run measures JARV (database, Redis, workers, missions, Prometheus, and
+    Each run measures JAI (database, Redis, workers, missions, Prometheus, and
     container state through the Docker proxy) and records one audit entry.
     The operations feed gets an entry only when the overall state changes, so a
     healthy system does not flood it. With SELF_HEALING_ENABLED, a restartable
-    JARV service that is down or unhealthy on two consecutive runs is restarted
+    JAI service that is down or unhealthy on two consecutive runs is restarted
     (never the data stores, never this worker itself) and the restart is
     recorded in the feed and the audit log.
     """
@@ -172,8 +172,8 @@ async def _run_scheduled_loop(job_name: str, description: str) -> dict[str, Any]
                 id=uuid4(), workspace_id=ws_id, item_type="self_healing" if repairs else "health",
                 severity="warning" if failing else "info",
                 title=("Self-healing restarted a service" if repairs else
-                       ("JARV health degraded" if failing else "JARV health restored" if previous else
-                        "JARV health check")),
+                       ("JAI health degraded" if failing else "JAI health restored" if previous else
+                        "JAI health check")),
                 message=summary, requires_action=bool(failing and not repairs),
                 created_at=now, updated_at=now))
         await redis.set(f"scheduler:last_state:{job_name}", state)
@@ -193,7 +193,7 @@ def scheduled_status_loop(self: Task) -> dict[str, Any]:
     """Daily operating / heartbeat loop — runs autonomously via Celery Beat."""
     return run_async(_run_scheduled_loop(
         "daily_status_check",
-        "Autonomous health check and self-healing of JARV's own services (no operator command)."))
+        "Autonomous health check and self-healing of JAI's own services (no operator command)."))
 
 
 # ===== Mission runtime (Repair 12) =====
@@ -219,7 +219,7 @@ def resume_checkpoint_task(self: Task, checkpoint_id: str, user_id: str) -> dict
 
 @celery_app.task(name="backup_database", bind=True)
 def backup_database(self: Task) -> dict[str, Any]:
-    """Scheduled backup of JARV's database, verified straight after (Celery beat)."""
+    """Scheduled backup of JAI's database, verified straight after (Celery beat)."""
     from app.core.database import AsyncSessionLocal
     from app.core.ops.backups import BackupError, create_backup, verify_backup
 

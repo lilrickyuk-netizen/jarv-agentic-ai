@@ -1,7 +1,7 @@
 """
-JARV Backend - External service connections (Repair 14b)
+JAI Backend - External service connections (Repair 14b)
 
-One catalogue of every outside service JARV can use, for the Settings page:
+One catalogue of every outside service JAI can use, for the Settings page:
 which settings each needs, whether they are set (values are never returned,
 and copied example values such as "your_..._here" count as unset), what the
 service enables, how to set it up, and a live check.
@@ -86,7 +86,7 @@ class Service:
 
 SERVICES: List[Service] = [
     Service("claude", "Claude (Anthropic)", "AI models",
-            "JARV's primary model for every agent; missions fail over to the next provider when it is unavailable.",
+            "JAI's primary model for every agent; missions fail over to the next provider when it is unavailable.",
             ["CLAUDE_API_KEY"], "Create an API key at console.anthropic.com > API keys and set CLAUDE_API_KEY "
             "(ANTHROPIC_API_KEY also works).", alternatives={"CLAUDE_API_KEY": "ANTHROPIC_API_KEY"}, check="claude"),
     Service("openai", "OpenAI", "AI models",
@@ -133,7 +133,7 @@ SERVICES: List[Service] = [
             "API keys and set STRIPE_SECRET_KEY. Add STRIPE_WEBHOOK_SECRET to record payments as they happen.",
             optional=["STRIPE_WEBHOOK_SECRET"], check="stripe"),
     Service("plausible", "Plausible Analytics", "Revenue",
-            "Website traffic for Analytics and Revenue Operations; without it JARV uses recorded KPIs.",
+            "Website traffic for Analytics and Revenue Operations; without it JAI uses recorded KPIs.",
             ["PLAUSIBLE_API_KEY", "PLAUSIBLE_SITE_ID"], "In Plausible go to Account settings > API keys, create a Stats "
             "API key and set PLAUSIBLE_API_KEY and PLAUSIBLE_SITE_ID (your site's domain).",
             optional=["PLAUSIBLE_URL"], check="plausible"),
@@ -148,7 +148,7 @@ SERVICES: List[Service] = [
     Service("github", "GitHub", "Code and assets",
             "Repository operations on private repositories.", ["GITHUB_TOKEN"],
             "Create a fine-grained token at github.com > Settings > Developer settings > Personal access tokens, "
-            "scoped to the repositories JARV works on, and set GITHUB_TOKEN.", check="github"),
+            "scoped to the repositories JAI works on, and set GITHUB_TOKEN.", check="github"),
     Service("unsplash", "Unsplash", "Code and assets", "Free-licence photos for content and sites.",
             ["UNSPLASH_ACCESS_KEY"], "Register an app at unsplash.com/developers and set UNSPLASH_ACCESS_KEY.",
             check="unsplash"),

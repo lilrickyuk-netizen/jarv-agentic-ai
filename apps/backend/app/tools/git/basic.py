@@ -1,5 +1,5 @@
 """
-JARV Backend - Basic Git Tools
+JAI Backend - Basic Git Tools
 
 Basic git operations: init, clone, status, add, commit.
 """

@@ -1,4 +1,4 @@
-"""End-to-end smoke test for the JARV operating loop (browser-equivalent API calls)."""
+"""End-to-end smoke test for the JAI operating loop (browser-equivalent API calls)."""
 import json
 import urllib.request
 
@@ -25,7 +25,7 @@ def main():
 
     print("\n===== TEST 1: status =====")
     s, d = call("POST", "/api/command/execute", token,
-                {"command": "JARV, confirm you are online. Give me a short system status report. Do not modify any files."})
+                {"command": "JAI, confirm you are online. Give me a short system status report. Do not modify any files."})
     t1 = d["task_id"]
     print("status:", d["status"], "| agents:", d["selected_agents"], "| model:", d["model"])
     s, dt = call("GET", f"/api/tasks/{t1}", token)
@@ -35,7 +35,7 @@ def main():
 
     print("\n===== TEST 2: register workspace =====")
     s, d = call("POST", "/api/command/execute", token,
-                {"command": "JARV, register a test workspace at C:\\Users\\lilri\\OneDrive\\Desktop\\JARV_WORKSPACE_TEST. Confirm the path exists. Do not modify files."})
+                {"command": "JAI, register a test workspace at C:\\Users\\lilri\\OneDrive\\Desktop\\JARV_WORKSPACE_TEST. Confirm the path exists. Do not modify files."})
     t2 = d["task_id"]
     print("status:", d["status"], "| agents:", d["selected_agents"])
     print("response:\n", d["response_text"][:600])
@@ -45,7 +45,7 @@ def main():
 
     print("\n===== TEST 3: read-only scan =====")
     s, d = call("POST", "/api/command/execute", token,
-                {"command": "JARV, perform a real read-only scan of the test workspace at C:\\Users\\lilri\\OneDrive\\Desktop\\JARV_WORKSPACE_TEST. Identify the files, folders, docs, env files, package files, and current status. Do not modify files."})
+                {"command": "JAI, perform a real read-only scan of the test workspace at C:\\Users\\lilri\\OneDrive\\Desktop\\JARV_WORKSPACE_TEST. Identify the files, folders, docs, env files, package files, and current status. Do not modify files."})
     t3 = d["task_id"]
     print("status:", d["status"], "| agents:", d["selected_agents"])
     print("response:\n", d["response_text"][:1400])

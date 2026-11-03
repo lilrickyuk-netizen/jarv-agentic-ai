@@ -1,5 +1,5 @@
 """
-JARV Backend - Base LLM Provider Interface
+JAI Backend - Base LLM Provider Interface
 
 Abstract base class for all LLM providers (Claude, OpenAI, Gemini, etc.)
 """

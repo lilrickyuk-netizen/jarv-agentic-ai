@@ -1,5 +1,5 @@
 """
-JARV Backend - DebuggingAgent
+JAI Backend - DebuggingAgent
 
 Performs REAL, honest diagnosis of provided error/log/stack-trace text.
 

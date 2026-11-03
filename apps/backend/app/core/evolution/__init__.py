@@ -1,7 +1,7 @@
 """
-JARV Backend - Self-Evolution Layer
+JAI Backend - Self-Evolution Layer
 
-Enables JARV to improve itself from experience with safety guards:
+Enables JAI to improve itself from experience with safety guards:
 experience capture (experience.py, backed by the verified-learning service)
 and persisted, verified, reversible changes to workspace rules, runbooks,
 agent instructions, tool selection, operating plans and swarm strategy

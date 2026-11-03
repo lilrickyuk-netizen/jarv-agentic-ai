@@ -1,4 +1,4 @@
-"""JARV Checkpoint & Resume tools (Design section 6 / 12).
+"""JAI Checkpoint & Resume tools (Design section 6 / 12).
 
 Real checkpoint persistence (SafeCheckpoint) and resume behaviour. resume.plan is
 read-only and derives a plan from a real checkpoint plus current approval state.

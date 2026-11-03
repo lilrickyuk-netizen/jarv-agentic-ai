@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "jarv-shared"
 version = "1.0.0"
-description = "JARV Agentic AI System - Shared Packages"
+description = "JAI Agentic AI System - Shared Packages"
 authors = ["Richard Curley"]
 readme = "README.md"
 

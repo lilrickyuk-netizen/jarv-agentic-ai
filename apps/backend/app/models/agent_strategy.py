@@ -1,5 +1,5 @@
 """
-JARV Backend - Agent Strategy Models
+JAI Backend - Agent Strategy Models
 
 Agent strategy versioning and configuration.
 """

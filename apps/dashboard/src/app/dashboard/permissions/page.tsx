@@ -19,7 +19,7 @@ export default function PermissionsPage() {
       <div className="max-w-7xl mx-auto space-y-6">
         <div>
           <h1 className="text-3xl md:text-4xl font-bold mb-1">Permissions</h1>
-          <p className="text-muted-foreground">The authority model JARV enforces, read live from its registries and safety rules</p>
+          <p className="text-muted-foreground">The authority model JAI enforces, read live from its registries and safety rules</p>
         </div>
         {loading && <Loading />}
         <Note error={error} />
@@ -42,11 +42,11 @@ export default function PermissionsPage() {
               </table>
             </Panel>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Panel title="Hard boundaries: JARV pauses and asks you" eyebrow="RICHARD ONLY">
+              <Panel title="Hard boundaries: JAI pauses and asks you" eyebrow="RICHARD ONLY">
                 <ul className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1 text-sm">
                   {data.hard_boundaries.map((b) => <li key={b.key}>• {b.title}</li>)}
                 </ul>
-                <p className="text-xs text-muted-foreground mt-3">Only the blocked action pauses; safe work carries on and JARV resumes from its checkpoint when you decide. {data.voice_rule}</p>
+                <p className="text-xs text-muted-foreground mt-3">Only the blocked action pauses; safe work carries on and JAI resumes from its checkpoint when you decide. {data.voice_rule}</p>
               </Panel>
               <Panel title="Mission approval gates" eyebrow="COMMAND CENTER">
                 <p className="text-sm text-muted-foreground mb-2">A command that does any of these waits on the Approvals page before it starts:</p>

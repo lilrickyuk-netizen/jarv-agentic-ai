@@ -1,5 +1,5 @@
 """
-JARV Backend - Source documentation ingestion (Upgrade 1)
+JAI Backend - Source documentation ingestion (Upgrade 1)
 
 Turns an official documentation page into searchable passages for the agents that use it:
 
@@ -35,7 +35,7 @@ MAX_PAGE_BYTES = 2_000_000
 FETCH_TIMEOUT = 30.0
 CHARS_PER_TOKEN = 4
 MAX_TOKENS = 800
-USER_AGENT = "JARV-Knowledge/1.0 (documentation indexing)"
+USER_AGENT = "JAI-Knowledge/1.0 (documentation indexing)"
 
 _HEADING = re.compile(r"^(#{1,4})\s+(.+?)\s*#*\s*$")
 
@@ -273,7 +273,7 @@ class KnowledgeIngestor:
         return results
 
     async def retire_missing(self, db: AsyncSession, keep: set) -> List[Dict[str, Any]]:
-        """Retire JARV-wide sources no longer in the catalogue (a moved page replaced by its new address): their
+        """Retire JAI-wide sources no longer in the catalogue (a moved page replaced by its new address): their
         passages go inactive and search skips them. Workspace-specific sources are never touched."""
         retired = []
         stale = (await db.execute(select(KnowledgeSource).where(

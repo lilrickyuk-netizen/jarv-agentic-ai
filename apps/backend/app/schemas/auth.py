@@ -1,5 +1,5 @@
 """
-JARV Backend - Authentication Schemas
+JAI Backend - Authentication Schemas
 
 Pydantic models for authentication requests and responses.
 """

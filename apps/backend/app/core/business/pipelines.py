@@ -1,5 +1,5 @@
 """
-JARV Backend - Partner and sales pipelines (persisted)
+JAI Backend - Partner and sales pipelines (persisted)
 
 Partners are PartnershipRecord rows moving through shortlisted -> contacted ->
 in_discussion -> proposal -> negotiating -> active (or paused / declined).
@@ -86,7 +86,7 @@ class PipelineService:
         if not candidates:
             if not helpers.provider_configured():
                 raise ValueError("Give the candidates to compare (name, type, notes, url); with a model provider "
-                                 "JARV can also suggest some for research")
+                                 "JAI can also suggest some for research")
             reply = await helpers.llm_complete(
                 model or "claude-sonnet-4-6",
                 f"Suggest up to 8 {partner_type} partner candidates for this product. Reply with JSON only: "

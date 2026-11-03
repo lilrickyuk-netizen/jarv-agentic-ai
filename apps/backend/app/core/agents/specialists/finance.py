@@ -1,5 +1,5 @@
 """
-JARV Backend - FinanceAgent
+JAI Backend - FinanceAgent
 
 Produces financial advisory output honestly.
 

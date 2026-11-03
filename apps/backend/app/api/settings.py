@@ -1,5 +1,5 @@
 """
-JARV Backend - Settings API (Repair 14b)
+JAI Backend - Settings API (Repair 14b)
 
 The Settings page's data, all read live: version and feature switches, the
 real database and Redis status, the model failover order with which

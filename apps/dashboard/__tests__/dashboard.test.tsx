@@ -9,7 +9,7 @@ const MockDashboard = () => {
   return (
     <div>
       <h1>Dashboard</h1>
-      <p>Welcome to JARV Dashboard</p>
+      <p>Welcome to JAI Dashboard</p>
     </div>
   );
 };

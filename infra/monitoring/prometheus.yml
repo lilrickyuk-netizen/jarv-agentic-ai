@@ -1,4 +1,4 @@
-# JARV Prometheus configuration (Repair 12b).
+# JAI Prometheus configuration (Repair 12b).
 # Started by docker-compose.monitoring.yml alongside the main stack.
 global:
   scrape_interval: 15s

@@ -1,4 +1,4 @@
-# Alertmanager configuration (Repair 12b): every alert is delivered into JARV,
+# Alertmanager configuration (Repair 12b): every alert is delivered into JAI,
 # which opens or resolves an incident and posts it to the Live Operations Feed.
 # If ALERT_WEBHOOK_TOKEN is set on the backend, uncomment `authorization` and
 # put the same token in infra/monitoring/secrets/alert_webhook_token.

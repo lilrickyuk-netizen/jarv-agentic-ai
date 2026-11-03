@@ -1,5 +1,5 @@
 """
-JARV Backend - File Operations Tools
+JAI Backend - File Operations Tools
 
 File operation tools: delete, move, copy.
 """

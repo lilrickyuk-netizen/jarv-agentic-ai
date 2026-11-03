@@ -1,8 +1,8 @@
 """
-JARV Backend - Internet / Research API
+JAI Backend - Internet / Research API
 
 Surfaces the safe internet tool registry, web/research source records, and asset
-licence records so the dashboard can show what JARV fetched and used.
+licence records so the dashboard can show what JAI fetched and used.
 """
 import logging
 from typing import Any, Dict, List

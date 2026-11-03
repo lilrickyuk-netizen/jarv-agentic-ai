@@ -1,5 +1,5 @@
 """
-JARV Backend - Self Evolution Models
+JAI Backend - Self Evolution Models
 
 Experience records, self-evolution tracking, and verification results.
 """

@@ -1,5 +1,5 @@
 """
-JARV Backend - Quality Analysis Tools
+JAI Backend - Quality Analysis Tools
 
 Tools for code style, type checking, coverage, and security analysis.
 """

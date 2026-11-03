@@ -1,5 +1,5 @@
 """
-JARV Backend - File Search Tools
+JAI Backend - File Search Tools
 
 File search and discovery tools: search, grep, list, tree.
 """

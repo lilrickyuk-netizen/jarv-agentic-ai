@@ -1,5 +1,5 @@
 """
-JARV Backend - Memory taxonomy
+JAI Backend - Memory taxonomy
 
 The design requires 23 memory categories. Callers across the codebase already
 write finer-grained ``memory_type`` values ("task_result", "delegation",

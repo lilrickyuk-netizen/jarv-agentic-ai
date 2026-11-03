@@ -57,7 +57,7 @@ def project():
     (root / "api" / "server.py").write_text("from fastapi import APIRouter\nrouter = APIRouter()\n\n"
                                             "@router.get('/products')\ndef products():\n    return []\n\n"
                                             "@router.post('/orders')\ndef orders():\n    return {}\n")
-    git = ["git", "-c", "user.email=jarv@test", "-c", "user.name=JARV", "-c", f"safe.directory={root}"]
+    git = ["git", "-c", "user.email=jarv@test", "-c", "user.name=JAI", "-c", f"safe.directory={root}"]
     subprocess.run(git + ["init", "-q"], cwd=root, check=True)
     subprocess.run(git + ["add", "-A"], cwd=root, check=True)
     subprocess.run(git + ["commit", "-qm", "Add Stripe checkout"], cwd=root, check=True)

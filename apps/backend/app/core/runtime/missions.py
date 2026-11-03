@@ -1,5 +1,5 @@
 """
-JARV Backend - Mission runner and recovery
+JAI Backend - Mission runner and recovery
 
 How a queued mission runs:
 

@@ -1,5 +1,5 @@
 """
-JARV Backend Health and Version Endpoints
+JAI Backend Health and Version Endpoints
 """
 from typing import Dict, Any
 from fastapi import APIRouter, status
@@ -108,7 +108,7 @@ async def root() -> Dict[str, str]:
         Basic API information
     """
     return {
-        "service": "JARV Agentic AI System - Backend API",
+        "service": "JAI Agentic AI System - Backend API",
         "version": __version__,
         "docs": "/docs",
         "health": "/health",

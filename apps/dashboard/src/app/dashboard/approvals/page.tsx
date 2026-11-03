@@ -83,7 +83,7 @@ export default function ApprovalsPage() {
         setBlocks(blocksResponse.data);
       }
 
-      // Boundary decisions JARV paused an action for (the Richard Boundary chain).
+      // Boundary decisions JAI paused an action for (the Richard Boundary chain).
       const pendingResponse = await apiClient.get<PendingDecision[]>('/api/richard/pending');
       if (!pendingResponse.error && pendingResponse.data) {
         setPending(pendingResponse.data);
@@ -190,7 +190,7 @@ export default function ApprovalsPage() {
                       <div className="flex-1">
                         <p className="font-medium">{item.action_description}</p>
                         <p className="text-sm text-yellow-800 mt-1">
-                          JARV paused only this action and is waiting for your decision.
+                          JAI paused only this action and is waiting for your decision.
                           {item.expires_at && ` Expires ${new Date(item.expires_at).toLocaleString()}.`}
                         </p>
                       </div>
@@ -226,7 +226,7 @@ export default function ApprovalsPage() {
             )}
             {blocks.length === 0 && pending.length === 0 ? (
               <div className="bg-card border rounded-lg p-6 text-sm text-muted-foreground">
-                No actions are currently blocked. JARV is operating within approved boundaries.
+                No actions are currently blocked. JAI is operating within approved boundaries.
               </div>
             ) : (
               <div className="space-y-4">

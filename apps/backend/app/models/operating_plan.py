@@ -1,5 +1,5 @@
 """
-JARV Backend - Operating Plan Models
+JAI Backend - Operating Plan Models
 
 Operating plans, daily loops, and execution plans for company operating layer.
 """

@@ -1,7 +1,7 @@
 """
-JARV Backend - Specialist Agents
+JAI Backend - Specialist Agents
 
-All 29 specialized agents for JARV system.
+All 29 specialized agents for JAI system.
 """
 # Core Development Agents
 from app.core.agents.specialists.coding_agent import CodingAgent

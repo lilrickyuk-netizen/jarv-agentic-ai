@@ -1,5 +1,5 @@
 """
-JARV Backend - Tool Execution Runtime
+JAI Backend - Tool Execution Runtime
 
 Confirmed tool-execution layer for the command pipeline. Agents act through
 real, named tools (not prose). Every call is:
@@ -11,7 +11,7 @@ real, named tools (not prose). Every call is:
     detail.
 
 This wraps the real implementations (fs_inspector, MemoryService, the boundary/
-feed writers) behind a stable tool surface so the dashboard can prove that JARV
+feed writers) behind a stable tool surface so the dashboard can prove that JAI
 actually acted, with which tool, on which inputs, and with what result.
 """
 from __future__ import annotations
@@ -612,7 +612,7 @@ class ToolRuntime:
             await self._persist_command_run(command, cwd_host, None, "timeout", "timeout", False)
             return {"success": False, "reason": f"Command timed out after {timeout}s."}
         except FileNotFoundError:
-            reason = (f"'{argv[0]}' is not installed in JARV's tool home. Install it with uv tool install, "
+            reason = (f"'{argv[0]}' is not installed in JAI's tool home. Install it with uv tool install, "
                       "uv python install, pnpm dlx or npx, then run the command again.")
             await self._record("run_command", {"command": command}, False, reason)
             await self._persist_command_run(command, cwd_host, 127, "", reason, False)

@@ -1,5 +1,5 @@
 """
-JARV Backend - Workspace Filesystem Inspector
+JAI Backend - Workspace Filesystem Inspector
 
 Real, read-only inspection of an approved workspace folder on the host machine.
 
@@ -173,7 +173,7 @@ def path_exists(host_path: str) -> FsResult:
             accessible=False, host_path=host_path,
             reason=(
                 "Path is outside the approved workspace root "
-                f"({settings.WORKSPACE_HOST_ROOT}). JARV only inspects approved folders."
+                f"({settings.WORKSPACE_HOST_ROOT}). JAI only inspects approved folders."
             ),
         )
     try:
@@ -352,7 +352,7 @@ def list_dir(host_path: str) -> FsResult:
 
 
 # Templates that list a project's settings by name only (.env.example and the like) are
-# ordinary project files: JARV reads and writes them. Their content still passes the secret
+# ordinary project files: JAI reads and writes them. Their content still passes the secret
 # check, so a real key written into one is refused like anywhere else.
 _ENV_TEMPLATE_SUFFIXES = (".example", ".sample", ".template", ".dist")
 
@@ -461,7 +461,7 @@ SAFE_COMMAND_PREFIXES = (
     "helm version",
 )
 # Build / test commands — allowed at Level 3 (build & test) inside an approved
-# workspace. These compile/test a project (JARV's core job) but do not delete,
+# workspace. These compile/test a project (JAI's core job) but do not delete,
 # deploy, push, install, or reach the network destructively.
 BUILD_TEST_PREFIXES = (
     "npm run build", "npm run", "npm test", "npm run test", "yarn build",
@@ -480,7 +480,7 @@ BUILD_TEST_PREFIXES = (
     "git init", "git add",
 )
 # Commands that change the folder they run in: they only run with a workspace folder as their
-# working directory, never in JARV's own directory.
+# working directory, never in JAI's own directory.
 WORKSPACE_ONLY_PREFIXES = ("git init", "git add", "git commit")
 # A project script run by name ("pnpm type-check", "pnpm format", "yarn lint", "pnpm run e2e"):
 # one plain name, no arguments. pnpm and yarn commands that publish, deploy, sign in, change
@@ -513,7 +513,7 @@ INSTALL_PREFIXES = (
     "pip install", "pip3 install", "python -m pip install", "python3 -m pip install",
     "poetry install", "poetry add", "poetry lock", "uv pip install", "uv sync",
     "uv add", "uv lock", "uv venv",
-    # Tools and language versions JARV adds to its own tool home from the official registries
+    # Tools and language versions JAI adds to its own tool home from the official registries
     # (PyPI, npm, python-build-standalone): never system-wide, never with sudo.
     "uv tool install", "uv tool upgrade", "uv python install", "uvx", "uv tool run",
     "pnpm dlx", "npx", "yarn dlx", "pipenv install", "go get", "go mod download", "go mod tidy",

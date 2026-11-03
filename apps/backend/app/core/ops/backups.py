@@ -1,14 +1,14 @@
 """
-JARV Backend - Database backups
+JAI Backend - Database backups
 
-Real backups of JARV's PostgreSQL database with pg_dump (custom format),
+Real backups of JAI's PostgreSQL database with pg_dump (custom format),
 recorded as BackupRecord rows with a SHA-256 checksum.
 
 - create: refuses if the pg_dump client is older than the server (an old
   client cannot produce a correct dump), writes to BACKUP_DIR, checksums it.
 - verify: re-checksums the file and lists the archive with pg_restore.
 - restore: always into a NEW database named jarv_restore_<timestamp>. The
-  live database is never overwritten here; switching JARV to a restored
+  live database is never overwritten here; switching JAI to a restored
   database is a deliberate operator step. The restore tool is approval-gated.
 - cleanup: removes backups past their retention (approval-gated).
 

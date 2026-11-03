@@ -1,5 +1,5 @@
 """
-JARV Backend - AnalyticsAgent
+JAI Backend - AnalyticsAgent
 
 Performs REAL, honest analytics on metrics/data that are actually supplied.
 

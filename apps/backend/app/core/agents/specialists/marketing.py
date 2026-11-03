@@ -1,5 +1,5 @@
 """
-JARV Backend - MarketingAgent
+JAI Backend - MarketingAgent
 
 Produces marketing campaign copy/plans as model-generated DRAFTS only.
 

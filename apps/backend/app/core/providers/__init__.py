@@ -1,5 +1,5 @@
 """
-JARV Backend - LLM Providers
+JAI Backend - LLM Providers
 
 Multi-provider LLM integration supporting Claude, OpenAI, and Gemini.
 """

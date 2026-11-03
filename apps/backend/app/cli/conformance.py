@@ -1,5 +1,5 @@
 """
-Tell JARV which documents govern a workspace, and run its hard conformance checks on demand.
+Tell JAI which documents govern a workspace, and run its hard conformance checks on demand.
 
     docker compose exec -T backend python -m app.cli.conformance set --workspace MYCO \
         --authority MYCO_V3_SPEC.md --superseded Myco_design.md
@@ -63,7 +63,7 @@ async def check(name: str) -> int:
     root = config.get("root_path")
     folder = fs_inspector.host_to_container(root) if root else None
     if folder is None or not folder.is_dir():
-        print(f"{name}: the workspace folder {root!r} is not reachable from JARV.")
+        print(f"{name}: the workspace folder {root!r} is not reachable from JAI.")
         return 2
     result = await asyncio.to_thread(run_hard_checks, folder, config)
     print(f"{name}: {result['files_scanned']} files, checks: {', '.join(result['ran'])}")

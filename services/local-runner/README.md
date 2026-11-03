@@ -1,6 +1,6 @@
-# JARV Local Runner
+# JAI Local Runner
 
-Local laptop runner service for JARV Agentic AI System.
+Local laptop runner service for JAI Agentic AI System.
 
 ## Purpose
 

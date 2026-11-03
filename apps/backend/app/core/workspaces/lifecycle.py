@@ -1,11 +1,11 @@
 """
-JARV Backend - Workspace lifecycle (persisted)
+JAI Backend - Workspace lifecycle (persisted)
 
 Creating, importing, planning, archiving and deleting workspaces for their
 owner. Folders are only ever registered, scanned or created inside the
 approved workspace root (fs_inspector scope rules); a new workspace never
 receives more authority than the workspace that created it; deleting a
-workspace removes JARV's records only and never touches files on disk.
+workspace removes JAI's records only and never touches files on disk.
 """
 from __future__ import annotations
 

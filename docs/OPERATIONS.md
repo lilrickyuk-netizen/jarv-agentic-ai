@@ -1,11 +1,11 @@
-# JARV operations: self-healing, containers, backups
+# JAI operations: self-healing, containers, backups
 
-This is how JARV watches and repairs itself, and how its database is backed up
+This is how JAI watches and repairs itself, and how its database is backed up
 and restored.
 
 ## Container operations
 
-JARV inspects and restarts its own services through `docker-proxy`
+JAI inspects and restarts its own services through `docker-proxy`
 (`tecnativa/docker-socket-proxy`), never through the raw Docker socket.
 
 - The proxy allows container list, inspect and logs, plus restart. Everything
@@ -13,7 +13,7 @@ JARV inspects and restarts its own services through `docker-proxy`
   is denied (`POST=0`).
 - The proxy sits on the internal `jarv-ops` network. Only `backend` and
   `worker` join that network, and no port is published to the host.
-- JARV restarts only its own Compose project's services in
+- JAI restarts only its own Compose project's services in
   `RESTARTABLE`: backend, worker, scheduler, dashboard, local-runner,
   cloud-runner, voicebox, prometheus, grafana, alertmanager.
 - `postgres`, `redis` and `docker-proxy` are never restarted automatically.
@@ -32,7 +32,7 @@ reason.
 | Health, queue, errors, logs, metrics, server, containers | `check_*`, `query_metrics`, `inspect_server` | Authority 1–2 |
 | Uptime of a public URL (private addresses refused) | `check_uptime` | Authority 5 |
 | Re-queue missions whose worker died | `recover_stuck_missions` | Authority 4 |
-| Restart a JARV service | `restart_service`, `restart_container` | Authority 7 (production repair), no approval |
+| Restart a JAI service | `restart_service`, `restart_container` | Authority 7 (production repair), no approval |
 | Back up the database | `create_backup` | Authority 4 |
 | Verify, list backups | `verify_backup`, `list_backups` | Authority 2 |
 | Restore a backup (into a new database) | `restore_backup_with_boundary` | Richard's approval |
@@ -68,14 +68,14 @@ docker run --rm -v jarv-agentic-ai_backups:/data/backups -v "$PWD":/out alpine \
 A restore always goes into a **new** database named `jarv_restore_<timestamp>`.
 The live database is never overwritten.
 
-1. JARV (or you) requests `restore_backup_with_boundary`, and Richard approves it.
-2. JARV verifies the archive, creates the new database, and runs `pg_restore`
+1. JAI (or you) requests `restore_backup_with_boundary`, and Richard approves it.
+2. JAI verifies the archive, creates the new database, and runs `pg_restore`
    into it.
 3. Check the restored data:
    ```bash
    docker exec -it jarv-postgres psql -U jarv -d jarv_restore_<timestamp>
    ```
-4. To switch JARV over, set `POSTGRES_DB=jarv_restore_<timestamp>` (or
+4. To switch JAI over, set `POSTGRES_DB=jarv_restore_<timestamp>` (or
    `DATABASE_URL`) and run `docker compose up -d backend worker scheduler`.
    This is a deliberate operator step.
 

@@ -1,5 +1,5 @@
 """
-JARV Backend - Company Operation Tools
+JAI Backend - Company Operation Tools
 
 Tools for company operations: email, calendar, CRM, Slack, and the company
 operating layer (plans, loops, standups, KPIs, risks, decisions, feed).

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-JARV Backend Database Management Script
+JAI Backend Database Management Script
 
 Usage:
     python scripts/db.py migrate      # Run migrations

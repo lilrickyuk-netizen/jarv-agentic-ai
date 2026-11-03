@@ -1,5 +1,5 @@
 """
-JARV Backend - Business agents on real tools (Repair 12e-4a)
+JAI Backend - Business agents on real tools (Repair 12e-4a)
 
 The marketing, content, onboarding, community, partnerships and sales agents
 work through the business tools (``app.tools.business``) via their toolbox:

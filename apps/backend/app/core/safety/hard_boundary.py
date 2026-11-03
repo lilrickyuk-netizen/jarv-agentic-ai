@@ -1,8 +1,8 @@
 """
-JARV Backend - Hard Boundary Detection
+JAI Backend - Hard Boundary Detection
 
 Deterministic detection of the Design section 6 / CLAUDE.md "HARD BOUNDARIES"
-that JARV must PAUSE for (never abandon). Detection inspects real input text and
+that JAI must PAUSE for (never abandon). Detection inspects real input text and
 an optional structured action/metadata payload and reports:
 
 - which boundary rules were actually checked,

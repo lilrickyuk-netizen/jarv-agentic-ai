@@ -1,8 +1,8 @@
-# JARV runbook
+# JAI runbook
 
-How to run, use, upgrade and look after JARV. Two companion guides go deeper:
+How to run, use, upgrade and look after JAI. Two companion guides go deeper:
 
-- [DEPLOYMENT.md](DEPLOYMENT.md): how JARV deploys your projects (MYCO and the rest) to your VPS.
+- [DEPLOYMENT.md](DEPLOYMENT.md): how JAI deploys your projects (MYCO and the rest) to your VPS.
 - [OPERATIONS.md](OPERATIONS.md): self-healing, container restarts, backups and restores.
 - [CONFIGURATION.md](CONFIGURATION.md): every setting.
 
@@ -22,7 +22,7 @@ How to run, use, upgrade and look after JARV. Two companion guides go deeper:
 | `docker-proxy` | Restricted Docker access for container status and approved restarts. Never the raw socket. |
 | `nginx` (production) | TLS, rate limits. `/api/backend/*` goes to the dashboard; the rest of `/api` (Stripe and alert webhooks, calendar feed links, the hands-free wake socket) goes to the backend. |
 
-## 2. Running JARV locally (your PC, WSL)
+## 2. Running JAI locally (your PC, WSL)
 
 ```bash
 cd ~/jarv-agentic-ai
@@ -38,7 +38,7 @@ were run automatically. Check that its tables match the current models (the test
 against a fresh database), then record it as migrated once:
 `docker compose run --rm migrate python -m alembic stamp head`.
 
-## 3. Running JARV on your VPS (production)
+## 3. Running JAI on your VPS (production)
 
 One-time:
 
@@ -72,17 +72,17 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --bui
 `migrate` applies new database migrations before the new backend starts. Take a backup first
 ("Back up now" on the Infrastructure page) for anything beyond a small change.
 
-## 5. Using JARV
+## 5. Using JAI
 
-- **Give a mission** in the Command Center (typed or by voice). JARV plans it, hands each step to
+- **Give a mission** in the Command Center (typed or by voice). JAI plans it, hands each step to
   the right specialist agent, and those agents work through their own tools, confined to the
   workspace's folder. Progress and every handoff appear in the mission panel and the Live
   Operations Feed.
 - **Hard boundaries pause only the blocked step**: publishing, production releases, spending over
   budget, mass email, binding commitments, deleting production data, account security, and
   anything that weakens safety. Safe steps keep running. Decide on the **Approvals** page (or
-  **Richard Boundary Operator**); JARV resumes from its checkpoint when you approve.
-- **Talk with JARV** in the voice panel opens a live spoken conversation (OpenAI Realtime, on your
+  **Richard Boundary Operator**); JAI resumes from its checkpoint when you approve.
+- **Talk with JAI** in the voice panel opens a live spoken conversation (OpenAI Realtime, on your
   OpenAI key, billed per minute while open): talk naturally, interrupt it, ask it to do things; work
   it starts runs as missions and it tells you the outcome.
 - **Approvals are never taken by voice.** Voice commands become missions under the same gate.
@@ -143,8 +143,8 @@ approval and the resume.
 
 | Symptom | What to do |
 | --- | --- |
-| A mission is stuck | JARV re-queues missions whose worker stopped (every minute). Cancel or retry it from the Command Center. |
-| A service is unhealthy | The self-healing agent restarts JARV's own services (not postgres, redis or the proxy) and verifies the repair. Or restart it from the Infrastructure page. |
+| A mission is stuck | JAI re-queues missions whose worker stopped (every minute). Cancel or retry it from the Command Center. |
+| A service is unhealthy | The self-healing agent restarts JAI's own services (not postgres, redis or the proxy) and verifies the repair. Or restart it from the Infrastructure page. |
 | A provider is out of credit or rate limited | Missions fail over to the next provider in `PROVIDER_ORDER`. Settings shows which have keys; **Check** confirms a key works. |
 | Email, Slack or a webhook does nothing | Settings shows what is missing for that service and **Send test notification** proves delivery. |
 | VS Code or Docker cannot reach Ubuntu ("Wsl/Service/E_UNEXPECTED") | In Windows PowerShell: `wsl --shutdown`, wait 10 seconds, `wsl -d Ubuntu-24.04`. If that fails, an administrator PowerShell `Restart-Service LxssManager -Force` (or `WSLService`), then `wsl --update` and a reboot. Restart Docker Desktop afterwards. |

@@ -15,7 +15,7 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const [authChecked, setAuthChecked] = useState(false);
 
-  // Links inside the dashboard change page without reloading it, so the conversation with JARV and each
+  // Links inside the dashboard change page without reloading it, so the conversation with JAI and each
   // page's state carry on across pages (a plain link reloaded everything and ended the conversation).
   useEffect(() => {
     const onClick = (event: MouseEvent) => {

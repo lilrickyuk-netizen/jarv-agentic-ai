@@ -1,5 +1,5 @@
 #!/bin/bash
-# JARV Backend - Celery Beat Scheduler Startup Script
+# JAI Backend - Celery Beat Scheduler Startup Script
 
 # Start Celery beat scheduler for periodic tasks
 celery -A app.workers.celery_app beat \

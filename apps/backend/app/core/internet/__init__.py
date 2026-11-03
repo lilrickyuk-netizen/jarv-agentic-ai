@@ -1,5 +1,5 @@
 """
-JARV Backend - Safe Internet Access
+JAI Backend - Safe Internet Access
 
 Controlled outbound internet for research/build/launch/operate/scale. NOT
 unrestricted:
@@ -91,7 +91,7 @@ async def fetch_url(url: str) -> Dict[str, Any]:
         return {"ok": False, "blocked": True, "url": url, "reason": reason}
     try:
         async with httpx.AsyncClient(timeout=FETCH_TIMEOUT, follow_redirects=True) as c:
-            r = await c.get(url, headers={"User-Agent": "JARV-Research/1.0"})
+            r = await c.get(url, headers={"User-Agent": "JAI-Research/1.0"})
             final_ok, final_reason = _ssrf_ok(str(r.url))
             if not final_ok:
                 return {"ok": False, "blocked": True, "url": str(r.url),
@@ -140,7 +140,7 @@ async def web_search(query: str, limit: int = 10) -> Dict[str, Any]:
     try:
         async with httpx.AsyncClient(timeout=FETCH_TIMEOUT, follow_redirects=True) as c:
             r = await c.post("https://html.duckduckgo.com/html/", data={"q": query},
-                             headers={"User-Agent": "Mozilla/5.0 (JARV-Research/1.0)"})
+                             headers={"User-Agent": "Mozilla/5.0 (JAI-Research/1.0)"})
         if r.status_code >= 400:
             return {"ok": False, "query": query, "reason": f"search returned {r.status_code}"}
         results = parse_duckduckgo(r.text, limit)

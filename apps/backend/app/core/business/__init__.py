@@ -1,5 +1,5 @@
 """
-JARV Backend - Business operations (persisted)
+JAI Backend - Business operations (persisted)
 
 Grounded drafting (drafting.py over facts.py), the support inbox and replies
 (support.py, mailer.py), community moderation (community.py), partner and

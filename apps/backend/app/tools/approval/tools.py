@@ -1,5 +1,5 @@
 """
-JARV Backend - Approval Tools (real implementations)
+JAI Backend - Approval Tools (real implementations)
 
 Design-aligned approval tools:
   - approval.request        (persist a pending BoundaryApproval)

@@ -1,5 +1,5 @@
 """
-JARV Backend - Swarm tracking
+JAI Backend - Swarm tracking
 
 Metrics, costs, and activity reports computed from the persisted swarm rows
 (SwarmRun, SubAgent, SubAgentTask, SubAgentLog). When a swarm finishes, its

@@ -1,5 +1,5 @@
 """
-JARV Backend - HTTP Request Tools
+JAI Backend - HTTP Request Tools
 
 Real HTTP request tools with security, rate limiting, and error handling.
 
@@ -119,7 +119,7 @@ async def make_http_request(
     if headers is None:
         headers = {}
     if "User-Agent" not in headers:
-        headers["User-Agent"] = "JARV-Agent/1.0"
+        headers["User-Agent"] = "JAI-Agent/1.0"
 
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:

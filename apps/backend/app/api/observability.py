@@ -1,8 +1,8 @@
 """
-JARV Backend - Alert intake
+JAI Backend - Alert intake
 
 ``POST /api/observability/alerts`` receives Alertmanager webhook notifications
-and turns them into JARV incidents and Live Operations Feed items, so alerts
+and turns them into JAI incidents and Live Operations Feed items, so alerts
 land where Richard and the agents already look instead of a separate inbox.
 
 - A firing alert opens (or refreshes) one incident per alert fingerprint, so a

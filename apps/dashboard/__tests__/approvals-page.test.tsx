@@ -1,5 +1,5 @@
 /**
- * Approvals page: every decision JARV is waiting on is shown here, including actions paused by the Richard
+ * Approvals page: every decision JAI is waiting on is shown here, including actions paused by the Richard
  * Boundary chain (which used to appear only on the Richard Boundary page), and approving one records the
  * decision against its boundary report. The API client is replaced by recorded responses; the page is real.
  */

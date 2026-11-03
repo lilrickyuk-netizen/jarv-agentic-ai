@@ -1,5 +1,5 @@
 """
-JARV Backend - RollbackAgent
+JAI Backend - RollbackAgent
 
 Prepares rollbacks from real state (Repair 12d): service status, workspace
 history, and the verified database backups that can be restored, through an
