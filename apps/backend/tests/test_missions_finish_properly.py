@@ -123,8 +123,8 @@ def test_a_missing_program_is_reported_not_installed_into_the_project():
     finally:
         shutil.rmtree(folder, ignore_errors=True)
     if out.get("exit_code") == 127:  # the program was looked up and is not there
-        assert "never download or install it into the project folder" in out["stderr"]
-        assert "report it as missing" in out["stderr"]
+        assert "Never download or install anything into the project folder" in out["stderr"]
+        assert "mise install" in out["stderr"] and "not a blocker" in out["stderr"]
     else:  # refused before running (an unknown program needs approval): it never ran, so nothing was installed
         assert out["success"] is False
 
@@ -179,3 +179,37 @@ def test_trivy_and_gitleaks_are_known_build_tools(command, expected):
     assert classify_command(command) == expected, command
     if expected == "build":
         assert command_timeout(command, expected) == settings.AGENT_LONG_COMMAND_TIMEOUT_SECONDS
+
+
+
+@pytest.mark.parametrize("command, expected", [
+    ("go build ./...", "build"), ("go run ./cmd/api", "build"), ("go install golang.org/x/tools/cmd/goimports@latest", "install"),
+    ("go version", "safe"), ("cargo clippy", "build"), ("cargo install cargo-audit", "install"),
+    ("mvn verify", "build"), ("./mvnw package", "build"), ("./gradlew test", "build"),
+    ("gradle check", "install"),  # gradle may fetch dependencies: the trusted-install category, also allowed
+    ("java -version", "safe"),
+    ("dotnet build", "build"), ("dotnet test", "build"), ("dotnet restore", "install"), ("dotnet --info", "safe"),
+    ("mise install rust@1.96", "install"), ("mise install", "install"), ("mise ls", "safe"), ("mise trust", "build"),
+    ("mise exec rust@1.96 -- cargo build", "build"),        # judged as the command it runs
+    ("mise exec go@1.24 -- go test ./...", "build"),
+    ("mise exec node@22 -- rm -rf /", "dangerous"),          # never a way around the rules
+    ("mise exec rust@1.96 --", "risky"),
+    ("mise install --system go@1.26", "dangerous"),          # system-wide installs are refused
+])
+def test_every_language_builds_and_installs_without_asking(command, expected):
+    from app.core.workspaces.fs_inspector import classify_command
+
+    assert classify_command(command) == expected, command
+
+
+def test_every_mission_knows_its_toolchain_and_that_a_missing_tool_is_not_a_blocker():
+    from app.core.command.agent_executor import TOOLCHAIN
+    from tests.repo_paths import repo_path
+
+    for tool in ("Go 1.26", "Java 25", "Maven", "Gradle", "Syft", "Trivy", "Gitleaks", "mise install", "mise exec"):
+        assert tool in TOOLCHAIN, tool
+    assert "A tool you need is never a blocker" in TOOLCHAIN
+    dockerfile = repo_path("apps", "backend", "Dockerfile").read_text()
+    assert "ARG MISE_IMAGE=ghcr.io/jdx/mise:2026.10.4" in dockerfile and "COPY --from=mise /usr/local/bin/mise" in dockerfile
+    for pin in ("ARG GO_VERSION=1.26", "ARG JAVA_VERSION=temurin-25", "ARG MAVEN_VERSION=3", "ARG GRADLE_VERSION=9"):
+        assert pin in dockerfile, pin

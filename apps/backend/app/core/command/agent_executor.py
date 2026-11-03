@@ -95,6 +95,22 @@ VERIFIER_TOOLS = ("list_files", "read_file", "search_files", "scan_workspace", "
                   "detect_stack", "detect_commands", "find_missing_files", "check_installed", "run_command",
                   "run_build", "run_tests", "git_status", "git_diff", "git_log", "get_command_log",
                   "consult_specialist_knowledge", "trace_artifact")
+# What JAI's machine has, given to every mission and every round, so no step is spent finding out and no tool is
+# mistaken for missing. Keep it in step with apps/backend/Dockerfile.
+TOOLCHAIN = (
+    "YOUR TOOLCHAIN (installed, on PATH): git, Node 24 with npm, pnpm and yarn (each project's version through "
+    "Corepack), uv with Python 3.12, 3.13 and 3.14, Go 1.26, Java 25 (Temurin) with Maven and Gradle, Task, "
+    "Terraform, Helm, Syft (SBOMs: syft scan dir:. -o cyclonedx-json=<file>), Trivy (licences, vulnerabilities "
+    "and secrets in the workspace: trivy fs --scanners license,vuln,secret .), Gitleaks (secrets: gitleaks dir .), "
+    "jq, ripgrep, gcc and make. ANY OTHER LANGUAGE OR VERSION: install it with mise, from official sources into "
+    "your tool home (never into the project): 'mise install rust@1.96', 'mise install dotnet@10', 'mise install "
+    "ruby@3', 'mise install go@1.24' when a project pins another version; a project's own mise.toml or "
+    ".tool-versions is installed with 'mise install'. Run a mise-installed tool with 'mise exec <tool>@<version> "
+    "-- <command>' (for example 'mise exec rust@1.96 -- cargo build'). A tool you need is never a blocker: install "
+    "it and carry on. Only something that needs Richard (a paid account, a licence key, a password) is a "
+    "blocker. There is no Docker inside missions."
+)
+
 VERIFIER_STEPS = 16  # the fewest steps the independent check gets
 
 
@@ -426,7 +442,7 @@ class AgentExecutor:
         names = {tool["name"] for tool in tools}
         full = self.toolbox is not None
         system = (
-            "You are JAI, an autonomous software engineer operating a real machine. "
+            "You are JAI, an autonomous software engineer operating a real machine. " + TOOLCHAIN + " "
             "You complete the operator's mission by USING TOOLS — inspect files, edit "
             "code, run builds and tests — iterating until the mission is genuinely done. "
             f"You operate ONLY inside the approved workspace"

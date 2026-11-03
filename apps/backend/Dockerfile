@@ -2,6 +2,8 @@
 # used there): Node 24 LTS and uv 0.12, per MYCO V3.2 §40.
 ARG NODE_IMAGE=node:24.21.0-bookworm-slim
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.17
+# mise, the tool-version manager that lets JAI install any language at the version a project pins.
+ARG MISE_IMAGE=ghcr.io/jdx/mise:2026.10.4
 
 # Multi-stage build for optimized production image
 FROM python:3.11-slim AS builder
@@ -64,6 +66,7 @@ CMD ["python", "-m", "pytest"]
 # (secrets). Their versions are set on the download step below, in one place.
 FROM ${NODE_IMAGE} AS node
 FROM ${UV_IMAGE} AS uv
+FROM ${MISE_IMAGE} AS mise
 
 # Production stage
 FROM python:3.11-slim
@@ -159,6 +162,34 @@ RUN set -eu; cd /tmp \
     && tar -xzf "${GITLEAKS_TGZ}" -C /usr/local/bin gitleaks \
     && rm -rf /tmp/*
 
+# Any language, at the version a project pins: mise (one binary from its official image). Go 1.26, Java 25
+# (Temurin LTS), Maven and Gradle are installed for every user at build time into /usr/local/share/mise, with
+# their commands linked into /usr/local/bin; anything else (Rust, .NET, Ruby, PHP, Deno, Bun, other versions) a
+# mission installs itself with "mise install" into JAI's tool home, where it persists, then runs it with
+# "mise exec -- <command>". The versions are set here, in one place.
+COPY --from=mise /usr/local/bin/mise /usr/local/bin/mise
+ARG GO_VERSION=1.26
+ARG JAVA_VERSION=temurin-25
+ARG MAVEN_VERSION=3
+ARG GRADLE_VERSION=9
+RUN set -eu; export MISE_DATA_DIR=/usr/local/share/mise MISE_CACHE_DIR=/tmp/mise-cache MISE_YES=1; \
+    mise install "go@${GO_VERSION}" "java@${JAVA_VERSION}" "maven@${MAVEN_VERSION}" "gradle@${GRADLE_VERSION}"; \
+    ln -sfn "$(mise where "go@${GO_VERSION}")" /opt/go; \
+    ln -sfn "$(mise where "java@${JAVA_VERSION}")" /opt/java; \
+    for b in go gofmt; do ln -sf "/opt/go/bin/$b" "/usr/local/bin/$b"; done; \
+    for b in java javac jar jshell keytool; do ln -sf "/opt/java/bin/$b" "/usr/local/bin/$b"; done; \
+    ln -sf "$(mise where "maven@${MAVEN_VERSION}")/bin/mvn" /usr/local/bin/mvn; \
+    ln -sf "$(mise where "gradle@${GRADLE_VERSION}")/bin/gradle" /usr/local/bin/gradle; \
+    chmod -R a+rX /usr/local/share/mise; rm -rf /tmp/mise-cache; \
+    go version; java -version; mvn -v; gradle --version
+ENV JAVA_HOME=/opt/java \
+    GOROOT=/opt/go \
+    GOPATH=/home/jarv/go \
+    CARGO_HOME=/home/jarv/.cargo \
+    RUSTUP_HOME=/home/jarv/.rustup \
+    DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+    MISE_YES=1
+
 # Create non-root user for security. Its uid/gid match the owner of the mounted workspace
 # folders (the WSL user, 1000, by default), so git, pnpm and uv can set file modes there.
 ARG JARV_UID=1000
@@ -168,7 +199,7 @@ RUN groupadd -r -g "${JARV_GID}" jarv && useradd -r -m -d /home/jarv -u "${JARV_
 # Workspace folders are mounted from the host with another owner, so git is told they are
 # safe; JAI's own scope checks decide which folders a command may run in.
 ENV HOME=/home/jarv \
-    PATH=/home/jarv/.local/bin:$PATH \
+    PATH=/home/jarv/.local/bin:$PATH:/home/jarv/go/bin:/home/jarv/.cargo/bin:/home/jarv/.dotnet/tools:/home/jarv/.local/share/mise/shims \
     GIT_AUTHOR_NAME=JAI GIT_AUTHOR_EMAIL=jarv@localhost \
     GIT_COMMITTER_NAME=JAI GIT_COMMITTER_EMAIL=jarv@localhost \
     GIT_CONFIG_COUNT=2 \

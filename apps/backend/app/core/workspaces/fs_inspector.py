@@ -459,6 +459,12 @@ SAFE_COMMAND_PREFIXES = (
     "yarn --version", "jq --version", "rg --version", "gcc --version", "make --version",
     "task --version", "task --list", "task --list-all", "terraform version", "terraform -version",
     "helm version", "syft version", "trivy version", "trivy --version", "gitleaks version",
+    # Every language's version and environment checks, and mise's read-only views.
+    "go version", "go env", "go list", "go doc", "cargo --version", "cargo -v", "rustc --version", "rustup show",
+    "rustup --version", "java -version", "java --version", "javac -version", "javac --version", "mvn -v",
+    "mvn --version", "gradle --version", "gradle -v", "dotnet --version", "dotnet --info", "dotnet --list-sdks",
+    "dotnet --list-runtimes", "mise --version", "mise version", "mise ls", "mise list", "mise current",
+    "mise where", "mise which", "mise doctor", "mise ls-remote", "mise registry", "mise tasks",
 )
 # Build / test commands — allowed at Level 3 (build & test) inside an approved
 # workspace. These compile/test a project (JAI's core job) but do not delete,
@@ -469,6 +475,11 @@ BUILD_TEST_PREFIXES = (
     "python -m unittest", "python manage.py test", "tox", "make", "go build",
     "go test", "go vet", "cargo build", "cargo test", "cargo check", "mvn test",
     "mvn package", "gradle build", "gradle test", "jest", "vitest", "tsc",
+    # Go, Rust, Java and .NET builds, tests, runs, formatters and linters, inside the workspace.
+    "go run", "go fmt", "go generate", "go mod verify", "gofmt", "cargo run", "cargo clippy", "cargo fmt",
+    "cargo bench", "cargo doc", "rustc", "rustfmt", "mvn verify", "mvn compile", "mvn clean", "./mvnw", "mvnw", "gradlew",
+    "gradle check", "gradle assemble", "gradle clean", "javac", "java", "dotnet build", "dotnet test",
+    "dotnet run", "dotnet format", "dotnet publish", "dotnet pack", "dotnet clean", "mise run", "mise trust",
     "eslint", "ruff", "ruff check", "mypy", "black --check", "flake8",
     "python -c", "python3 -c", "node -e",
     # Read-only verification commands an engineering/self-healing agent uses.
@@ -528,6 +539,11 @@ INSTALL_PREFIXES = (
     "pnpm dlx", "npx", "yarn dlx", "pipenv install", "go get", "go mod download", "go mod tidy",
     "composer install", "composer require", "gradle", "./gradlew", "mvn install",
     "mvn package", "bundle install",
+    # Any language at the version a project pins, into JAI's tool home through mise (official sources,
+    # checksum-checked), and each ecosystem's own dependency fetch.
+    "mise install", "mise use", "go install", "cargo install", "cargo fetch", "rustup toolchain install",
+    "rustup component add", "rustup target add", "dotnet restore", "dotnet add package", "dotnet tool restore",
+    "dotnet new",
 )
 
 # Programs that are never run by an agent, whatever their arguments: they delete, wipe, power off,
@@ -643,7 +659,7 @@ def _dangerous_words(argv: List[str]) -> bool:
     args = [a.lower() for a in argv[1:]]
     if prog in PRIVILEGE_PROGRAMS or prog in DANGEROUS_PROGRAMS or prog.startswith("mkfs"):
         return True
-    if prog in ("npm", "pnpm", "yarn", "pip", "pip3", "uv", "poetry", "bun") and any(
+    if prog in ("npm", "pnpm", "yarn", "pip", "pip3", "uv", "poetry", "bun", "mise") and any(
             a in _GLOBAL_FLAGS for a in args):
         return True
     if prog == "git" and args:
@@ -714,6 +730,15 @@ def classify_command(command: str) -> str:
     if parsed is None:
         return "dangerous"
     argv = parsed.argv
+    # "mise exec -- <command>" runs <command> under a project's pinned tool versions: it is exactly as safe
+    # as that command, so it is judged as that command (never a way around the rules).
+    if argv and _program(argv[0]) == "mise" and len(argv) > 1 and argv[1] in ("exec", "x"):
+        if "--" not in argv or argv.index("--") == len(argv) - 1:
+            return "risky"
+        inner = argv[argv.index("--") + 1:]
+        import shlex
+
+        return classify_command(shlex.join(inner))
     if _dangerous_words(argv):
         return "dangerous"
     if _risky_words(argv):

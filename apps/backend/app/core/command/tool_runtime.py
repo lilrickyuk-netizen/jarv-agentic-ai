@@ -632,10 +632,10 @@ class ToolRuntime:
             await self._persist_command_run(command, cwd_host, None, "timeout", "timeout", False)
             return {"success": False, "reason": f"Command timed out after {timeout}s."}
         except FileNotFoundError:
-            reason = (f"'{argv[0]}' is not installed in JAI's tool home. A Python or Node tool can be run "
-                      "through the project's own package manager (uv tool install, uvx, pnpm dlx or npx). Any other "
-                      "program is part of JAI's tool image: never download or install it into the project folder; "
-                      "report it as missing (a blocker for Richard) and carry on with the rest of the mission.")
+            reason = (f"'{argv[0]}' is not installed. Install it into your tool home and run it there: a language "
+                      f"or tool through mise ('mise install <tool>@<version>', then 'mise exec <tool>@<version> -- "
+                      f"{argv[0]} ...'), a Python or Node tool through uvx, uv tool install, pnpm dlx or npx. Never "
+                      "download or install anything into the project folder. A missing tool is not a blocker.")
             await self._record("run_command", {"command": command}, False, reason)
             await self._persist_command_run(command, cwd_host, 127, "", reason, False)
             return {"success": False, "exit_code": 127, "stdout": "", "stderr": reason,
