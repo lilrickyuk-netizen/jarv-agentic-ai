@@ -13569,3 +13569,28 @@ TESTS RUN: Owner run by install-upgrade-4.sh: full backend suite on PostgreSQL.
 RESULT: Committed by the owner's script only after the tests pass.
 BLOCKERS: None.
 NEXT TASK: Upgrade 5 (measured routing, prompt caching, proactive context, spoken updates, confidence and risk in reports), then the rename to JAI.
+
+TASK ID: UPGRADE-5
+TASK NAME: Measured routing, prompt caching, proactive context; JARV speaks up; confidence and risk in reports
+STATUS: COMPLETE
+PROBLEM: Mission cost was read by hand (about 5.5 million tokens for the 31-round Phase 0 correction run); the prompt cache was not keyed to missions; agents spent their first steps finding the stack and commands; JARV only spoke when spoken to; reports said nothing about how sure they were. Richard (2 Nov 2026): add spoken updates and confidence and risk, not named protocols.
+FILES CREATED:
+- apps/backend/app/core/command/metrics.py (Usage: uncached, cached, cache-write, output and reasoning tokens per role (mission, requirements, verifier, report), cost in US dollars from the price table (gpt-6-luna $0.10 in, $0.50 out, $0.01 cached, $0.125 cache write per million), cache hit rate; merge across rounds; MeteredRouter: counts every call and gives every call of a mission the same prompt-cache key)
+- apps/backend/tests/test_upgrade5_measured.py
+FILES MODIFIED:
+- apps/backend/app/core/providers/base.py (CompletionRequest.prompt_cache_key)
+- apps/backend/app/core/providers/openai.py (prompt_cache_key sent on Responses requests; prompt_cache_options.ttl only when OPENAI_PROMPT_CACHE_TTL is set; cache_write_tokens read from usage)
+- apps/backend/app/core/config.py (OPENAI_PROMPT_CACHE_TTL, empty by default)
+- apps/backend/app/core/command/agent_executor.py (every model call metered, the independent check included; steps until the first change recorded; metrics returned: usage, steps, rounds, steps to first edit, verifier findings, hard failures; starting context before the first step: detect_stack and detect_commands results, the specification's pins, what the artifact graph holds for files the mission names, this workspace's failures in the last seven days)
+- apps/backend/app/core/command/service.py, continuation.py (metrics stored with the mission and added up across rounds; a cost line under the report: tokens, share from the cache, dollars, steps, step of the first change)
+- apps/backend/app/core/synthesis/report.py (confidence High, Medium or Low worked out in code from the evidence: requirements shown done, independent check passed, hard checks failing; risks: requirements not done, hard checks failing, steps waiting for approval, steps that failed)
+- apps/backend/app/core/voice/live.py (get_mission includes the confidence and the top risks)
+- apps/dashboard/src/components/voice-conversation.tsx (while a conversation is live, important new activity (a mission finished, blocked or failed, anything waiting for Richard) is told to him unprompted: checked every 12 seconds and as soon as JARV finishes speaking, one update at a time, never over speech, at most every 20 seconds)
+- apps/dashboard/__tests__/voice-conversation.test.tsx (JARV speaks up about a blocked mission and not about routine activity)
+- apps/backend/tests/test_upgrade4_synthesizer.py (confidence and risks)
+DECISIONS: The opening of each request (instructions, tools, the mission's first message with requirements and context) was already stable within a mission; the test proves it byte-identical between steps. A smaller model for old results is not added: 5.1 measures first. prompt_cache_options.ttl stays off until a cache_write_tokens figure shows gpt-6-luna accepts it.
+COMMANDS RUN: Pure Synthesizer and metric tests locally (7 passed).
+TESTS RUN: Owner run by install-upgrade-5.sh: full backend suite on PostgreSQL, dashboard tsc and jest.
+RESULT: Committed by the owner's script only after both pass.
+BLOCKERS: None.
+NEXT TASK: Rename JARV to JAI; then the acceptance mission on MYCO, measured against the 5.5 million token baseline.
