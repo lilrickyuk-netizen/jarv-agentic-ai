@@ -79,7 +79,7 @@ def test_the_brief_carries_jais_instructions_tools_and_voice_but_never_the_key(c
             return (await db.execute(select(AuditLog).where(AuditLog.action == live.SESSION_ACTION,
                                                             AuditLog.user_id == operator))).scalars().all()
 
-    assert [a.details.get("engine") for a in _run(audit())] == ["pipecat"]
+    assert [(a.meta_data or {}).get("engine") for a in _run(audit())] == ["pipecat"]
 
 
 def test_the_brief_needs_a_signed_in_operator(client):
