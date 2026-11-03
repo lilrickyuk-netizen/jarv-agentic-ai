@@ -33,7 +33,10 @@ FINISH_TOOL = {
     "input_schema": {
         "type": "object",
         "properties": {
-            "summary": {"type": "string", "description": "What was done and how it was verified"},
+            "summary": {"type": "string", "description": (
+                "What was done and how it was verified, with the findings themselves: the facts, numbers, "
+                "quotes and recommendations, each with the URL or file it came from. This report is all that "
+                "reaches Richard, so a finding left out of it is lost.")},
             "success": {"type": "boolean"},
             "outputs": {"type": "array", "items": {"type": "string"},
                         "description": "Files written, findings, or other deliverables"},

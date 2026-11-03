@@ -16,6 +16,31 @@ import traceback
 logger = logging.getLogger(__name__)
 
 
+
+def report_text(outcome: Dict[str, Any]) -> str:
+    """A tool-loop agent's report as the mission sees it: its summary, the deliverables it listed, and the pages it
+    read and searches it ran (from its own tool trail), so its findings and their sources reach the final answer."""
+    parts = [str(outcome.get("summary") or "").strip()]
+    outputs = [str(o).strip() for o in outcome.get("outputs") or [] if str(o).strip()]
+    if outputs:
+        parts.append("Deliverables and findings:\n" + "\n".join(f"- {o}" for o in outputs))
+    read, searched = [], []
+    for call in outcome.get("tool_calls") or []:
+        if not isinstance(call, dict) or not call.get("success"):
+            continue
+        args = call.get("args") or {}
+        if call.get("name") == "fetch_url" and args.get("url") and args["url"] not in read:
+            read.append(str(args["url"]))
+        elif call.get("name") in ("web_search", "research_web"):
+            asked = args.get("query") or args.get("question")
+            if asked and asked not in searched:
+                searched.append(str(asked))
+    if read:
+        parts.append("Pages read: " + ", ".join(read[:30]))
+    if searched:
+        parts.append("Searched the web for: " + "; ".join(searched[:15]))
+    return "\n\n".join(p for p in parts if p)
+
 class AuthorityLevel(int, Enum):
     """Agent authority levels for action approval"""
     LEVEL_0_READ_ONLY = 0
@@ -534,7 +559,7 @@ class AgentBase(ABC):
                 "approval_needed": outcome["approval_needed"], "steps": outcome["steps"],
                 "workspace_root": outcome["workspace_root"]}
         return self.create_result(
-            success=outcome["success"], result_data=data, output_text=outcome["summary"],
+            success=outcome["success"], result_data=data, output_text=report_text(outcome),
             error_message=None if outcome["success"] else (
                 "waiting for approval" if outcome["requires_approval"] else "task not completed"),
             tools_used=outcome["tools_used"],

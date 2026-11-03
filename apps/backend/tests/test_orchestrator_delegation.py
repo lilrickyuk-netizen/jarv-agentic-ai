@@ -207,3 +207,19 @@ def test_the_final_answer_is_given_each_agents_whole_report():
     assert "- marketing: completed\nOlder result, preview only." in text
     many = _agent_reports([{"resolved_agent": f"a{i}", "status": "completed", "output": "x" * 20000} for i in range(10)])
     assert len(many) <= AGENT_REPORTS_BUDGET + 10 * 40
+
+
+def test_an_agents_report_carries_its_findings_and_the_pages_it_read():
+    from app.core.agents.base import report_text
+
+    text = report_text({
+        "summary": "Reviewed plexecute.co.uk: it presents itself as an AI Life Execution Platform.",
+        "outputs": ["Tiers: Free, Pro, Execute (https://plexecute.co.uk/pricing)"],
+        "tool_calls": [{"name": "web_search", "args": {"query": "plexecute"}, "success": True},
+                       {"name": "fetch_url", "args": {"url": "https://plexecute.co.uk/"}, "success": True},
+                       {"name": "fetch_url", "args": {"url": "https://plexecute.co.uk/"}, "success": True},
+                       {"name": "fetch_url", "args": {"url": "https://plexecute.co.uk/about"}, "success": False}]})
+    assert text.startswith("Reviewed plexecute.co.uk")
+    assert "- Tiers: Free, Pro, Execute (https://plexecute.co.uk/pricing)" in text
+    assert "Pages read: https://plexecute.co.uk/\n" in text + "\n" and "/about" not in text  # only pages it got
+    assert "Searched the web for: plexecute" in text

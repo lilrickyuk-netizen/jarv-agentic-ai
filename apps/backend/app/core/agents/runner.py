@@ -286,7 +286,7 @@ class AgentRunner:
                 "agent": agent_name,
                 "success": success,
                 "assessment": agent_name in ASSESSMENT_AGENTS,
-                "output_text": out_text[:2000],
+                "output_text": out_text[:6000],  # the whole report reaches the mission's final answer
                 "result_keys": list((result.result_data or {}).keys())[:12],
                 "result_data": {k: result.result_data[k] for k in list((result.result_data or {}).keys())[:8]},
                 "tokens": (result.tokens_used or {}).get("total_tokens", 0),

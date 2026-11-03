@@ -13919,3 +13919,16 @@ TESTS RUN: dashboard suite with a new test that playback starts a quarter of a s
 RESULT: Richard said the voice sounded gappy, like something reading off a screen that cannot read properly, whichever voice spoke. The voice service sends JAI's speech in pieces of a few hundredths of a second at the pace they play, and the dashboard played each piece the moment it arrived with nothing in hand, so every piece that arrived a moment late left a small pause, many times a second. Playback now keeps a quarter of a second of speech in hand when JAI starts speaking or whenever it has run dry, and plays each following piece straight after the last, as streaming players do. Talking over JAI still stops it at once.
 BLOCKERS: None
 NEXT TASK: Richard to choose the speaking voice (OpenAI fable, ElevenLabs or Chatterbox); then Wave 4
+
+---
+
+TASK ID: FIX-AGENT-REPORTS-CARRY-FINDINGS
+TASK NAME: Each agent's report carries its findings, its deliverables and the pages it read, in full, to the mission's answer
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/agents/base.py, apps/backend/app/core/agents/tool_loop.py, apps/backend/app/core/agents/runner.py, apps/backend/tests/test_orchestrator_delegation.py
+COMMANDS RUN: backend test suite (pgvector test database); docker compose restart backend worker
+TESTS RUN: backend suite with a new test that an agent's report holds its summary, its listed deliverables and findings, the pages it read successfully and the searches it ran
+RESULT: The second Plexecute review completed but still said the research "did not preserve page URLs, quoted evidence, or detailed findings" and that the content agent's draft "was truncated". Three things lost them: an agent's report was only its finish summary (the findings and deliverables it listed in finish were kept aside, never shown), the runner cut each report to 2,000 characters, and nothing recorded which pages it had read. An agent's report is now its summary, then its listed deliverables and findings, then the pages it read and the searches it ran (from its own tool trail, successful calls only); the runner keeps up to 6,000 characters; and the finish tool tells every agent its summary must carry the findings themselves, each with the URL or file it came from, because that report is all that reaches Richard.
+BLOCKERS: None
+NEXT TASK: Re-run the Plexecute review; then Wave 4
