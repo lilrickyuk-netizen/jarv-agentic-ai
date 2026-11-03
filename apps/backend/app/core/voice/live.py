@@ -589,7 +589,8 @@ async def _ask_jarv(db: AsyncSession, user_id: UUID, question: str, workspace_id
             facts["verified_lessons"] = []
     service = CommandService()
     response = await get_router().complete(CompletionRequest(
-        model=service.model, max_tokens=900, temperature=0.2, reasoning_effort="medium",
+        # Low effort: a spoken answer must come in seconds; the facts already carry the live picture.
+        model=service.model, max_tokens=700, temperature=0.2, reasoning_effort="low",
         system=("You are JAI's reasoning core answering Richard Curley's spoken question; your answer is spoken "
                 "aloud by JAI's voice, so speak as JAI, in the first person ('I am on step 7 of the check'). Answer "
                 "only from the facts given (working_now with each mission's live progress, the status line, "

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { timeoutFor } from '@/lib/backend-timeout';
 
 type RouteContext = { params: { path: string[] } };
 
@@ -18,7 +19,7 @@ async function forward(request: NextRequest, { params }: RouteContext) {
 
   try {
     const body = ['GET', 'HEAD'].includes(request.method) ? undefined : await request.arrayBuffer();
-    const timeoutMs = path.endsWith('/status') && path.includes('/voicebox/') ? 10 * 60 * 1000 : 30000;
+    const timeoutMs = timeoutFor(path);
     const response = await fetch(target, {
       method: request.method,
       headers,
@@ -32,7 +33,12 @@ async function forward(request: NextRequest, { params }: RouteContext) {
       if (value) responseHeaders.set(name, value);
     }
     return new Response(response.body, { status: response.status, headers: responseHeaders });
-  } catch {
+  } catch (error) {
+    // A backend that is slow to answer is not an unreachable one: say which it was.
+    if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+      return NextResponse.json({ detail: `JAI's backend is running but took longer than ${Math.round(timeoutFor(path) / 1000)} `
+        + 'seconds to answer this request.' }, { status: 504 });
+    }
     return NextResponse.json({ detail: 'Backend API is unreachable' }, { status: 502 });
   }
 }

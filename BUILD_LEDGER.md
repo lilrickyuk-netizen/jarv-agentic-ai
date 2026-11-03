@@ -13763,3 +13763,16 @@ TESTS RUN: full backend suite, with a new test that a work question reaches the 
 RESULT: The live voice model answered status questions itself from raw records and, when unsure, improvised: it said a running mission was "flagged as paused" and told Richard to re-approve a command that had run. Now every question about JAI's work or his projects (missions, status, progress, approvals, requirements, files, decisions, failures, why, how long, what next) goes to ask_jarv, JAI's reasoning core (medium reasoning effort), and the voice says its answer faithfully, adding nothing. The voice is no longer given get_status, get_mission, search_memory or list_approvals; it keeps the actions (start, resume and cancel a mission, read workspace files, list workspaces, trace a file or requirement). The reasoning core now sees every running mission's full live progress (each requirement, files changed, failures, the independent check's step) with how old it is, the status line, the waiting approvals, JAI's memory, verified lessons, relevant passages from the knowledge library and the workspace's specification, and the recent conversation; it answers in the first person as JAI, specific and explaining why, without filler, promises or repeats. Optional lookups run in savepoints, so a failed one never spoils the answer.
 BLOCKERS: None
 NEXT TASK: Review the MYCO verification mission's report for the v3.2-phase-00-truth-baseline tag
+
+---
+
+TASK ID: VOICE-WAITS-FOR-THE-BRAIN
+TASK NAME: Talk with JAI waits for JAI's brain, and a slow answer is never called unreachable
+STATUS: COMPLETE
+FILES CREATED: apps/dashboard/src/lib/backend-timeout.ts, apps/dashboard/__tests__/backend-timeout.test.ts
+FILES MODIFIED: apps/dashboard/src/app/api/backend/[...path]/route.ts, apps/backend/app/core/voice/live.py, apps/backend/tests/test_jai_knows_what_is_running.py
+COMMANDS RUN: backend test suite (pgvector test database); npm ci, npx tsc --noEmit, npx jest --ci (node:20); docker compose up -d --build --no-deps backend dashboard
+TESTS RUN: full backend suite; dashboard type check and jest, with a new test for the wait per request
+RESULT: Right after the brain change, JAI told Richard it could not reach the backend. The backend was healthy (it had just been restarted by the installer), but the dashboard's proxy gave every request 30 seconds and reported any timeout as "Backend API is unreachable". Talk with JAI's tool calls now get 90 seconds, a timeout is reported as "JAI's backend is running but took longer than N seconds to answer" (504) rather than unreachable (502, kept for a backend that does not answer at all), and the reasoning core answers spoken questions at low reasoning effort so it replies in seconds, with the same live facts.
+BLOCKERS: None
+NEXT TASK: Review the MYCO verification mission's report for the v3.2-phase-00-truth-baseline tag

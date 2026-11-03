@@ -276,5 +276,5 @@ def test_talk_with_jai_answers_from_the_brain_with_the_live_picture(monkeypatch)
     now = facts["working_now"][0]
     assert now["title"].startswith("Verify that MYCO") and now["progress"]["check"]["steps"] == 35
     assert "minutes_since_last_step" in now["progress"] and facts["status"].startswith("Status:")
-    assert "knowledge" in facts and seen["effort"] == "medium"
+    assert "knowledge" in facts and seen["effort"] == "low"
     assert "speak as JAI, in the first person" in seen["system"] and "never repeat" in seen["system"]
