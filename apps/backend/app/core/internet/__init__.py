@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import re
 import logging
 import socket
 import urllib.parse
@@ -128,12 +129,64 @@ def _markdown_title(markdown: str) -> str:
     return ""
 
 
+_GITHUB_RELEASES = re.compile(
+    r"^https?://(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/(?:releases|tags)(?:/|$|\?)")
+
+
+def github_releases_text(owner: str, repo: str, releases: List[Dict[str, Any]]) -> str:
+    """GitHub's own release records as text: the latest stable release first, then the recent ones, each marked
+    stable or pre-release with its date (the releases page lists canaries first and is too long to read whole)."""
+    published = [r for r in releases if not r.get("draft")]
+    stable = [r for r in published if not r.get("prerelease")]
+    lines = [f"# {owner}/{repo} releases (from GitHub's release records)"]
+    if stable:
+        top = stable[0]
+        lines.append(f"Latest stable release: {top.get('tag_name')} ({top.get('name') or top.get('tag_name')}), "
+                     f"published {str(top.get('published_at') or '')[:10]}.")
+    else:
+        lines.append("No stable release among the most recent releases.")
+    lines.append("Recent releases, newest first:")
+    for r in published[:15]:
+        kind = "pre-release" if r.get("prerelease") else "stable"
+        lines.append(f"- {r.get('tag_name')}: {kind}, published {str(r.get('published_at') or '')[:10]}")
+    if stable:
+        notes = str(stable[0].get("body") or "").strip()
+        if notes:
+            lines.append(f"\nRelease notes for {stable[0].get('tag_name')}:\n{notes[:4000]}")
+    return "\n".join(lines)
+
+
+async def _github_releases(url: str) -> Optional[Dict[str, Any]]:
+    match = _GITHUB_RELEASES.match(url)
+    if not match:
+        return None
+    owner, repo = match.group(1), match.group(2)
+    try:
+        async with httpx.AsyncClient(timeout=FETCH_TIMEOUT) as c:
+            r = await c.get(f"https://api.github.com/repos/{owner}/{repo}/releases", params={"per_page": 30},
+                            headers={"Accept": "application/vnd.github+json", "User-Agent": "JAI-Research/1.0"})
+        if r.status_code >= 400:
+            return None
+        releases = r.json()
+        if not isinstance(releases, list) or not releases:
+            return None
+    except (httpx.HTTPError, ValueError):
+        return None
+    text = github_releases_text(owner, repo, releases)
+    return {"ok": True, "url": url, "status": 200, "content_type": "text/markdown",
+            "title": f"Releases · {owner}/{repo} · GitHub", "text": _redact(text)[:8000], "bytes": len(text),
+            "source": "github_api"}
+
+
 async def fetch_url(url: str, render: Optional[bool] = None) -> Dict[str, Any]:
     """Read a public page (read-only, size-capped, SSRF-guarded, the final address checked too). Never executes.
     render=True reads it through JAI's browser (Crawl4AI); by default a page that comes back thin (built by
     JavaScript) or refused (a bot wall) is read again through the browser, and the fuller text is kept."""
     if render:
         return await render_page(url)
+    releases = await _github_releases(url)
+    if releases is not None:
+        return releases
     plain = await _fetch_plain(url)
     if plain.get("blocked") or render is False:
         return plain

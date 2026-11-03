@@ -197,3 +197,26 @@ def test_the_voice_looks_things_up_and_puts_the_answer_on_screen(monkeypatch):
     assert output["card"]["kind"] == "research" and "on his screen" in output["note"]
     assert "research_web" in {t["name"] for t in live.VOICE_TOOLS}
     assert "never answer from memory" in live.instructions([])
+
+
+def test_github_release_pages_are_read_from_githubs_own_records_stable_first(web):
+    releases = [{"tag_name": "v16.5.0-canary.12", "prerelease": True, "published_at": "2026-11-03T10:00:00Z"},
+                {"tag_name": "v16.5.0-canary.11", "prerelease": True, "published_at": "2026-11-02T10:00:00Z"},
+                {"tag_name": "v16.4.5", "name": "v16.4.5", "prerelease": False, "published_at": "2026-11-02T18:00:00Z",
+                 "body": "Fixes a cache bug."},
+                {"tag_name": "draft", "draft": True},
+                {"tag_name": "v16.4.4", "prerelease": False, "published_at": "2026-10-30T18:00:00Z"}]
+    web["routes"]["https://api.github.com/repos/vercel/next.js/releases"] = lambda r: httpx.Response(200, json=releases)
+    page = _run(internet.fetch_url("https://github.com/vercel/next.js/releases"))
+    assert page["ok"] and page["source"] == "github_api"
+    assert "Latest stable release: v16.4.5 (v16.4.5), published 2026-11-02." in page["text"]
+    assert "- v16.5.0-canary.12: pre-release, published 2026-11-03" in page["text"]
+    assert "draft" not in page["text"] and "Fixes a cache bug." in page["text"]
+    assert web["requests"][-1].headers["accept"] == "application/vnd.github+json"
+    # Any other GitHub page, or GitHub not answering, is read the ordinary way.
+    assert internet._GITHUB_RELEASES.match("https://github.com/vercel/next.js/issues") is None
+
+
+def test_official_sources_outrank_aggregators():
+    searches = [{"results": [{"url": "https://endoflife.date/nextjs"}, {"url": "https://github.com/vercel/next.js/releases"}]}]
+    assert research_module.rank_sources(searches, 2)[0]["url"] == "https://github.com/vercel/next.js/releases"

@@ -67,6 +67,15 @@ def _queries_from(text: str, question: str, limit: int) -> List[str]:
     return queries[:limit]
 
 
+OFFICIAL_HINTS = ("github.com", "docs.", "developer.", ".gov", ".gov.uk", "nextjs.org", "python.org", "nodejs.org",
+                  "kubernetes.io", "postgresql.org", "mozilla.org", "w3.org")
+
+
+def _official(url: str) -> bool:
+    host = urlparse(url).netloc.lower()
+    return any(hint in host for hint in OFFICIAL_HINTS)
+
+
 def rank_sources(searches: List[Dict[str, Any]], limit: int) -> List[Dict[str, Any]]:
     """Merge every query's results: a page found by more queries and engines, and higher in them, ranks first;
     one page per site until the other sites run out."""
@@ -77,7 +86,8 @@ def rank_sources(searches: List[Dict[str, Any]], limit: int) -> List[Dict[str, A
             if not url:
                 continue
             entry = scores.setdefault(url, {**item, "score": 0.0, "queries": 0})
-            entry["score"] += 1.0 / (position + 1) + 0.25 * max(0, len(item.get("engines") or []) - 1)
+            entry["score"] += (1.0 / (position + 1) + 0.25 * max(0, len(item.get("engines") or []) - 1)
+                               + (0.75 if _official(url) else 0.0))
             entry["queries"] += 1
     ranked = sorted(scores.values(), key=lambda e: (e["queries"], e["score"]), reverse=True)
     chosen, sites = [], set()
@@ -140,7 +150,10 @@ async def research(question: str, depth: str = "quick", category: Optional[str] 
     report = await _complete(
         "You are JAI's research analyst writing for Richard Curley. Answer from the numbered sources only, never "
         "from memory. Cite every factual claim with its source number in square brackets, e.g. [2]. Lead with "
-        "the direct answer, then the supporting detail, with numbers, dates and names. Say plainly where sources "
+        "the direct answer, then the supporting detail, with numbers, dates and names. Official sources (the "
+        "project's or vendor's own site, documentation, GitHub releases, the regulator) outrank aggregators, "
+        "blogs and listing sites: when they disagree, go with the official one and say which you relied on; "
+        "for versions and releases, the GitHub release records are the authority. Say plainly where sources "
         "disagree, are old, or do not settle the question. British English. Plain prose paragraphs, no headings, "
         "no list of sources at the end (JAI adds it).",
         f"Today is {today}. Question: {question}\n\nSources:\n{excerpts}", plan["tokens"])
