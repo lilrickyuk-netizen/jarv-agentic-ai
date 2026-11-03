@@ -208,6 +208,24 @@ async def live_session(user_id: CurrentUserId, db: AsyncSession = Depends(get_db
         raise HTTPException(status_code=502, detail=str(exc))
 
 
+class LiveUsageRequest(BaseModel):
+    usage: Dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post("/live/usage")
+async def live_usage(request: LiveUsageRequest, user_id: CurrentUserId) -> Dict[str, Any]:
+    """The usage of one live voice reply: added to today's AI spend; says whether the conversation must stop."""
+    return await live.record_usage(request.usage)
+
+
+@router.get("/spend/today")
+async def spend_today(user_id: CurrentUserId) -> Dict[str, Any]:
+    """Today's AI spend (text models and the live voice), the daily limit and what is left."""
+    from app.core import spend
+
+    return await spend.today()
+
+
 @router.post("/live/turn")
 async def live_turn(request: LiveTurnRequest, user_id: CurrentUserId) -> Dict[str, Any]:
     """Keep one spoken turn so the next conversation carries on from this one."""

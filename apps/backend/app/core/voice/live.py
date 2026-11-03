@@ -263,6 +263,19 @@ def history_block(turns: List[Dict[str, Any]]) -> str:
             + "\n".join(lines))
 
 
+async def record_usage(usage: Dict[str, Any]) -> Dict[str, Any]:
+    """One live voice reply's usage, as OpenAI reports it on response.done: priced, added to today's spend, and
+    whether the conversation must stop because today's limit is now reached."""
+    from app.core import spend
+
+    cost = spend.realtime_cost(settings.OPENAI_REALTIME_MODEL, usage if isinstance(usage, dict) else {})
+    await spend.record("voice", cost)
+    state = await spend.today()
+    return {"cost_usd": round(cost, 5), "today": state, "stop": state["limit_reached"],
+            "reason": (f"Today's AI spending limit is reached (${state['total_usd']:.2f} of ${state['limit_usd']:.2f}); "
+                       f"the conversation has ended.") if state["limit_reached"] else None}
+
+
 async def situation_block(db: AsyncSession, user_id: UUID) -> str:
     """What JAI is doing as the conversation opens: missions in progress with their latest step, and what waits
     for Richard's approval. It is a starting picture; the instructions say to check again before answering."""
@@ -295,8 +308,14 @@ async def create_session(db: AsyncSession, user_id: UUID) -> Dict[str, Any]:
     """A short-lived Realtime client secret for this operator, carrying JAI's instructions and tools."""
     if not available():
         raise LiveUnavailable(setup_hint())
+    from app.core import spend
     from app.core.audit import AuditLogger
 
+    state = await spend.today()
+    if state["limit_reached"]:
+        raise LiveUnavailable(f"Today's AI spending limit is reached (${state['total_usd']:.2f} of "
+                              f"${state['limit_usd']:.2f}), so the live conversation cannot start until it is raised "
+                              f"(DAILY_SPEND_LIMIT_USD) or the day turns over.")
     spaces = await _workspaces(db, user_id)
     model, voice = settings.OPENAI_REALTIME_MODEL, settings.OPENAI_REALTIME_VOICE
     body = {"session": {
@@ -563,6 +582,12 @@ async def _ask_jarv(db: AsyncSession, user_id: UUID, question: str, workspace_id
                             "progress": {**record, **mission_progress.age(record)} if record else None,
                             "latest_activity": mission.get("latest_activity")})
     facts["working_now"] = working
+    try:
+        from app.core import spend
+
+        facts["ai_spend_today"] = await spend.today()  # so "what have I spent today?" has a true answer
+    except Exception:  # noqa: BLE001
+        facts["ai_spend_today"] = None
     try:
         async with db.begin_nested():  # an optional lookup never spoils the session for the rest
             facts["status"] = (await engine._status_reply(db, user_id, workspace_id))["reply"]

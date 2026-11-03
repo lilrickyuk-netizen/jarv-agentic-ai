@@ -161,3 +161,21 @@ def test_an_approved_command_and_a_syft_scan_get_the_long_limit():
     assert command_timeout("syft dir:. -o cyclonedx-json=sbom.json") == long
     assert command_timeout("some-unknown-tool --check", "risky") == short
     assert command_timeout("some-unknown-tool --check", "risky", approved=True) == long  # Richard approved it to run
+
+
+@pytest.mark.parametrize("command, expected", [
+    ("trivy version", "safe"),
+    ("trivy fs --scanners license --format cyclonedx -o artifacts/licences.cdx.json .", "build"),
+    ("trivy fs --scanners vuln,secret .", "build"),
+    ("trivy image ghcr.io/example/app:latest", "risky"),   # pulls an image: Richard decides
+    ("trivy repo https://github.com/example/app", "risky"),
+    ("gitleaks version", "safe"),
+    ("gitleaks detect --source . --no-banner", "build"),
+    ("gitleaks dir .", "build"),
+])
+def test_trivy_and_gitleaks_are_known_build_tools(command, expected):
+    from app.core.workspaces.fs_inspector import classify_command
+
+    assert classify_command(command) == expected, command
+    if expected == "build":
+        assert command_timeout(command, expected) == settings.AGENT_LONG_COMMAND_TIMEOUT_SECONDS

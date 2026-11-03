@@ -26,6 +26,12 @@ jest.mock('@/lib/api', () => ({
         return { status: 200, data: { client_secret: 'ek_test', model: 'gpt-realtime', voice: 'cedar',
           calls_url: 'https://api.openai.com/v1/realtime/calls' } };
       }
+      if (path === '/api/voice/live/usage') {
+        const tokens = (body as { usage?: { total_tokens?: number } })?.usage?.total_tokens ?? 0;
+        return { status: 200, data: tokens > 1000000
+          ? { stop: true, reason: "Today's AI spending limit is reached ($10.00 of $10.00); the conversation has ended." }
+          : { stop: false } };
+      }
       if (path === '/api/voice/live/tool') {
         return { status: 200, data: { intent: 'mission', task_id: 'task-7', reply: 'On it.' } };
       }
@@ -183,6 +189,20 @@ describe('VoiceConversation', () => {
       call_id: 'c2', arguments: JSON.stringify({ instruction: 'Run the tests' }) }));
     await waitFor(() => expect(posted()).toHaveLength(1));
     fireEvent.click(screen.getByRole('button', { name: 'End conversation' }));
+  });
+
+  it('sends each reply\'s usage to the spend meter and ends the conversation at the daily limit', async () => {
+    render(<VoiceConversation ready beforeStart={async () => undefined} onMission={async () => null} onStateChange={jest.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Talk with JAI' }));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    act(() => channel.open());
+    expect(await screen.findByText('IN CONVERSATION — JUST TALK')).toBeInTheDocument();
+    await act(async () => channel.emit({ type: 'response.done', response: { usage: { total_tokens: 900 } } }));
+    await waitFor(() => expect(mockPosts.some((p) => p.path === '/api/voice/live/usage')).toBe(true));
+    expect(screen.getByRole('button', { name: 'End conversation' })).toBeInTheDocument();  // under the limit: carries on
+    await act(async () => channel.emit({ type: 'response.done', response: { usage: { total_tokens: 2000000 } } }));
+    expect(await screen.findByText(/spending limit is reached/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Talk with JAI' })).toBeInTheDocument();  // the conversation ended
   });
 
   it('says what to set up when live conversation is unavailable', () => {

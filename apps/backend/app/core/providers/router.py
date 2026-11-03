@@ -242,6 +242,10 @@ class ModelRouter:
             ModelNotFoundError: If no provider supports the model
             ProviderError: If the provider request fails
         """
+        # Today's AI spending limit (Wave 1): no call is made once it is reached.
+        from app.core import spend
+
+        await spend.check()
         candidates = self.plan(request.model)
         if not candidates:
             raise ProviderError(
@@ -263,6 +267,13 @@ class ModelRouter:
                 logger.warning(f"Provider {provider_key} unavailable for {model}; trying the next one. ({exc})")
                 continue
             self._resting_until.pop(provider_key, None)
+            cost = spend.text_cost(response.model or model, response.usage)
+            if cost is None:
+                try:
+                    cost = float(self.providers[provider_key].estimate_cost(attempt, response) or 0.0)
+                except Exception:  # noqa: BLE001 - a model with no price is counted as a call
+                    cost = 0.0
+            await spend.record("text", cost)
             if model != request.model:
                 logger.warning(f"Model {request.model} served by {model} ({provider_key}) instead")
                 response.provider = response.provider or str(getattr(provider_key, "value", provider_key))

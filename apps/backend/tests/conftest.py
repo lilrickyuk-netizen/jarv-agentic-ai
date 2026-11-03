@@ -156,6 +156,14 @@ def db_session(db_engine) -> Generator[Session, None, None]:
 
 
 @pytest.fixture(autouse=True)
+def _no_spend_limit_unless_a_test_sets_one(monkeypatch):
+    """The daily AI spending limit is off in tests (it is measured, never enforced) unless a test sets one."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "DAILY_SPEND_LIMIT_USD", 0)
+
+
+@pytest.fixture(autouse=True)
 def _reset_redis_singleton():
     """Reset the Redis client and isolate real-Redis acceptance runs.
 

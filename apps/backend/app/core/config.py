@@ -301,6 +301,10 @@ class Settings(BaseSettings):
     AGENT_MAX_OUTPUT_TOKENS: int = Field(default=16000, ge=1024, le=128000)
     # How long one agent command may run. Builds, tests, installs and a project's own verify task (Terraform,
     # Helm and test suites together) take minutes, so they get the long limit; everything else the short one.
+    # Wave 1, cost control: the most JAI may spend on AI (text models and the live voice) in one London day, in
+    # US dollars. When reached, missions pause and the live voice stops until it is raised or the day turns over.
+    # 0 turns the cap off (the spend is still measured).
+    DAILY_SPEND_LIMIT_USD: float = Field(default=10.0, ge=0, le=10000)
     AGENT_COMMAND_TIMEOUT_SECONDS: int = Field(default=120, ge=10, le=3600)
     AGENT_LONG_COMMAND_TIMEOUT_SECONDS: int = Field(default=900, ge=60, le=7200)
     # Spoken replies are stored here for their owner and pruned after the retention period.

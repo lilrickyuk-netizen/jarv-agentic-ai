@@ -458,7 +458,7 @@ SAFE_COMMAND_PREFIXES = (
     "git shortlog", "git blame", "git grep", "git stash list", "git tag -l", "git tag --list",
     "yarn --version", "jq --version", "rg --version", "gcc --version", "make --version",
     "task --version", "task --list", "task --list-all", "terraform version", "terraform -version",
-    "helm version", "syft version",
+    "helm version", "syft version", "trivy version", "trivy --version", "gitleaks version",
 )
 # Build / test commands — allowed at Level 3 (build & test) inside an approved
 # workspace. These compile/test a project (JAI's core job) but do not delete,
@@ -507,6 +507,10 @@ _HELM_RE = re.compile(r"^helm (lint|template|version|show|dependency (?:build|up
 # container engine reaches outside the workspace, and attesting signs and publishes: Richard decides those.
 _SYFT_RE = re.compile(r"^syft (version|scan|packages|convert|cataloger list)(?: |$)")
 _SYFT_REMOTE = ("registry:", "docker:", "podman:", "containerd:", "oci-registry:", "singularity:")
+# Trivy (licences, vulnerabilities, SBOMs) and Gitleaks (secrets) on the workspace's own files are build work.
+# Trivy on a container image or a remote repository reaches outside the workspace: Richard decides those.
+_TRIVY_RE = re.compile(r"^trivy (fs|filesystem|config|sbom|convert|clean)(?: |$)")
+_GITLEAKS_RE = re.compile(r"^gitleaks (detect|dir|git|protect|stdin)(?: |$)")
 _SYFT_SOURCE = re.compile(r"^(?:dir:|file:|\.$|\./|[a-z0-9_][a-z0-9_.-]*/)")  # path-like, never a subcommand
 
 # Trusted project package-manager install commands (project-local). Allowed to
@@ -732,6 +736,10 @@ def classify_command(command: str) -> str:
         if syft.group(1) == "version":
             return "safe"
         return "risky" if any(a.startswith(_SYFT_REMOTE) for a in words[2:]) else "build"
+    if _TRIVY_RE.match(c):
+        return "build"
+    if _GITLEAKS_RE.match(c):
+        return "build"
     # Syft's short form names the source straight away ("syft dir:. -o ...", "syft ./apps"): the same scan.
     if words[0] == "syft" and len(words) > 1 and _SYFT_SOURCE.match(words[1]):
         return "risky" if any(a.startswith(_SYFT_REMOTE) for a in words[1:]) else "build"

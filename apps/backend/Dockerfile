@@ -60,7 +60,8 @@ CMD ["python", "-m", "pytest"]
 
 # Toolchains JAI's agents use to build projects in a workspace (copied into the runtime image).
 # Versions follow the most demanding project JAI builds (MYCO V3.2 §40): Node 24 LTS, uv 0.12,
-# Task 3.52, Terraform 1.16, Helm 4.3, Syft 1.55 (SBOMs). Change them here, in one place.
+# Task 3.52, Terraform 1.16, Helm 4.3, Syft 1.55 (SBOMs), Trivy 0.76 (licences, vulnerabilities), Gitleaks 8.30
+# (secrets). Their versions are set on the download step below, in one place.
 FROM ${NODE_IMAGE} AS node
 FROM ${UV_IMAGE} AS uv
 
@@ -79,10 +80,6 @@ WORKDIR /app
 # Syft (software bills of materials), a C/C++ compiler and make (native packages), jq, unzip and ripgrep.
 # Anything else a project needs, JAI installs itself from the official registries into its
 # tool home (/home/jarv, a persistent volume): uv tool install, uv python install, pnpm, npm.
-ARG TASK_VERSION=3.52.0
-ARG TERRAFORM_VERSION=1.16.3
-ARG HELM_VERSION=4.3.0
-ARG SYFT_VERSION=1.55.0
 RUN apt-get update && apt-get install -y \
     curl \
     git \
@@ -100,26 +97,6 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -s ../lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack \
     && corepack enable --install-directory /usr/local/bin pnpm yarn \
     && npm cache clean --force
-# Task, Terraform, Helm and Syft from their official release downloads, checked against the published
-# checksums before installing.
-RUN set -eu; cd /tmp \
-    && curl -fsSLO "https://github.com/go-task/task/releases/download/v${TASK_VERSION}/task_linux_amd64.tar.gz" \
-    && curl -fsSLO "https://github.com/go-task/task/releases/download/v${TASK_VERSION}/task_checksums.txt" \
-    && grep " task_linux_amd64.tar.gz$" task_checksums.txt | sha256sum -c - \
-    && tar -xzf task_linux_amd64.tar.gz -C /usr/local/bin task \
-    && curl -fsSLO "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
-    && curl -fsSLO "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_SHA256SUMS" \
-    && grep " terraform_${TERRAFORM_VERSION}_linux_amd64.zip$" "terraform_${TERRAFORM_VERSION}_SHA256SUMS" | sha256sum -c - \
-    && unzip -o -q "terraform_${TERRAFORM_VERSION}_linux_amd64.zip" terraform -d /usr/local/bin \
-    && curl -fsSLO "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" \
-    && curl -fsSLO "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz.sha256sum" \
-    && sha256sum -c "helm-v${HELM_VERSION}-linux-amd64.tar.gz.sha256sum" \
-    && tar -xzf "helm-v${HELM_VERSION}-linux-amd64.tar.gz" --strip-components=1 -C /usr/local/bin linux-amd64/helm \
-    && curl -fsSLO "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz" \
-    && curl -fsSLO "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_checksums.txt" \
-    && grep " syft_${SYFT_VERSION}_linux_amd64.tar.gz$" "syft_${SYFT_VERSION}_checksums.txt" | sha256sum -c - \
-    && tar -xzf "syft_${SYFT_VERSION}_linux_amd64.tar.gz" -C /usr/local/bin syft \
-    && rm -rf /tmp/*
 COPY --from=uv /uv /uvx /usr/local/bin/
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python \
     UV_LINK_MODE=copy \
@@ -139,6 +116,48 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
          > /etc/apt/sources.list.d/pgdg.list \
     && apt-get update && apt-get install -y --no-install-recommends postgresql-client-17 \
     && rm -rf /var/lib/apt/lists/*
+
+# Task, Terraform, Helm, Syft, Trivy and Gitleaks from their official release downloads, checked against the
+# published checksums before installing. The versions are declared here, next to the step that uses them, so a
+# version change rebuilds only this step and not the system packages, Node and Python before it.
+# Trivy and Gitleaks: the Linux 64-bit archive is the one their checksum list names, so the file checked is the
+# file installed.
+ARG TASK_VERSION=3.52.0
+ARG TERRAFORM_VERSION=1.16.3
+ARG HELM_VERSION=4.3.0
+ARG SYFT_VERSION=1.55.0
+ARG TRIVY_VERSION=0.76.1
+ARG GITLEAKS_VERSION=8.30.1
+RUN set -eu; cd /tmp \
+    && curl -fsSLO "https://github.com/go-task/task/releases/download/v${TASK_VERSION}/task_linux_amd64.tar.gz" \
+    && curl -fsSLO "https://github.com/go-task/task/releases/download/v${TASK_VERSION}/task_checksums.txt" \
+    && grep " task_linux_amd64.tar.gz$" task_checksums.txt | sha256sum -c - \
+    && tar -xzf task_linux_amd64.tar.gz -C /usr/local/bin task \
+    && curl -fsSLO "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" \
+    && curl -fsSLO "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_SHA256SUMS" \
+    && grep " terraform_${TERRAFORM_VERSION}_linux_amd64.zip$" "terraform_${TERRAFORM_VERSION}_SHA256SUMS" | sha256sum -c - \
+    && unzip -o -q "terraform_${TERRAFORM_VERSION}_linux_amd64.zip" terraform -d /usr/local/bin \
+    && curl -fsSLO "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" \
+    && curl -fsSLO "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz.sha256sum" \
+    && sha256sum -c "helm-v${HELM_VERSION}-linux-amd64.tar.gz.sha256sum" \
+    && tar -xzf "helm-v${HELM_VERSION}-linux-amd64.tar.gz" --strip-components=1 -C /usr/local/bin linux-amd64/helm \
+    && curl -fsSLO "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz" \
+    && curl -fsSLO "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_checksums.txt" \
+    && grep " syft_${SYFT_VERSION}_linux_amd64.tar.gz$" "syft_${SYFT_VERSION}_checksums.txt" | sha256sum -c - \
+    && tar -xzf "syft_${SYFT_VERSION}_linux_amd64.tar.gz" -C /usr/local/bin syft \
+    && curl -fsSLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_checksums.txt" \
+    && TRIVY_TGZ="$(grep -Eio "trivy_${TRIVY_VERSION}_linux[-_](64bit|amd64)\.tar\.gz" "trivy_${TRIVY_VERSION}_checksums.txt" | head -1)" \
+    && test -n "$TRIVY_TGZ" \
+    && curl -fsSLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${TRIVY_TGZ}" \
+    && grep " ${TRIVY_TGZ}$" "trivy_${TRIVY_VERSION}_checksums.txt" | sha256sum -c - \
+    && tar -xzf "${TRIVY_TGZ}" -C /usr/local/bin trivy \
+    && curl -fsSLO "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_checksums.txt" \
+    && GITLEAKS_TGZ="$(grep -Eio "gitleaks_${GITLEAKS_VERSION}_linux_(x64|amd64)\.tar\.gz" "gitleaks_${GITLEAKS_VERSION}_checksums.txt" | head -1)" \
+    && test -n "$GITLEAKS_TGZ" \
+    && curl -fsSLO "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${GITLEAKS_TGZ}" \
+    && grep " ${GITLEAKS_TGZ}$" "gitleaks_${GITLEAKS_VERSION}_checksums.txt" | sha256sum -c - \
+    && tar -xzf "${GITLEAKS_TGZ}" -C /usr/local/bin gitleaks \
+    && rm -rf /tmp/*
 
 # Create non-root user for security. Its uid/gid match the owner of the mounted workspace
 # folders (the WSL user, 1000, by default), so git, pnpm and uv can set file modes there.

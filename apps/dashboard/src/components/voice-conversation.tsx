@@ -23,6 +23,7 @@ interface RealtimeEvent {
   name?: string;
   arguments?: string;
   error?: { message?: string };
+  response?: { usage?: Record<string, unknown> };
 }
 
 interface Props {
@@ -176,6 +177,15 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
     requestReply();
   };
 
+  /** Each spoken reply's cost goes to today's AI spend; at the daily limit the conversation ends. */
+  const meter = async (usage: Record<string, unknown>) => {
+    const response = await apiClient.post<{ stop?: boolean; reason?: string | null }>('/api/voice/live/usage', { usage });
+    if (response.data?.stop) {
+      stop();
+      setProblem(response.data.reason || "Today's AI spending limit is reached; the conversation has ended.");
+    }
+  };
+
   const runTool = async (event: RealtimeEvent) => {
     const name = event.name || '';
     let args: Record<string, unknown> = {};
@@ -232,6 +242,7 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
         break;
       case 'response.done':
         respondingRef.current = false;
+        if (event.response?.usage) void meter(event.response.usage);
         if (replyQueuedRef.current) {
           replyQueuedRef.current = false;
           requestReply();

@@ -74,7 +74,7 @@ _TOOL_AUTHORITY = {
 # Programs whose runs take minutes: test runners, builds, installs, infrastructure checks and task runners.
 _LONG_RUNNING = frozenset({"task", "make", "just", "pnpm", "npm", "npx", "yarn", "uv", "uvx", "pip", "poetry",
                            "pytest", "vitest", "jest", "tsc", "terraform", "helm", "docker", "cargo", "go",
-                           "gradle", "mvn", "dotnet", "turbo", "nx", "syft"})
+                           "gradle", "mvn", "dotnet", "turbo", "nx", "syft", "trivy", "gitleaks"})
 
 
 def command_timeout(command: str, classification: Optional[str] = None, approved: bool = False) -> int:
