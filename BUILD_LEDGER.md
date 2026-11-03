@@ -13525,3 +13525,29 @@ TESTS RUN: Owner run by install-talk-colour.sh: tsc --noEmit and jest in node:20
 RESULT: Committed by the owner's script only after both pass.
 BLOCKERS: None.
 NEXT TASK: Upgrade 3 (Artifact Intelligence Graph).
+
+TASK ID: UPGRADE-3
+TASK NAME: Artifact Intelligence Graph
+STATUS: COMPLETE
+PROBLEM: JARV could not answer "what proves this?" or "why is this file the way it is?" except from summaries; the Phase 0 report's claims could not be traced to the files, commands and checks behind them.
+FILES CREATED:
+- apps/backend/app/models/artifact_graph.py (ArtifactNode: workspace, kind (requirement, file, command, check, decision, mission, knowledge), key, title, attrs, content SHA-256, task; ArtifactEdge: source, target, relation (implements, verifies, claims, contradicts, changed_by, run_in, required_by, informed_by, supersedes), task, evidence; unique per workspace and key, and per link and task)
+- apps/backend/alembic/versions/2026_11_03_0000-r17_artifact_graph.py (both tables and their indexes)
+- apps/backend/app/core/graph/__init__.py, service.py (node and link upserts; record_file, record_command, record_requirements, record_verification; trace: both directions, up to four steps, one workspace only; describe; backfill from FileChange and CommandRun rows, idempotent; ADR paths recorded as decisions)
+- apps/backend/app/tools/graph/__init__.py (trace_artifact tool, read-only, workspace-confined)
+- apps/backend/app/cli/graph.py (backfill, trace; audit-logged)
+- apps/backend/tests/test_upgrade3_artifact_graph.py
+FILES MODIFIED:
+- apps/backend/app/core/command/tool_runtime.py (every successful write and every command adds its node and its link to the mission, in a savepoint so the graph can never undo the action)
+- apps/backend/app/core/agents/workspace_ops.py (moves, copies and approved deletes recorded too)
+- apps/backend/app/core/command/agent_executor.py (requirements recorded as nodes tied to the mission; the Verifier's met checks with evidence become verifies edges, the files and commands its evidence names become implements and verifies edges, and hard-check failures become contradicts edges; trace_artifact offered to the Verifier)
+- apps/backend/app/core/agents/toolbox.py (every agent is offered trace_artifact, like consult_specialist_knowledge)
+- apps/backend/app/core/tools/registry.py (trace_artifact registered)
+- apps/backend/app/core/voice/live.py (Talk with JARV can trace: "why is Python 3.12.8?", "what proves R4?", in a named workspace or each of Richard's own)
+- apps/backend/tests/test_voice_live_and_mission_session.py (the voice tool set includes trace_artifact)
+DECISIONS: No embedding column on nodes (nothing searches nodes by meaning yet; knowledge passages already are). The trace walks edges in up to four queries rather than one recursive SQL query: the same result, and it runs on the test database too. The requirement-needs-evidence rule stays where Upgrade 2 put it (the Verifier's per-requirement evidence); the graph records that evidence as edges.
+COMMANDS RUN: Static checks (ast, undefined names) on every changed file.
+TESTS RUN: Owner run by install-upgrade-3.sh: full backend suite with the migration on PostgreSQL.
+RESULT: Committed by the owner's script only after the tests pass; the graph is then backfilled for every workspace.
+BLOCKERS: None.
+NEXT TASK: Upgrade 4 (Synthesizer); Upgrade 5 with spoken updates and confidence and risk in reports (Richard, 2 Nov 2026: not named protocols); then the rename to JAI.
