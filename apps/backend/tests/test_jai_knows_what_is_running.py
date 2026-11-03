@@ -7,7 +7,7 @@ what is running and an instruction to check before answering.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
@@ -24,14 +24,16 @@ async def _with(status: str, **result):
 
     async with AsyncTestingSessionLocal() as db:
         owner, ws_id = await _seed(db)
-        db.add(Task(id=uuid4(), workspace_id=ws_id, title="Earlier mission", task_type="command",
+        now = datetime.now(timezone.utc)
+        # Distinct start times: rows added in one transaction would otherwise share it, and "the latest
+        # mission" would be a tie.
+        db.add(Task(created_at=now - timedelta(hours=2), id=uuid4(), workspace_id=ws_id, title="Earlier mission", task_type="command",
                     status="completed", priority=5, meta_data={}, result={"response": "All done earlier."}))
         task = Task(id=uuid4(), workspace_id=ws_id, title="Bring MYCO Phase 0 into conformance",
-                    task_type="command", status=status, priority=5, meta_data={},
+                    task_type="command", status=status, priority=5, meta_data={}, created_at=now,
                     result={"response": "Round 1 stopped at its step limit.", **result})
         db.add(task)
         await db.flush()
-        now = datetime.now(timezone.utc)
         db.add(LiveOperationsFeedItem(id=uuid4(), workspace_id=ws_id, item_type="tool", severity="info",
                                       title="Tool: run_command", message="pnpm install --frozen-lockfile",
                                       related_task_id=task.id, requires_action=False, created_at=now,
