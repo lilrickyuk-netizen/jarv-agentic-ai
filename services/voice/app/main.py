@@ -23,10 +23,23 @@ ALLOWED_ORIGINS = {o.strip() for o in os.environ.get("PIPECAT_ALLOWED_ORIGINS", 
 app = FastAPI(title="JAI voice", docs_url=None, redoc_url=None)
 
 
+@app.on_event("startup")
+async def _load_the_voice():
+    """Load JAI's voice once when the service starts, not in the first conversation."""
+    import asyncio
+
+    try:
+        device = await asyncio.to_thread(pipeline.warm_up)
+        logger.info(f"JAI's voice is loaded and runs on the {device}")
+    except Exception:  # noqa: BLE001 - the first conversation loads it instead
+        logger.exception("JAI's voice could not be loaded at start")
+
+
 @app.get("/health")
 async def health():
     key = bool(openai_key())
     return {"status": "ok" if key else "degraded", "engine": "pipecat", "openai_key": key,
+            "voice_device": pipeline.kokoro_device(),
             "setup": None if key else "Set OPENAI_API_KEY in apps/backend/.env (the voice service reads it from there)."}
 
 

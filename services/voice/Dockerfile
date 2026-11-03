@@ -12,6 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl libgomp1 \
 WORKDIR /srv/voice
 COPY requirements.txt .
 RUN pip install -r requirements.txt
+# The NVIDIA build of ONNX Runtime (with its CUDA and cuDNN libraries) in place of the CPU one, so JAI's voice,
+# hearing and turn detection run on the graphics card when Docker gives the container one; without a GPU the same
+# build runs them on the processor.
+RUN pip uninstall -y onnxruntime && pip install "onnxruntime-gpu[cuda,cudnn]~=1.24.3"
 # Kokoro (open source, Apache 2.0): JAI's British voice, run on this computer. Its model and voices come from the
 # kokoro-onnx release and are checked against the checksums pinned here before they are kept.
 ARG KOKORO_RELEASE=https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0

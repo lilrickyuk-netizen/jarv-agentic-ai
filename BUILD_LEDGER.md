@@ -13880,3 +13880,16 @@ TESTS RUN: backend suite with a new test that reading the same page twice keeps 
 RESULT: The Plexecute review mission failed with "deadlock detected" on UPDATE memories: every page an agent reads is kept as a source record, an identical record was reinforced (its row updated) inside the mission's long transaction, two agents reading plexecute.co.uk/sitemap.xml at once locked the same row, and the database's deadlock error rolled back the whole mission. Source records are now written with reinforce=False (an identical record is left as it is, so no row is locked) inside a savepoint, so a failure there undoes only itself and never the mission. A tool the voice was stopped from using after an activity update is shown as "Did not act: you had not asked" rather than "Started a mission". Richard reported that JAI takes far too long to answer by voice; the voice service now logs, per reply, each service's time to first response (speech-to-text, model, text-to-speech), every tool call's duration and the time from his last word heard to JAI's first words, and the backend logs how long ask_jarv spends gathering facts and in the model, so the slow step can be fixed from evidence.
 BLOCKERS: None
 NEXT TASK: Read the voice timings from one conversation and remove the slow step; then Wave 4
+
+---
+
+TASK ID: VOICE-FAST-FIRST-WORDS
+TASK NAME: JAI's voice starts speaking at once: the voice model loaded once and shared, and run on the NVIDIA GPU
+STATUS: COMPLETE
+FILES CREATED: docker-compose.voice-gpu.yml
+FILES MODIFIED: services/voice/Dockerfile, services/voice/app/pipeline.py, services/voice/app/main.py, services/voice/tests/test_voice_service.py
+COMMANDS RUN: voice image build and its pytest; a GPU check in the voice image (docker run --gpus all); docker compose up -d --no-deps --build voice
+TESTS RUN: voice service suite with a new test that every conversation shares the one loaded voice and that it warms up and reports its device
+RESULT: The timings Richard sent showed hearing at 0.7 to 0.9 seconds, the model at 0.6 to 1.1 seconds and ask_jarv at 3.8 seconds (1.2 to 1.7 gathering facts, 2.0 to 3.0 in the model), but the British voice took 10.3 seconds to its first sound in a new conversation and 3.9 seconds per reply after: Pipecat's Kokoro service loaded the 325 MB voice model for every conversation and ran it on the processor inside Docker on WSL. The voice service now loads Kokoro once at start, speaks one silent sentence to warm it, and gives every conversation the same loaded voice. The image carries the NVIDIA build of ONNX Runtime with its CUDA and cuDNN libraries; when Docker can give the container the GPU (checked by the installer, which then adds docker-compose.voice-gpu.yml to COMPOSE_FILE in .env), the voice, hearing and turn detection run on the graphics card, otherwise on the processor as before. /health reports which (voice_device).
+BLOCKERS: None
+NEXT TASK: Read the new timings; if ask_jarv is then the slowest step, trim its facts and its reasoning; then Wave 4

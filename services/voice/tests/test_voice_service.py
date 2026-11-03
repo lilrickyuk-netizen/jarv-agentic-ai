@@ -215,6 +215,13 @@ async def test_a_voice_on_this_computer_is_not_charged():
     assert not fake.calls
 
 
+def test_the_voice_is_loaded_once_and_shared_by_every_conversation():
+    first = pipeline.speech({"tts_engine": "kokoro", "tts_voice": "bm_george"}, "sk-test-not-real")[0]
+    second = pipeline.speech({"tts_engine": "kokoro", "tts_voice": "bf_emma"}, "sk-test-not-real")[0]
+    assert first._kokoro is second._kokoro is pipeline.kokoro_engine()
+    assert pipeline.warm_up() in ("gpu", "cpu") and pipeline.kokoro_device() in ("gpu", "cpu")
+
+
 def test_only_the_dashboard_may_open_a_conversation(monkeypatch):
     monkeypatch.setattr(main, "ALLOWED_ORIGINS", {"http://localhost:3000"})
     assert main.origin_allowed("http://localhost:3000")

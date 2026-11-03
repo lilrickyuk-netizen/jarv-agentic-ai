@@ -192,6 +192,51 @@ def function_schemas(tools: List[Dict[str, Any]], backend: Backend, worker_ref: 
 KOKORO_MODEL = os.environ.get("KOKORO_MODEL", "/srv/voice/models/kokoro-v1.0.onnx")
 KOKORO_VOICES = os.environ.get("KOKORO_VOICES", "/srv/voice/models/voices-v1.0.bin")
 
+# JAI's voice model, loaded once for the whole service (it is 325 MB: loading it for each conversation cost about
+# ten seconds before the first word) and shared by every conversation, on the graphics card when there is one.
+_kokoro: Dict[str, Any] = {}
+
+
+def kokoro_engine():
+    """The shared Kokoro voice: on the NVIDIA GPU (CUDA) when Docker gives this container one and VOICE_GPU is not
+    off, otherwise on the processor."""
+    if "engine" not in _kokoro:
+        import onnxruntime as ort
+        from kokoro_onnx import Kokoro
+
+        if hasattr(ort, "preload_dlls"):
+            try:
+                ort.preload_dlls()  # the CUDA and cuDNN libraries installed with onnxruntime-gpu
+            except Exception:  # noqa: BLE001 - without them the voice runs on the processor
+                pass
+        wanted = ["CPUExecutionProvider"]
+        if os.environ.get("VOICE_GPU", "auto").lower() != "off" and "CUDAExecutionProvider" in ort.get_available_providers():
+            wanted.insert(0, "CUDAExecutionProvider")
+        session = ort.InferenceSession(KOKORO_MODEL, providers=wanted)
+        _kokoro["engine"] = Kokoro.from_session(session, KOKORO_VOICES)
+        _kokoro["device"] = "gpu" if session.get_providers()[0] == "CUDAExecutionProvider" else "cpu"
+    return _kokoro["engine"]
+
+
+def kokoro_device() -> Optional[str]:
+    return _kokoro.get("device")
+
+
+def warm_up(voice: str = "bm_george") -> str:
+    """Load the voice and speak one short sentence silently, so the first real reply starts at once."""
+    kokoro_engine().create("Ready.", voice=voice, lang="en-gb")
+    return kokoro_device() or "cpu"
+
+
+def _shared_kokoro(*_args, **_kwargs):
+    return kokoro_engine()
+
+
+# Pipecat's Kokoro service builds its own Kokoro for every conversation; it is given the shared one instead.
+import pipecat.services.kokoro.tts as _kokoro_tts  # noqa: E402
+
+_kokoro_tts.Kokoro = _shared_kokoro
+
 
 def speech(brief: Dict[str, Any], api_key: str):
     """JAI's voice for this conversation, and whether it runs on this computer (free): Kokoro speaking British
