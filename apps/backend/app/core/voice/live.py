@@ -358,10 +358,12 @@ async def pipeline_brief(db: AsyncSession, user_id: UUID) -> Dict[str, Any]:
                                        user_id=user_id, details={"engine": "pipecat",
                                                                  "model": settings.VOICE_PIPELINE_MODEL})
     await db.commit()
-    kokoro = (settings.VOICE_PIPELINE_TTS or "kokoro").strip().lower() != "openai"
+    choice = (settings.VOICE_PIPELINE_TTS or "chatterbox").strip().lower()
+    engine = choice if choice in ("chatterbox", "kokoro", "openai") else "chatterbox"
+    voice = {"chatterbox": settings.VOICE_PIPELINE_CHATTERBOX_VOICE, "kokoro": settings.VOICE_PIPELINE_KOKORO_VOICE,
+             "openai": settings.VOICE_PIPELINE_TTS_VOICE}[engine]
     return {"engine": "pipecat", "instructions": text, "tools": VOICE_TOOLS, "model": settings.VOICE_PIPELINE_MODEL,
-            "tts_engine": "kokoro" if kokoro else "openai",
-            "tts_voice": settings.VOICE_PIPELINE_KOKORO_VOICE if kokoro else settings.VOICE_PIPELINE_TTS_VOICE,
+            "tts_engine": engine, "tts_voice": voice, "fallback_voice": settings.VOICE_PIPELINE_KOKORO_VOICE,
             "tts_speed": settings.VOICE_PIPELINE_SPEED, "tts_model": settings.VOICE_PIPELINE_TTS_MODEL,
             "tts_instructions": "Accent: Received Pronunciation, an educated southern English British accent, "
                                 "never American. Tone: calm, warm and assured, like a trusted chief of staff "

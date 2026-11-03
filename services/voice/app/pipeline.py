@@ -21,6 +21,7 @@ from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
     EndFrame,
+    ErrorFrame,
     Frame,
     LLMFullResponseEndFrame,
     LLMRunFrame,
@@ -39,6 +40,8 @@ from pipecat.services.llm_service import FunctionCallParams
 from pipecat.services.openai.responses.llm import OpenAIResponsesLLMService
 from pipecat.services.openai.stt import OpenAIRealtimeSTTService
 from pipecat.services.kokoro.tts import KokoroTTSService
+from pipecat.services.settings import TTSSettings
+from pipecat.services.tts_service import TTSService
 from pipecat.services.openai.tts import OpenAITTSService
 from pipecat.transcriptions.language import Language
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams, FastAPIWebsocketTransport
@@ -269,10 +272,74 @@ import pipecat.services.kokoro.tts as _kokoro_tts  # noqa: E402
 _kokoro_tts.Kokoro = _shared_kokoro
 
 
+CHATTERBOX_URL = os.environ.get("CHATTERBOX_URL", "").rstrip("/")
+CHATTERBOX_RATE = 24000
+
+
+class ChatterboxTTSService(TTSService):
+    """JAI's natural voice: each sentence spoken by the Chatterbox service (Chatterbox Turbo on the GPU) in the
+    named reference voice, returned as 24 kHz 16-bit PCM and streamed into the conversation."""
+
+    Settings = TTSSettings
+
+    def __init__(self, *, base_url: str, voice: str, client=None, **kwargs):
+        settings = TTSSettings(model="chatterbox-turbo", voice=voice, language=None)
+        super().__init__(push_start_frame=True, push_stop_frames=True, settings=settings, **kwargs)
+        import httpx
+
+        self._url = base_url.rstrip("/")
+        self._client = client or httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=3.0))
+
+    def can_generate_metrics(self) -> bool:
+        return True
+
+    async def run_tts(self, text: str, context_id: str):
+        try:
+            await self.start_tts_usage_metrics(text)
+            response = await self._client.post(f"{self._url}/speak", json={"text": text, "voice": self._settings.voice})
+            if response.status_code != 200:
+                yield ErrorFrame(error=f"JAI's natural voice answered {response.status_code}: {response.text[:200]}")
+                return
+
+            async def pcm():
+                audio = response.content
+                for start in range(0, len(audio), 9600):  # 0.2 s pieces
+                    yield audio[start:start + 9600]
+
+            async for frame in self._stream_audio_frames_from_iterator(pcm(), in_sample_rate=CHATTERBOX_RATE,
+                                                                       context_id=context_id):
+                await self.stop_ttfb_metrics()
+                yield frame
+        except Exception as exc:  # noqa: BLE001
+            yield ErrorFrame(error=f"JAI's natural voice failed: {exc}")
+        finally:
+            await self.stop_ttfb_metrics()
+
+
+def chatterbox_ready(timeout: float = 1.5) -> bool:
+    """Whether the natural voice is up and loaded (otherwise the conversation uses Kokoro)."""
+    if not CHATTERBOX_URL:
+        return False
+    import httpx
+
+    try:
+        return httpx.get(f"{CHATTERBOX_URL}/health", timeout=timeout).json().get("status") == "ok"
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def speech(brief: Dict[str, Any], api_key: str):
-    """JAI's voice for this conversation, and whether it runs on this computer (free): Kokoro speaking British
-    English (the model and voices are in the image), or OpenAI text-to-speech."""
-    if (brief.get("tts_engine") or "kokoro") == "kokoro":
+    """JAI's voice for this conversation, and whether it runs on this computer (free): Chatterbox (natural speech,
+    on the GPU), Kokoro speaking British English (in the image; also the fallback when Chatterbox is not up), or
+    OpenAI text-to-speech."""
+    engine = brief.get("tts_engine") or "kokoro"
+    if engine == "chatterbox" and chatterbox_ready():
+        return ChatterboxTTSService(base_url=CHATTERBOX_URL, voice=brief.get("tts_voice") or "george",
+                                    text_filters=spoken_filters()), True
+    if engine == "chatterbox":
+        brief = {**brief, "tts_voice": brief.get("fallback_voice") or "bm_george"}
+        engine = "kokoro"
+    if engine == "kokoro":
         return KokoroTTSService(model_path=KOKORO_MODEL, voices_path=KOKORO_VOICES, text_filters=spoken_filters(),
                                 settings=KokoroTTSService.Settings(
             voice=brief.get("tts_voice") or "bm_george", language=Language.EN_GB,

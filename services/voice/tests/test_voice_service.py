@@ -229,6 +229,39 @@ async def test_the_voice_says_its_name_as_jay_and_never_reads_out_links():
     assert await spoken.filter("JAIL and MYJAI stay as they are.") == "JAIL and MYJAI stay as they are."
 
 
+async def test_the_natural_voice_is_used_when_it_is_up_and_kokoro_when_it_is_not(monkeypatch):
+    import httpx
+
+    monkeypatch.setattr(pipeline, "CHATTERBOX_URL", "http://chatterbox:8770")
+    monkeypatch.setattr(pipeline, "chatterbox_ready", lambda timeout=1.5: True)
+    tts, local = pipeline.speech({"tts_engine": "chatterbox", "tts_voice": "george"}, "sk-test-not-real")
+    assert local is True and type(tts).__name__ == "ChatterboxTTSService"
+
+    sent = []
+
+    def answer(request):
+        sent.append(request)
+        return httpx.Response(200, content=b"\x01\x00" * 24000, headers={"X-Sample-Rate": "24000"})
+
+    tts._client = httpx.AsyncClient(transport=httpx.MockTransport(answer))
+    tts._sample_rate = 24000  # as the running pipeline sets it
+    tts.start_tts_usage_metrics = lambda text: _nothing()
+    tts.stop_ttfb_metrics = lambda: _nothing()
+    frames = [f async for f in tts.run_tts("Good evening, Richard.", "ctx-1")]
+    audio = b"".join(getattr(f, "audio", b"") for f in frames)
+    assert json.loads(sent[0].content) == {"text": "Good evening, Richard.", "voice": "george"}
+    assert len(audio) >= 40000 and not any(type(f).__name__ == "ErrorFrame" for f in frames)
+
+    monkeypatch.setattr(pipeline, "chatterbox_ready", lambda timeout=1.5: False)
+    fallback, local = pipeline.speech({"tts_engine": "chatterbox", "tts_voice": "george", "fallback_voice": "bm_george"},
+                                      "sk-test-not-real")
+    assert local is True and type(fallback).__name__ == "KokoroTTSService"
+
+
+async def _nothing():
+    return None
+
+
 def test_only_the_dashboard_may_open_a_conversation(monkeypatch):
     monkeypatch.setattr(main, "ALLOWED_ORIGINS", {"http://localhost:3000"})
     assert main.origin_allowed("http://localhost:3000")

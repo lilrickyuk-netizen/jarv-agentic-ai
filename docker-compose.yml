@@ -178,6 +178,7 @@ services:
     environment:
       BACKEND_URL: http://backend:8000
       BACKEND_ENV_FILE: /run/jai/backend.env
+      CHATTERBOX_URL: http://chatterbox:8770
       PIPECAT_ALLOWED_ORIGINS: ${PIPECAT_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
@@ -191,6 +192,7 @@ services:
       - backend
     networks:
       - jarv-network
+      - jarv-voice
     restart: unless-stopped
 
   # Wave 3, research. JAI's search engine and page reader run on their own network (jarv-web) shared only with
@@ -234,6 +236,23 @@ services:
       timeout: 5s
       retries: 3
       start_period: 40s
+
+  # JAI's natural voice: Chatterbox Turbo (open source, MIT), speaking in George's British voice from a reference
+  # clip. Only the voice service can reach it (internal network, no internet; the model is in the image). On the
+  # NVIDIA GPU when docker-compose.voice-gpu.yml is in COMPOSE_FILE, otherwise Chatterbox Nano on the processor.
+  chatterbox:
+    build:
+      context: ./services/chatterbox
+      dockerfile: Dockerfile
+    container_name: jarv-chatterbox
+    environment:
+      DEFAULT_VOICE: george
+    volumes:
+      - voice_refs:/srv/voices:ro
+    networks:
+      - jarv-voice
+    mem_limit: 4g
+    restart: unless-stopped
 
   # Voicebox is reachable only on the private Compose network. Its API has no
   # authentication, so the dashboard talks to it exclusively through JARV.
@@ -400,6 +419,8 @@ volumes:
     driver: local
   searxng_data:
     driver: local
+  voice_refs:
+    name: jai_voice_refs
 
 networks:
   jarv-network:
@@ -411,3 +432,7 @@ networks:
   # JAI's research network (Wave 3): the backend, the worker, SearXNG and Crawl4AI only; it reaches the internet.
   jarv-web:
     driver: bridge
+  # JAI's voice and its natural-speech service only, with no route to the internet.
+  jarv-voice:
+    driver: bridge
+    internal: true

@@ -1,7 +1,15 @@
-# JAI's voice on the NVIDIA graphics card. The voice installer adds this file to COMPOSE_FILE in .env only after
+# JAI's voice and its natural-speech service (Chatterbox) on the NVIDIA graphics card. The voice installer adds this file to COMPOSE_FILE in .env only after
 # checking that Docker can give a container the GPU, so a computer without one is never affected.
 services:
   voice:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+  chatterbox:
     deploy:
       resources:
         reservations:

@@ -314,7 +314,10 @@ class Settings(BaseSettings):
     # JAI's speaking voice. kokoro = Kokoro, open source, run in the voice service on this computer (free),
     # British English with a British voice: bm_george, bm_daniel, bm_lewis, bm_fable (men) or bf_emma, bf_isabella,
     # bf_alice, bf_lily (women). openai = OpenAI text-to-speech (paid) with VOICE_PIPELINE_TTS_VOICE.
-    VOICE_PIPELINE_TTS: str = "kokoro"
+    # chatterbox = Chatterbox Turbo (open source, natural speech, on the GPU) in the voice of a reference clip in the
+    # jai_voice_refs volume (george: made from Kokoro's British bm_george); Kokoro is its fallback.
+    VOICE_PIPELINE_TTS: str = "chatterbox"
+    VOICE_PIPELINE_CHATTERBOX_VOICE: str = "george"
     VOICE_PIPELINE_KOKORO_VOICE: str = "bm_george"
     VOICE_PIPELINE_SPEED: float = Field(default=1.0, ge=0.5, le=2.0)
     VOICE_PIPELINE_TTS_MODEL: str = "gpt-4o-mini-tts"
