@@ -178,8 +178,10 @@ RUN set -eu; export MISE_DATA_DIR=/usr/local/share/mise MISE_CACHE_DIR=/tmp/mise
     ln -sfn "$(mise where "java@${JAVA_VERSION}")" /opt/java; \
     for b in go gofmt; do ln -sf "/opt/go/bin/$b" "/usr/local/bin/$b"; done; \
     for b in java javac jar jshell keytool; do ln -sf "/opt/java/bin/$b" "/usr/local/bin/$b"; done; \
-    ln -sf "$(mise where "maven@${MAVEN_VERSION}")/bin/mvn" /usr/local/bin/mvn; \
-    ln -sf "$(mise where "gradle@${GRADLE_VERSION}")/bin/gradle" /usr/local/bin/gradle; \
+    MVN="$(find -L "$(mise where "maven@${MAVEN_VERSION}")" -maxdepth 4 -type f -path '*/bin/mvn' | head -1)"; \
+    GRADLE="$(find -L "$(mise where "gradle@${GRADLE_VERSION}")" -maxdepth 4 -type f -path '*/bin/gradle' | head -1)"; \
+    test -n "$MVN" && test -n "$GRADLE"; \
+    ln -sf "$MVN" /usr/local/bin/mvn; ln -sf "$GRADLE" /usr/local/bin/gradle; \
     chmod -R a+rX /usr/local/share/mise; rm -rf /tmp/mise-cache; \
     go version; java -version; mvn -v; gradle --version
 ENV JAVA_HOME=/opt/java \
