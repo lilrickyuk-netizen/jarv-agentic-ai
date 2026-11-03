@@ -138,6 +138,7 @@ services:
       - jarv-network
       - jarv-ops
       - jarv-web
+      - jarv-gpu
     restart: unless-stopped
 
   # Next.js Dashboard Frontend
@@ -254,6 +255,29 @@ services:
     mem_limit: 4g
     restart: unless-stopped
 
+  # Wave 4a, images: ComfyUI with FLUX.1-schnell on the NVIDIA GPU. Started only with the "images" profile (the
+  # installer sets COMPOSE_PROFILES=images in .env after checking the GPU works), on an internal network shared only
+  # with the backend and worker: it has no internet and nothing else can use it. Models live in their own volume.
+  comfyui:
+    profiles: ["images"]
+    build:
+      context: ./services/comfyui
+      dockerfile: Dockerfile
+    container_name: jarv-comfyui
+    volumes:
+      - comfyui_models:/opt/comfyui/models
+    networks:
+      - jarv-gpu
+    mem_limit: 7g
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
   # Voicebox is reachable only on the private Compose network. Its API has no
   # authentication, so the dashboard talks to it exclusively through JARV.
   voicebox:
@@ -329,6 +353,7 @@ services:
       - jarv-network
       - jarv-ops
       - jarv-web
+      - jarv-gpu
     restart: unless-stopped
     command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
     # Celery worker liveness: ping the worker over the broker (not HTTP — this
@@ -421,6 +446,8 @@ volumes:
     driver: local
   voice_refs:
     name: jai_voice_refs
+  comfyui_models:
+    name: jai_comfyui_models
 
 networks:
   jarv-network:
@@ -434,5 +461,9 @@ networks:
     driver: bridge
   # JAI's voice and its natural-speech service only, with no route to the internet.
   jarv-voice:
+    driver: bridge
+    internal: true
+  # JAI's image generator (Wave 4a): the backend, the worker and ComfyUI only, with no route to the internet.
+  jarv-gpu:
     driver: bridge
     internal: true

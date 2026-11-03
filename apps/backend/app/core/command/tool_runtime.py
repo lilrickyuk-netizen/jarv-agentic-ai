@@ -61,6 +61,7 @@ _TOOL_AUTHORITY = {
     "fetch_url": 1,
     "web_search": 1,
     "research_web": 1,
+    "generate_image": 2,
     "check_package_registry": 1,
     "check_cve": 1,
     "asset_licence_check": 1,
@@ -759,6 +760,36 @@ class ToolRuntime:
         for source in res.get("sources") or []:
             await self._source_record(source["url"], source.get("title", ""), "web_research", question[:200])
         return {**res, "success": ok}
+
+    async def generate_image(self, host_path: str, prompt: str, width: int = 1024, height: int = 1024,
+                             licence_file: Optional[str] = None, seed: Optional[int] = None,
+                             shown_as: Optional[str] = None) -> Dict[str, Any]:
+        """Make an image on the GPU (JAI's ComfyUI, FLUX.1-schnell) and save it at host_path inside the workspace,
+        recording its model, licence and prompt in the workspace's ASSET_LICENCES.md (licence_file)."""
+        denied = await self._enforce("generate_image", path=host_path, content=prompt)
+        if denied:
+            return denied
+        from app.core.creative import images
+
+        try:
+            made = await images.generate(prompt, width, height, seed)
+        except images.ImageUnavailable as exc:
+            await self._record("generate_image", {"path": host_path, "prompt": prompt[:200]}, False, str(exc)[:120])
+            return {"success": False, "error": str(exc)}
+        res = fs_inspector.write_bytes(host_path, made["png"], overwrite=True)
+        ok = res.accessible and res.exists
+        if ok and licence_file:
+            found = fs_inspector.read_file(licence_file, max_bytes=400_000)
+            existing = found.data.get("content", "") if found.accessible and found.exists else (
+                "# Asset licences\n\nWhere every asset in this workspace came from and the terms it is used under.\n")
+            fs_inspector.write_file(licence_file, existing + images.licence_entry(
+                shown_as or host_path, prompt, made["seed"], made["width"], made["height"]), overwrite=True)
+        await self._record("generate_image", {"path": host_path, "prompt": prompt[:200]}, ok,
+                           f"{made['width']}x{made['height']} in {made['seconds']}s" if ok else (res.reason or "blocked"),
+                           output={"bytes": len(made["png"]), "seconds": made["seconds"]})
+        return {"success": ok, "path": host_path, "container_path": res.container_path, "width": made["width"],
+                "height": made["height"], "seed": made["seed"], "seconds": made["seconds"], "model": images.MODEL,
+                "licence": images.LICENCE, "reason": None if ok else res.reason}
 
     async def fetch_url(self, url: str, render: Optional[bool] = None) -> Dict[str, Any]:
         denied = await self._enforce("fetch_url", content=url)

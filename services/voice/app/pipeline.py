@@ -64,7 +64,7 @@ timing = logging.getLogger("jai.voice.timing")
 
 ACTION_LABELS = {"start_mission": "Started a mission", "resume_mission": "Carried on with a mission",
                  "cancel_mission": "Cancelled a mission", "ask_jarv": "Asked JAI", "show_on_screen": "Put it on screen",
-                 "list_workspaces": "Listed workspaces", "research_web": "Looked it up on the web", "list_workspace_files": "Looked in a workspace",
+                 "list_workspaces": "Listed workspaces", "research_web": "Looked it up on the web", "make_image": "Made an image", "list_workspace_files": "Looked in a workspace",
                  "read_workspace_file": "Read a file", "trace_artifact": "Traced it"}
 
 

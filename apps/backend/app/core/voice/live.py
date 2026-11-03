@@ -80,6 +80,18 @@ TOOLS: List[Dict[str, Any]] = [
          "question": {"type": "string", "description": "The question in Richard's words, with every detail."},
          "workspace": _NO_WORKSPACE},
          "required": ["question"], "additionalProperties": False}},
+    {"type": "function", "name": "make_image",
+     "description": "Make an image on JAI's own graphics card (FLUX.1-schnell, free, licensed for commercial use), "
+                    "save it in a workspace's assets/images folder and put it on Richard's screen. For thumbnails, "
+                    "social posts, banners, product shots and illustrations. Describe it fully: subject, setting, "
+                    "style, light, colours, composition, and any words to appear in quotes. Takes one to two "
+                    "minutes: say so first.",
+     "parameters": {"type": "object", "properties": {
+         "prompt": {"type": "string", "description": "A full description of the image."},
+         "workspace": {"type": "string", "description": "The workspace it is for, e.g. Plexecute."},
+         "shape": {"type": "string", "enum": ["square", "landscape", "portrait", "thumbnail", "story", "wide",
+                                              "banner"]}},
+         "required": ["prompt", "workspace"], "additionalProperties": False}},
     {"type": "function", "name": "research_web",
      "description": "Look something up on the web: anything about the world outside JAI (news, prices, products, "
                     "companies, people, libraries and APIs, regulations, how something works today). JAI searches "
@@ -816,6 +828,77 @@ async def show_on_screen(db: AsyncSession, user_id: UUID, args: Dict[str, Any]) 
             "note": "It is on his screen now: say one sentence about it, do not read it all out."}
 
 
+IMAGE_LINK_SECONDS = 24 * 3600
+
+
+async def image_link(container_path: str) -> str:
+    """A link to an image JAI made, for Richard's screen: a random token kept for a day (an <img> cannot send his
+    sign-in, and the token reveals nothing about where the file is)."""
+    import secrets
+
+    from app.core.redis import get_redis
+
+    token = secrets.token_urlsafe(24)
+    await (await get_redis()).set(f"voice:image:{token}", container_path, ex=IMAGE_LINK_SECONDS)
+    return f"/api/backend/api/voice/image/{token}"
+
+
+async def image_for(token: str) -> Optional[str]:
+    """The file behind an image link, if the link is current and the file is still inside the workspaces."""
+    import os
+
+    from app.core.redis import get_redis
+
+    if not token or len(token) > 64:
+        return None
+    path = await (await get_redis()).get(f"voice:image:{token}")
+    if not path:
+        return None
+    path = path.decode() if isinstance(path, bytes) else str(path)
+    from app.core.workspaces.fs_inspector import SANDBOX_CONTAINER_ROOT
+
+    roots = [os.path.normpath(r) for r in (settings.WORKSPACE_CONTAINER_ROOT, SANDBOX_CONTAINER_ROOT)]
+    real = os.path.realpath(path)
+    inside = any(real.startswith(os.path.realpath(root) + os.sep) for root in roots)
+    if not (inside and real.lower().endswith(".png") and os.path.isfile(real)):
+        return None
+    return real
+
+
+async def _make_image(db: AsyncSession, user_id: UUID, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Make an image for one of Richard's workspaces, save it there, and give back the card that shows it."""
+    from pathlib import PurePosixPath, PureWindowsPath
+
+    from app.core.command.tool_runtime import ToolRuntime
+    from app.core.creative import images
+
+    spaces = await _workspaces(db, user_id)
+    wanted = str(args.get("workspace") or "").strip().lower()
+    chosen = [w for w in spaces if w.name.lower() == wanted] or [w for w in spaces if wanted and wanted in w.name.lower()]
+    if not chosen:
+        return {"error": f"Say which workspace the image is for: {', '.join(w.name for w in spaces) or 'none yet'}."}
+    space = chosen[0]
+    root = _root(space)
+    if not root:
+        return {"error": f"The {space.name} workspace has no folder registered, so the image has nowhere to go."}
+    prompt = str(args.get("prompt") or "")
+    relative = images.default_path(prompt)
+    join = (lambda *p: str(PureWindowsPath(root, *p))) if (":" in root[:3] or "\\" in root) else \
+        (lambda *p: str(PurePosixPath(root, *p)))
+    runtime = ToolRuntime(db, space.id, None, operator=f"voice:{user_id}",
+                          authority_level=max(2, int(space.authority_level or 2)), user_id=user_id)
+    width, height = images.size_of(args.get("shape"))
+    made = await runtime.generate_image(join(*relative.split("/")), prompt, width, height,
+                                        licence_file=join("ASSET_LICENCES.md"), shown_as=relative)
+    if not made.get("success"):
+        return {"error": made.get("error") or made.get("reason") or "The image could not be made."}
+    await db.commit()
+    card = {"kind": "image", "title": prompt[:90], "subtitle": f"{space.name} · {relative} · {made['seconds']}s",
+            "sections": [{"heading": "", "image": await image_link(made["container_path"])}]}
+    return {"made": True, "workspace": space.name, "path": relative, "seconds": made["seconds"], "card": card,
+            "note": "The image is on his screen and saved in the workspace: say one short sentence about it."}
+
+
 async def _full_id(db: AsyncSession, user_id: UUID, short: str) -> Optional[UUID]:
     """A mission's full id from the 8-character one the mission list shows, within the operator's workspaces."""
     from app.core.scoping import owned_workspaces
@@ -883,6 +966,8 @@ async def run_tool(db: AsyncSession, user_id: UUID, name: str, arguments: Dict[s
         output: Dict[str, Any] = {"workspaces": [w.name for w in await _workspaces(db, user_id)]}
     elif name == "show_on_screen":
         output = await show_on_screen(db, user_id, args)
+    elif name == "make_image":
+        output = await _make_image(db, user_id, args)
     elif name == "research_web":
         from app.core.internet.research import research, research_card
 

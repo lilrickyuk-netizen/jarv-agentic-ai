@@ -164,6 +164,7 @@ def _no_spend_limit_unless_a_test_sets_one(monkeypatch):
     # JAI's search engine and page reader are services on its own network; tests that use them set them.
     monkeypatch.setattr(settings, "SEARXNG_URL", "")
     monkeypatch.setattr(settings, "CRAWL4AI_URL", "")
+    monkeypatch.setattr(settings, "COMFYUI_URL", "")
 
 
 @pytest.fixture(autouse=True)

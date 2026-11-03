@@ -77,7 +77,8 @@ def test_the_brief_carries_jais_instructions_tools_and_voice_but_never_the_key(c
     assert "British" in openai_voice["tts_instructions"]
     assert {t["name"] for t in body["tools"]} == {"start_mission", "resume_mission", "cancel_mission", "ask_jarv",
                                                   "list_workspaces", "list_workspace_files", "read_workspace_file",
-                                                  "trace_artifact", "show_on_screen", "research_web"}
+                                                  "trace_artifact", "show_on_screen", "research_web",
+                                                  "make_image"}
     assert "voice of JAI's whole system" in body["instructions"] and "never markdown" in body["instructions"]
     assert "Approvals page" in body["instructions"]
     assert engine_choice["engine"] == "pipecat" and engine_choice["url"].startswith("ws")

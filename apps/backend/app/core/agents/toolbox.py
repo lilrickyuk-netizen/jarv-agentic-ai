@@ -179,6 +179,15 @@ WORKSPACE_TOOLS: Dict[str, ToolSpec] = {
                                     "enum": ["general", "news", "it", "science"]},
                                     "time_range": {"type": "string", "enum": ["day", "week", "month", "year"]},
                                     "limit": {"type": "integer"}}, ["query"]), "workspace"),
+    "generate_image": ToolSpec("generate_image", "Make an image on JAI's own GPU (FLUX.1-schnell, Apache-2.0, "
+                               "commercial use allowed) and save it in the workspace (assets/images/ by default), "
+                               "recorded in ASSET_LICENCES.md. Describe it fully: subject, setting, style, light, "
+                               "colours, composition and any words to show (in quotes). shape: square, landscape, "
+                               "portrait, thumbnail (1280x720), story, wide or banner. Takes one to two minutes.",
+                               _schema({"prompt": {"type": "string"},
+                                        "shape": {"type": "string", "enum": ["square", "landscape", "portrait",
+                                                                             "thumbnail", "story", "wide", "banner"]},
+                                        "path": _PATH_PROP}, ["prompt"]), "workspace"),
     "research_web": ToolSpec("research_web", "Research a question on the web and get a cited answer: JAI plans "
                              "several searches, reads the best sources and writes what they say with [n] "
                              "citations and the source list. Use it for current facts, library and API changes, "
@@ -253,7 +262,7 @@ WORKSPACE_TOOLS.update({
                                             ["memory_id"]), "workspace"),
 })
 
-_FILESYSTEM_TOOLS = {"list_files", "read_file", "search_files", "scan_workspace", "write_file",
+_FILESYSTEM_TOOLS = {"generate_image", "list_files", "read_file", "search_files", "scan_workspace", "write_file",
                      "run_command", "git_status", "git_diff", "git_log", "edit_file", "create_folder",
                      "move_file", "copy_file", "delete_file_with_boundary", "get_file_metadata",
                      "detect_workspace_type", "detect_stack", "detect_commands", "find_missing_files",
@@ -370,6 +379,9 @@ class AgentToolbox:
                 continue
             json_schema.pop("title", None)
             specs[name] = ToolSpec(name, (meta.description or name)[:500], json_schema, "registry", name)
+        # Every agent working in a folder can make images for it (Wave 4a).
+        if self.root_container is not None:
+            specs.setdefault("generate_image", WORKSPACE_TOOLS["generate_image"])
         # Every agent can search and research the web and read public pages (read-only, Wave 3).
         for web in WEB_TOOLS:
             specs.setdefault(web, WORKSPACE_TOOLS[web])
@@ -472,6 +484,10 @@ class AgentToolbox:
         rt = self.runtime
         if name in workspace_ops.HANDLERS:
             return await workspace_ops.HANDLERS[name](self, args)
+        if name == "generate_image" and not str(args.get("path") or "").strip():
+            from app.core.creative import images
+
+            args = {**args, "path": images.default_path(str(args.get("prompt") or ""))}
         if name in _FILESYSTEM_TOOLS:
             key = "cwd" if name == "run_command" else "path"
             host, refusal = self._resolve_host(args.get(key))
@@ -483,6 +499,13 @@ class AgentToolbox:
                 return await rt.read_file(host, offset=_offset(args.get("offset")))
             if name == "scan_workspace":
                 return await rt.scan_workspace(host)
+            if name == "generate_image":
+                from app.core.creative import images
+
+                width, height = images.size_of(args.get("shape"))
+                return await rt.generate_image(host, str(args.get("prompt", "")), width, height,
+                                               licence_file=self._resolve_host("ASSET_LICENCES.md")[0],
+                                               shown_as=str(args["path"]))
             if name == "write_file":
                 if not str(args.get("path") or "").strip():
                     return {"success": False, "error": "write_file needs the path of the file to write."}

@@ -54,6 +54,7 @@ const ACTION_LABELS: Record<string, string> = {
   show_on_screen: 'Put it on screen',
   ask_jarv: 'Asked JAI',
   research_web: 'Looked it up on the web',
+  make_image: 'Made an image',
 };
 
 /**

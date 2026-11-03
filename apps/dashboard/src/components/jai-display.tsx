@@ -33,6 +33,11 @@ export function JaiDisplay() {
           )}
           {section.items && <ul>{section.items.map((item, i) => <li key={i}>{item}</li>)}</ul>}
           {section.code !== undefined && <pre>{section.code}</pre>}
+          {/* Only JAI's own image links (its backend, through this dashboard) are shown. */}
+          {section.image?.startsWith('/api/backend/') && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img className="jai-display-image" src={section.image} alt={card.title} />
+          )}
         </div>
       ))}
     </section>

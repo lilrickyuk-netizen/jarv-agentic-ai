@@ -43,4 +43,13 @@ describe('JaiDisplay', () => {
     expect(screen.queryByText(/tasks:/)).not.toBeInTheDocument();  // the new card replaces the old
     expect(screen.getByRole('link', { name: 'Open ↗' })).toHaveAttribute('href', '/dashboard/approvals');
   });
+
+  it('shows an image JAI made, and only from JAI\'s own backend', () => {
+    render(<JaiDisplay />);
+    act(() => showCard({ kind: 'image', title: 'Plexecute launch thumbnail', subtitle: 'Plexecute · assets/images/x.png',
+      sections: [{ heading: '', image: '/api/backend/api/voice/image/abc123' }] }));
+    expect(screen.getByRole('img', { name: 'Plexecute launch thumbnail' })).toHaveAttribute('src', '/api/backend/api/voice/image/abc123');
+    act(() => showCard({ kind: 'image', title: 'Elsewhere', sections: [{ image: 'https://tracker.example/x.png' }] }));
+    expect(screen.queryByRole('img')).toBeNull();
+  });
 });

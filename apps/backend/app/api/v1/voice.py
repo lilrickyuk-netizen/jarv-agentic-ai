@@ -35,6 +35,8 @@ from app.core.voice import SpokenStatusReplies, StatusType, engine, live
 from app.models.workspace import Workspace
 
 router = APIRouter(prefix="/voice", tags=["voice"], dependencies=[Depends(get_current_user_id)])
+# Images JAI made, by their short-lived links: an <img> on Richard's screen cannot send his sign-in.
+image_router = APIRouter(prefix="/voice", tags=["voice"])
 
 
 class VoiceCommandRequest(BaseModel):
@@ -252,6 +254,18 @@ async def live_spend(request: PipelineSpendRequest, user_id: CurrentUserId) -> D
         return await live.record_pipeline_usage(request.kind, request.model_dump(exclude={"kind"}))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@image_router.get("/image/{token}")
+async def voice_image(token: str):
+    """An image JAI made, by the short-lived link it put on Richard's screen (no sign-in: an image tag cannot send
+    one; the random token is the permission, and only files inside the workspaces are served)."""
+    from fastapi.responses import FileResponse
+
+    path = await live.image_for(token)
+    if path is None:
+        raise HTTPException(status_code=404, detail="That image link has expired.")
+    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
 
 
 @router.get("/spend/today")

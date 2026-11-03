@@ -2,9 +2,11 @@
 
 import { useSyncExternalStore } from 'react';
 
-/** One section of what JAI puts on screen: a table (columns and rows), a list (items) or a block of text (code). */
+/** One section of what JAI puts on screen: a table (columns and rows), a list (items), a block of text (code) or an
+ * image JAI made (a short-lived link from JAI's backend). */
 export interface ScreenSection {
   heading?: string;
+  image?: string;
   columns?: string[];
   rows?: (string | number | null)[][];
   items?: string[];

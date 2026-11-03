@@ -198,6 +198,7 @@ app.include_router(support.router, prefix="/api")
 # Import and include voice command router
 from app.api.v1 import voice
 app.include_router(voice.router, prefix="/api")
+app.include_router(voice.image_router, prefix="/api")
 
 from app.api.v1 import voicebox
 app.include_router(voicebox.router, prefix="/api")

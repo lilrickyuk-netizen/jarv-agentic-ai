@@ -446,6 +446,35 @@ def write_file(host_path: str, content: str, overwrite: bool = False) -> FsResul
                         reason=f"Write failed: {exc}")
 
 
+def write_bytes(host_path: str, data: bytes, overwrite: bool = False) -> FsResult:
+    """Controlled binary write (an image, audio, a video) inside an approved workspace, with the same scope, secret
+    and overwrite rules as write_file."""
+    if _is_banned(host_path):
+        return FsResult(accessible=False, host_path=host_path,
+                        reason="Target matches a hard-boundary protected location; write blocked.")
+    container = host_to_container(host_path)
+    if container is None:
+        return FsResult(accessible=False, host_path=host_path,
+                        reason=(f"Path is outside the approved workspace root "
+                                f"({settings.WORKSPACE_HOST_ROOT}); write blocked."))
+    name = container.name.lower()
+    if name.startswith(".env") or name.endswith(".env") or "secret" in name or "id_rsa" in name:
+        return FsResult(accessible=False, host_path=host_path, container_path=str(container),
+                        reason="Target is a secret-bearing file; write blocked.")
+    try:
+        existed = container.exists()
+        if existed and not overwrite:
+            return FsResult(accessible=False, host_path=host_path, container_path=str(container),
+                            exists=True, reason="File already exists; refusing to overwrite.")
+        container.parent.mkdir(parents=True, exist_ok=True)
+        container.write_bytes(data)
+        return FsResult(accessible=True, host_path=host_path, container_path=str(container), exists=True,
+                        is_dir=False, data={"bytes_written": len(data), "created": not existed})
+    except Exception as exc:  # noqa: BLE001
+        return FsResult(accessible=False, host_path=host_path, container_path=str(container),
+                        reason=f"Write failed: {exc}")
+
+
 # Read-only commands that are safe to execute against an approved workspace.
 SAFE_COMMAND_PREFIXES = (
     "ls", "dir", "pwd", "cat", "head", "tail", "wc", "find", "tree", "stat",

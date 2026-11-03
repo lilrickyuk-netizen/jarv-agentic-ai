@@ -289,6 +289,9 @@ class Settings(BaseSettings):
     CRAWL4AI_URL: str = "http://crawl4ai:11235"
     CRAWL4AI_TOKEN: Optional[str] = None
     RESEARCH_TIMEOUT_SECONDS: float = Field(default=20.0, ge=3, le=120)
+    # Wave 4a, images: JAI's ComfyUI with FLUX.1-schnell on the NVIDIA GPU (the "images" compose profile). Empty turns
+    # image generation off.
+    COMFYUI_URL: str = "http://comfyui:8188"
 
     # Voice
     VOICE_ENABLED: bool = False
