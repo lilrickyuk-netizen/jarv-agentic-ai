@@ -13594,3 +13594,16 @@ TESTS RUN: Owner run by install-upgrade-5.sh: full backend suite on PostgreSQL, 
 RESULT: Committed by the owner's script only after both pass.
 BLOCKERS: None.
 NEXT TASK: Rename JARV to JAI; then the acceptance mission on MYCO, measured against the 5.5 million token baseline.
+
+TASK ID: UI-COMMAND-CENTER-LAYOUT
+TASK NAME: Command Center: field across the top, Mission Control beneath it; no greeting, no System pulse
+STATUS: COMPLETE
+PROBLEM: Richard (3 Nov 2026): remove the telemetry panel and put the Mission Control box there, under the intelligence field; the field in the centre of the page; remove "Good to see you".
+FILES MODIFIED:
+- apps/dashboard/src/app/dashboard/page.tsx (the greeting, its eyebrow and subtitle removed, the state readout kept at the right; the System pulse panel (backend, agent counts, roster) removed; the order is now the field, then Mission Control, then recent activity)
+- apps/dashboard/src/app/globals.css (the field's panel spans the full width so the swarm sits in the centre of the page; Mission Control and recent activity share the row beneath it)
+COMMANDS RUN: None locally.
+TESTS RUN: Owner run by install-layout.sh: tsc --noEmit and jest in node:20.
+RESULT: Committed by the owner's script only after both pass.
+BLOCKERS: None.
+NEXT TASK: Rename JARV to JAI; then the acceptance mission on MYCO.
