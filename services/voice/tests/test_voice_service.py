@@ -63,7 +63,9 @@ async def test_audio_and_messages_cross_the_websocket_as_the_right_frames():
     assert note.run_llm is True and note.messages[0]["content"] == "[mission update] Status completed."
     assert not s.state.get("update_only")
     update = await s.deserialize(json.dumps({"type": "note", "text": "Mission blocked", "update": True}))
-    assert update.messages[0]["content"].startswith("New activity in JAI (not from Richard): Mission blocked")
+    assert update.messages[0]["content"].startswith("Something new has happened in your work (Richard did not say "
+                                                   "this): Mission blocked")
+    assert "first person" in update.messages[0]["content"]
     assert s.state["update_only"] is True
     assert await s.serialize(OutputAudioRawFrame(audio=pcm, sample_rate=OUT_RATE, num_channels=1)) == pcm
     assert json.loads(await s.serialize(InterruptionFrame())) == {"type": "interrupt"}
@@ -218,6 +220,13 @@ def test_the_voice_is_loaded_once_and_shared_by_every_conversation():
     second = pipeline.speech({"tts_engine": "kokoro", "tts_voice": "bf_emma"}, "sk-test-not-real")[0]
     assert first._kokoro is second._kokoro is pipeline.kokoro_engine()
     assert pipeline.warm_up() in ("gpu", "cpu") and pipeline.kokoro_device() in ("gpu", "cpu")
+
+
+async def test_the_voice_says_its_name_as_jay_and_never_reads_out_links():
+    spoken = pipeline.SpokenText()
+    assert await spoken.filter("JAI has finished. JAI's report is at https://x.example/a?b=1.") == \
+        "Jay has finished. Jay's report is at the link on your screen"
+    assert await spoken.filter("JAIL and MYJAI stay as they are.") == "JAIL and MYJAI stay as they are."
 
 
 def test_only_the_dashboard_may_open_a_conversation(monkeypatch):

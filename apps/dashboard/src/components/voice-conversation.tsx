@@ -11,7 +11,8 @@ type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking';
 type Phase = 'off' | 'connecting' | 'live';
 
 /** An operations-feed entry, as the update JAI may speak about. */
-interface FeedUpdate { id: string; title: string; message: string; severity: string; requires_action?: boolean; created_at: string }
+interface FeedUpdate { id: string; title: string; message: string; severity: string; requires_action?: boolean; created_at: string;
+  item_type?: string }
 
 /** POST /api/voice/live/session: a short-lived secret for one OpenAI Realtime conversation. */
 export interface LiveSession { client_secret: string; model: string; voice: string; calls_url: string; expires_at?: number }
@@ -100,7 +101,8 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
     const check = async () => {
       const response = await apiClient.get<FeedUpdate[]>('/api/operations-feed/list?limit=8');
       if (stopped || !response.data) return;
-      const fresh = response.data.filter((item) => !seen.has(item.id)
+      // A single step (one page not found, one command failing) is not news: the mission's own outcome is.
+      const fresh = response.data.filter((item) => !seen.has(item.id) && item.item_type !== 'tool'
         && new Date(item.created_at).getTime() >= startedAt
         && (item.requires_action || ['success', 'warning', 'error'].includes(item.severity)));
       // One update at a time, never over JAI or Richard speaking, at most every 20 seconds; anything not told

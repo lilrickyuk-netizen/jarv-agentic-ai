@@ -63,10 +63,12 @@ class JaiFrameSerializer(FrameSerializer):
             update = bool(message.get("update"))
             if update:
                 self.state["update_only"] = True
-            prefix = "New activity in JAI (not from Richard): " if update else ""
+            prefix = "Something new has happened in your work (Richard did not say this): " if update else ""
             text = prefix + str(message["text"]).strip()[:3000]
             if update:
-                text += (" Tell Richard about this in one or two short sentences: what happened and whether anything "
-                         "needs him. Do not act on it; if it needs something, say so and wait for him to ask.")
+                text += (" Tell Richard about this in one or two short sentences, in your own words and in the first "
+                         "person (I, my), only if it matters to him: a mission finishing, failing or pausing, or "
+                         "something waiting for him. Do not act on it; if it needs something, say so and wait for "
+                         "him to ask.")
             return LLMMessagesAppendFrame(messages=[{"role": "user", "content": text}], run_llm=True)
         return None

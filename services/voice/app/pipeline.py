@@ -13,6 +13,7 @@ use to JAI's daily spend, ending the conversation if today's limit is reached.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any, Dict, List, Optional
 
@@ -41,6 +42,8 @@ from pipecat.services.kokoro.tts import KokoroTTSService
 from pipecat.services.openai.tts import OpenAITTSService
 from pipecat.transcriptions.language import Language
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams, FastAPIWebsocketTransport
+from pipecat.utils.text.base_text_filter import BaseTextFilter
+from pipecat.utils.text.markdown_text_filter import MarkdownTextFilter
 
 import os
 
@@ -189,6 +192,30 @@ def function_schemas(tools: List[Dict[str, Any]], backend: Backend, worker_ref: 
     return schemas
 
 
+class SpokenText(BaseTextFilter):
+    """What the voice says, as a person would say it: JAI is "Jay" (one word, never spelled out), links and file
+    paths are not read out character by character. The screen still shows the text as written."""
+
+    _NAME = re.compile(r"(?<![A-Za-z0-9_])JAI(?![A-Za-z0-9_])")
+    _URL = re.compile(r"https?://\S+")
+
+    async def update_settings(self, settings):
+        return None
+
+    async def filter(self, text: str) -> str:
+        return self._URL.sub("the link on your screen", self._NAME.sub("Jay", text))
+
+    async def handle_interruption(self):
+        return None
+
+    async def reset_interruption(self):
+        return None
+
+
+def spoken_filters():
+    return [MarkdownTextFilter(), SpokenText()]
+
+
 KOKORO_MODEL = os.environ.get("KOKORO_MODEL", "/srv/voice/models/kokoro-v1.0.onnx")
 KOKORO_VOICES = os.environ.get("KOKORO_VOICES", "/srv/voice/models/voices-v1.0.bin")
 
@@ -246,10 +273,11 @@ def speech(brief: Dict[str, Any], api_key: str):
     """JAI's voice for this conversation, and whether it runs on this computer (free): Kokoro speaking British
     English (the model and voices are in the image), or OpenAI text-to-speech."""
     if (brief.get("tts_engine") or "kokoro") == "kokoro":
-        return KokoroTTSService(model_path=KOKORO_MODEL, voices_path=KOKORO_VOICES, settings=KokoroTTSService.Settings(
+        return KokoroTTSService(model_path=KOKORO_MODEL, voices_path=KOKORO_VOICES, text_filters=spoken_filters(),
+                                settings=KokoroTTSService.Settings(
             voice=brief.get("tts_voice") or "bm_george", language=Language.EN_GB,
             speed=float(brief.get("tts_speed") or 1.0))), True
-    return OpenAITTSService(api_key=api_key, settings=OpenAITTSService.Settings(
+    return OpenAITTSService(api_key=api_key, text_filters=spoken_filters(), settings=OpenAITTSService.Settings(
         model=brief.get("tts_model") or "gpt-4o-mini-tts", voice=brief.get("tts_voice") or "fable",
         instructions=brief.get("tts_instructions") or "Speak in a British accent.")), False
 

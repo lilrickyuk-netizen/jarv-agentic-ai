@@ -10,7 +10,8 @@ import { VoiceConversation } from '@/components/voice-conversation';
 import { getCard, showCard } from '@/lib/screen-signal';
 
 const mockPosts: { path: string; body: unknown }[] = [];
-const mockFeed: { id: string; title: string; message: string; severity: string; requires_action?: boolean; created_at: string }[] = [];
+const mockFeed: { id: string; title: string; message: string; severity: string; requires_action?: boolean; created_at: string;
+  item_type?: string }[] = [];
 
 jest.mock('@/lib/api', () => ({
   apiClient: {
@@ -160,13 +161,16 @@ describe('VoiceConversation', () => {
     mockFeed.push(
       { id: 'f1', title: 'Mission blocked', message: 'git push waits for your approval.', severity: 'warning',
         requires_action: true, created_at: new Date(Date.now() + 60000).toISOString() },
-      { id: 'f2', title: 'Heartbeat', message: 'routine', severity: 'info', created_at: new Date(Date.now() + 60000).toISOString() });
+      { id: 'f2', title: 'Heartbeat', message: 'routine', severity: 'info', created_at: new Date(Date.now() + 60000).toISOString() },
+      { id: 'f3', title: 'Tool: fetch_url', message: '404 https://plexecute.co.uk/blog', severity: 'error', item_type: 'tool',
+        created_at: new Date(Date.now() + 60000).toISOString() });
     act(() => channel.emit({ type: 'response.done' }));  // the greeting has been spoken
     const told = () => channel.sent.find((event) => event.type === 'conversation.item.create'
       && JSON.stringify(event).includes('New activity in JAI'));
     await waitFor(() => expect(told()).toBeDefined());
     expect(JSON.stringify(told())).toContain('Mission blocked: git push waits for your approval.');
     expect(JSON.stringify(told())).not.toContain('Heartbeat');
+    expect(JSON.stringify(told())).not.toContain('fetch_url');  // one step failing is not news
     expect(channel.sent.filter((event) => event.type === 'response.create').length).toBe(2);
     // The update is reported, not acted on: its reply may not call tools.
     const reply = channel.sent.filter((event) => event.type === 'response.create').pop() as { response?: { tool_choice?: string } };
@@ -180,8 +184,8 @@ describe('VoiceConversation', () => {
     await waitFor(() => expect(global.fetch).toHaveBeenCalled());
     act(() => channel.open());
     expect(await screen.findByText('IN CONVERSATION — JUST TALK')).toBeInTheDocument();
-    mockFeed.push({ id: 'f9', title: 'Tool: run_command', message: "'syft' is not installed. Install it with uv tool install.",
-      severity: 'error', created_at: new Date(Date.now() + 60000).toISOString() });
+    mockFeed.push({ id: 'f9', title: 'Mission paused', message: "'syft' is not installed. Install it with uv tool install.",
+      severity: 'error', item_type: 'task', created_at: new Date(Date.now() + 60000).toISOString() });
     act(() => channel.emit({ type: 'response.done' }));
     await waitFor(() => expect(channel.sent.some((e) => JSON.stringify(e).includes('New activity in JAI'))).toBe(true));
     const posted = () => mockPosts.filter((post) => post.path === '/api/voice/live/tool');

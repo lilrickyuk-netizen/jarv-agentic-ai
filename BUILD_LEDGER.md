@@ -13945,3 +13945,16 @@ TESTS RUN: backend suite with a new test that a research command is researched (
 RESULT: A command containing "research", "fetch", "look up" or "summarise" went to an older handler that, unless it was a package, CVE or asset check, fetched nodejs.org's documentation index (or the one URL given) and reported "Research complete": Richard received "Fetched https://nodejs.org/docs/latest/api/: Index". A question is now researched with research_web (planned searches through SearXNG, the best sources read, a cited answer, deep when he asks for thorough or detailed research) and answered with the report and its numbered sources; a command naming a URL reads that page and gives its text. For Wave 4's local image generation: WSL had 7 GB of the laptop's 15 GB with about 2 GB free; .wslconfig now gives it 11 GB and 8 GB of swap (leaving Windows about 4 GB), and Crawl4AI is capped at 2 GB so a heavy page cannot starve the other services.
 BLOCKERS: None
 NEXT TASK: Wave 4a: ComfyUI with FLUX.1-schnell on the RTX 4050 for marketing images
+
+---
+
+TASK ID: FIX-VOICE-SPEAKS-AS-ITSELF
+TASK NAME: The voice says "Jay", speaks as itself in the first person, never reads out links, and does not announce single failed steps
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: services/voice/app/pipeline.py, services/voice/app/serializer.py, services/voice/tests/test_voice_service.py, apps/backend/app/core/voice/live.py, apps/dashboard/src/components/voice-conversation.tsx, apps/dashboard/__tests__/voice-conversation.test.tsx
+COMMANDS RUN: voice image build and its pytest; backend test suite (pgvector test database); dashboard type check and jest; docker compose up -d --no-deps --build backend voice dashboard
+TESTS RUN: voice service suite with a new test that JAI is said as Jay (and words containing JAI are left alone) and links are not read out, and the activity update now asking for the first person; dashboard suite with a single failed step (a tool feed item) never announced
+RESULT: Richard said the voice sounded like a chatbot again: it called itself "JAI" in the third person ("JAI couldn't retrieve the page") and, on the Pipecat voice, read its own name as letters, because the Realtime voice's "JAI is said Jay" handling was not carried over, and activity updates were introduced as "New activity in JAI", which the model echoed. The Pipecat voice now passes everything it speaks through Pipecat's markdown filter and a spoken-text filter (JAI is "Jay", links become "the link on your screen"); the instructions tell it to speak as itself in the first person, never "JAI has"; updates are introduced as "Something new has happened in your work" and asked for in the first person, only when they matter. The dashboard no longer announces a single failed step (a page not found, one command failing): only a mission's outcome or something waiting for Richard.
+BLOCKERS: None
+NEXT TASK: A natural open-source voice for JAI (Chatterbox Turbo on the GPU, in George's British voice); then Wave 4a images
