@@ -52,7 +52,7 @@ REFUSED_AFTER_UPDATE = ("Richard has not asked for this. An activity update is r
 
 ACTION_LABELS = {"start_mission": "Started a mission", "resume_mission": "Carried on with a mission",
                  "cancel_mission": "Cancelled a mission", "ask_jarv": "Asked JAI", "show_on_screen": "Put it on screen",
-                 "list_workspaces": "Listed workspaces", "list_workspace_files": "Looked in a workspace",
+                 "list_workspaces": "Listed workspaces", "research_web": "Looked it up on the web", "list_workspace_files": "Looked in a workspace",
                  "read_workspace_file": "Read a file", "trace_artifact": "Traced it"}
 
 
@@ -159,7 +159,7 @@ def function_schemas(tools: List[Dict[str, Any]], backend: Backend, worker_ref: 
                                                 "label": ACTION_LABELS.get(_name, _name),
                                                 "error": result.get("error"), "task_id": result.get("task_id"),
                                                 "intent": result.get("intent"), "resumed": result.get("resumed")})]
-                if _name == "show_on_screen" and result.get("card"):
+                if result.get("card"):  # show_on_screen, research_web: what JAI puts on his screen
                     frames.append(message({"type": "card", "card": result["card"]}))
                 await worker.queue_frames(frames)
             await params.result_callback(result)

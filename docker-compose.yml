@@ -136,6 +136,7 @@ services:
     networks:
       - jarv-network
       - jarv-ops
+      - jarv-web
     restart: unless-stopped
 
   # Next.js Dashboard Frontend
@@ -190,6 +191,42 @@ services:
     networks:
       - jarv-network
     restart: unless-stopped
+
+  # Wave 3, research. JAI's search engine and page reader run on their own network (jarv-web) shared only with
+  # the backend and worker, never published on this computer: nothing else can use them, and a page the browser
+  # is sent to cannot reach JAI's database, Redis or Docker controls.
+  # SearXNG (open source): asks Google, Bing, Brave, DuckDuckGo, Wikipedia, GitHub and more at once. Its image is
+  # pinned to the exact build the installer pulled (SEARXNG_IMAGE in .env).
+  searxng:
+    image: ${SEARXNG_IMAGE:-docker.io/searxng/searxng:latest}
+    container_name: jarv-searxng
+    environment:
+      # Set in .env by the research installer (never committed); without it SearXNG refuses to start.
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-}
+      SEARXNG_BASE_URL: http://searxng:8080/
+      FORCE_OWNERSHIP: "false"
+    volumes:
+      - ./services/searxng:/etc/searxng:ro
+      - searxng_data:/var/cache/searxng
+    networks:
+      - jarv-web
+    restart: unless-stopped
+
+  # Crawl4AI (open source, Apache 2.0): a headless browser that renders JavaScript pages and returns their main
+  # content as Markdown. No model or key: JAI's own model does the reading.
+  crawl4ai:
+    image: ${CRAWL4AI_IMAGE:-unclecode/crawl4ai:0.8.6}
+    container_name: jarv-crawl4ai
+    shm_size: "1g"
+    networks:
+      - jarv-web
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:11235/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
 
   # Voicebox is reachable only on the private Compose network. Its API has no
   # authentication, so the dashboard talks to it exclusively through JARV.
@@ -264,6 +301,7 @@ services:
     networks:
       - jarv-network
       - jarv-ops
+      - jarv-web
     restart: unless-stopped
     command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
     # Celery worker liveness: ping the worker over the broker (not HTTP — this
@@ -352,6 +390,8 @@ volumes:
     driver: local
   tool_home:
     driver: local
+  searxng_data:
+    driver: local
 
 networks:
   jarv-network:
@@ -360,3 +400,6 @@ networks:
   jarv-ops:
     driver: bridge
     internal: true
+  # JAI's research network (Wave 3): the backend, the worker, SearXNG and Crawl4AI only; it reaches the internet.
+  jarv-web:
+    driver: bridge

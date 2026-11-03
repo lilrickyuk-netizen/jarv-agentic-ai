@@ -281,6 +281,14 @@ class Settings(BaseSettings):
             return str(v)
         return "redis://localhost:6379/0"
 
+    # Wave 3, research: JAI's own search engine (SearXNG, which asks Google, Bing, Brave, DuckDuckGo, Wikipedia,
+    # GitHub and others at once, private to this computer) and its page reader (Crawl4AI, a headless browser
+    # that renders JavaScript pages and returns their main content as Markdown). Empty turns either off; JAI then
+    # searches DuckDuckGo directly and reads pages without rendering.
+    SEARXNG_URL: str = "http://searxng:8080"
+    CRAWL4AI_URL: str = "http://crawl4ai:11235"
+    RESEARCH_TIMEOUT_SECONDS: float = Field(default=20.0, ge=3, le=120)
+
     # Voice
     VOICE_ENABLED: bool = False
     # Backends (Repair 12e-4c). auto = Voicebox when VOICEBOX_BASE_URL is set, otherwise the keyed

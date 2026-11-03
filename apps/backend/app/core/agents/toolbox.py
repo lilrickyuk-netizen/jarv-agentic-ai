@@ -75,6 +75,7 @@ ALIASES: Dict[str, str] = {
 }
 
 CONSULT_TOOL = "consult_specialist_knowledge"
+WEB_TOOLS = ("web_search", "research_web", "fetch_url")
 TRACE_TOOL = "trace_artifact"
 
 # Registry categories that are reachable only through the confined workspace tools.
@@ -166,8 +167,26 @@ WORKSPACE_TOOLS: Dict[str, ToolSpec] = {
     "memory_search": ToolSpec("memory_search", "Search this workspace's memory.",
                               _schema({"query": {"type": "string"}, "limit": {"type": "integer"}}, ["query"]),
                               "workspace"),
-    "fetch_url": ToolSpec("fetch_url", "Fetch a public web page (read-only; private networks are blocked).",
-                          _schema({"url": {"type": "string"}}, ["url"]), "workspace"),
+    "fetch_url": ToolSpec("fetch_url", "Read a public web page as text (read-only; private networks are blocked). "
+                          "Pages built by JavaScript are read through JAI's browser automatically; render=true "
+                          "forces it.", _schema({"url": {"type": "string"}, "render": {"type": "boolean"}}, ["url"]),
+                          "workspace"),
+    "web_search": ToolSpec("web_search", "Search the web through JAI's own search engine (Google, Bing, Brave, "
+                           "DuckDuckGo, Wikipedia, GitHub and more at once). Returns titles, links and snippets; "
+                           "read a result with fetch_url. category: general, news, it or science; time_range: day, "
+                           "week, month or year for recent things.",
+                           _schema({"query": {"type": "string"}, "category": {"type": "string",
+                                    "enum": ["general", "news", "it", "science"]},
+                                    "time_range": {"type": "string", "enum": ["day", "week", "month", "year"]},
+                                    "limit": {"type": "integer"}}, ["query"]), "workspace"),
+    "research_web": ToolSpec("research_web", "Research a question on the web and get a cited answer: JAI plans "
+                             "several searches, reads the best sources and writes what they say with [n] "
+                             "citations and the source list. Use it for current facts, library and API changes, "
+                             "prices, regulations, competitors and comparisons; depth deep reads about ten sources.",
+                             _schema({"question": {"type": "string"},
+                                      "depth": {"type": "string", "enum": ["quick", "deep"]},
+                                      "time_range": {"type": "string", "enum": ["day", "week", "month", "year"]}},
+                                     ["question"]), "workspace"),
     "check_package_registry": ToolSpec("check_package_registry", "Look up a package on its official registry.",
                                        _schema({"name": {"type": "string"},
                                                 "ecosystem": {"type": "string", "enum": ["npm", "pypi"]}}, ["name"]),
@@ -351,6 +370,9 @@ class AgentToolbox:
                 continue
             json_schema.pop("title", None)
             specs[name] = ToolSpec(name, (meta.description or name)[:500], json_schema, "registry", name)
+        # Every agent can search and research the web and read public pages (read-only, Wave 3).
+        for web in WEB_TOOLS:
+            specs.setdefault(web, WORKSPACE_TOOLS[web])
         # Every agent can consult its field's specialist knowledge and trace the artifact graph (both read-only).
         for always in (CONSULT_TOOL, TRACE_TOOL):
             meta = registry.get_metadata(always)
@@ -487,7 +509,14 @@ class AgentToolbox:
         if name == "memory_search":
             return await rt.memory_search(str(args.get("query", "")), limit=int(args.get("limit") or 5))
         if name == "fetch_url":
-            return await rt.fetch_url(str(args.get("url", "")))
+            return await rt.fetch_url(str(args.get("url", "")), args.get("render") if isinstance(args.get("render"),
+                                                                                              bool) else None)
+        if name == "web_search":
+            return await rt.web_search(str(args.get("query", "")), int(args.get("limit") or 8),
+                                       args.get("category"), args.get("time_range"))
+        if name == "research_web":
+            return await rt.research_web(str(args.get("question", "")), str(args.get("depth") or "quick"),
+                                         args.get("category"), args.get("time_range"))
         if name == "check_package_registry":
             return await rt.check_package_registry(str(args.get("name", "")), str(args.get("ecosystem") or "npm"))
         if name == "check_cve":

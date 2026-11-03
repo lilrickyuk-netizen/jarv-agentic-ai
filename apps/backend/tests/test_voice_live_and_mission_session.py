@@ -153,7 +153,7 @@ def test_live_conversation_needs_the_openai_key_and_never_hands_it_to_the_browse
     # The voice acts and asks JAI's brain; it does not read raw status, mission or memory records itself.
     assert {t["name"] for t in session["tools"]} == {"start_mission", "resume_mission", "cancel_mission", "ask_jarv",
                                                      "list_workspaces", "list_workspace_files", "read_workspace_file",
-                                                     "trace_artifact", "show_on_screen"}
+                                                     "trace_artifact", "show_on_screen", "research_web"}
     assert "voice of JAI's whole system" in session["instructions"]
     assert "never start a new mission to continue an old one" in session["instructions"]
     assert "Never tell him you cannot access his files" in session["instructions"]

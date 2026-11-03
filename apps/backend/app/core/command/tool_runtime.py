@@ -59,6 +59,8 @@ _TOOL_AUTHORITY = {
     "write_file": 2,
     "send_notification": 4,
     "fetch_url": 1,
+    "web_search": 1,
+    "research_web": 1,
     "check_package_registry": 1,
     "check_cve": 1,
     "asset_licence_check": 1,
@@ -723,12 +725,43 @@ class ToolRuntime:
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"source record failed: {exc}")
 
-    async def fetch_url(self, url: str) -> Dict[str, Any]:
+    async def web_search(self, query: str, limit: int = 8, category: Optional[str] = None,
+                         time_range: Optional[str] = None) -> Dict[str, Any]:
+        denied = await self._enforce("web_search", content=query)
+        if denied:
+            return denied
+        from app.core.internet import web_search as _search
+
+        res = await _search(query, max(1, min(int(limit or 8), 20)), category, time_range)
+        ok = bool(res.get("ok"))
+        await self._record("web_search", {"query": query, "category": category, "time_range": time_range}, ok,
+                           f"{len(res.get('results') or [])} result(s) from {res.get('source') or 'search'}"
+                           if ok else str(res.get("reason"))[:120],
+                           output={"results": len(res.get("results") or []), "source": res.get("source")})
+        return {**res, "success": ok}
+
+    async def research_web(self, question: str, depth: str = "quick", category: Optional[str] = None,
+                           time_range: Optional[str] = None) -> Dict[str, Any]:
+        denied = await self._enforce("research_web", content=question)
+        if denied:
+            return denied
+        from app.core.internet.research import research
+
+        res = await research(question, depth, category, time_range)
+        ok = bool(res.get("ok"))
+        await self._record("research_web", {"question": question, "depth": depth}, ok,
+                           f"{res.get('pages_read', 0)} source(s) read" if ok else str(res.get("reason"))[:120],
+                           output={"sources": len(res.get("sources") or []), "queries": res.get("queries")})
+        for source in res.get("sources") or []:
+            await self._source_record(source["url"], source.get("title", ""), "web_research", question[:200])
+        return {**res, "success": ok}
+
+    async def fetch_url(self, url: str, render: Optional[bool] = None) -> Dict[str, Any]:
         denied = await self._enforce("fetch_url", content=url)
         if denied:
             return denied
         from app.core.internet import fetch_url as _fetch
-        res = await _fetch(url)
+        res = await _fetch(url, render)
         ok = res.get("ok", False)
         await self._record("fetch_url", {"url": url}, ok,
                            f"{res.get('status', '')} {res.get('title') or res.get('reason') or ''}"[:120],

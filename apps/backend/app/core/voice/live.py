@@ -80,6 +80,17 @@ TOOLS: List[Dict[str, Any]] = [
          "question": {"type": "string", "description": "The question in Richard's words, with every detail."},
          "workspace": _NO_WORKSPACE},
          "required": ["question"], "additionalProperties": False}},
+    {"type": "function", "name": "research_web",
+     "description": "Look something up on the web: anything about the world outside JAI (news, prices, products, "
+                    "companies, people, libraries and APIs, regulations, how something works today). JAI searches "
+                    "with its own search engine, reads the best sources and writes a cited answer, which goes on "
+                    "Richard's screen with the sources. Takes about half a minute; deep reads more sources.",
+     "parameters": {"type": "object", "properties": {
+         "question": {"type": "string", "description": "What to find out, in Richard's words, with every detail."},
+         "depth": {"type": "string", "enum": ["quick", "deep"]},
+         "time_range": {"type": "string", "enum": ["day", "week", "month", "year"],
+                        "description": "Only for recent things: how recent."}},
+         "required": ["question"], "additionalProperties": False}},
     {"type": "function", "name": "search_memory",
      "description": "What JAI remembers about a subject (decisions, facts, preferences, past work), best first.",
      "parameters": {"type": "object", "properties": {
@@ -155,7 +166,11 @@ def instructions(spaces: List[Any]) -> str:
         "markdown, British English. Be specific and factual: names, numbers, files, requirement ids, errors. "
         "Never use filler such as 'moving along', 'keeping pace', 'making good progress', 'we're on track', "
         "'I'll keep an eye on it' or 'I'll let you know', "
-        "and never promise to watch or update him unless he asks. Say plainly what you do not know. Let him "
+        "and never promise to watch or update him unless he asks. Say plainly what you do not know. For anything "
+        "about the world outside JAI (news, prices, products, companies, libraries, regulations, how something "
+        "works today), never answer from memory: say in a few words that you are looking it up, call "
+        "research_web, then give him the answer in two or three sentences and say where it comes from; the full "
+        "answer and its sources are on his screen. Let him "
         "interrupt; keep answers brief unless he asks for detail.\n"
         f"His workspaces: {projects}.\n"
         "You are the voice of JAI's whole system, not a separate assistant. JAI's brain is its reasoning core: "
@@ -854,6 +869,19 @@ async def run_tool(db: AsyncSession, user_id: UUID, name: str, arguments: Dict[s
         output: Dict[str, Any] = {"workspaces": [w.name for w in await _workspaces(db, user_id)]}
     elif name == "show_on_screen":
         output = await show_on_screen(db, user_id, args)
+    elif name == "research_web":
+        from app.core.internet.research import research, research_card
+
+        found = await research(str(args.get("question") or ""), str(args.get("depth") or "quick"),
+                               None, args.get("time_range"))
+        if not found.get("ok"):
+            output = {"error": found.get("reason") or "The research found nothing."}
+        else:
+            output = {"answer": found["report"][:4000],
+                      "sources": [f"[{s['n']}] {s['title']} ({s['url']})" for s in found["sources"]],
+                      "card": research_card(found),
+                      "note": "The answer and sources are on his screen now: tell him the answer in two or three "
+                              "sentences and name the main source; do not read out the sources or the links."}
     elif name in ("list_workspace_files", "read_workspace_file"):
         output = await _workspace_files(db, user_id, str(args.get("workspace") or ""), args,
                                         read=name == "read_workspace_file")

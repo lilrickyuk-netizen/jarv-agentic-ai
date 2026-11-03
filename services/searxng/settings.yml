@@ -1,0 +1,31 @@
+# JAI's own search engine (SearXNG, open source, AGPL-3.0). It asks many search engines at once and returns the
+# merged results; it runs only on JAI's private research network (not published on this computer), so nobody
+# else can use it and nothing is tracked. JAI reads its JSON results. The secret comes from SEARXNG_SECRET.
+use_default_settings: true
+
+general:
+  instance_name: "JAI search"
+  enable_metrics: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "en-GB"
+  formats:
+    - html
+    - json
+
+server:
+  limiter: false
+  public_instance: false
+  image_proxy: false
+  method: "GET"
+
+outgoing:
+  request_timeout: 4.0
+  max_request_timeout: 8.0
+  pool_connections: 100
+  pool_maxsize: 20
+
+ui:
+  static_use_hash: true

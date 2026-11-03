@@ -52,6 +52,7 @@ const ACTION_LABELS: Record<string, string> = {
   list_workspaces: 'Listed workspaces',
   show_on_screen: 'Put it on screen',
   ask_jarv: 'Asked JAI',
+  research_web: 'Looked it up on the web',
 };
 
 /**
@@ -226,7 +227,7 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
       : await apiClient.post<Record<string, unknown>>('/api/voice/live/tool', { name, arguments: args });
     const output: Record<string, unknown> = response.error || !response.data
       ? { error: response.error || 'The action failed.' } : response.data;
-    if (name === 'show_on_screen' && output.card) showCard(output.card as ScreenCard);
+    if (output.card) showCard(output.card as ScreenCard);  // show_on_screen, research_web
     add({ who: 'action', text: 'error' in output ? `${ACTION_LABELS[name] ?? name}: ${String(output.error)}`
       : ACTION_LABELS[name] ?? name });
     send({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: event.call_id,

@@ -84,8 +84,67 @@ def _page_text(body: str, content_type: str, url: str) -> str:
     return body
 
 
-async def fetch_url(url: str) -> Dict[str, Any]:
-    """GET a public URL (read-only, size-capped, SSRF-guarded, the final address checked too). Never executes."""
+# A page whose readable text is shorter than this was probably built by JavaScript, or a bot wall: read it again
+# through Crawl4AI's browser.
+THIN_PAGE_CHARS = 600
+
+
+def _setting(name: str) -> str:
+    from app.core.config import settings
+
+    return str(getattr(settings, name, "") or "").strip().rstrip("/")
+
+
+async def render_page(url: str) -> Dict[str, Any]:
+    """Read a page through Crawl4AI (JAI's headless browser): JavaScript rendered, main content as Markdown.
+    The address is SSRF-checked first; the browser runs on its own network with only JAI's backend."""
+    base = _setting("CRAWL4AI_URL")
+    if not base:
+        return {"ok": False, "url": url, "reason": "the page reader (Crawl4AI) is turned off"}
+    ok, reason = _ssrf_ok(url)
+    if not ok:
+        return {"ok": False, "blocked": True, "url": url, "reason": reason}
+    from app.core.config import settings
+
+    try:
+        async with httpx.AsyncClient(timeout=float(settings.RESEARCH_TIMEOUT_SECONDS) + 25) as c:
+            r = await c.post(f"{base}/md", json={"url": url, "f": "fit", "c": "0"})
+        if r.status_code >= 400:
+            return {"ok": False, "url": url, "reason": f"the page reader answered {r.status_code}"}
+        markdown = str((r.json() or {}).get("markdown") or "")
+        return {"ok": bool(markdown.strip()), "url": url, "status": 200, "content_type": "text/markdown",
+                "title": _markdown_title(markdown), "text": _redact(markdown)[:8000], "bytes": len(markdown),
+                "rendered": True, **({} if markdown.strip() else {"reason": "the page had no readable content"})}
+    except (httpx.HTTPError, ValueError) as exc:
+        return {"ok": False, "url": url, "reason": f"the page reader could not be reached: {type(exc).__name__}"}
+
+
+def _markdown_title(markdown: str) -> str:
+    for line in markdown.splitlines()[:30]:
+        if line.startswith("#"):
+            return line.lstrip("#").strip()[:200]
+    return ""
+
+
+async def fetch_url(url: str, render: Optional[bool] = None) -> Dict[str, Any]:
+    """Read a public page (read-only, size-capped, SSRF-guarded, the final address checked too). Never executes.
+    render=True reads it through JAI's browser (Crawl4AI); by default a page that comes back thin (built by
+    JavaScript) or refused (a bot wall) is read again through the browser, and the fuller text is kept."""
+    if render:
+        return await render_page(url)
+    plain = await _fetch_plain(url)
+    if plain.get("blocked") or render is False:
+        return plain
+    thin = len(str(plain.get("text") or "").strip()) < THIN_PAGE_CHARS
+    refused = plain.get("status") in (401, 403, 429, 503) or not plain.get("ok")
+    if (thin or refused) and _setting("CRAWL4AI_URL"):
+        rendered = await render_page(str(plain.get("url") or url))
+        if rendered.get("ok") and len(rendered.get("text") or "") > len(str(plain.get("text") or "")):
+            return rendered
+    return plain
+
+
+async def _fetch_plain(url: str) -> Dict[str, Any]:
     ok, reason = _ssrf_ok(url)
     if not ok:
         return {"ok": False, "blocked": True, "url": url, "reason": reason}
@@ -132,11 +191,74 @@ def parse_duckduckgo(html: str, limit: int = 10) -> List[Dict[str, str]]:
     return results
 
 
-async def web_search(query: str, limit: int = 10) -> Dict[str, Any]:
-    """Public web search (DuckDuckGo HTML results; no account needed). Read-only."""
+SEARCH_CATEGORIES = ("general", "news", "it", "science", "videos", "images", "map")
+TIME_RANGES = ("day", "week", "month", "year")
+
+
+def parse_searxng(payload: Dict[str, Any], limit: int = 10) -> List[Dict[str, Any]]:
+    """SearXNG's JSON results: title, url, snippet, the engines that found it and when it was published."""
+    results: List[Dict[str, Any]] = []
+    seen = set()
+    for item in payload.get("results") or []:
+        url = str(item.get("url") or "")
+        if not url.startswith("http") or url in seen:
+            continue
+        seen.add(url)
+        entry = {"title": str(item.get("title") or "")[:200], "url": url,
+                 "snippet": str(item.get("content") or "")[:400],
+                 "engines": list(item.get("engines") or ([item["engine"]] if item.get("engine") else []))[:6]}
+        if item.get("publishedDate"):
+            entry["published"] = str(item["publishedDate"])[:25]
+        results.append(entry)
+        if len(results) >= limit:
+            break
+    return results
+
+
+async def searxng_search(query: str, limit: int = 10, category: Optional[str] = None,
+                         time_range: Optional[str] = None) -> Dict[str, Any]:
+    base = _setting("SEARXNG_URL")
+    if not base:
+        return {"ok": False, "query": query, "reason": "JAI's search engine (SearXNG) is turned off"}
+    params = {"q": query, "format": "json", "language": "en-GB", "safesearch": "0",
+              "categories": category if category in SEARCH_CATEGORIES else "general"}
+    if time_range in TIME_RANGES:
+        params["time_range"] = time_range
+    try:
+        async with httpx.AsyncClient(timeout=FETCH_TIMEOUT) as c:
+            r = await c.get(f"{base}/search", params=params, headers={"Accept": "application/json"})
+        if r.status_code >= 400:
+            return {"ok": False, "query": query, "reason": f"SearXNG answered {r.status_code}"}
+        payload = r.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        return {"ok": False, "query": query, "reason": f"SearXNG could not be reached: {type(exc).__name__}"}
+    results = parse_searxng(payload, limit)
+    answers = [str(a.get("answer") if isinstance(a, dict) else a)[:400] for a in (payload.get("answers") or [])][:3]
+    return {"ok": True, "query": query, "source": "searxng", "category": params["categories"],
+            "results": results, "answers": answers,
+            "suggestions": [str(s)[:120] for s in (payload.get("suggestions") or [])][:5],
+            "engines_unresponsive": [str(e[0]) for e in (payload.get("unresponsive_engines") or []) if e][:8]}
+
+
+async def web_search(query: str, limit: int = 10, category: Optional[str] = None,
+                     time_range: Optional[str] = None) -> Dict[str, Any]:
+    """Public web search, read-only: JAI's own SearXNG first (many engines at once; categories such as news,
+    it or science; a time range of day, week, month or year), DuckDuckGo directly if SearXNG is off, down or
+    finds nothing."""
     query = (query or "").strip()
     if not query:
         return {"ok": False, "reason": "empty query"}
+    found = await searxng_search(query, limit, category, time_range)
+    if found.get("ok") and found.get("results"):
+        return found
+    fallback = await _duckduckgo(query, limit)
+    if fallback.get("ok"):
+        fallback["searxng"] = found.get("reason") or "SearXNG found nothing"
+        return fallback
+    return found if found.get("ok") else fallback
+
+
+async def _duckduckgo(query: str, limit: int) -> Dict[str, Any]:
     try:
         async with httpx.AsyncClient(timeout=FETCH_TIMEOUT, follow_redirects=True) as c:
             r = await c.post("https://html.duckduckgo.com/html/", data={"q": query},
@@ -231,8 +353,12 @@ def internet_tools() -> List[Dict[str, Any]]:
     auto = "allowed_auto"
     appr = "requires_approval"
     return [
-        {"name": "web_search", "status": auto, "note": "Public web search (titles, links, snippets)."},
-        {"name": "fetch_url", "status": auto, "note": "GET public pages (SSRF-guarded, read-only)."},
+        {"name": "web_search", "status": auto,
+         "note": "Public web search through JAI's SearXNG (many engines at once), DuckDuckGo as the fallback."},
+        {"name": "fetch_url", "status": auto,
+         "note": "Read public pages (SSRF-guarded, read-only); JavaScript pages through JAI's Crawl4AI browser."},
+        {"name": "research_web", "status": auto,
+         "note": "Research a question: plan searches, read the best sources, write a cited answer."},
         {"name": "fetch_docs_page", "status": auto},
         {"name": "fetch_api_docs", "status": auto},
         {"name": "check_package_registry", "status": auto, "note": "npm/PyPI metadata."},
