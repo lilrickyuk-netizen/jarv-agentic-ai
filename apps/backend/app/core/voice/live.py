@@ -288,6 +288,64 @@ async def record_usage(usage: Dict[str, Any]) -> Dict[str, Any]:
                        f"the conversation has ended.") if state["limit_reached"] else None}
 
 
+async def record_pipeline_usage(kind: str, usage: Dict[str, Any]) -> Dict[str, Any]:
+    """One use by the Pipecat voice (model, speech-to-text or text-to-speech): priced, added to today's spend as
+    voice, and whether the conversation must stop because today's limit is now reached."""
+    from app.core import spend
+
+    if kind not in {"llm", "tts", "stt"}:
+        raise ValueError(f"Unknown voice usage kind: {kind}")
+    cost = spend.pipeline_cost(kind, usage if isinstance(usage, dict) else {})
+    await spend.record("voice", cost)
+    state = await spend.today()
+    return {"cost_usd": round(cost, 6), "today": state, "stop": state["limit_reached"],
+            "reason": (f"Today's AI spending limit is reached (${state['total_usd']:.2f} of ${state['limit_usd']:.2f}); "
+                       f"the conversation has ended.") if state["limit_reached"] else None}
+
+
+# The Pipecat voice speaks the model's text through text-to-speech, so the text must read aloud well.
+SPOKEN_TEXT = ("\nYour replies are spoken aloud by a text-to-speech voice: plain sentences only, never markdown, "
+               "lists, headings, emoji, code or URLs; say numbers and ids the way a person would read them. "
+               "Open the conversation with one short sentence that tells him what matters right now, from the "
+               "picture below, without a generic greeting.\n")
+
+
+def engine_choice() -> Dict[str, Any]:
+    """Which voice the dashboard should use: the Pipecat service (with the Realtime voice as its fallback) or
+    the Realtime voice only."""
+    choice = (settings.VOICE_ENGINE or "pipecat").strip().lower()
+    return {"engine": "realtime" if choice == "realtime" else "pipecat",
+            "url": settings.VOICE_PIPELINE_PUBLIC_URL, "fallback": "realtime", "available": available(),
+            "setup": setup_hint()}
+
+
+async def pipeline_brief(db: AsyncSession, user_id: UUID) -> Dict[str, Any]:
+    """Everything the Pipecat voice needs for one conversation: JAI's instructions with the current picture and
+    the recent conversation, the voice tools, the model and voice. Refused when today's limit is reached."""
+    from app.core import spend
+    from app.core.audit import AuditLogger
+
+    if not available():
+        raise LiveUnavailable(setup_hint())
+    state = await spend.today()
+    if state["limit_reached"]:
+        raise LiveUnavailable(f"Today's AI spending limit is reached (${state['total_usd']:.2f} of "
+                              f"${state['limit_usd']:.2f}), so the live conversation cannot start until it is raised "
+                              f"(DAILY_SPEND_LIMIT_USD) or the day turns over.")
+    spaces = await _workspaces(db, user_id)
+    text = (instructions(spaces) + SPOKEN_TEXT + now_block() + await situation_block(db, user_id)
+            + history_block(await recent_turns(user_id)))
+    await AuditLogger.log_system_event(db, action=SESSION_ACTION, result="ok", resource_type="voice",
+                                       user_id=user_id, details={"engine": "pipecat",
+                                                                 "model": settings.VOICE_PIPELINE_MODEL})
+    await db.commit()
+    return {"engine": "pipecat", "instructions": text, "tools": VOICE_TOOLS, "model": settings.VOICE_PIPELINE_MODEL,
+            "tts_model": settings.VOICE_PIPELINE_TTS_MODEL, "tts_voice": settings.VOICE_PIPELINE_TTS_VOICE,
+            "tts_instructions": "Speak as JAI: calm, warm and assured, a clear British accent, natural pace, "
+                                "like a trusted chief of staff reporting.",
+            "spend": state}
+
+
 async def situation_block(db: AsyncSession, user_id: UUID) -> str:
     """What JAI is doing as the conversation opens: missions in progress with their latest step, and what waits
     for Richard's approval. It is a starting picture; the instructions say to check again before answering."""

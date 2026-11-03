@@ -297,6 +297,13 @@ class Settings(BaseSettings):
     OPENAI_REALTIME_MODEL: str = "gpt-realtime"
     OPENAI_REALTIME_VOICE: str = "cedar"
     OPENAI_REALTIME_TRANSCRIBE_MODEL: str = "gpt-4o-mini-transcribe"
+    # Wave 2b: Talk with JAI on Pipecat (services/voice). pipecat = the Pipecat voice service first, with the
+    # Realtime voice above as the fallback if it cannot be reached; realtime = the Realtime voice only.
+    VOICE_ENGINE: str = "pipecat"
+    VOICE_PIPELINE_PUBLIC_URL: str = "ws://localhost:8765/ws"
+    VOICE_PIPELINE_MODEL: str = "gpt-6-luna"
+    VOICE_PIPELINE_TTS_MODEL: str = "gpt-4o-mini-tts"
+    VOICE_PIPELINE_TTS_VOICE: str = "cedar"
     # Output budget for one agent turn; a whole document written through write_file needs room.
     AGENT_MAX_OUTPUT_TOKENS: int = Field(default=16000, ge=1024, le=128000)
     # How long one agent command may run. Builds, tests, installs and a project's own verify task (Terraform,

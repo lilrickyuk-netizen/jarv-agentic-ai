@@ -164,6 +164,33 @@ services:
       retries: 3
       start_period: 30s
 
+  # Talk with JAI (Wave 2b): the Pipecat voice pipeline, in its own image with its own pinned packages. The
+  # browser opens one WebSocket per conversation (published on this computer only). It has no authority of its
+  # own: the operator's sign-in token goes with every backend call, and the backend runs every tool as him. Only
+  # the OpenAI key is read from the backend's .env, mounted read-only; nothing secret is in the image.
+  voice:
+    build:
+      context: ./services/voice
+      dockerfile: Dockerfile
+    container_name: jarv-voice
+    environment:
+      BACKEND_URL: http://backend:8000
+      BACKEND_ENV_FILE: /run/jai/backend.env
+      PIPECAT_ALLOWED_ORIGINS: ${PIPECAT_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - type: bind
+        source: ./apps/backend/.env
+        target: /run/jai/backend.env
+        read_only: true
+    depends_on:
+      - backend
+    networks:
+      - jarv-network
+    restart: unless-stopped
+
   # Voicebox is reachable only on the private Compose network. Its API has no
   # authentication, so the dashboard talks to it exclusively through JARV.
   voicebox:

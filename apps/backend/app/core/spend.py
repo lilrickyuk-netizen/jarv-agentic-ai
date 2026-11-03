@@ -35,6 +35,13 @@ REALTIME_PRICES: Dict[str, tuple] = {
     "gpt-realtime-2.1-mini": (10.00, 0.30, 20.00, 0.60, 2.40),
 }
 
+# The Pipecat voice (Wave 2b), estimates in US dollars. Text-to-speech per million characters spoken (gpt-4o-mini-tts
+# is billed by tokens, about $0.015 a minute of speech, which is about $15 per million characters); streaming
+# speech-to-text per second of audio heard (about $0.006 a minute). The voice's model is priced from JAI's text
+# price table like any other call; a model the table does not list is priced as gpt-6-luna.
+TTS_USD_PER_MILLION_CHARACTERS = 15.0
+STT_USD_PER_SECOND = 0.006 / 60
+
 
 class SpendLimitReached(ProviderError):
     """Today's AI spending limit is reached: no model call is made until it is raised or the day turns over."""
@@ -137,3 +144,16 @@ async def check() -> None:
     state = await today()
     if state["total_usd"] >= cap:
         raise SpendLimitReached(state["total_usd"], cap)
+
+
+def pipeline_cost(kind: str, usage: Dict[str, Any]) -> float:
+    """One use by the Pipecat voice: llm (tokens), tts (characters spoken) or stt (seconds heard)."""
+    if kind == "tts":
+        return max(0, int(usage.get("characters") or 0)) * TTS_USD_PER_MILLION_CHARACTERS / 1_000_000
+    if kind == "stt":
+        return max(0.0, float(usage.get("seconds") or 0)) * STT_USD_PER_SECOND
+    tokens = {"prompt_tokens": int(usage.get("prompt_tokens") or 0),
+              "completion_tokens": int(usage.get("completion_tokens") or 0),
+              "cached_tokens": int(usage.get("cached_tokens") or 0)}
+    cost = text_cost(str(usage.get("model") or ""), tokens)
+    return cost if cost is not None else (text_cost("gpt-6-luna", tokens) or 0.0)

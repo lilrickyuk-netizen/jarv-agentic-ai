@@ -218,6 +218,42 @@ async def live_usage(request: LiveUsageRequest, user_id: CurrentUserId) -> Dict[
     return await live.record_usage(request.usage)
 
 
+class PipelineSpendRequest(BaseModel):
+    kind: str
+    model: Optional[str] = None
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cached_tokens: int = 0
+    characters: int = 0
+    seconds: float = 0
+
+
+@router.get("/live/engine")
+async def live_engine(user_id: CurrentUserId) -> Dict[str, Any]:
+    """Which voice Talk with JAI uses (the Pipecat service first, the Realtime voice as its fallback)."""
+    return live.engine_choice()
+
+
+@router.get("/live/brief")
+async def live_brief(user_id: CurrentUserId, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """JAI's instructions, tools, model and voice for one Pipecat conversation (asked by the voice service as
+    the signed-in operator)."""
+    try:
+        return await live.pipeline_brief(db, UUID(str(user_id)))
+    except live.LiveUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+
+@router.post("/live/spend")
+async def live_spend(request: PipelineSpendRequest, user_id: CurrentUserId) -> Dict[str, Any]:
+    """One model, speech-to-text or text-to-speech use by the Pipecat voice: added to today's AI spend; says
+    whether the conversation must stop."""
+    try:
+        return await live.record_pipeline_usage(request.kind, request.model_dump(exclude={"kind"}))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @router.get("/spend/today")
 async def spend_today(user_id: CurrentUserId) -> Dict[str, Any]:
     """Today's AI spend (text models and the live voice), the daily limit and what is left."""

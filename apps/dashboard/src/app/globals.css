@@ -172,6 +172,7 @@
 .voice-live { margin-bottom: 11px; padding-bottom: 10px; border-bottom: 1px solid rgba(142, 155, 170, .14); }
 .voice-live-head { display: flex; align-items: center; gap: 7px; color: #b8c2cc; font: 9px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .voice-live-head .voice-controls { margin-left: auto; }
+.voice-live-head .voice-engine { padding: 1px 5px; border: 1px solid rgba(56, 189, 248, .35); border-radius: 3px; color: #7dd3fc; letter-spacing: .08em; }
 .voice-live-lines { display: grid; gap: 4px; max-height: 190px; margin: 9px 0 0; padding: 0; overflow-y: auto; list-style: none; font-size: 10px; line-height: 1.45; }
 .voice-live-lines strong { margin-right: 5px; font-weight: 600; }
 .voice-live-you { color: #c7d1db; }

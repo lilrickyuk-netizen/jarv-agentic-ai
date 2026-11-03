@@ -5,6 +5,7 @@ import { apiClient } from '@/lib/api';
 import type { MissionReport } from '@/components/voice-operator';
 import { setVoiceStream } from '@/lib/voice-signal';
 import { showCard, type ScreenCard } from '@/lib/screen-signal';
+import { PipecatVoice, voiceUrl, type PipecatMessage } from '@/lib/pipecat-voice';
 
 type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking';
 type Phase = 'off' | 'connecting' | 'live';
@@ -14,6 +15,9 @@ interface FeedUpdate { id: string; title: string; message: string; severity: str
 
 /** POST /api/voice/live/session: a short-lived secret for one OpenAI Realtime conversation. */
 export interface LiveSession { client_secret: string; model: string; voice: string; calls_url: string; expires_at?: number }
+
+/** GET /api/voice/live/engine: which voice Talk with JAI uses. */
+export interface VoiceEngine { engine: 'pipecat' | 'realtime'; url: string; fallback: string }
 
 export interface ConversationLine { who: 'you' | 'jarv' | 'action'; text: string }
 
@@ -51,7 +55,9 @@ const ACTION_LABELS: Record<string, string> = {
 };
 
 /**
- * A live spoken conversation with JAI (OpenAI Realtime over WebRTC). The microphone streams to the model and
+ * A live spoken conversation with JAI. First choice is JAI's own Pipecat voice service (Wave 2b: streaming
+ * speech-to-text, JAI's model with its tools, Smart Turn deciding when Richard has finished, natural speech);
+ * if that cannot be reached it falls back to OpenAI Realtime over WebRTC, described below. The microphone streams to the model and
  * its voice plays back; it decides when Richard has finished speaking and stops when he talks over it. Each
  * action it takes is run by JAI's backend as the signed-in operator, and a mission it starts is followed to
  * its end and the outcome spoken.
@@ -61,6 +67,8 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
   const [lines, setLines] = useState<ConversationLine[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
   const peerRef = useRef<RTCPeerConnection | null>(null);
+  const pipecatRef = useRef<PipecatVoice | null>(null);
+  const [engineName, setEngineName] = useState<'pipecat' | 'realtime' | null>(null);
   const channelRef = useRef<RTCDataChannel | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -72,10 +80,10 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
   // Looks for new activity to tell Richard about; also run as soon as JAI finishes speaking.
   const updateRef = useRef<(() => Promise<void>) | null>(null);
 
-  const add = (line: ConversationLine) => {
+  const add = (line: ConversationLine, remember = true) => {
     setLines((current) => [...current.slice(-11), line]);
-    // JAI keeps the spoken conversation, so the next one carries on from here.
-    if (line.who === 'you' || line.who === 'jarv') {
+    // JAI keeps the spoken conversation, so the next one carries on from here (the Pipecat voice keeps it itself).
+    if (remember && (line.who === 'you' || line.who === 'jarv')) {
       void apiClient.post('/api/voice/live/turn', { who: line.who, text: line.text });
     }
   };
@@ -100,6 +108,11 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
       fresh.forEach((item) => seen.add(item.id));
       lastSpoken = Date.now();
       const text = fresh.slice(0, 3).map((item) => `${item.title}: ${item.message}`).join(' | ');
+      if (pipecatRef.current?.open) {
+        // The voice service reports it and refuses to start, resume or cancel work until Richard speaks.
+        pipecatRef.current.note(text.slice(0, 1200), true);
+        return;
+      }
       send({ type: 'conversation.item.create', item: { type: 'message', role: 'system',
         content: [{ type: 'input_text', text: `New activity in JAI (not from Richard): ${text.slice(0, 1200)}` }] } });
       updateOnlyRef.current = true;
@@ -134,6 +147,9 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
   };
 
   const stop = () => {
+    pipecatRef.current?.stop();
+    pipecatRef.current = null;
+    setEngineName(null);
     channelRef.current?.close();
     channelRef.current = null;
     peerRef.current?.getSenders().forEach((sender) => sender.track?.stop());
@@ -171,10 +187,15 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
 
   const followMission = async (taskId: string) => {
     const report = await onMission(taskId);
-    if (!report || !channelRef.current) return;
+    if (!report) return;
     const outcome = report.requires_approval || report.status === 'waiting_on_approval'
       ? `It is paused waiting for Richard's approval on the Approvals page. ${report.response_text || ''}`
       : `Status ${report.status}. ${report.response_text || ''}`;
+    if (pipecatRef.current?.open) {
+      pipecatRef.current.note(`[mission update] ${outcome.slice(0, 3000)}`);
+      return;
+    }
+    if (!channelRef.current) return;
     send({ type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [
       { type: 'input_text', text: `[mission update] ${outcome.slice(0, 3000)}` }] } });
     requestReply();
@@ -263,11 +284,86 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
     }
   };
 
+  /** What the Pipecat voice service tells the dashboard. */
+  const onPipecat = (message: PipecatMessage) => {
+    switch (message.type) {
+      case 'you':
+        add({ who: 'you', text: message.text }, false);
+        onStateChange('thinking');
+        break;
+      case 'jai':
+        add({ who: 'jarv', text: message.text }, false);
+        break;
+      case 'interrupt':
+        onStateChange('listening');
+        break;
+      case 'card':
+        showCard(message.card as unknown as ScreenCard);
+        break;
+      case 'action': {
+        add({ who: 'action', text: message.error ? `${message.label}: ${message.error}` : message.label });
+        const follow = (message.name === 'start_mission' && message.intent === 'mission')
+          || (message.name === 'resume_mission' && message.resumed === true);
+        if (follow && typeof message.task_id === 'string') void followMission(message.task_id);
+        break;
+      }
+      case 'stop':
+        if (message.reason) setProblem(message.reason);
+        break;
+      default:
+        break;
+    }
+  };
+
+  /** JAI's own voice service (Pipecat). Returns false if it cannot be reached, so the Realtime voice is used. */
+  const startPipecat = async (): Promise<boolean> => {
+    const choice = await apiClient.get<VoiceEngine>('/api/voice/live/engine');
+    if (choice.error || choice.data?.engine !== 'pipecat' || !choice.data.url) return false;
+    let token: string | null = null;
+    try {
+      token = window.localStorage.getItem('access_token');
+    } catch {
+      token = null;
+    }
+    if (!token) return false;
+    const voice = new PipecatVoice({
+      onMessage: onPipecat,
+      onSpeaking: (speaking) => {
+        respondingRef.current = speaking;
+        onStateChange(speaking ? 'speaking' : 'listening');
+        if (!speaking) void updateRef.current?.();
+      },
+      onClosed: (reason) => {
+        if (!mountedRef.current || pipecatRef.current !== voice) return;
+        pipecatRef.current = null;
+        if (reason) setProblem((current) => current || reason);
+        stop();
+      },
+    });
+    try {
+      await voice.connect(voiceUrl(choice.data.url, token));
+    } catch (error) {
+      voice.stop();
+      // Not reachable or refused: say why only if it is a reason Richard must act on (the spend limit, sign-in).
+      const reason = error instanceof Error ? error.message : '';
+      if (/limit|sign in|OPENAI_API_KEY/i.test(reason)) throw error;
+      return false;
+    }
+    pipecatRef.current = voice;
+    setVoiceStream(voice.voiceStream);
+    setEngineName('pipecat');
+    setPhase('live');
+    onStateChange('listening');
+    return true;
+  };
+
   const start = async () => {
     setProblem(null);
     setPhase('connecting');
     try {
       await beforeStart();
+      if (await startPipecat()) return;
+      setEngineName('realtime');
       const session = await apiClient.post<LiveSession>('/api/voice/live/session');
       if (session.error || !session.data?.client_secret) throw new Error(session.error || 'The conversation could not start.');
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -326,6 +422,11 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
       <div className="voice-live-head">
         <span className={`voice-dot ${phase === 'live' ? 'voice-dot-live' : ''}`} />
         <span>{phase === 'live' ? 'IN CONVERSATION — JUST TALK' : phase === 'connecting' ? 'CONNECTING…' : 'CONVERSATION'}</span>
+        {phase === 'live' && engineName && (
+          <span className="voice-engine" title={engineName === 'pipecat' ? "JAI's own voice (Pipecat)" : 'OpenAI Realtime voice'}>
+            {engineName === 'pipecat' ? 'PIPECAT' : 'REALTIME'}
+          </span>
+        )}
         <div className="voice-controls">
           {phase === 'off'
             ? <button type="button" className="voice-toggle" onClick={() => void start()} disabled={!ready}>Talk with JAI</button>
