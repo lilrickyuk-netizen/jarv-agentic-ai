@@ -138,7 +138,9 @@ def instructions(spaces: List[Any]) -> str:
         "You are the voice of JAI's whole system, not a separate assistant: JAI's memory, missions, workspaces "
         "and approvals are yours through your tools. Talk things through yourself, but for anything about his "
         "projects, decisions, progress or what JAI is doing, use ask_jarv, search_memory, get_status, "
-        "get_mission, list_approvals or list_workspaces rather than guessing. When he asks for work to "
+        "get_mission, list_approvals or list_workspaces rather than guessing. What is running changes while you "
+        "talk: before you say whether anything is running, how a mission is going or that one has finished, call "
+        "get_status or get_mission in that turn; never answer it from memory. When he asks for work to "
         "be done, say in one sentence what you'll do and call start_mission with his full request; JAI's agents "
         "then do the work and you'll receive a message beginning [mission update] when it finishes or pauses; "
         "tell him the outcome in a sentence or two. When he asks to continue, resume or carry on with a mission, "
@@ -236,6 +238,27 @@ def history_block(turns: List[Dict[str, Any]]) -> str:
             + "\n".join(lines))
 
 
+async def situation_block(db: AsyncSession, user_id: UUID) -> str:
+    """What JAI is doing as the conversation opens: missions in progress with their latest step, and what waits
+    for Richard's approval. It is a starting picture; the instructions say to check again before answering."""
+    try:
+        missions = [m for m in await _recent_missions(db, user_id, limit=8) if m.get("in_progress")]
+        waiting = (await _approvals(db, user_id))["count"]
+    except Exception:  # noqa: BLE001 - the picture is an addition; the tools still answer
+        return ""
+    if missions:
+        lines = []
+        for m in missions[:4]:
+            state = "between rounds, next round queued" if m.get("between_rounds") else m.get("status")
+            latest = (m.get("latest_activity") or ["no steps recorded yet"])[0]
+            lines.append(f"- {m['title']} ({state}; started {m.get('started')}; latest: {latest})")
+        doing = "Missions in progress:\n" + "\n".join(lines)
+    else:
+        doing = "No mission is in progress."
+    return (f"\nWhat JAI is doing as this conversation opens (check get_status for the latest):\n{doing}\n"
+            f"Waiting for Richard's approval: {waiting}.\n")
+
+
 async def create_session(db: AsyncSession, user_id: UUID) -> Dict[str, Any]:
     """A short-lived Realtime client secret for this operator, carrying JAI's instructions and tools."""
     if not available():
@@ -246,7 +269,8 @@ async def create_session(db: AsyncSession, user_id: UUID) -> Dict[str, Any]:
     model, voice = settings.OPENAI_REALTIME_MODEL, settings.OPENAI_REALTIME_VOICE
     body = {"session": {
         "type": "realtime", "model": model,
-        "instructions": instructions(spaces) + now_block() + history_block(await recent_turns(user_id)),
+        "instructions": (instructions(spaces) + now_block() + await situation_block(db, user_id)
+                         + history_block(await recent_turns(user_id))),
         "tools": TOOLS, "tool_choice": "auto",
         "audio": {"input": {"transcription": {"model": settings.OPENAI_REALTIME_TRANSCRIBE_MODEL},
                             "turn_detection": {"type": "semantic_vad"}},
@@ -325,6 +349,20 @@ async def _workspace_files(db: AsyncSession, user_id: UUID, name: str, args: Dic
             "entries": [{"name": e["name"], "folder": e["is_dir"]} for e in entries[:200]]}
 
 
+def _working(status: Optional[str]) -> bool:
+    """Whether a mission is still being worked on: running, queued, recovering, about to start, or between two
+    rounds of a long mission (needs_continuation: the next round is queued and starts by itself)."""
+    from app.core.runtime import lifecycle
+
+    return lifecycle.normalise(status) in lifecycle.IN_FLIGHT
+
+
+def _between_rounds(status: Optional[str]) -> bool:
+    from app.core.runtime import lifecycle
+
+    return lifecycle.normalise(status) == lifecycle.NEEDS_CONTINUATION
+
+
 async def _mission(db: AsyncSession, user_id: UUID, task_id: Optional[str]) -> Dict[str, Any]:
     from app.core.scoping import owned_workspaces
     from app.models.task import Task
@@ -340,17 +378,22 @@ async def _mission(db: AsyncSession, user_id: UUID, task_id: Optional[str]) -> D
         # "The mission" is the one still being worked on, if any; otherwise the latest one that is not archived.
         recent = (await db.execute(query.order_by(Task.created_at.desc()).limit(50))).scalars().all()
         visible = [t for t in recent if not (t.meta_data or {}).get("archived_at")]
-        working = [t for t in visible if (t.status or "").lower() in ("queued", "running", "recovering", "needs_continuation")]
+        working = [t for t in visible if _working(t.status)]
         task = (working or visible or [None])[0]
     if task is None:
         return {"error": "No mission found."}
     result = task.result if isinstance(task.result, dict) else {}
-    if (task.status or "").lower() in ("queued", "running", "recovering"):
+    if _working(task.status):
         # A mission being worked on is described by what it is doing now; its last report and error are
         # from an earlier round (a pause it has since come back from) and would mislead.
+        note = "Still being worked on. Describe it from latest_activity; earlier pauses are over."
+        if _between_rounds(task.status):
+            note = ("Still being worked on: one round has finished and the next is queued and starts by itself. "
+                    "Describe it from latest_activity; the last round's report is not the result.")
         return {"task_id": str(task.id), "title": task.title, "status": task.status, "in_progress": True,
+                "rounds_done": int(result.get("continuation_count") or 0) or None,
                 "folder": result.get("workspace_path"), "latest_activity": await _activity(db, task.id),
-                "note": "Still being worked on. Describe it from latest_activity; earlier pauses are over."}
+                "note": note}
     # Missions store their report under "response".
     summary = (result.get("response") or result.get("response_text") or result.get("output")
                or result.get("summary") or "")
@@ -411,9 +454,12 @@ async def _recent_missions(db: AsyncSession, user_id: UUID, limit: int = 6) -> L
                  "started": task.created_at.isoformat(timespec="minutes") if task.created_at else None,
                  "folder": result.get("workspace_path"),
                  "last_report": str(result.get("response") or task.error_message or "")[:700]}
-        if (task.status or "").lower() in ("running", "queued", "recovering"):
+        if _working(task.status):
             entry["in_progress"] = True
             entry["latest_activity"] = await _activity(db, task.id)
+            if _between_rounds(task.status):
+                entry["between_rounds"] = True
+            entry.pop("last_report")  # an earlier round's report would be mistaken for the result
         missions.append(entry)
         if len(missions) == limit:
             break

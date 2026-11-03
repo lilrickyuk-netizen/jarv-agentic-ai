@@ -465,8 +465,11 @@ async def _status_reply(db: AsyncSession, user_id: UUID, workspace_id: Optional[
         Task.workspace_id.in_(scope), Task.status == lifecycle.FAILED, Task.updated_at >= since))).scalar_one()
     latest = (await db.execute(select(LiveOperationsFeedItem).where(LiveOperationsFeedItem.workspace_id.in_(scope))
                                .order_by(LiveOperationsFeedItem.created_at.desc()).limit(1))).scalar_one_or_none()
-    running = (await db.execute(select(Task.title).where(Task.workspace_id.in_(scope),
-                                                         Task.status == lifecycle.RUNNING)
+    # Every mission still being worked on, including one between two rounds or about to start, under any of
+    # the names its status has had; sub-tasks are part of their mission, not missions of their own.
+    flight = sorted(lifecycle.IN_FLIGHT | {old for old, new in lifecycle._LEGACY.items() if new in lifecycle.IN_FLIGHT})
+    running = (await db.execute(select(Task.title).where(Task.workspace_id.in_(scope), Task.status.in_(flight),
+                                                         Task.task_type != "subtask")
                                 .order_by(Task.updated_at.desc()).limit(3))).scalars().all()
     parts = []
     if in_flight:

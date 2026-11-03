@@ -13646,3 +13646,16 @@ TESTS RUN: full backend suite, with new cases for how the name is spoken
 RESULT: Richard says the name "Jay". The live voice is told its name is written JAI and said "Jay", one word, never spelled out. Every spoken reply that goes through a speech engine (Voicebox or OpenAI) has JAI, JAI's and J.A.I. turned into "Jay" first, so no engine reads out the letters; words that only contain the letters, such as "jailbreak", are untouched.
 BLOCKERS: None
 NEXT TASK: Acceptance mission: bring MYCO Phase 0 into full conformance with MYCO_V3_SPEC.md, measured against the earlier baseline
+
+---
+
+TASK ID: JAI-SITUATIONAL-AWARENESS
+TASK NAME: JAI always knows what is running
+STATUS: COMPLETE
+FILES CREATED: apps/backend/tests/test_jai_knows_what_is_running.py
+FILES MODIFIED: apps/backend/app/core/voice/live.py, apps/backend/app/core/voice/engine.py
+COMMANDS RUN: backend test suite (pgvector test database); dashboard type check and jest; docker compose up -d --build --no-deps backend (the worker running the MYCO mission was left alone)
+TESTS RUN: full backend suite, with new tests for missions that are running, about to start, queued, between rounds or under the older in_progress name, and for a finished one
+RESULT: Richard asked JAI about the MYCO acceptance mission while it was running and was told no mission was running. A long mission works in rounds; between rounds its status is needs_continuation, and two of the voice's mission checks counted only running, queued and recovering, so they reported the last round's report as if the mission had stopped. Every way JAI answers "what's going on" (get_status, get_mission, ask_jarv) now counts a mission as in progress for as long as it is being worked on, says when it is between rounds with the next queued, describes it from its own latest steps and never from an earlier round's report, and leaves sub-tasks out of the mission list. Each conversation now opens with what JAI is doing at that moment (missions in progress with their latest step, and approvals waiting), and JAI is told to check get_status or get_mission before saying whether anything is running, how a mission is going or that one has finished.
+BLOCKERS: None
+NEXT TASK: Review the MYCO acceptance mission's evidence report against MYCO_V3_SPEC.md and the baseline
