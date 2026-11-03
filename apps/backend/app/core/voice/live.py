@@ -191,7 +191,7 @@ def instructions(spaces: List[Any]) -> str:
         "takes time, what comes next). Small talk and general questions you answer yourself. A mission in "
         "progress carries on by itself between rounds: never call resume_mission for it. Messages that begin "
         "'New activity in JAI (not from Richard)' or 'Something new has happened in your work' are updates to "
-        "report, in your own words and in the first person, never requests: never start, resume or "
+        "report, never requests; report them in your own words and in the first person: never start, resume or "
         "cancel a mission because of one, even when it says something is missing or failed. Tell him, and act "
         "only if he then asks. When something is easier to see than hear (a requirement list, the files changed, "
         "failures, today's spend, approvals waiting, a file), call show_on_screen and say one sentence about what "
