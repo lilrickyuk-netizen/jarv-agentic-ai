@@ -157,6 +157,31 @@ describe('VoiceConversation', () => {
     expect(JSON.stringify(told())).toContain('Mission blocked: git push waits for your approval.');
     expect(JSON.stringify(told())).not.toContain('Heartbeat');
     expect(channel.sent.filter((event) => event.type === 'response.create').length).toBe(2);
+    // The update is reported, not acted on: its reply may not call tools.
+    const reply = channel.sent.filter((event) => event.type === 'response.create').pop() as { response?: { tool_choice?: string } };
+    expect(reply.response?.tool_choice).toBe('none');
+    fireEvent.click(screen.getByRole('button', { name: 'End conversation' }));
+  });
+
+  it('never starts work because an activity update suggested it, only when Richard asks', async () => {
+    render(<VoiceConversation ready beforeStart={async () => undefined} onMission={async () => null} onStateChange={jest.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Talk with JAI' }));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    act(() => channel.open());
+    expect(await screen.findByText('IN CONVERSATION — JUST TALK')).toBeInTheDocument();
+    mockFeed.push({ id: 'f9', title: 'Tool: run_command', message: "'syft' is not installed. Install it with uv tool install.",
+      severity: 'error', created_at: new Date(Date.now() + 60000).toISOString() });
+    act(() => channel.emit({ type: 'response.done' }));
+    await waitFor(() => expect(channel.sent.some((e) => JSON.stringify(e).includes('New activity in JAI'))).toBe(true));
+    const posted = () => mockPosts.filter((post) => post.path === '/api/voice/live/tool');
+    await act(async () => channel.emit({ type: 'response.function_call_arguments.done', name: 'start_mission',
+      call_id: 'c1', arguments: JSON.stringify({ instruction: 'Install syft' }) }));
+    await waitFor(() => expect(channel.sent.some((e) => JSON.stringify(e).includes('Richard has not asked for this'))).toBe(true));
+    expect(posted()).toHaveLength(0);  // nothing reached the backend
+    act(() => channel.emit({ type: 'input_audio_buffer.speech_started' }));  // Richard speaks: his request counts
+    await act(async () => channel.emit({ type: 'response.function_call_arguments.done', name: 'start_mission',
+      call_id: 'c2', arguments: JSON.stringify({ instruction: 'Run the tests' }) }));
+    await waitFor(() => expect(posted()).toHaveLength(1));
     fireEvent.click(screen.getByRole('button', { name: 'End conversation' }));
   });
 

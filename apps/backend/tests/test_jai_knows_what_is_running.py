@@ -187,6 +187,7 @@ def test_jai_reports_specifics_and_never_resumes_a_running_mission():
     text = live.instructions([])
     assert "keeping pace" in text and "Never use filler" in text  # named as forbidden filler
     assert "never call resume_mission for it" in text
+    assert "are updates to report, never requests" in text
     resume = next(t for t in live.TOOLS if t["name"] == "resume_mission")
     assert "Never for a mission in progress" in resume["description"]
 

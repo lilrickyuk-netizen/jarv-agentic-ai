@@ -99,3 +99,31 @@ def test_rounds_that_change_nothing_stop_for_review():
     # A round that changed something resets the count; a completed mission is never touched.
     assert after_round(lifecycle.NEEDS_CONTINUATION, "r", True, 5) == (lifecycle.NEEDS_CONTINUATION, "r", 0)
     assert after_round(lifecycle.COMPLETED, None, False, 9)[0] == lifecycle.COMPLETED
+
+
+def test_a_missing_program_is_reported_not_installed_into_the_project():
+    import asyncio
+    from uuid import uuid4
+
+    from app.core.command.tool_runtime import ToolRuntime
+    from tests.conftest import AsyncTestingSessionLocal
+    from tests.test_workspace_toolchain import _mission_folder, _mission_workspace
+
+    host, folder = _mission_folder()
+
+    async def run():
+        async with AsyncTestingSessionLocal() as session:
+            rt = await _mission_workspace(session, host)
+            return await rt.run_command(f"definitely-not-installed-{uuid4().hex[:6]} version", cwd_host=host,
+                                        approval_granted=True)
+
+    import shutil
+    try:
+        out = asyncio.run(run())
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+    if out.get("exit_code") == 127:  # the program was looked up and is not there
+        assert "never download or install it into the project folder" in out["stderr"]
+        assert "report it as missing" in out["stderr"]
+    else:  # refused before running (an unknown program needs approval): it never ran, so nothing was installed
+        assert out["success"] is False
