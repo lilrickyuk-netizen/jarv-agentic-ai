@@ -95,6 +95,35 @@ def automatic_rounds(task: Task) -> int:
 
 RESUMABLE = (lifecycle.NEEDS_CONTINUATION, lifecycle.PARTIAL)
 
+# A round that changes nothing in the workspace and still does not pass the independent check would only repeat
+# the same checks next round. After this many such rounds in a row the mission stops for Richard's review.
+IDLE_ROUNDS_LIMIT = 2
+_CHANGES = ("write_file", "edit_file", "move_file", "copy_file", "create_folder", "delete_file_with_boundary")
+
+
+def round_changed_workspace(calls) -> bool:
+    """Whether a round changed the workspace: a file written, edited, moved or deleted, or a commit made."""
+    for call in calls or []:
+        if not isinstance(call, dict) or not call.get("success"):
+            continue
+        if call.get("tool") in _CHANGES:
+            return True
+        command = str((call.get("inputs") or {}).get("command") or "").strip().lower()
+        if call.get("tool") == "run_command" and command.startswith("git commit"):
+            return True
+    return False
+
+
+def after_round(outcome: str, reason, changed: bool, idle_before: int):
+    """The outcome of a round once idle rounds are counted: (outcome, reason, idle rounds so far)."""
+    idle = 0 if changed else int(idle_before or 0) + 1
+    if outcome == lifecycle.NEEDS_CONTINUATION and idle >= IDLE_ROUNDS_LIMIT:
+        return (lifecycle.PARTIAL,
+                f"Stopped for Richard's review: {idle} rounds in a row changed nothing in the workspace and the "
+                f"independent check still did not pass, so another round would only repeat the same checks. "
+                f"The report shows what is evidenced and what the check still disputes.", idle)
+    return outcome, reason, idle
+
 
 async def queue_resume(db: AsyncSession, task: Task, *, operator: str, reason: str) -> Dict[str, Any]:
     """Send a paused mission back to the worker to carry on: the same task, workspace and progress.
@@ -212,7 +241,8 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
     result = await executor.run(f"{mission}\n\n{note}" if note else mission, steps_per_round=8,
                                 max_continuations=max_cont, start_continuation=prior,
                                 known=await recall_for_mission(db, task.workspace_id, str(mission)),
-                                requirements=res.get("requirements") or None)
+                                requirements=res.get("requirements") or None,
+                                prior_calls=res.get("tool_calls") or None)
 
     if result["needs_continuation"] and result.get("finished"):
         outcome, reason = lifecycle.NEEDS_CONTINUATION, "The independent check found work still to do."
@@ -225,6 +255,8 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
     else:
         outcome, reason = lifecycle.FAILED, "Continuation produced no verifiable output."
 
+    outcome, reason, idle = after_round(outcome, reason, round_changed_workspace(runtime.calls),
+                                        int(res.get("idle_rounds") or 0))
     checkpoint_id = str(uuid4()) if outcome == lifecycle.NEEDS_CONTINUATION else res.get("checkpoint_id")
     updated = dict(res)
     updated.update({
@@ -238,6 +270,7 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
         "remaining_steps": result["remaining_steps"],
         "checkpoint_id": checkpoint_id,
         "final_status_reason": reason,
+        "idle_rounds": idle,
         "verification": result.get("verification"),
         "requirements": result.get("requirements") or res.get("requirements"),
         "report": result.get("report"),

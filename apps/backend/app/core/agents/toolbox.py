@@ -31,6 +31,7 @@ import fnmatch
 import json
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -48,6 +49,8 @@ _PATH_KEYS = ("path", "repo_path", "file_path", "directory", "dir", "cwd", "sour
 # Command arguments that would reach outside the workspace even with the working
 # directory set to it: inline interpreter code, home/env-var paths, traversal.
 _INLINE_CODE_FLAGS = {"-c", "-e", "--eval", "-p", "--print", "-r"}
+# A Windows environment variable such as %USERPROFILE% or %APPDATA% (three or more characters between %).
+_WINDOWS_VARIABLE = re.compile(r"%[A-Za-z_][A-Za-z0-9_]{2,}%")
 _INTERPRETERS = {"python", "python3", "node", "deno", "bun", "ruby", "perl", "php", "bash", "sh", "zsh", "pwsh", "powershell"}
 
 _SEARCH_SKIP = {".git", "node_modules", ".next", "dist", "build", "__pycache__", ".venv", "venv",
@@ -510,7 +513,9 @@ class AgentToolbox:
                     "workspace with write_file and run that file.")
         for token in tokens[1:]:
             value = token.split("=", 1)[1] if token.startswith("-") and "=" in token else token
-            if value.startswith("~") or "$" in value or "%" in value:
+            # A home directory, a shell variable or a Windows variable (%USERPROFILE%) points outside; the short
+            # placeholders of a format string (git log --format=%h %s, date +%Y) do not.
+            if value.startswith("~") or "$" in value or _WINDOWS_VARIABLE.search(value):
                 return f"Argument '{token}' refers to a location outside the workspace."
             parts = value.replace("\\", "/").split("/")
             if ".." in parts:

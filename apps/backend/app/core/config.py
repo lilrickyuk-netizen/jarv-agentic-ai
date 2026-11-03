@@ -299,6 +299,10 @@ class Settings(BaseSettings):
     OPENAI_REALTIME_TRANSCRIBE_MODEL: str = "gpt-4o-mini-transcribe"
     # Output budget for one agent turn; a whole document written through write_file needs room.
     AGENT_MAX_OUTPUT_TOKENS: int = Field(default=16000, ge=1024, le=128000)
+    # How long one agent command may run. Builds, tests, installs and a project's own verify task (Terraform,
+    # Helm and test suites together) take minutes, so they get the long limit; everything else the short one.
+    AGENT_COMMAND_TIMEOUT_SECONDS: int = Field(default=120, ge=10, le=3600)
+    AGENT_LONG_COMMAND_TIMEOUT_SECONDS: int = Field(default=900, ge=60, le=7200)
     # Spoken replies are stored here for their owner and pruned after the retention period.
     VOICE_AUDIO_DIR: str = "/data/voice-audio"
     VOICE_AUDIO_RETENTION_HOURS: float = 24.0

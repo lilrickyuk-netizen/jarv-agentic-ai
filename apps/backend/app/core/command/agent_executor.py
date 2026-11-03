@@ -95,7 +95,14 @@ VERIFIER_TOOLS = ("list_files", "read_file", "search_files", "scan_workspace", "
                   "detect_stack", "detect_commands", "find_missing_files", "check_installed", "run_command",
                   "run_build", "run_tests", "git_status", "git_diff", "git_log", "get_command_log",
                   "consult_specialist_knowledge", "trace_artifact")
-VERIFIER_STEPS = 16
+VERIFIER_STEPS = 16  # the fewest steps the independent check gets
+
+
+def verifier_steps(requirement_count: int) -> int:
+    """Steps for the independent check: enough to look at every requirement (about three each: read, run, read the
+    output) and give its verdict; 16 at least, 48 at most. A fixed 16 ran out before a verdict on a nine-requirement
+    mission, and a check with no verdict sent the mission round again for nothing."""
+    return min(48, max(VERIFIER_STEPS, 8 + 3 * max(0, int(requirement_count or 0))))
 
 _VERDICT = {
     "name": "verdict",
@@ -126,7 +133,16 @@ _VERIFIER_SYSTEM = (
     "is not done. A requirement the mission states that you cannot find evidence for is unmet. Do not "
     "change any file. Use one plain command per run_command call. When you have checked everything, call "
     "verdict: verified=true only when every requirement is met and you saw the evidence yourself; list "
-    "each unmet requirement precisely (what is wrong, which file or command) so the next round can fix it."
+    "each unmet requirement precisely (what is wrong, which file or command) so the next round can fix it.\n"
+    "Judge each requirement by evidence that can exist. Requirements about how the work was done (staying in "
+    "scope, the order of steps, committing in clear steps, not pushing) are shown by the repository itself: "
+    "git log, git show --stat, git status and git diff, and by the recorded actions you are given. Do not mark "
+    "one unmet for want of a proof no file or command could give (a timeline of the agent's thinking, proof "
+    "that nothing else was ever considered). A requirement that the mission give a report is met by the report "
+    "above when it covers every requirement with evidence. A project task that takes minutes (a verify or test "
+    "task) may be run; if it cannot finish, run its parts and say so. You have a limited number of steps: check "
+    "the requirements in order, keep notes as you go, and call verdict before you run out, with met=false and "
+    "the reason for anything you could not check."
 )
 
 
@@ -187,6 +203,28 @@ def _blocked_or_waiting(runtime_calls: List[Dict[str, Any]]) -> bool:
     there is always a plain command or a file tool for it)."""
     return any(isinstance(c, dict) and str(c.get("summary") or "").startswith("paused for approval")
                for c in runtime_calls)
+
+
+def evidence_calls(earlier: Optional[List[Dict[str, Any]]], current: List[Dict[str, Any]],
+                   limit: int = 220) -> List[Dict[str, Any]]:
+    """Every round's actions as one evidence trail: earlier rounds' calls then this round's, keeping only the
+    latest of each repeated action (the same command or file), so a requirement proven in round 3 can still be
+    cited in round 9 and the trail stays short. Approval pauses are kept as they are."""
+    def key(call: Dict[str, Any]) -> Optional[tuple]:
+        inputs = call.get("inputs") if isinstance(call.get("inputs"), dict) else {}
+        target = inputs.get("command") or inputs.get("path") or inputs.get("destination") or inputs.get("query")
+        if str(call.get("summary") or "").startswith("paused for approval"):
+            return None
+        return (call.get("tool"), str(target)[:300]) if target else None
+
+    calls = [c for c in list(earlier or []) + list(current or []) if isinstance(c, dict)]
+    latest: Dict[tuple, int] = {}
+    for index, call in enumerate(calls):
+        k = key(call)
+        if k is not None:
+            latest[k] = index
+    kept = [c for i, c in enumerate(calls) if (key(c) is None or latest[key(c)] == i)]
+    return kept[-limit:]
 
 
 def _claims(runtime_calls: List[Dict[str, Any]]) -> str:
@@ -298,6 +336,7 @@ class AgentExecutor:
         self.first_edit_step: Optional[int] = None
         self.requirements: List[Dict[str, Any]] = []  # the numbered requirement list (Upgrade 2)
         self._started_at: Optional[str] = None
+        self.prior_calls: List[Dict[str, Any]] = []  # earlier rounds' actions, evidence for this round's report
 
     async def _prepare_tools(self) -> List[Dict[str, Any]]:
         """The full mission toolbox; the four core tools only when there is no workspace record to confine to."""
@@ -331,7 +370,8 @@ class AgentExecutor:
                   start_continuation: int = 0,
                   known: Optional[str] = None,
                   verify: bool = True,
-                  requirements: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+                  requirements: Optional[List[Dict[str, Any]]] = None,
+                  prior_calls: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
         """
         Run the tool loop with AUTO-CONTINUATION. The same conversation (and thus
         every prior tool result) is preserved across continuation rounds — the
@@ -341,6 +381,7 @@ class AgentExecutor:
         """
         router = MeteredRouter(get_router(), self.usage, "mission", self._cache_key())
         tools = await self._prepare_tools()
+        self.prior_calls = [c for c in (prior_calls or []) if isinstance(c, dict)]
         if not prior_messages:
             standing = await self.hard_checks()
             if standing is not None:
@@ -546,7 +587,7 @@ class AgentExecutor:
             from app.core.synthesis import build_ledger, render, synthesize
 
             await self._progress("writing the report", continuation, total_budget)
-            ledger = build_ledger(self.runtime.calls, check_calls)
+            ledger = build_ledger(evidence_calls(self.prior_calls, self.runtime.calls), check_calls)
             made = await synthesize(router.as_role("report"), self.model, mission, self.requirements, ledger,
                                     verification,
                                     (verification or {}).get("hard_checks"))
@@ -780,7 +821,7 @@ class AgentExecutor:
                     "unmet": [f"The independent check could not open the workspace: {exc}"]}
         toolbox.withhold([name for name in toolbox.available if name not in VERIFIER_TOOLS])
         tools = toolbox.model_tools() + [_VERDICT]
-        trail = _claims(self.runtime.calls)
+        trail = _claims(evidence_calls(self.prior_calls, self.runtime.calls))
         hard = await self.hard_checks()
         hard_failures: List[str] = []
         hard_text = ""
@@ -804,11 +845,20 @@ class AgentExecutor:
         router = MeteredRouter(get_router(), self.usage, "verifier", self._cache_key())
         tokens = steps = 0
         verdict: Optional[Dict[str, Any]] = None
-        while steps < VERIFIER_STEPS and verdict is None:
+        limit = verifier_steps(len(self.requirements))
+        while steps < limit and verdict is None:
             steps += 1
             compact_messages(messages)
+            last = steps == limit
+            if steps == limit - 2:
+                messages.append(Message(role="user", content=(
+                    "Two steps left: finish what you are checking now; your next-but-one step must be verdict.")))
+            elif last:
+                messages.append(Message(role="user", content=(
+                    "Last step: call verdict now with the checks you have made. Mark any requirement you did not "
+                    "get to as met=false with the reason 'not checked in the steps available'.")))
             resp = await router.complete(CompletionRequest(
-                model=self.model, messages=messages, system=_VERIFIER_SYSTEM, tools=tools,
+                model=self.model, messages=messages, system=_VERIFIER_SYSTEM, tools=[_VERDICT] if last else tools,
                 max_tokens=settings.AGENT_MAX_OUTPUT_TOKENS, temperature=0.0,
                 reasoning_effort=getattr(settings, "OPENAI_VERIFIER_REASONING_EFFORT", "high")))
             tokens += int((resp.usage or {}).get("total_tokens", 0) or 0)

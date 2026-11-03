@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import asyncio
 
+from app.core.config import settings
 from app.core.jarv_memory import memory_service
 from app.core.safety.permission_policy import (
     PermissionDecision,
@@ -68,6 +69,22 @@ _TOOL_AUTHORITY = {
     "git_push_with_boundary": 5, "memory_link_to_workspace": 1, "memory_link_to_task": 1,
 }
 
+
+
+# Programs whose runs take minutes: test runners, builds, installs, infrastructure checks and task runners.
+_LONG_RUNNING = frozenset({"task", "make", "just", "pnpm", "npm", "npx", "yarn", "uv", "uvx", "pip", "poetry",
+                           "pytest", "vitest", "jest", "tsc", "terraform", "helm", "docker", "cargo", "go",
+                           "gradle", "mvn", "dotnet", "turbo", "nx"})
+
+
+def command_timeout(command: str, classification: Optional[str] = None) -> int:
+    """How long a command may run: the long limit for builds, tests, installs and task runners, else the short."""
+    first = (command or "").strip().split(" ", 1)[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
+    for suffix in (".exe", ".cmd"):
+        first = first[:-len(suffix)] if first.endswith(suffix) else first
+    if classification in ("build", "install") or first in _LONG_RUNNING:
+        return int(settings.AGENT_LONG_COMMAND_TIMEOUT_SECONDS)
+    return int(settings.AGENT_COMMAND_TIMEOUT_SECONDS)
 
 class ToolRuntime:
     """Executes named tools, recording each call on the task + feed + audit.
@@ -530,7 +547,7 @@ class ToolRuntime:
 
     async def run_command(self, command: str, cwd_host: Optional[str] = None,
                           allow_build: bool = True, allow_install: bool = True,
-                          timeout: int = 120, approval_granted: bool = False) -> Dict[str, Any]:
+                          timeout: Optional[int] = None, approval_granted: bool = False) -> Dict[str, Any]:
         """
         Execute a command with classification-based gating:
           safe -> always; build -> allowed when allow_build (Level 3, in workspace);
@@ -540,6 +557,8 @@ class ToolRuntime:
         Captures stdout/stderr/exit, times out, persists a CommandRun.
         """
         cls = fs_inspector.classify_command(command)
+        if timeout is None:
+            timeout = command_timeout(command, cls)
         cwd = None
         if cwd_host:
             chk = fs_inspector.path_exists(cwd_host)
