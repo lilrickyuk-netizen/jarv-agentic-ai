@@ -257,3 +257,27 @@ def test_reading_the_same_page_twice_never_locks_or_breaks_the_mission(web, monk
     count, reinforced, again, usable = _run(run())
     assert count == 1 and reinforced == [None]   # one record, never updated by the second read
     assert again["ok"] is True and usable        # the failed record write did not spoil the mission's session
+
+
+def test_a_research_command_is_researched_not_answered_with_a_fixed_page():
+    """'research ...' and 'look up ...' commands used to fetch nodejs.org's docs index whatever was asked."""
+    from types import SimpleNamespace
+
+    from app.core.command.service import CommandService
+
+    asked = {}
+
+    async def research_web(question, depth="quick", category=None, time_range=None):
+        asked.update(question=question, depth=depth)
+        return {"ok": True, "report": "Plexecute calls itself an AI Life Execution Platform [1].", "pages_read": 3,
+                "sources": [{"n": 1, "title": "Plexecute", "url": "https://plexecute.co.uk/"}]}
+
+    async def fetch_url(url, render=None):
+        raise AssertionError("no fixed page is fetched for a question")
+
+    runtime = SimpleNamespace(research_web=research_web, fetch_url=fetch_url, workspace_id=None, task_id=None)
+    answer, _, _, extra = _run(CommandService()._handle_research(
+        None, runtime, "Do thorough research on plexecute.co.uk's competitors"))
+    assert asked["depth"] == "deep" and "competitors" in asked["question"]
+    assert answer.startswith("Plexecute calls itself") and "[1] Plexecute — https://plexecute.co.uk/" in answer
+    assert "nodejs" not in answer and extra["research"]["pages_read"] == 3

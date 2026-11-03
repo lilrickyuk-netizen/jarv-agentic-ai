@@ -13932,3 +13932,16 @@ TESTS RUN: backend suite with a new test that an agent's report holds its summar
 RESULT: The second Plexecute review completed but still said the research "did not preserve page URLs, quoted evidence, or detailed findings" and that the content agent's draft "was truncated". Three things lost them: an agent's report was only its finish summary (the findings and deliverables it listed in finish were kept aside, never shown), the runner cut each report to 2,000 characters, and nothing recorded which pages it had read. An agent's report is now its summary, then its listed deliverables and findings, then the pages it read and the searches it ran (from its own tool trail, successful calls only); the runner keeps up to 6,000 characters; and the finish tool tells every agent its summary must carry the findings themselves, each with the URL or file it came from, because that report is all that reaches Richard.
 BLOCKERS: None
 NEXT TASK: Re-run the Plexecute review; then Wave 4
+
+---
+
+TASK ID: FIX-RESEARCH-COMMAND-AND-MEMORY
+TASK NAME: Research commands are researched (not answered with a fixed page); WSL given 11 GB and the page reader capped, ready for local image generation
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/service.py, apps/backend/tests/test_web_research.py, docker-compose.yml; C:\Users\lilri\.wslconfig on Richard's computer (the previous one backed up)
+COMMANDS RUN: backend test suite (pgvector test database); docker compose restart backend worker; docker compose up -d crawl4ai
+TESTS RUN: backend suite with a new test that a research command is researched (deep when asked for thorough research) and answered with the report and its sources, never with a fixed page
+RESULT: A command containing "research", "fetch", "look up" or "summarise" went to an older handler that, unless it was a package, CVE or asset check, fetched nodejs.org's documentation index (or the one URL given) and reported "Research complete": Richard received "Fetched https://nodejs.org/docs/latest/api/: Index". A question is now researched with research_web (planned searches through SearXNG, the best sources read, a cited answer, deep when he asks for thorough or detailed research) and answered with the report and its numbered sources; a command naming a URL reads that page and gives its text. For Wave 4's local image generation: WSL had 7 GB of the laptop's 15 GB with about 2 GB free; .wslconfig now gives it 11 GB and 8 GB of swap (leaving Windows about 4 GB), and Crawl4AI is capped at 2 GB so a heavy page cannot starve the other services.
+BLOCKERS: None
+NEXT TASK: Wave 4a: ComfyUI with FLUX.1-schnell on the RTX 4050 for marketing images

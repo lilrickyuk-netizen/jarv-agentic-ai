@@ -1469,8 +1469,8 @@ class CommandService:
     ) -> tuple[str, List[str], List[str], Dict[str, Any]]:
         """Safe internet research: fetch docs / package metadata / CVE / asset licence."""
         steps = [
-            "Research: decide which safe internet tool is needed.",
-            "Research: call the tool (SSRF-guarded, read-only); record the source.",
+            "Research: decide which safe internet tool is needed (a check, a page, or research of a question).",
+            "Research: search and read the sources (SSRF-guarded, read-only); record each source.",
             "Verifier: web-sourced claims are stored with URL + summary for traceability.",
         ]
         agents = self._validate_agents(["orchestrator", "research", "documentation", "security", "verifier"])
@@ -1496,13 +1496,33 @@ class CommandService:
                       if src_m else "unsplash.com")
             result = await runtime.asset_licence_check(command_text[:80], source)
             summary = f"Asset source {source}: approved={result.get('approved_source')} (dry-run, not downloaded)."
-        else:
-            target = url_m.group(0) if url_m else "https://nodejs.org/en/docs"
+        elif url_m:
+            target = url_m.group(0)
             result = await runtime.fetch_url(target)
-            summary = f"Fetched {result.get('url', target)}: {result.get('title') or result.get('reason')}."
+            summary = f"Read {result.get('url', target)}: {result.get('title') or result.get('reason')}."
+            if result.get("ok"):
+                result["excerpt"] = str(result.get("text") or "")[:3000]
+        else:
+            # A question about the world: researched properly (Wave 3), never a fixed page standing in for it.
+            depth = "deep" if re.search(r"\b(deep|thorough|detailed|in depth|comprehensive)\b", text) else "quick"
+            result = await runtime.research_web(command_text, depth)
+            if not result.get("ok") or result.get("blocked"):
+                summary = f"Research could not answer it: {result.get('reason')}"
+            else:
+                summary = f"Researched with {result.get('pages_read', 0)} sources read."
+                sources = "\n".join(f"[{s['n']}] {s['title']} — {s['url']}" for s in result.get("sources") or [])
+                answer = f"{result.get('report')}\n\n**Sources**\n{sources}"
+                await self._feed(db, runtime.workspace_id, runtime.task_id, item_type="research",
+                                 severity="info", title="Web research", message=summary[:300])
+                return answer, steps, agents, {"research": result}
 
         if result.get("blocked"):
             answer = f"**Internet action blocked.** {result.get('reason')}"
+        elif result.get("excerpt"):
+            answer = (f"**{result.get('title') or result.get('url')}** ({result.get('url')})\n\n{result['excerpt']}"
+                      f"\n\nA source record was stored for traceability. Read-only: nothing was downloaded or sent.")
+        elif not result.get("ok", True) and result.get("reason"):
+            answer = f"**Research could not answer it.** {result.get('reason')}"
         else:
             answer = (f"**Research complete (safe internet, read-only).**\n\n{summary}\n\n"
                       f"A source record was stored (URL/title/summary) for traceability. "
