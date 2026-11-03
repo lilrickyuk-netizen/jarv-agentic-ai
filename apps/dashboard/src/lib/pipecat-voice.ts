@@ -6,6 +6,18 @@
  */
 export const MIC_RATE = 16000;
 export const VOICE_RATE = 24000;
+/**
+ * Audio held in hand before JAI starts speaking (and after any gap in arrival). JAI's voice arrives in pieces of a
+ * few hundredths of a second, sent at the pace they play; without a little in hand, every piece that arrives a
+ * moment late leaves a pause, dozens of times a second, which made the voice sound choppy.
+ */
+export const JITTER_SECONDS = 0.25;
+
+/** When the next piece of JAI's voice should start: straight after the previous one, or, if playback has run dry,
+ * a quarter of a second from now so the pieces that follow have room to arrive. */
+export function nextStart(now: number, queuedUntil: number): number {
+  return queuedUntil > now ? queuedUntil : now + JITTER_SECONDS;
+}
 
 export type PipecatMessage =
   | { type: 'ready'; engine?: string; model?: string }
@@ -162,7 +174,7 @@ export class PipecatVoice {
     source.buffer = buffer;
     source.connect(context.destination);
     if (this.destination) source.connect(this.destination);
-    const at = Math.max(context.currentTime + 0.02, this.nextTime);
+    const at = nextStart(context.currentTime, this.nextTime);
     source.start(at);
     this.nextTime = at + buffer.duration;
     this.playing.push(source);

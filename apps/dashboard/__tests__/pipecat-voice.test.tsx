@@ -8,7 +8,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { VoiceConversation } from '@/components/voice-conversation';
-import { fromPcm16, parseMessage, toPcm16, voiceUrl } from '@/lib/pipecat-voice';
+import { JITTER_SECONDS, fromPcm16, nextStart, parseMessage, toPcm16, voiceUrl } from '@/lib/pipecat-voice';
 import { getCard, showCard } from '@/lib/screen-signal';
 
 const mockPosts: { path: string; body: unknown }[] = [];
@@ -113,6 +113,12 @@ describe('Pipecat voice helpers', () => {
     expect(parseMessage('nonsense')).toBeNull();
     expect(voiceUrl('ws://localhost:8765/ws', 'a b')).toBe('ws://localhost:8765/ws?token=a+b');
     expect(voiceUrl('/voice/ws', 't', { protocol: 'https:', host: 'jai.example' })).toBe('wss://jai.example/voice/ws?token=t');
+  });
+
+  it('plays JAI\'s voice back to back, keeping a quarter of a second in hand so it never stutters', () => {
+    expect(nextStart(10, 0)).toBe(10 + JITTER_SECONDS);       // starting to speak: a little in hand first
+    expect(nextStart(10, 10.4)).toBe(10.4);                   // the next piece follows with no gap
+    expect(nextStart(10, 9.99)).toBe(10 + JITTER_SECONDS);    // ran dry: build the buffer again, never a click
   });
 });
 

@@ -13906,3 +13906,16 @@ TESTS RUN: backend suite with the delegation test now checking each agent's whol
 RESULT: Richard's Plexecute review (research, analytics, marketing and documentation agents) came back PARTIAL saying the material returned "does not include the page text, URLs beyond the domain, or source-level findings": the agents had done the work, but the orchestrator kept only the first 200 characters of each agent's report and the final answer was written from those previews. Each agent's whole report (up to 6,000 characters) is now kept with its result, and the final answer is given all of them (30,000 characters shared between the agents, one agent never crowding out the rest) and told to give Richard the specific findings, the pages, files and URLs used and the evidence, with room to write it (3,000 tokens).
 BLOCKERS: None
 NEXT TASK: Re-run the Plexecute review; read the new voice timings; then Wave 4
+
+---
+
+TASK ID: FIX-VOICE-PLAYBACK-GAPS
+TASK NAME: JAI's voice plays smoothly: a quarter-second jitter buffer in the dashboard's playback
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/dashboard/src/lib/pipecat-voice.ts, apps/dashboard/__tests__/pipecat-voice.test.tsx
+COMMANDS RUN: npm ci, npx tsc --noEmit, npx jest --ci (node:20); docker compose up -d --no-deps --build dashboard
+TESTS RUN: dashboard suite with a new test that playback starts a quarter of a second ahead, follows each piece with no gap and rebuilds the buffer when it runs dry
+RESULT: Richard said the voice sounded gappy, like something reading off a screen that cannot read properly, whichever voice spoke. The voice service sends JAI's speech in pieces of a few hundredths of a second at the pace they play, and the dashboard played each piece the moment it arrived with nothing in hand, so every piece that arrived a moment late left a small pause, many times a second. Playback now keeps a quarter of a second of speech in hand when JAI starts speaking or whenever it has run dry, and plays each following piece straight after the last, as streaming players do. Talking over JAI still stops it at once.
+BLOCKERS: None
+NEXT TASK: Richard to choose the speaking voice (OpenAI fable, ElevenLabs or Chatterbox); then Wave 4
