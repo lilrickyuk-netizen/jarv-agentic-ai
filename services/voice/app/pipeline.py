@@ -209,10 +209,14 @@ def kokoro_engine():
                 ort.preload_dlls()  # the CUDA and cuDNN libraries installed with onnxruntime-gpu
             except Exception:  # noqa: BLE001 - without them the voice runs on the processor
                 pass
-        wanted = ["CPUExecutionProvider"]
+        session = None
         if os.environ.get("VOICE_GPU", "auto").lower() != "off" and "CUDAExecutionProvider" in ort.get_available_providers():
-            wanted.insert(0, "CUDAExecutionProvider")
-        session = ort.InferenceSession(KOKORO_MODEL, providers=wanted)
+            try:  # the graphics card, if Docker gave this container one and its driver supports this CUDA
+                session = ort.InferenceSession(KOKORO_MODEL, providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
+            except Exception:  # noqa: BLE001 - no usable GPU here: the processor
+                session = None
+        if session is None:
+            session = ort.InferenceSession(KOKORO_MODEL, providers=["CPUExecutionProvider"])
         _kokoro["engine"] = Kokoro.from_session(session, KOKORO_VOICES)
         _kokoro["device"] = "gpu" if session.get_providers()[0] == "CUDAExecutionProvider" else "cpu"
     return _kokoro["engine"]

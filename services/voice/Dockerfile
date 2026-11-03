@@ -24,7 +24,10 @@ RUN mkdir -p /srv/voice/models \
     && curl -fsSL -o /srv/voice/models/voices-v1.0.bin "$KOKORO_RELEASE/voices-v1.0.bin" \
     && echo "7d5df8ecf7d4b1878015a32686053fd0eebe2bc377234608764cc0ef3636a6c5  /srv/voice/models/kokoro-v1.0.onnx" | sha256sum -c - \
     && echo "bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d  /srv/voice/models/voices-v1.0.bin" | sha256sum -c -
-ENV KOKORO_MODEL=/srv/voice/models/kokoro-v1.0.onnx KOKORO_VOICES=/srv/voice/models/voices-v1.0.bin
+# ONNX_PROVIDER: anything that opens Kokoro without JAI's loader uses the processor (the NVIDIA build would otherwise
+# try TensorRT and CUDA and fail where there is no graphics card); JAI's loader chooses the GPU itself.
+ENV KOKORO_MODEL=/srv/voice/models/kokoro-v1.0.onnx KOKORO_VOICES=/srv/voice/models/voices-v1.0.bin \
+    ONNX_PROVIDER=CPUExecutionProvider
 COPY app ./app
 COPY tests ./tests
 COPY pytest.ini .

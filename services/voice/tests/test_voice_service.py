@@ -190,9 +190,7 @@ def test_the_whole_pipeline_builds_without_reaching_openai():
 
 def test_jai_speaks_british_english_with_a_british_voice_on_this_computer():
     """Kokoro's model and voices are in the image: a British voice speaks a sentence with no network."""
-    from kokoro_onnx import Kokoro
-
-    kokoro = Kokoro(pipeline.KOKORO_MODEL, pipeline.KOKORO_VOICES)
+    kokoro = pipeline.kokoro_engine()
     names = set(kokoro.get_voices()) if hasattr(kokoro, "get_voices") else set(kokoro.voices)
     assert {"bm_george", "bm_daniel", "bf_emma"} <= names
     samples, rate = kokoro.create("Good evening, Richard. Phase zero is verified.", voice="bm_george", lang="en-gb")
