@@ -1,7 +1,8 @@
 """
 JAI's voice pipeline (Pipecat 1.12): Richard's speech -> OpenAI streaming speech-to-text -> JAI's model (OpenAI
 Responses over a WebSocket) with JAI's tools ->
-OpenAI text-to-speech -> his speakers. Silero voice-activity detection hears him start (so he can talk over JAI)
+JAI's voice -> his speakers. The voice is Kokoro (open source, run on this computer, free) speaking British
+English with a British voice; OpenAI text-to-speech is the alternative. Silero voice-activity detection hears him start (so he can talk over JAI)
 and Pipecat's Smart Turn v3 model decides when he has actually finished, from how he sounds, not a fixed silence. JAI's model speaks for JAI's whole system: for anything about JAI's work it calls the
 backend's tools (ask_jarv, show_on_screen, start_mission and the rest) as him, exactly as before.
 
@@ -34,8 +35,12 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.services.openai.responses.llm import OpenAIResponsesLLMService
 from pipecat.services.openai.stt import OpenAIRealtimeSTTService
+from pipecat.services.kokoro.tts import KokoroTTSService
 from pipecat.services.openai.tts import OpenAITTSService
+from pipecat.transcriptions.language import Language
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams, FastAPIWebsocketTransport
+
+import os
 
 from app.backend import Backend
 from app.serializer import IN_RATE, OUT_RATE, JaiFrameSerializer
@@ -102,11 +107,12 @@ class SaidRelay(FrameProcessor):
 
 class SpendMeter(FrameProcessor):
     """Every model, speech-to-text and text-to-speech use, reported to JAI's daily spend; at the daily limit the
-    conversation ends with the reason."""
+    conversation ends with the reason. A voice run on this computer (Kokoro) costs nothing and is not reported."""
 
-    def __init__(self, backend: Backend, **kwargs):
+    def __init__(self, backend: Backend, local_voice: bool = False, **kwargs):
         super().__init__(**kwargs)
         self._backend = backend
+        self._local_voice = local_voice
         self._stopped = False
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
@@ -124,7 +130,7 @@ class SpendMeter(FrameProcessor):
                         "llm", model=data.model, prompt_tokens=usage.prompt_tokens,
                         completion_tokens=usage.completion_tokens,
                         cached_tokens=usage.cache_read_input_tokens or 0)
-                elif isinstance(data, TTSUsageMetricsData):
+                elif isinstance(data, TTSUsageMetricsData) and not self._local_voice:
                     result = await self._backend.spend("tts", model=data.model, characters=int(data.value))
                 elif isinstance(data, STTUsageMetricsData):
                     result = await self._backend.spend("stt", model=data.model, seconds=float(data.value.audio_seconds))
@@ -164,6 +170,22 @@ def function_schemas(tools: List[Dict[str, Any]], backend: Backend, worker_ref: 
     return schemas
 
 
+KOKORO_MODEL = os.environ.get("KOKORO_MODEL", "/srv/voice/models/kokoro-v1.0.onnx")
+KOKORO_VOICES = os.environ.get("KOKORO_VOICES", "/srv/voice/models/voices-v1.0.bin")
+
+
+def speech(brief: Dict[str, Any], api_key: str):
+    """JAI's voice for this conversation, and whether it runs on this computer (free): Kokoro speaking British
+    English (the model and voices are in the image), or OpenAI text-to-speech."""
+    if (brief.get("tts_engine") or "kokoro") == "kokoro":
+        return KokoroTTSService(model_path=KOKORO_MODEL, voices_path=KOKORO_VOICES, settings=KokoroTTSService.Settings(
+            voice=brief.get("tts_voice") or "bm_george", language=Language.EN_GB,
+            speed=float(brief.get("tts_speed") or 1.0))), True
+    return OpenAITTSService(api_key=api_key, settings=OpenAITTSService.Settings(
+        model=brief.get("tts_model") or "gpt-4o-mini-tts", voice=brief.get("tts_voice") or "fable",
+        instructions=brief.get("tts_instructions") or "Speak in a British accent.")), False
+
+
 def build(websocket, backend: Backend, brief: Dict[str, Any], api_key: str):
     """The transport, the pipeline and its worker for one conversation."""
     # One conversation's shared state: the worker (for the tools' screen messages) and whether the last thing
@@ -180,14 +202,12 @@ def build(websocket, backend: Backend, brief: Dict[str, Any], api_key: str):
     # thinking happens in ask_jarv, JAI's brain on the backend.
     llm = OpenAIResponsesLLMService(api_key=api_key, settings=OpenAIResponsesLLMService.Settings(
         model=brief.get("model") or "gpt-6-luna", system_instruction=brief.get("instructions") or ""))
-    tts = OpenAITTSService(api_key=api_key, settings=OpenAITTSService.Settings(
-        model=brief.get("tts_model") or "gpt-4o-mini-tts", voice=brief.get("tts_voice") or "ballad",
-        instructions=brief.get("tts_instructions") or "Speak with a calm, clear British accent at a natural pace."))
+    tts, local_voice = speech(brief, api_key)
     context = LLMContext(tools=function_schemas(brief.get("tools") or [], backend, worker_ref))
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context, user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()))
     pipeline = Pipeline([transport.input(), stt, HeardRelay(backend, worker_ref), user_aggregator, llm, SaidRelay(backend), tts,
-                         SpendMeter(backend), transport.output(), assistant_aggregator])
+                         SpendMeter(backend, local_voice), transport.output(), assistant_aggregator])
     worker = PipelineWorker(pipeline, params=PipelineParams(enable_metrics=True, enable_usage_metrics=True))
     worker_ref["worker"] = worker
     return transport, worker, context

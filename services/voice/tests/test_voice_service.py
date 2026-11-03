@@ -180,12 +180,39 @@ def test_the_whole_pipeline_builds_without_reaching_openai():
         client_state = None
         application_state = None
 
-    brief = {"model": "gpt-6-luna", "instructions": "You are JAI.", "tools": [
+    brief = {"model": "gpt-6-luna", "instructions": "You are JAI.", "tts_engine": "kokoro", "tts_voice": "bm_george", "tools": [
         {"type": "function", "name": "ask_jarv", "description": "Ask.",
          "parameters": {"type": "object", "properties": {"question": {"type": "string"}}, "required": ["question"]}}]}
     transport, worker, context = pipeline.build(Socket(), FakeBackend(), brief, "sk-test-not-real")
     assert worker is not None and transport is not None
     assert [t.name for t in context.tools.standard_tools] == ["ask_jarv"]
+
+
+def test_jai_speaks_british_english_with_a_british_voice_on_this_computer():
+    """Kokoro's model and voices are in the image: a British voice speaks a sentence with no network."""
+    from kokoro_onnx import Kokoro
+
+    kokoro = Kokoro(pipeline.KOKORO_MODEL, pipeline.KOKORO_VOICES)
+    names = set(kokoro.get_voices()) if hasattr(kokoro, "get_voices") else set(kokoro.voices)
+    assert {"bm_george", "bm_daniel", "bf_emma"} <= names
+    samples, rate = kokoro.create("Good evening, Richard. Phase zero is verified.", voice="bm_george", lang="en-gb")
+    assert rate == 24000 and len(samples) > rate  # over a second of speech
+    tts, local = pipeline.speech({"tts_engine": "kokoro", "tts_voice": "bm_george"}, "sk-test-not-real")
+    assert local is True and type(tts).__name__ == "KokoroTTSService"
+    tts, local = pipeline.speech({"tts_engine": "openai", "tts_voice": "fable"}, "sk-test-not-real")
+    assert local is False and type(tts).__name__ == "OpenAITTSService"
+
+
+async def test_a_voice_on_this_computer_is_not_charged():
+    fake = FakeBackend()
+    meter = pipeline.SpendMeter(fake, local_voice=True)
+
+    async def capture(frame, direction=None):
+        pass
+
+    meter.push_frame = capture
+    await meter._report(MetricsFrame(data=[TTSUsageMetricsData(processor="tts", model="kokoro", value=500)]))
+    assert not fake.calls
 
 
 def test_only_the_dashboard_may_open_a_conversation(monkeypatch):

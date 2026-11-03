@@ -65,7 +65,13 @@ def test_the_brief_carries_jais_instructions_tools_and_voice_but_never_the_key(c
     body = brief.json()
     assert "sk-test" not in brief.text
     assert body["engine"] == "pipecat" and body["model"] == settings.VOICE_PIPELINE_MODEL
-    assert body["tts_voice"] == settings.VOICE_PIPELINE_TTS_VOICE
+    # A British voice, run on this computer, by default; OpenAI's voice when chosen.
+    assert body["tts_engine"] == "kokoro" and body["tts_voice"] == settings.VOICE_PIPELINE_KOKORO_VOICE
+    assert body["tts_voice"].startswith(("bm_", "bf_"))
+    monkeypatch.setattr(settings, "VOICE_PIPELINE_TTS", "openai")
+    openai_voice = client.get("/api/voice/live/brief").json()
+    assert openai_voice["tts_engine"] == "openai" and openai_voice["tts_voice"] == settings.VOICE_PIPELINE_TTS_VOICE
+    assert "British" in openai_voice["tts_instructions"]
     assert {t["name"] for t in body["tools"]} == {"start_mission", "resume_mission", "cancel_mission", "ask_jarv",
                                                   "list_workspaces", "list_workspace_files", "read_workspace_file",
                                                   "trace_artifact", "show_on_screen"}
@@ -79,7 +85,7 @@ def test_the_brief_carries_jais_instructions_tools_and_voice_but_never_the_key(c
             return (await db.execute(select(AuditLog).where(AuditLog.action == live.SESSION_ACTION,
                                                             AuditLog.user_id == operator))).scalars().all()
 
-    assert [(a.meta_data or {}).get("engine") for a in _run(audit())] == ["pipecat"]
+    assert [(a.meta_data or {}).get("engine") for a in _run(audit())] == ["pipecat", "pipecat"]
 
 
 def test_the_brief_needs_a_signed_in_operator(client):

@@ -1,6 +1,6 @@
 # JAI's voice service (Wave 2b): Pipecat, pinned. Its own image, so its FastAPI and websockets versions never
 # touch the backend's.
-pipecat-ai[openai,silero,websocket]==1.12.0
+pipecat-ai[openai,silero,websocket,kokoro]==1.12.0
 uvicorn[standard]>=0.30,<1
 httpx>=0.27,<1
 pytest>=8,<10

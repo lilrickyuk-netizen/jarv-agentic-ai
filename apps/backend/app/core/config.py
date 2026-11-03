@@ -302,8 +302,14 @@ class Settings(BaseSettings):
     VOICE_ENGINE: str = "pipecat"
     VOICE_PIPELINE_PUBLIC_URL: str = "ws://localhost:8765/ws"
     VOICE_PIPELINE_MODEL: str = "gpt-6-luna"
+    # JAI's speaking voice. kokoro = Kokoro, open source, run in the voice service on this computer (free),
+    # British English with a British voice: bm_george, bm_daniel, bm_lewis, bm_fable (men) or bf_emma, bf_isabella,
+    # bf_alice, bf_lily (women). openai = OpenAI text-to-speech (paid) with VOICE_PIPELINE_TTS_VOICE.
+    VOICE_PIPELINE_TTS: str = "kokoro"
+    VOICE_PIPELINE_KOKORO_VOICE: str = "bm_george"
+    VOICE_PIPELINE_SPEED: float = Field(default=1.0, ge=0.5, le=2.0)
     VOICE_PIPELINE_TTS_MODEL: str = "gpt-4o-mini-tts"
-    VOICE_PIPELINE_TTS_VOICE: str = "cedar"
+    VOICE_PIPELINE_TTS_VOICE: str = "fable"
     # Output budget for one agent turn; a whole document written through write_file needs room.
     AGENT_MAX_OUTPUT_TOKENS: int = Field(default=16000, ge=1024, le=128000)
     # How long one agent command may run. Builds, tests, installs and a project's own verify task (Terraform,

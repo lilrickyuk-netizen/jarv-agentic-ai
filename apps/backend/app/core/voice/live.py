@@ -339,10 +339,14 @@ async def pipeline_brief(db: AsyncSession, user_id: UUID) -> Dict[str, Any]:
                                        user_id=user_id, details={"engine": "pipecat",
                                                                  "model": settings.VOICE_PIPELINE_MODEL})
     await db.commit()
+    kokoro = (settings.VOICE_PIPELINE_TTS or "kokoro").strip().lower() != "openai"
     return {"engine": "pipecat", "instructions": text, "tools": VOICE_TOOLS, "model": settings.VOICE_PIPELINE_MODEL,
-            "tts_model": settings.VOICE_PIPELINE_TTS_MODEL, "tts_voice": settings.VOICE_PIPELINE_TTS_VOICE,
-            "tts_instructions": "Speak as JAI: calm, warm and assured, a clear British accent, natural pace, "
-                                "like a trusted chief of staff reporting.",
+            "tts_engine": "kokoro" if kokoro else "openai",
+            "tts_voice": settings.VOICE_PIPELINE_KOKORO_VOICE if kokoro else settings.VOICE_PIPELINE_TTS_VOICE,
+            "tts_speed": settings.VOICE_PIPELINE_SPEED, "tts_model": settings.VOICE_PIPELINE_TTS_MODEL,
+            "tts_instructions": "Accent: Received Pronunciation, an educated southern English British accent, "
+                                "never American. Tone: calm, warm and assured, like a trusted chief of staff "
+                                "reporting. Pace: natural, unhurried.",
             "spend": state}
 
 
