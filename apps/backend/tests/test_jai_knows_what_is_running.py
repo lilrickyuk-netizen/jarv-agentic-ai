@@ -196,7 +196,8 @@ def test_jai_reports_specifics_and_never_resumes_a_running_mission():
 @pytest.mark.api
 @pytest.mark.integration
 @pytest.mark.parametrize("status", [lifecycle.RUNNING, lifecycle.NEEDS_CONTINUATION, lifecycle.QUEUED, "in_progress"])
-def test_the_tasks_page_counts_a_running_mission_as_in_progress(client, db_session, test_workspace, status):
+def test_the_tasks_page_counts_a_running_mission_as_in_progress(client, signed_in, db_session, test_workspace,
+                                                                 status):
     db_session.add(Task(id=uuid4(), workspace_id=test_workspace.id, title="MYCO conformance",
                         task_type="command", status=status, priority=5, meta_data={}, result={}))
     db_session.add(Task(id=uuid4(), workspace_id=test_workspace.id, title="Old", task_type="command",
