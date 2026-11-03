@@ -365,12 +365,15 @@ async def list_tasks(
         List of task information
     """
     try:
-        query = select(Task).where(Task.workspace_id.in_(owned_workspaces(user_id))).where(Task.workspace_id.in_(owned_workspaces(user_id)))
+        query = select(Task).where(Task.workspace_id.in_(owned_workspaces(user_id)))
 
         if workspace_id:
             query = query.where(Task.workspace_id == workspace_id)
 
-        if task_status:
+        if task_status == "in_progress":
+            # "In progress" is every status of work still going, under any name it has had.
+            query = query.where(Task.status.in_(_in_progress_statuses()))
+        elif task_status:
             query = query.where(Task.status == task_status)
 
         if assigned_only:
@@ -411,6 +414,12 @@ async def list_tasks(
         )
 
 
+def _in_progress_statuses() -> List[str]:
+    from app.core.runtime import lifecycle
+
+    return sorted(lifecycle.ACTIVE | {old for old, new in lifecycle._LEGACY.items() if new in lifecycle.ACTIVE})
+
+
 @router.get(
     "/stats",
     response_model=TaskStats,
@@ -433,17 +442,23 @@ async def get_task_stats(
         Task statistics
     """
     try:
-        query = select(Task)
+        from app.core.runtime import lifecycle
+
+        # Only the operator's own workspaces, as the task list shows.
+        query = select(Task).where(Task.workspace_id.in_(owned_workspaces(user_id)))
         if workspace_id:
             query = query.where(Task.workspace_id == workspace_id)
 
         result = await db.execute(query)
         all_tasks = result.scalars().all()
 
-        pending = sum(1 for t in all_tasks if t.status == "pending")
-        in_progress = sum(1 for t in all_tasks if t.status == "in_progress")
-        completed = sum(1 for t in all_tasks if t.status == "completed")
-        failed = sum(1 for t in all_tasks if t.status == "failed")
+        # Counted by what the status means, not its exact spelling: a mission that is running, queued,
+        # recovering or between two rounds is in progress.
+        states = [lifecycle.normalise(t.status) for t in all_tasks]
+        pending = states.count(lifecycle.PENDING)
+        in_progress = sum(1 for s in states if s in lifecycle.ACTIVE)
+        completed = states.count(lifecycle.COMPLETED)
+        failed = states.count(lifecycle.FAILED)
         total_tokens = sum(t.tokens_used for t in all_tasks)
 
         return TaskStats(

@@ -13672,3 +13672,16 @@ TESTS RUN: full backend suite, with new tests for the progress snapshot, a real 
 RESULT: Asked how the MYCO mission was going, JAI gave generic answers ("moving along steadily", "keeping pace"), then tried to resume a mission that was already running. Its voice only had the operations feed's one-line headlines. Every mission now keeps a live progress record after every step (in Redis, seven days, so it never touches the mission's own transaction): phase (working, independent check, writing the report), round and step, each requirement's status with its evidence, the files changed, the commands run with exit codes, what failed and why, what it is doing now and what it has cost. get_mission, the mission list, ask_jarv and each conversation's opening picture report from it. The voice now speaks like a senior engineer reporting: specific (requirement ids, files, errors, numbers), filler phrases named and forbidden, no promises to keep watching, and never resume_mission on a mission in progress.
 BLOCKERS: None
 NEXT TASK: Review the MYCO acceptance mission's evidence report against MYCO_V3_SPEC.md and the baseline
+
+---
+
+TASK ID: UI-JAI-THEME
+TASK NAME: Every page in the Command Center's look; Tasks page counts running missions
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/dashboard/src/app/globals.css, apps/dashboard/src/app/layout.tsx, apps/backend/app/api/tasks.py, apps/backend/tests/test_jai_knows_what_is_running.py
+COMMANDS RUN: backend test suite (pgvector test database); npm ci, npx tsc --noEmit, npx jest --ci (node:20); docker compose up -d --build --no-deps backend dashboard (the worker running the MYCO mission was left alone)
+TESTS RUN: full backend suite with new Tasks-page tests; dashboard type check and jest suite
+RESULT: Every page now matches the Command Center: the shared colour tokens are the cockpit's void, navy panel, gunmetal and cyan; each page's background is the cockpit gradient with its faint grid; panels are the cockpit's dark gradient with a thin gunmetal border; inputs, selects and text areas are dark with a cyan focus ring; scrollbars and native controls are dark. Colours pages set directly (light status badges, notices, grey text, white panels) are mapped once, in globals.css, to tinted glass with light text, so no page's layout or content changed. The Tasks page showed "In Progress 0" while the MYCO mission ran: it counted only the status "in_progress", which missions do not use. Its counts now go by what a status means (running, queued, recovering or between rounds is in progress), its In Progress filter lists those missions, and its totals cover only the operator's own workspaces, as the task list does.
+BLOCKERS: None
+NEXT TASK: Review the MYCO acceptance mission's evidence report against MYCO_V3_SPEC.md and the baseline

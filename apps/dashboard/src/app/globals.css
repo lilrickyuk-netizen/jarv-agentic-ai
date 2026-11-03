@@ -268,3 +268,193 @@
 @media (prefers-reduced-motion: reduce) {
   .cockpit *, .cockpit *::before, .cockpit *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
+
+
+/* ------------------------------------------------------------------------------------------------------------
+   JAI theme: every page in the Command Center's look. The shared colour tokens are the cockpit's navy, panel,
+   gunmetal and cyan; colours a page sets directly (light badges, grey text, white panels) are mapped to their
+   dark equivalents here, so every page matches without changing its layout or content.
+   ------------------------------------------------------------------------------------------------------------ */
+:root {
+  --background: 222 37% 4%;          /* #05070b void */
+  --foreground: 220 13% 91%;         /* #e5e7eb */
+  --card: 221 39% 11%;               /* #111827 panel */
+  --card-foreground: 220 13% 91%;
+  --popover: 220 47% 8%;
+  --popover-foreground: 220 13% 91%;
+  --primary: 199 93% 60%;            /* #38bdf8 cyan */
+  --primary-foreground: 222 37% 6%;
+  --secondary: 218 32% 15%;
+  --secondary-foreground: 220 13% 91%;
+  --muted: 218 32% 14%;
+  --muted-foreground: 212 12% 61%;   /* #8e9baa gunmetal */
+  --accent: 218 40% 17%;
+  --accent-foreground: 220 13% 91%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 214 16% 21%;
+  --input: 214 16% 23%;
+  --ring: 199 93% 60%;
+  color-scheme: dark;
+}
+
+html body.jai-theme {
+  font-family: "Avenir Next", Avenir, "Segoe UI", system-ui, sans-serif;
+  background: radial-gradient(ellipse at 55% 0%, #0c1a2c 0%, #05070b 62%) fixed, #05070b;
+  color: #e5e7eb;
+}
+/* Each page's full-height wrapper shows the cockpit background and its faint grid. */
+html body.jai-theme .min-h-screen.bg-background {
+  background:
+    linear-gradient(rgba(142, 155, 170, .045) 1px, transparent 1px) 0 0 / 48px 48px fixed,
+    linear-gradient(90deg, rgba(142, 155, 170, .045) 1px, transparent 1px) 0 0 / 48px 48px fixed,
+    radial-gradient(ellipse at 55% 0%, #0c1a2c 0%, #05070b 62%) fixed;
+}
+html body.jai-theme h1 { letter-spacing: -0.01em; color: #e8edf3; }
+/* Panels and cards: the cockpit panel, a dark gradient with a thin gunmetal border. */
+html body.jai-theme .bg-card {
+  background: linear-gradient(145deg, rgba(17, 24, 39, .92), rgba(9, 15, 25, .92));
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .16);
+}
+html body.jai-theme nav.bg-card\/80 { background: rgba(5, 7, 11, .78); box-shadow: none; }
+html body.jai-theme .border, html body.jai-theme .border-b, html body.jai-theme .border-t { border-color: rgba(142, 155, 170, .2); }
+/* Inputs, selects and text areas: dark fields with a cyan focus ring, as on the Command Center. */
+html body.jai-theme input:not([type=checkbox]):not([type=radio]):not([type=range]),
+html body.jai-theme select, html body.jai-theme textarea {
+  background-color: rgba(5, 7, 11, .6); color: #e5e7eb; border-color: rgba(142, 155, 170, .28);
+}
+html body.jai-theme input::placeholder, html body.jai-theme textarea::placeholder { color: #6b7787; }
+html body.jai-theme input:focus, html body.jai-theme select:focus, html body.jai-theme textarea:focus {
+  outline: none; border-color: #38bdf8; box-shadow: 0 0 0 2px rgba(56, 189, 248, .25);
+}
+html body.jai-theme option { background: #0b1220; color: #e5e7eb; }
+html body.jai-theme ::selection { background: rgba(56, 189, 248, .35); }
+html body.jai-theme a:not([class]) { color: #7dd3fc; }
+/* Tables: quiet header, faint row lines. */
+html body.jai-theme thead, html body.jai-theme th { color: #8e9baa; }
+html body.jai-theme tr { border-color: rgba(142, 155, 170, .14); }
+/* Scrollbars */
+html body.jai-theme ::-webkit-scrollbar { width: 10px; height: 10px; }
+html body.jai-theme ::-webkit-scrollbar-track { background: transparent; }
+html body.jai-theme ::-webkit-scrollbar-thumb { background: rgba(142, 155, 170, .25); border-radius: 6px; }
+
+/* Neutral colours set directly by pages. */
+html body.jai-theme .bg-white, html body.jai-theme .bg-gray-50, html body.jai-theme .bg-gray-100,
+html body.jai-theme .bg-slate-50, html body.jai-theme .bg-slate-100 { background-color: rgba(17, 24, 39, .92); }
+html body.jai-theme .bg-gray-200, html body.jai-theme .bg-slate-200 { background-color: #1f2937; }
+html body.jai-theme .hover\:bg-gray-50:hover, html body.jai-theme .hover\:bg-gray-100:hover,
+html body.jai-theme .hover\:bg-gray-200:hover { background-color: rgba(142, 155, 170, .12); }
+html body.jai-theme .text-black, html body.jai-theme .text-gray-900, html body.jai-theme .text-gray-800,
+html body.jai-theme .text-gray-700, html body.jai-theme .text-slate-900, html body.jai-theme .text-slate-800,
+html body.jai-theme .text-slate-700 { color: #e5e7eb; }
+html body.jai-theme .text-gray-600, html body.jai-theme .text-gray-500, html body.jai-theme .text-slate-600,
+html body.jai-theme .text-slate-500 { color: #8e9baa; }
+html body.jai-theme .border-gray-100, html body.jai-theme .border-gray-200, html body.jai-theme .border-gray-300,
+html body.jai-theme .border-slate-200, html body.jai-theme .border-slate-300,
+html body.jai-theme .divide-gray-200 > * + * { border-color: rgba(142, 155, 170, .22); }
+html body.jai-theme .placeholder-gray-400::placeholder, html body.jai-theme .placeholder-gray-500::placeholder { color: #6b7787; }
+html body.jai-theme .border-gray-900 { border-color: #e5e7eb; }
+
+/* Coloured badges, notices and status text set directly by pages: tinted glass with light text. */
+html body.jai-theme .bg-red-50, html body.jai-theme .bg-red-100 { background-color: rgba(239, 68, 68, 0.13); }
+html body.jai-theme .bg-red-200 { background-color: rgba(239, 68, 68, 0.24); }
+html body.jai-theme .hover\:bg-red-50:hover, html body.jai-theme .hover\:bg-red-100:hover { background-color: rgba(239, 68, 68, 0.2); }
+html body.jai-theme .text-red-700, html body.jai-theme .text-red-800, html body.jai-theme .text-red-900 { color: #fca5a5; }
+html body.jai-theme .text-red-600 { color: #f87171; }
+html body.jai-theme .border-red-100, html body.jai-theme .border-red-200, html body.jai-theme .border-red-300 { border-color: rgba(248, 113, 113, 0.38); }
+html body.jai-theme .bg-orange-50, html body.jai-theme .bg-orange-100 { background-color: rgba(249, 115, 22, 0.13); }
+html body.jai-theme .bg-orange-200 { background-color: rgba(249, 115, 22, 0.24); }
+html body.jai-theme .hover\:bg-orange-50:hover, html body.jai-theme .hover\:bg-orange-100:hover { background-color: rgba(249, 115, 22, 0.2); }
+html body.jai-theme .text-orange-700, html body.jai-theme .text-orange-800, html body.jai-theme .text-orange-900 { color: #fdba74; }
+html body.jai-theme .text-orange-600 { color: #fb923c; }
+html body.jai-theme .border-orange-100, html body.jai-theme .border-orange-200, html body.jai-theme .border-orange-300 { border-color: rgba(251, 146, 60, 0.38); }
+html body.jai-theme .bg-amber-50, html body.jai-theme .bg-amber-100 { background-color: rgba(245, 158, 11, 0.13); }
+html body.jai-theme .bg-amber-200 { background-color: rgba(245, 158, 11, 0.24); }
+html body.jai-theme .hover\:bg-amber-50:hover, html body.jai-theme .hover\:bg-amber-100:hover { background-color: rgba(245, 158, 11, 0.2); }
+html body.jai-theme .text-amber-700, html body.jai-theme .text-amber-800, html body.jai-theme .text-amber-900 { color: #fcd34d; }
+html body.jai-theme .text-amber-600 { color: #fbbf24; }
+html body.jai-theme .border-amber-100, html body.jai-theme .border-amber-200, html body.jai-theme .border-amber-300 { border-color: rgba(251, 191, 36, 0.38); }
+html body.jai-theme .bg-yellow-50, html body.jai-theme .bg-yellow-100 { background-color: rgba(234, 179, 8, 0.13); }
+html body.jai-theme .bg-yellow-200 { background-color: rgba(234, 179, 8, 0.24); }
+html body.jai-theme .hover\:bg-yellow-50:hover, html body.jai-theme .hover\:bg-yellow-100:hover { background-color: rgba(234, 179, 8, 0.2); }
+html body.jai-theme .text-yellow-700, html body.jai-theme .text-yellow-800, html body.jai-theme .text-yellow-900 { color: #fde047; }
+html body.jai-theme .text-yellow-600 { color: #facc15; }
+html body.jai-theme .border-yellow-100, html body.jai-theme .border-yellow-200, html body.jai-theme .border-yellow-300 { border-color: rgba(250, 204, 21, 0.38); }
+html body.jai-theme .bg-lime-50, html body.jai-theme .bg-lime-100 { background-color: rgba(132, 204, 22, 0.13); }
+html body.jai-theme .bg-lime-200 { background-color: rgba(132, 204, 22, 0.24); }
+html body.jai-theme .hover\:bg-lime-50:hover, html body.jai-theme .hover\:bg-lime-100:hover { background-color: rgba(132, 204, 22, 0.2); }
+html body.jai-theme .text-lime-700, html body.jai-theme .text-lime-800, html body.jai-theme .text-lime-900 { color: #bef264; }
+html body.jai-theme .text-lime-600 { color: #a3e635; }
+html body.jai-theme .border-lime-100, html body.jai-theme .border-lime-200, html body.jai-theme .border-lime-300 { border-color: rgba(163, 230, 53, 0.38); }
+html body.jai-theme .bg-green-50, html body.jai-theme .bg-green-100 { background-color: rgba(34, 197, 94, 0.13); }
+html body.jai-theme .bg-green-200 { background-color: rgba(34, 197, 94, 0.24); }
+html body.jai-theme .hover\:bg-green-50:hover, html body.jai-theme .hover\:bg-green-100:hover { background-color: rgba(34, 197, 94, 0.2); }
+html body.jai-theme .text-green-700, html body.jai-theme .text-green-800, html body.jai-theme .text-green-900 { color: #86efac; }
+html body.jai-theme .text-green-600 { color: #4ade80; }
+html body.jai-theme .border-green-100, html body.jai-theme .border-green-200, html body.jai-theme .border-green-300 { border-color: rgba(74, 222, 128, 0.38); }
+html body.jai-theme .bg-emerald-50, html body.jai-theme .bg-emerald-100 { background-color: rgba(16, 185, 129, 0.13); }
+html body.jai-theme .bg-emerald-200 { background-color: rgba(16, 185, 129, 0.24); }
+html body.jai-theme .hover\:bg-emerald-50:hover, html body.jai-theme .hover\:bg-emerald-100:hover { background-color: rgba(16, 185, 129, 0.2); }
+html body.jai-theme .text-emerald-700, html body.jai-theme .text-emerald-800, html body.jai-theme .text-emerald-900 { color: #6ee7b7; }
+html body.jai-theme .text-emerald-600 { color: #34d399; }
+html body.jai-theme .border-emerald-100, html body.jai-theme .border-emerald-200, html body.jai-theme .border-emerald-300 { border-color: rgba(52, 211, 153, 0.38); }
+html body.jai-theme .bg-teal-50, html body.jai-theme .bg-teal-100 { background-color: rgba(20, 184, 166, 0.13); }
+html body.jai-theme .bg-teal-200 { background-color: rgba(20, 184, 166, 0.24); }
+html body.jai-theme .hover\:bg-teal-50:hover, html body.jai-theme .hover\:bg-teal-100:hover { background-color: rgba(20, 184, 166, 0.2); }
+html body.jai-theme .text-teal-700, html body.jai-theme .text-teal-800, html body.jai-theme .text-teal-900 { color: #5eead4; }
+html body.jai-theme .text-teal-600 { color: #2dd4bf; }
+html body.jai-theme .border-teal-100, html body.jai-theme .border-teal-200, html body.jai-theme .border-teal-300 { border-color: rgba(45, 212, 191, 0.38); }
+html body.jai-theme .bg-cyan-50, html body.jai-theme .bg-cyan-100 { background-color: rgba(6, 182, 212, 0.13); }
+html body.jai-theme .bg-cyan-200 { background-color: rgba(6, 182, 212, 0.24); }
+html body.jai-theme .hover\:bg-cyan-50:hover, html body.jai-theme .hover\:bg-cyan-100:hover { background-color: rgba(6, 182, 212, 0.2); }
+html body.jai-theme .text-cyan-700, html body.jai-theme .text-cyan-800, html body.jai-theme .text-cyan-900 { color: #67e8f9; }
+html body.jai-theme .text-cyan-600 { color: #22d3ee; }
+html body.jai-theme .border-cyan-100, html body.jai-theme .border-cyan-200, html body.jai-theme .border-cyan-300 { border-color: rgba(34, 211, 238, 0.38); }
+html body.jai-theme .bg-sky-50, html body.jai-theme .bg-sky-100 { background-color: rgba(14, 165, 233, 0.13); }
+html body.jai-theme .bg-sky-200 { background-color: rgba(14, 165, 233, 0.24); }
+html body.jai-theme .hover\:bg-sky-50:hover, html body.jai-theme .hover\:bg-sky-100:hover { background-color: rgba(14, 165, 233, 0.2); }
+html body.jai-theme .text-sky-700, html body.jai-theme .text-sky-800, html body.jai-theme .text-sky-900 { color: #7dd3fc; }
+html body.jai-theme .text-sky-600 { color: #38bdf8; }
+html body.jai-theme .border-sky-100, html body.jai-theme .border-sky-200, html body.jai-theme .border-sky-300 { border-color: rgba(56, 189, 248, 0.38); }
+html body.jai-theme .bg-blue-50, html body.jai-theme .bg-blue-100 { background-color: rgba(59, 130, 246, 0.13); }
+html body.jai-theme .bg-blue-200 { background-color: rgba(59, 130, 246, 0.24); }
+html body.jai-theme .hover\:bg-blue-50:hover, html body.jai-theme .hover\:bg-blue-100:hover { background-color: rgba(59, 130, 246, 0.2); }
+html body.jai-theme .text-blue-700, html body.jai-theme .text-blue-800, html body.jai-theme .text-blue-900 { color: #93c5fd; }
+html body.jai-theme .text-blue-600 { color: #60a5fa; }
+html body.jai-theme .border-blue-100, html body.jai-theme .border-blue-200, html body.jai-theme .border-blue-300 { border-color: rgba(96, 165, 250, 0.38); }
+html body.jai-theme .bg-indigo-50, html body.jai-theme .bg-indigo-100 { background-color: rgba(99, 102, 241, 0.13); }
+html body.jai-theme .bg-indigo-200 { background-color: rgba(99, 102, 241, 0.24); }
+html body.jai-theme .hover\:bg-indigo-50:hover, html body.jai-theme .hover\:bg-indigo-100:hover { background-color: rgba(99, 102, 241, 0.2); }
+html body.jai-theme .text-indigo-700, html body.jai-theme .text-indigo-800, html body.jai-theme .text-indigo-900 { color: #a5b4fc; }
+html body.jai-theme .text-indigo-600 { color: #818cf8; }
+html body.jai-theme .border-indigo-100, html body.jai-theme .border-indigo-200, html body.jai-theme .border-indigo-300 { border-color: rgba(129, 140, 248, 0.38); }
+html body.jai-theme .bg-violet-50, html body.jai-theme .bg-violet-100 { background-color: rgba(139, 92, 246, 0.13); }
+html body.jai-theme .bg-violet-200 { background-color: rgba(139, 92, 246, 0.24); }
+html body.jai-theme .hover\:bg-violet-50:hover, html body.jai-theme .hover\:bg-violet-100:hover { background-color: rgba(139, 92, 246, 0.2); }
+html body.jai-theme .text-violet-700, html body.jai-theme .text-violet-800, html body.jai-theme .text-violet-900 { color: #c4b5fd; }
+html body.jai-theme .text-violet-600 { color: #a78bfa; }
+html body.jai-theme .border-violet-100, html body.jai-theme .border-violet-200, html body.jai-theme .border-violet-300 { border-color: rgba(167, 139, 250, 0.38); }
+html body.jai-theme .bg-purple-50, html body.jai-theme .bg-purple-100 { background-color: rgba(168, 85, 247, 0.13); }
+html body.jai-theme .bg-purple-200 { background-color: rgba(168, 85, 247, 0.24); }
+html body.jai-theme .hover\:bg-purple-50:hover, html body.jai-theme .hover\:bg-purple-100:hover { background-color: rgba(168, 85, 247, 0.2); }
+html body.jai-theme .text-purple-700, html body.jai-theme .text-purple-800, html body.jai-theme .text-purple-900 { color: #d8b4fe; }
+html body.jai-theme .text-purple-600 { color: #c084fc; }
+html body.jai-theme .border-purple-100, html body.jai-theme .border-purple-200, html body.jai-theme .border-purple-300 { border-color: rgba(192, 132, 252, 0.38); }
+html body.jai-theme .bg-fuchsia-50, html body.jai-theme .bg-fuchsia-100 { background-color: rgba(217, 70, 239, 0.13); }
+html body.jai-theme .bg-fuchsia-200 { background-color: rgba(217, 70, 239, 0.24); }
+html body.jai-theme .hover\:bg-fuchsia-50:hover, html body.jai-theme .hover\:bg-fuchsia-100:hover { background-color: rgba(217, 70, 239, 0.2); }
+html body.jai-theme .text-fuchsia-700, html body.jai-theme .text-fuchsia-800, html body.jai-theme .text-fuchsia-900 { color: #f0abfc; }
+html body.jai-theme .text-fuchsia-600 { color: #e879f9; }
+html body.jai-theme .border-fuchsia-100, html body.jai-theme .border-fuchsia-200, html body.jai-theme .border-fuchsia-300 { border-color: rgba(232, 121, 249, 0.38); }
+html body.jai-theme .bg-pink-50, html body.jai-theme .bg-pink-100 { background-color: rgba(236, 72, 153, 0.13); }
+html body.jai-theme .bg-pink-200 { background-color: rgba(236, 72, 153, 0.24); }
+html body.jai-theme .hover\:bg-pink-50:hover, html body.jai-theme .hover\:bg-pink-100:hover { background-color: rgba(236, 72, 153, 0.2); }
+html body.jai-theme .text-pink-700, html body.jai-theme .text-pink-800, html body.jai-theme .text-pink-900 { color: #f9a8d4; }
+html body.jai-theme .text-pink-600 { color: #f472b6; }
+html body.jai-theme .border-pink-100, html body.jai-theme .border-pink-200, html body.jai-theme .border-pink-300 { border-color: rgba(244, 114, 182, 0.38); }
+html body.jai-theme .bg-rose-50, html body.jai-theme .bg-rose-100 { background-color: rgba(244, 63, 94, 0.13); }
+html body.jai-theme .bg-rose-200 { background-color: rgba(244, 63, 94, 0.24); }
+html body.jai-theme .hover\:bg-rose-50:hover, html body.jai-theme .hover\:bg-rose-100:hover { background-color: rgba(244, 63, 94, 0.2); }
+html body.jai-theme .text-rose-700, html body.jai-theme .text-rose-800, html body.jai-theme .text-rose-900 { color: #fda4af; }
+html body.jai-theme .text-rose-600 { color: #fb7185; }
+html body.jai-theme .border-rose-100, html body.jai-theme .border-rose-200, html body.jai-theme .border-rose-300 { border-color: rgba(251, 113, 133, 0.38); }

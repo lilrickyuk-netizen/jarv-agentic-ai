@@ -189,3 +189,20 @@ def test_jai_reports_specifics_and_never_resumes_a_running_mission():
     assert "never call resume_mission for it" in text
     resume = next(t for t in live.TOOLS if t["name"] == "resume_mission")
     assert "Never for a mission in progress" in resume["description"]
+
+
+# ----- the Tasks page counts a running mission as in progress ------------------------------------------------------
+
+@pytest.mark.api
+@pytest.mark.integration
+@pytest.mark.parametrize("status", [lifecycle.RUNNING, lifecycle.NEEDS_CONTINUATION, lifecycle.QUEUED, "in_progress"])
+def test_the_tasks_page_counts_a_running_mission_as_in_progress(client, db_session, test_workspace, status):
+    db_session.add(Task(id=uuid4(), workspace_id=test_workspace.id, title="MYCO conformance",
+                        task_type="command", status=status, priority=5, meta_data={}, result={}))
+    db_session.add(Task(id=uuid4(), workspace_id=test_workspace.id, title="Old", task_type="command",
+                        status="completed", priority=5, meta_data={}, result={}))
+    db_session.commit()
+    stats = client.get("/api/tasks/stats").json()
+    assert stats["in_progress_tasks"] == 1 and stats["completed_tasks"] == 1, stats
+    listed = client.get("/api/tasks/list?task_status=in_progress").json()
+    assert [t["title"] for t in listed] == ["MYCO conformance"]
