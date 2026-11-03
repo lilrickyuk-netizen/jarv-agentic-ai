@@ -355,7 +355,9 @@ async def _mission(db: AsyncSession, user_id: UUID, task_id: Optional[str]) -> D
                or result.get("summary") or "")
     return {"task_id": str(task.id), "title": task.title, "status": task.status,
             "folder": result.get("workspace_path"),
-            "result": str(summary)[:1500], "error": (task.error_message or "")[:300] or None}
+            "result": str(summary)[:1500], "error": (task.error_message or "")[:300] or None,
+            # The evidence report (Upgrade 4): say what is shown done with evidence, nothing more.
+            "report": _spoken_report(result.get("report"))}
 
 
 async def _memories(db: AsyncSession, user_id: UUID, query: str, workspace_id: Optional[UUID],
@@ -456,6 +458,17 @@ async def _ask_jarv(db: AsyncSession, user_id: UUID, question: str, workspace_id
         messages=[Message(role="user", content=f"Question: {question}\n\nFacts:\n{json.dumps(facts, default=str)}")]))
     return {"answer": (response.content or "").strip() or "I could not form an answer from what I know.",
             "missions_considered": len(facts["recent_missions"]), "memories_considered": len(facts["memories"])}
+
+
+def _spoken_report(report: Any) -> Optional[Dict[str, Any]]:
+    """The mission's evidence report in short form for speech: the overall line and each requirement's status."""
+    if not isinstance(report, dict):
+        return None
+    return {"overall": report.get("overall"),
+            "requirements": [f"{i.get('id')} {i.get('status')}: {str(i.get('text'))[:120]}"
+                             for i in (report.get("items") or [])[:30]],
+            "hard_checks_failing": len(report.get("hard_failures") or []),
+            "waiting_on_richard": report.get("waiting") or []}
 
 
 def _best_to_resume(candidates: List[Any]) -> Optional[Any]:

@@ -506,8 +506,25 @@ class AgentExecutor:
                 # The mission goes on to fix what the check found (within the automatic-round cap).
                 needs_continuation = True
 
+        # Upgrade 4: the report Richard sees is built from numbered evidence only; the agent's own words are kept
+        # beside it but no longer shown as the result.
+        agent_summary = final_summary
+        report: Optional[Dict[str, Any]] = None
+        check_calls = (verification or {}).pop("calls", None) or []
+        if self._listed():
+            from app.core.synthesis import build_ledger, render, synthesize
+
+            ledger = build_ledger(self.runtime.calls, check_calls)
+            made = await synthesize(router, self.model, mission, self.requirements, ledger, verification,
+                                    (verification or {}).get("hard_checks"))
+            self.tokens += made["tokens"]
+            report = made["report"]
+            final_summary = render(report)
+
         return {
             "answer": final_summary,
+            "agent_summary": agent_summary,
+            "report": report,
             "iterations": self.iterations,
             "success": success and finished,
             "finished": finished,
@@ -727,7 +744,8 @@ class AgentExecutor:
         self.tokens += tokens
         if verdict is None:
             return {"verified": False, "checks": [], "tokens": tokens, "steps": steps, "hard_checks": hard,
-                    "unmet": hard_failures + [f"The independent check did not reach a verdict in {steps} steps."]}
+                    "unmet": hard_failures + [f"The independent check did not reach a verdict in {steps} steps."],
+                    "calls": list(runtime.calls)}
         checks = [c for c in (verdict.get("checks") or []) if isinstance(c, dict)][:60]
         unmet = [str(u)[:500] for u in (verdict.get("unmet") or []) if str(u).strip()][:30]
         unmet += [f"{c.get('requirement')}: {c.get('evidence')}"[:500] for c in checks
@@ -745,7 +763,7 @@ class AgentExecutor:
         verified = verified and not hard_failures
         await self._graph_verification(checks, hard)
         return {"verified": verified, "checks": checks, "unmet": unmet, "tokens": tokens, "steps": steps,
-                "hard_checks": hard}
+                "hard_checks": hard, "calls": list(runtime.calls)}
 
     def _host(self, value: Any) -> str:
         """A tool path as a host path: relative paths ("docs/x.md", "/docs/x.md" under a Windows folder)

@@ -239,6 +239,8 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
         "final_status_reason": reason,
         "verification": result.get("verification"),
         "requirements": result.get("requirements") or res.get("requirements"),
+        "report": result.get("report"),
+        "agent_summary": result.get("agent_summary"),
         "tool_calls": (res.get("tool_calls") or []) + runtime.calls,
     })
     task.result = updated

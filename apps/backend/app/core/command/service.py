@@ -1965,6 +1965,8 @@ class CommandService:
             "agent_tools": result.get("tools", []),
             "verification": result.get("verification"),
             "requirements": result.get("requirements"),
+            "report": result.get("report"),
+            "agent_summary": result.get("agent_summary"),
             "agent_iterations": result["iterations"],
             "agent_success": result["success"],
             "agent_needs_continuation": result["needs_continuation"],
