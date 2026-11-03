@@ -519,6 +519,7 @@ class ToolRuntime:
                 await self.db.flush()
             except Exception as exc:  # noqa: BLE001
                 logger.warning(f"FileChange write failed: {exc}")
+            await self._graph("record_file", host_path, content)
         return {"success": ok, "data": res.data, "reason": res.reason}
 
     # ----- code/command execution (read-only safe; dangerous blocked) -----
@@ -651,6 +652,21 @@ class ToolRuntime:
             await self.db.flush()
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"CommandRun write failed: {exc}")
+        await self._graph("record_command", redact_text(command or ""),
+                          exit_code if isinstance(exit_code, int) else None)
+
+    async def _graph(self, method: str, *args, **kwargs) -> None:
+        """Add this write or command to the workspace's artifact graph (Upgrade 3), in a savepoint so a failure
+        here never undoes the action or the mission's transaction."""
+        if self.workspace_id is None:
+            return
+        try:
+            from app.core.graph import graph_service
+
+            async with self.db.begin_nested():
+                await getattr(graph_service, method)(self.db, self.workspace_id, self.task_id, *args, **kwargs)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"artifact graph {method} failed: {exc}")
 
     # ----- external I/O (dry-run by default; secret-safe) -----
 

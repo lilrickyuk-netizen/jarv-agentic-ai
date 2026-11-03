@@ -14,6 +14,7 @@ from app.models.task import Task, task_dependencies
 from app.models.memory import Memory
 from app.models.agent_knowledge import AgentKnowledge
 from app.models.knowledge_library import KnowledgeChunk, KnowledgeSource
+from app.models.artifact_graph import ArtifactEdge, ArtifactNode
 from app.models.session import AgentSession, CheckpointState
 from app.models.approval import Approval
 from app.models.tool import ToolUse
@@ -126,6 +127,8 @@ __all__ = [
     "AgentKnowledge",
     "KnowledgeSource",
     "KnowledgeChunk",
+    "ArtifactNode",
+    "ArtifactEdge",
     "AgentSession",
     "CheckpointState",
     "Approval",

@@ -83,6 +83,14 @@ TOOLS: List[Dict[str, Any]] = [
      "parameters": {"type": "object", "properties": {
          "query": {"type": "string", "description": "What to look for."}, "workspace": _NO_WORKSPACE},
          "required": ["query"], "additionalProperties": False}},
+    {"type": "function", "name": "trace_artifact",
+     "description": "Why something is the way it is in a workspace: what a file, requirement (R4) or decision is "
+                    "connected to, which mission changed it, what verified it and which checks contradict it. Use it "
+                    "for questions like 'why is Python 3.12.8?' or 'what proves R4?'.",
+     "parameters": {"type": "object", "properties": {
+         "key": {"type": "string", "description": "A file path, a requirement id such as R4, or a command."},
+         "workspace": _NO_WORKSPACE},
+         "required": ["key"], "additionalProperties": False}},
     {"type": "function", "name": "list_approvals",
      "description": "What is waiting for Richard's decision on the Approvals page. Read-only: you never approve.",
      "parameters": {"type": "object", "properties": {}, "additionalProperties": False}},
@@ -501,6 +509,26 @@ async def run_tool(db: AsyncSession, user_id: UUID, name: str, arguments: Dict[s
         output = await _resume(db, user_id, args.get("task_id"))
     elif name == "list_approvals":
         output = await _approvals(db, user_id)
+    elif name == "trace_artifact":
+        workspace_id, problem = await _resolve_workspace(db, user_id, args.get("workspace"))
+        key = str(args.get("key") or "").strip()
+        if problem:
+            output = {"error": problem}
+        elif not key:
+            output = {"error": "Say which file, requirement or command to trace."}
+        else:
+            from app.core.graph import graph_service
+
+            # A named workspace, or each of Richard's own workspaces in turn (never anyone else's).
+            ids = [workspace_id] if workspace_id else [w.id for w in await _workspaces(db, user_id)]
+            links: List[str] = []
+            records = 0
+            for wid in ids:
+                trace = await graph_service.trace(db, wid, key)
+                if trace["nodes"]:
+                    records += len(trace["nodes"])
+                    links += graph_service.describe(trace).splitlines()
+            output = {"key": key, "links": links[:30] or ["Nothing is recorded for that yet."], "records": records}
     elif name in ("ask_jarv", "search_memory"):
         workspace_id, problem = await _resolve_workspace(db, user_id, args.get("workspace"))
         if problem:

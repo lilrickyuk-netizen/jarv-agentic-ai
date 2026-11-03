@@ -133,6 +133,10 @@ async def _transfer(tb, args: Dict[str, Any], *, move: bool) -> Dict[str, Any]:
         shutil.copy2(src, dst)
     await tb.runtime._record(tool, {"source": src_host, "destination": dst_host}, True,
                              f"{'moved' if move else 'copied'} to {dst_host}")
+    # The artifact graph (Upgrade 3): the file at its new place, and for a move, the old place as removed.
+    await tb.runtime._graph("record_file", dst_host, None, operation=tool)
+    if move:
+        await tb.runtime._graph("record_file", src_host, None, operation="moved_away")
     return {"success": True, "source": src_host, "destination": dst_host}
 
 
@@ -163,6 +167,7 @@ async def delete_file_with_boundary(tb, args: Dict[str, Any]) -> Dict[str, Any]:
     else:
         path.unlink()
     await tb.runtime._record("delete_file_with_boundary", {"path": host}, True, "deleted (approved)")
+    await tb.runtime._graph("record_file", host, None, operation="deleted")
     return {"success": True, "deleted": host}
 
 

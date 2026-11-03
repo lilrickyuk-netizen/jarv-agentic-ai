@@ -90,7 +90,7 @@ _FINISH = {
 VERIFIER_TOOLS = ("list_files", "read_file", "search_files", "scan_workspace", "get_file_metadata",
                   "detect_stack", "detect_commands", "find_missing_files", "check_installed", "run_command",
                   "run_build", "run_tests", "git_status", "git_diff", "git_log", "get_command_log",
-                  "consult_specialist_knowledge")
+                  "consult_specialist_knowledge", "trace_artifact")
 VERIFIER_STEPS = 16
 
 _VERDICT = {
@@ -346,6 +346,7 @@ class AgentExecutor:
                 derived = await derive_requirements(router, self.model, mission, spec=spec_text, findings=findings)
                 self.requirements = derived["requirements"]
                 self.tokens += derived["tokens"]
+            await self._graph_requirements()
             reference = await self._reference_passages(mission)
             if reference:
                 known = (f"{known}\n\n" if known else "") + (
@@ -547,6 +548,33 @@ class AgentExecutor:
             logger.warning(f"hard checks could not run: {exc}")
             return None
 
+    async def _graph_requirements(self) -> None:
+        """The requirement list as graph nodes tied to the mission (Upgrade 3)."""
+        if not self.requirements or self.runtime.workspace_id is None or self.runtime.task_id is None:
+            return
+        try:
+            from app.core.graph import graph_service
+
+            async with self.runtime.db.begin_nested():
+                await graph_service.record_requirements(self.runtime.db, self.runtime.workspace_id,
+                                                        self.runtime.task_id, self.requirements)
+        except Exception as exc:  # noqa: BLE001 - the graph records; it never stops a mission
+            logger.warning(f"requirements not recorded in the graph: {exc}")
+
+    async def _graph_verification(self, checks: List[Dict[str, Any]], hard: Optional[Dict[str, Any]]) -> None:
+        """The Verifier's evidence and the hard-check failures as graph edges (Upgrade 3)."""
+        if self.runtime.workspace_id is None or self.runtime.task_id is None:
+            return
+        try:
+            from app.core.graph import graph_service
+
+            async with self.runtime.db.begin_nested():
+                await graph_service.record_verification(
+                    self.runtime.db, self.runtime.workspace_id, self.runtime.task_id, self.requirements, checks,
+                    (hard or {}).get("findings") or [])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"verification not recorded in the graph: {exc}")
+
     def _listed(self) -> bool:
         """True when the requirement list is a real breakdown, not just the mission repeated (the requirements step
         had nothing to add): then the Verifier's own checks are the breakdown."""
@@ -715,6 +743,7 @@ class AgentExecutor:
         # A failed hard check is unmet whatever the Verifier agent concluded.
         unmet = hard_failures + [u for u in unmet if u not in hard_failures]
         verified = verified and not hard_failures
+        await self._graph_verification(checks, hard)
         return {"verified": verified, "checks": checks, "unmet": unmet, "tokens": tokens, "steps": steps,
                 "hard_checks": hard}
 

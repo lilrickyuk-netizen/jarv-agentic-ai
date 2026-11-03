@@ -72,6 +72,7 @@ ALIASES: Dict[str, str] = {
 }
 
 CONSULT_TOOL = "consult_specialist_knowledge"
+TRACE_TOOL = "trace_artifact"
 
 # Registry categories that are reachable only through the confined workspace tools.
 _UNCONFINED_CATEGORIES = {"file", "command", "terminal", "process"}
@@ -347,15 +348,15 @@ class AgentToolbox:
                 continue
             json_schema.pop("title", None)
             specs[name] = ToolSpec(name, (meta.description or name)[:500], json_schema, "registry", name)
-        # Every agent can consult its field's specialist knowledge (read-only).
-        consult = registry.get_metadata(CONSULT_TOOL)
-        if consult is not None and consult.is_implemented and CONSULT_TOOL not in specs:
-            from app.core.tools.base import ToolConfig
+        # Every agent can consult its field's specialist knowledge and trace the artifact graph (both read-only).
+        for always in (CONSULT_TOOL, TRACE_TOOL):
+            meta = registry.get_metadata(always)
+            if meta is not None and meta.is_implemented and always not in specs:
+                from app.core.tools.base import ToolConfig
 
-            schema = consult.tool_class(ToolConfig()).input_schema.model_json_schema()
-            schema.pop("title", None)
-            specs[CONSULT_TOOL] = ToolSpec(CONSULT_TOOL, (consult.description or CONSULT_TOOL)[:500], schema,
-                                           "registry", CONSULT_TOOL)
+                schema = meta.tool_class(ToolConfig()).input_schema.model_json_schema()
+                schema.pop("title", None)
+                specs[always] = ToolSpec(always, (meta.description or always)[:500], schema, "registry", always)
         return specs
 
     # ----- public ---------------------------------------------------------------

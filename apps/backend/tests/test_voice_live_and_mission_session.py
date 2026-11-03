@@ -152,7 +152,8 @@ def test_live_conversation_needs_the_openai_key_and_never_hands_it_to_the_browse
     assert session["type"] == "realtime" and session["model"] == settings.OPENAI_REALTIME_MODEL
     assert {t["name"] for t in session["tools"]} == {"get_status", "start_mission", "resume_mission", "get_mission",
                                                      "cancel_mission", "ask_jarv", "search_memory", "list_approvals",
-                                                     "list_workspaces", "list_workspace_files", "read_workspace_file"}
+                                                     "list_workspaces", "list_workspace_files", "read_workspace_file",
+                                                     "trace_artifact"}
     assert "voice of JARV's whole system" in session["instructions"]
     assert "never start a new mission to continue an old one" in session["instructions"]
     assert "Never tell him you cannot access his files" in session["instructions"]

@@ -1115,6 +1115,18 @@ def _register_implemented_tools(registry: ToolRegistry) -> None:
     except ImportError as e:
         logger.warning(f"Knowledge tools not available for registration: {e}")
 
+    # Artifact graph (Upgrade 3): what a file, requirement or decision is connected to.
+    try:
+        from app.tools.graph import GRAPH_TOOLS
+
+        for tool in GRAPH_TOOLS:
+            registry.register(tool, category="knowledge")
+
+        logger.info(f"Registered {len(GRAPH_TOOLS)} artifact graph tool (real, Upgrade 3)")
+
+    except ImportError as e:
+        logger.warning(f"Artifact graph tools not available for registration: {e}")
+
     # Boundary tools (Repair 7): real detection + BoundaryReport persistence.
     try:
         from app.tools.boundary import (
