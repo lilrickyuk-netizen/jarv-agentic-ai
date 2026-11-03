@@ -13659,3 +13659,16 @@ TESTS RUN: full backend suite, with new tests for missions that are running, abo
 RESULT: Richard asked JAI about the MYCO acceptance mission while it was running and was told no mission was running. A long mission works in rounds; between rounds its status is needs_continuation, and two of the voice's mission checks counted only running, queued and recovering, so they reported the last round's report as if the mission had stopped. Every way JAI answers "what's going on" (get_status, get_mission, ask_jarv) now counts a mission as in progress for as long as it is being worked on, says when it is between rounds with the next queued, describes it from its own latest steps and never from an earlier round's report, and leaves sub-tasks out of the mission list. Each conversation now opens with what JAI is doing at that moment (missions in progress with their latest step, and approvals waiting), and JAI is told to check get_status or get_mission before saying whether anything is running, how a mission is going or that one has finished.
 BLOCKERS: None
 NEXT TASK: Review the MYCO acceptance mission's evidence report against MYCO_V3_SPEC.md and the baseline
+
+---
+
+TASK ID: JAI-MISSION-PROGRESS
+TASK NAME: JAI reports exactly where a mission is, without filler
+STATUS: COMPLETE
+FILES CREATED: apps/backend/app/core/command/progress.py
+FILES MODIFIED: apps/backend/app/core/command/agent_executor.py, apps/backend/app/core/voice/live.py, apps/backend/tests/test_jai_knows_what_is_running.py
+COMMANDS RUN: backend test suite (pgvector test database); dashboard type check and jest; docker compose up -d --build --no-deps backend (the worker running the MYCO mission was left alone; it takes the progress record at its next rebuild)
+TESTS RUN: full backend suite, with new tests for the progress snapshot, a real mission saving it after every step, and the voice reading it
+RESULT: Asked how the MYCO mission was going, JAI gave generic answers ("moving along steadily", "keeping pace"), then tried to resume a mission that was already running. Its voice only had the operations feed's one-line headlines. Every mission now keeps a live progress record after every step (in Redis, seven days, so it never touches the mission's own transaction): phase (working, independent check, writing the report), round and step, each requirement's status with its evidence, the files changed, the commands run with exit codes, what failed and why, what it is doing now and what it has cost. get_mission, the mission list, ask_jarv and each conversation's opening picture report from it. The voice now speaks like a senior engineer reporting: specific (requirement ids, files, errors, numbers), filler phrases named and forbidden, no promises to keep watching, and never resume_mission on a mission in progress.
+BLOCKERS: None
+NEXT TASK: Review the MYCO acceptance mission's evidence report against MYCO_V3_SPEC.md and the baseline

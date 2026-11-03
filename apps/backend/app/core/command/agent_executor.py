@@ -297,6 +297,7 @@ class AgentExecutor:
         self.usage = Usage()  # every model call's tokens and cost (Upgrade 5)
         self.first_edit_step: Optional[int] = None
         self.requirements: List[Dict[str, Any]] = []  # the numbered requirement list (Upgrade 2)
+        self._started_at: Optional[str] = None
 
     async def _prepare_tools(self) -> List[Dict[str, Any]]:
         """The full mission toolbox; the four core tools only when there is no workspace record to confine to."""
@@ -310,6 +311,18 @@ class AgentExecutor:
         if toolbox.root_host and not self.workspace_root:
             self.workspace_root = toolbox.root_host
         return toolbox.model_tools() + [_FINISH]
+
+    async def _progress(self, phase: str, continuation: int, budget: int) -> None:
+        """The mission's live progress record, after every step (read by "how is it going?")."""
+        from datetime import datetime, timezone
+
+        from app.core.command import progress
+
+        if self._started_at is None:
+            self._started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        await progress.save(self.runtime.task_id, progress.snapshot(
+            self.runtime.calls, self.requirements, round_no=continuation + 1, step=self.iterations,
+            step_budget=budget, phase=phase, usage=self.usage.summary(), started_at=self._started_at))
 
     async def run(self, mission: str, steps_per_round: int = 8,
                   max_continuations: int = 4,
@@ -424,6 +437,7 @@ class AgentExecutor:
         continuation = start_continuation
         total_budget = steps_per_round * (max_continuations + 1)
         refused_stops = 0
+        await self._progress("working", continuation, total_budget)
 
         while self.iterations < total_budget and not finished:
             self.iterations += 1
@@ -501,6 +515,7 @@ class AgentExecutor:
                                       # A read_file part is passed back whole; other results are clipped.
                                       "content": _clip(out, result_limit(call["name"]))})
             messages.append(Message(role="user", content=result_blocks))
+            await self._progress("working", continuation, total_budget)
 
         needs_continuation = not finished
         if needs_continuation:
@@ -511,6 +526,7 @@ class AgentExecutor:
         # A mission never accepts itself: when it says it is done, an independent check decides.
         verification: Optional[Dict[str, Any]] = None
         if finished and success and verify:
+            await self._progress("independent check", continuation, total_budget)
             verification = await self.verify(mission, final_summary)
             if not verification["verified"]:
                 success = False
@@ -528,6 +544,7 @@ class AgentExecutor:
         if self._listed():
             from app.core.synthesis import build_ledger, render, synthesize
 
+            await self._progress("writing the report", continuation, total_budget)
             ledger = build_ledger(self.runtime.calls, check_calls)
             made = await synthesize(router.as_role("report"), self.model, mission, self.requirements, ledger,
                                     verification,

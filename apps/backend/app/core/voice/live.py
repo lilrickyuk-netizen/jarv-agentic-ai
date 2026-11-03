@@ -47,8 +47,9 @@ TOOLS: List[Dict[str, Any]] = [
          "workspace": _NO_WORKSPACE},
          "required": ["instruction"], "additionalProperties": False}},
     {"type": "function", "name": "resume_mission",
-     "description": "Carry on with a mission that paused or stopped part-way (needs continuation or partial): the "
-                    "same mission continues from where it stopped, with its progress. Use it whenever Richard asks "
+     "description": "Carry on with a mission that stopped part-way and is no longer being worked on (get_mission "
+                    "does not show it in_progress). Never for a mission in progress. The "
+                    "same mission continues from where it stopped, with its progress. Use it when Richard asks "
                     "to continue, resume or carry on with a mission; never start a new mission for that. Without a "
                     "task_id it resumes his latest paused mission.",
      "parameters": {"type": "object", "properties": {"task_id": {"type": "string"}}, "additionalProperties": False}},
@@ -132,15 +133,22 @@ def instructions(spaces: List[Any]) -> str:
     return (
         "You are JAI, Richard Curley's autonomous AI operating system, talking with him by voice. "
         "Your name is written JAI and said \"Jay\", as one word, never spelled out letter by letter. "
-        "Speak naturally and warmly, like a capable chief of staff: short spoken sentences, no lists or markdown, "
-        "British English. Let him interrupt; keep answers brief unless he asks for detail.\n"
+        "Speak naturally, like a senior engineer reporting to the owner: short spoken sentences, no lists or "
+        "markdown, British English. Be specific and factual: names, numbers, files, requirement ids, errors. "
+        "Never use filler such as 'moving along', 'keeping pace', 'making good progress' or 'we're on track', "
+        "and never promise to watch or update him unless he asks. Say plainly what you do not know. Let him "
+        "interrupt; keep answers brief unless he asks for detail.\n"
         f"His workspaces: {projects}.\n"
         "You are the voice of JAI's whole system, not a separate assistant: JAI's memory, missions, workspaces "
         "and approvals are yours through your tools. Talk things through yourself, but for anything about his "
         "projects, decisions, progress or what JAI is doing, use ask_jarv, search_memory, get_status, "
         "get_mission, list_approvals or list_workspaces rather than guessing. What is running changes while you "
         "talk: before you say whether anything is running, how a mission is going or that one has finished, call "
-        "get_status or get_mission in that turn; never answer it from memory. When he asks for work to "
+        "get_status or get_mission in that turn; never answer it from memory. When he asks how a mission is "
+        "going, report from get_mission's progress: the phase, round and step, how many requirements are done "
+        "out of how many and which are still open (by id and a few words), the files it has changed, any "
+        "command that failed and why, and exactly what it is doing now. A mission in progress carries on by "
+        "itself between rounds: never call resume_mission for it. When he asks for work to "
         "be done, say in one sentence what you'll do and call start_mission with his full request; JAI's agents "
         "then do the work and you'll receive a message beginning [mission update] when it finishes or pauses; "
         "tell him the outcome in a sentence or two. When he asks to continue, resume or carry on with a mission, "
@@ -251,7 +259,12 @@ async def situation_block(db: AsyncSession, user_id: UUID) -> str:
         for m in missions[:4]:
             state = "between rounds, next round queued" if m.get("between_rounds") else m.get("status")
             latest = (m.get("latest_activity") or ["no steps recorded yet"])[0]
-            lines.append(f"- {m['title']} ({state}; started {m.get('started')}; latest: {latest})")
+            facts = m.get("progress") or {}
+            where = (f"; {facts.get('phase')}, round {facts.get('round')} step {facts.get('step')}, "
+                     f"{facts.get('requirements_done')} of {facts.get('requirements_total')} requirements done, "
+                     f"{facts.get('files_changed')} files changed, {facts.get('commands_failed')} commands failed"
+                     if facts else "")
+            lines.append(f"- {m['title']} ({state}; started {m.get('started')}{where}; latest: {latest})")
         doing = "Missions in progress:\n" + "\n".join(lines)
     else:
         doing = "No mission is in progress."
@@ -390,10 +403,14 @@ async def _mission(db: AsyncSession, user_id: UUID, task_id: Optional[str]) -> D
         if _between_rounds(task.status):
             note = ("Still being worked on: one round has finished and the next is queued and starts by itself. "
                     "Describe it from latest_activity; the last round's report is not the result.")
+        from app.core.command import progress
+
         return {"task_id": str(task.id), "title": task.title, "status": task.status, "in_progress": True,
                 "rounds_done": int(result.get("continuation_count") or 0) or None,
                 "folder": result.get("workspace_path"), "latest_activity": await _activity(db, task.id),
-                "note": note}
+                "progress": await progress.load(task.id),
+                "note": note + (" Report from progress: phase, round and step, requirements done and open (by id), "
+                                "files changed, commands that failed and why, and what it is doing now.")}
     # Missions store their report under "response".
     summary = (result.get("response") or result.get("response_text") or result.get("output")
                or result.get("summary") or "")
@@ -438,6 +455,28 @@ async def _activity(db: AsyncSession, task_id, limit: int = 12) -> List[str]:
     return [f"{r.created_at:%H:%M} {r.title}: {(r.message or '')[:160]}" for r in rows if r.created_at]
 
 
+async def _progress_of(task_id) -> Optional[Dict[str, Any]]:
+    from app.core.command import progress
+
+    return await progress.load(task_id)
+
+
+def _brief(progress: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """A mission's progress in a few facts: phase, round and step, requirements, files, failures, latest step."""
+    if not progress:
+        return None
+    reqs = progress.get("requirements") or {}
+    by_status = reqs.get("by_status") or {}
+    return {"phase": progress.get("phase"), "round": progress.get("round"), "step": progress.get("step"),
+            "requirements_done": by_status.get("done", 0), "requirements_total": reqs.get("total", 0),
+            "open": [f"{r.get('id')} {r.get('text')}" for r in reqs.get("items") or []
+                     if r.get("status") != "done"][:6],
+            "files_changed": progress.get("files_changed_count", 0),
+            "commands_failed": progress.get("commands_failed", 0),
+            "last_failure": (progress.get("recent_failures") or [None])[-1],
+            "doing_now": progress.get("doing_now"), "updated_at": progress.get("updated_at")}
+
+
 async def _recent_missions(db: AsyncSession, user_id: UUID, limit: int = 6) -> List[Dict[str, Any]]:
     from app.core.scoping import owned_workspaces
     from app.models.task import Task
@@ -459,6 +498,7 @@ async def _recent_missions(db: AsyncSession, user_id: UUID, limit: int = 6) -> L
             entry["latest_activity"] = await _activity(db, task.id)
             if _between_rounds(task.status):
                 entry["between_rounds"] = True
+            entry["progress"] = _brief(await _progress_of(task.id))
             entry.pop("last_report")  # an earlier round's report would be mistaken for the result
         missions.append(entry)
         if len(missions) == limit:
