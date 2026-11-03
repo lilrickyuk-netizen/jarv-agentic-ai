@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CockpitCore } from '@/components/cockpit-core';
+import { JarvMark } from '@/components/jarv-mark';
 import { apiClient, HealthResponse } from '@/lib/api';
 import { followMission, runMission } from '@/lib/missions';
 import { VOICE_SLOT_ID } from '@/components/persistent-voice';
@@ -215,7 +216,7 @@ export default function CommandCenterPage() {
       <div className="cockpit-grid" aria-hidden="true" />
       <header className="cockpit-header">
         <a href="/dashboard" className="cockpit-brand" aria-label="JARV command center">
-          <span className="brand-mark">J</span><span><strong>JARV</strong><small>INTELLIGENCE SYSTEM</small></span>
+          <span className="brand-mark"><JarvMark size={38} /></span><span><strong>JARV</strong><small>INTELLIGENCE SYSTEM</small></span>
         </a>
         <div className="header-center"><span className={`status-dot ${healthOk ? 'is-live' : ''}`} />{healthOk ? 'SYSTEM ONLINE' : loading ? 'CONNECTING' : 'BACKEND DEGRADED'}</div>
         <div className="header-actions">

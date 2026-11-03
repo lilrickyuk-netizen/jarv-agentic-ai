@@ -13607,3 +13607,16 @@ TESTS RUN: Owner run by install-layout.sh: tsc --noEmit and jest in node:20.
 RESULT: Committed by the owner's script only after both pass.
 BLOCKERS: None.
 NEXT TASK: Rename JARV to JAI; then the acceptance mission on MYCO.
+
+---
+
+TASK ID: UI-LOGO
+TASK NAME: JARV logo in place of the "J" box
+STATUS: COMPLETE
+FILES CREATED: apps/dashboard/src/components/jarv-mark.tsx
+FILES MODIFIED: apps/dashboard/src/app/dashboard/page.tsx, apps/dashboard/src/app/globals.css, apps/dashboard/src/components/ops/section-nav.tsx
+COMMANDS RUN: npm ci, npx tsc --noEmit, npx jest --ci (node:20 container); docker compose up -d --build dashboard
+TESTS RUN: dashboard type check and jest suite
+RESULT: The bordered box with the letter J is gone. JARV's mark is an original SVG drawn in code: a bright core inside a small swarm of blue lights, a dotted outer ring and a tilted orbit with one light circling slowly (still when the viewer asks for reduced motion). It carries no letter, so it stays right after the rename to JAI. It sits beside the JARV name on the Command Center and, smaller, on every other page's top bar.
+BLOCKERS: None
+NEXT TASK: Rename JARV to JAI
