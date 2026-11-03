@@ -24,6 +24,10 @@ logger = logging.getLogger(__name__)
 
 # ===== Input/Output Schemas =====
 
+
+# How much of each agent's report reaches the mission's final answer.
+AGENT_REPORT_CHARS = 6000
+
 class OrchestratorInput(BaseModel):
     """Input schema for orchestrator agent"""
     mission: str = Field(..., description="High-level mission or goal to accomplish")
@@ -483,6 +487,9 @@ class OrchestratorAgent(AgentBase):
                 "resolved_agent": agent_name,
                 "status": status,
                 "output_preview": (result.get("output_text") or "")[:200],
+                # The agent's whole report (its findings, the pages and files it used, its evidence), for the
+                # mission's final answer: a 200-character preview left that answer with nothing to report.
+                "output": (result.get("output_text") or "")[:AGENT_REPORT_CHARS],
             })
 
         self.logger.info(

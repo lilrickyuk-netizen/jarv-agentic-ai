@@ -222,6 +222,23 @@ class CommandResult:
         }
 
 
+# All of the agents' reports that reach the final answer, at most this many characters together.
+AGENT_REPORTS_BUDGET = 30000
+
+
+def _agent_reports(task_results: List[Dict[str, Any]]) -> str:
+    """Each agent's status and its whole report (or its preview when an older result has no report), within the
+    budget shared by all of them, so the final answer can give the findings and evidence themselves."""
+    lines: List[str] = []
+    reports = [r for r in task_results if isinstance(r, dict)]
+    share = max(1500, AGENT_REPORTS_BUDGET // max(1, len(reports)))
+    for r in reports:
+        agent = r.get("resolved_agent") or r.get("assigned_agent")
+        body = str(r.get("output") or r.get("output_preview") or "").strip()
+        lines.append(f"- {agent}: {r.get('status')}" + (f"\n{body[:share]}" if body else ""))
+    return "\n".join(lines)
+
+
 class CommandService:
     """Runs the live command pipeline against the configured model provider."""
 
@@ -2600,10 +2617,10 @@ class CommandService:
             f"EXECUTION PLAN (from the orchestrator, Claude-generated):\n"
             f"- Selected agents: {', '.join(selected_agents) or 'orchestrator'}\n"
             + "\n".join(f"- Step {i+1}: {s}" for i, s in enumerate(plan_steps))
-            + (("\n\nWHAT THE AGENTS ACTUALLY DID (report these results; never claim work that is not here):\n"
-                + "\n".join(f"- {r.get('resolved_agent') or r.get('assigned_agent')}: {r.get('status')}"
-                             + (f" - {r.get('output_preview')}" if r.get('output_preview') else "")
-                             for r in (outcome or {}).get("task_results", []))
+            + (("\n\nWHAT THE AGENTS ACTUALLY DID (report these results; never claim work that is not here). Each "
+                "agent's own report follows in full: give Richard its specific findings, the pages, files and URLs "
+                "it used and its evidence, not a summary of the fact that it reported:\n"
+                + _agent_reports((outcome or {}).get("task_results", []))
                 + ("\nPaused for Richard's approval: " + ", ".join(
                     str(b.get("boundary_type")) for b in outcome["boundaries"]) if outcome.get("boundaries") else ""))
                if outcome and outcome.get("task_results") else "")
@@ -2613,7 +2630,7 @@ class CommandService:
             model=self.model,
             messages=[Message(role="user", content=user_prompt)],
             system=system_prompt,
-            max_tokens=1500,
+            max_tokens=3000,
         )
         response = await router.complete(request)
         tokens = (response.usage or {}).get("total_tokens", 0)

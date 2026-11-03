@@ -13893,3 +13893,16 @@ TESTS RUN: voice service suite with a new test that every conversation shares th
 RESULT: The timings Richard sent showed hearing at 0.7 to 0.9 seconds, the model at 0.6 to 1.1 seconds and ask_jarv at 3.8 seconds (1.2 to 1.7 gathering facts, 2.0 to 3.0 in the model), but the British voice took 10.3 seconds to its first sound in a new conversation and 3.9 seconds per reply after: Pipecat's Kokoro service loaded the 325 MB voice model for every conversation and ran it on the processor inside Docker on WSL. The voice service now loads Kokoro once at start, speaks one silent sentence to warm it, and gives every conversation the same loaded voice. The image carries the NVIDIA build of ONNX Runtime with its CUDA and cuDNN libraries; when Docker can give the container the GPU (checked by the installer, which then adds docker-compose.voice-gpu.yml to COMPOSE_FILE in .env), the voice, hearing and turn detection run on the graphics card, otherwise on the processor as before. /health reports which (voice_device).
 BLOCKERS: None
 NEXT TASK: Read the new timings; if ask_jarv is then the slowest step, trim its facts and its reasoning; then Wave 4
+
+---
+
+TASK ID: FIX-MISSION-ANSWER-SEES-WHOLE-REPORTS
+TASK NAME: A multi-agent mission's final answer is given each agent's whole report, not a 200-character preview
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/agents/orchestrator.py, apps/backend/app/core/command/service.py, apps/backend/tests/test_orchestrator_delegation.py
+COMMANDS RUN: backend test suite (pgvector test database); docker compose restart backend worker
+TESTS RUN: backend suite with the delegation test now checking each agent's whole report is kept, and a new test that the final answer is given every whole report within a shared budget, an older preview-only result still included
+RESULT: Richard's Plexecute review (research, analytics, marketing and documentation agents) came back PARTIAL saying the material returned "does not include the page text, URLs beyond the domain, or source-level findings": the agents had done the work, but the orchestrator kept only the first 200 characters of each agent's report and the final answer was written from those previews. Each agent's whole report (up to 6,000 characters) is now kept with its result, and the final answer is given all of them (30,000 characters shared between the agents, one agent never crowding out the rest) and told to give Richard the specific findings, the pages, files and URLs used and the evidence, with room to write it (3,000 tokens).
+BLOCKERS: None
+NEXT TASK: Re-run the Plexecute review; read the new voice timings; then Wave 4

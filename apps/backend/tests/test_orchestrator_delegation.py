@@ -114,6 +114,9 @@ def test_orchestrator_delegates_to_real_registered_agents(monkeypatch, runtime_k
     assert all(s == "completed" for s in statuses.values())
     assert all((tr["output_preview"] or "") for tr in data["task_results"]), \
         "delegated agents produced no output (they did not really execute)"
+    # Each agent's whole report is kept for the mission's final answer, not only its preview.
+    assert all(tr["output"].startswith(tr["output_preview"]) and len(tr["output"]) >= len(tr["output_preview"])
+               for tr in data["task_results"])
 
     # The orchestrator's own run succeeded because real work completed.
     assert result.success is True
@@ -189,3 +192,18 @@ def test_derive_mission_status_is_honest():
     assert orch._derive_mission_status(
         {"attempted": 2, "completed": 2, "deferred": 1}
     ) == "partial"
+
+
+def test_the_final_answer_is_given_each_agents_whole_report():
+    """The Plexecute review came back as 'the material returned to me does not include the page text': the final
+    answer saw only a 200-character preview of each agent's findings. It now gets each whole report."""
+    from app.core.command.service import AGENT_REPORTS_BUDGET, _agent_reports
+
+    findings = "Homepage https://plexecute.co.uk/ calls it an AI Life Execution Platform. " * 40
+    text = _agent_reports([
+        {"resolved_agent": "research", "status": "completed", "output_preview": findings[:200], "output": findings},
+        {"assigned_agent": "marketing", "status": "completed", "output_preview": "Older result, preview only."}])
+    assert "- research: completed\n" + findings[:2000] in text
+    assert "- marketing: completed\nOlder result, preview only." in text
+    many = _agent_reports([{"resolved_agent": f"a{i}", "status": "completed", "output": "x" * 20000} for i in range(10)])
+    assert len(many) <= AGENT_REPORTS_BUDGET + 10 * 40
