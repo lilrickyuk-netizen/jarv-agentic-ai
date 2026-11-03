@@ -642,6 +642,11 @@ async def _recent_missions(db: AsyncSession, user_id: UUID, limit: int = 6) -> L
 async def _ask_jarv(db: AsyncSession, user_id: UUID, question: str, workspace_id: Optional[UUID]) -> Dict[str, Any]:
     """Answer from JAI's own memory, lessons, missions and approvals with JAI's reasoning model."""
     import json
+    import logging
+    import time
+
+    timing = logging.getLogger("jai.voice.timing")
+    started = time.monotonic()
 
     from app.core.command import CommandService
     from app.core.learning import learning_service
@@ -701,6 +706,7 @@ async def _ask_jarv(db: AsyncSession, user_id: UUID, question: str, workspace_id
                                                         query=question, limit=3)]
         except Exception:  # noqa: BLE001 - lessons are an addition, never a reason to fail the answer
             facts["verified_lessons"] = []
+    gathered = time.monotonic()
     service = CommandService()
     response = await get_router().complete(CompletionRequest(
         # Low effort: a spoken answer must come in seconds; the facts already carry the live picture.
@@ -723,6 +729,8 @@ async def _ask_jarv(db: AsyncSession, user_id: UUID, question: str, workspace_id
                 "run. Answer the question asked, with what is new; do not restate the whole status. Two to five "
                 "spoken sentences, British English, no lists or markdown."),
         messages=[Message(role="user", content=f"Question: {question}\n\nFacts:\n{json.dumps(facts, default=str)}")]))
+    timing.info(f"timing ask_jarv facts {gathered - started:.2f}s, model {time.monotonic() - gathered:.2f}s "
+                f"({len(json.dumps(facts, default=str))} characters of facts)")
     return {"answer": (response.content or "").strip() or "I could not form an answer from what I know.",
             "missions_considered": len(facts["recent_missions"]), "memories_considered": len(facts["memories"])}
 

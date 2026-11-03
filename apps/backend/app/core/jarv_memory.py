@@ -207,8 +207,11 @@ class MemoryService:
         boundary_input_id: Optional[UUID] = None,
         expires_at: Optional[datetime] = None,
         session_id: Optional[UUID] = None,
+        reinforce: bool = True,
     ) -> Memory:
-        """Persist a memory, or reinforce the identical one already stored."""
+        """Persist a memory, or reinforce the identical one already stored. reinforce=False leaves an identical
+        memory untouched (no row is updated, so no lock is taken): records written by many agents at once, such as
+        the sources they read, use it so two missions reading the same page never deadlock."""
         # Secrets never enter memory, whichever caller wrote them.
         text = redact_text((content or "").strip())
         if not text:
@@ -225,6 +228,8 @@ class MemoryService:
                 Memory.workspace_id == workspace_id if workspace_id else Memory.workspace_id.is_(None),
             ).limit(1)
         )).scalar_one_or_none()
+        if duplicate is not None and not reinforce:
+            return duplicate
         if duplicate is not None:
             duplicate.importance_score = min(1.0, max(duplicate.importance_score, importance) + 0.05)
             duplicate.confidence_score = min(1.0, max(duplicate.confidence_score or 0.0, confidence))

@@ -220,3 +220,40 @@ def test_github_release_pages_are_read_from_githubs_own_records_stable_first(web
 def test_official_sources_outrank_aggregators():
     searches = [{"results": [{"url": "https://endoflife.date/nextjs"}, {"url": "https://github.com/vercel/next.js/releases"}]}]
     assert research_module.rank_sources(searches, 2)[0]["url"] == "https://github.com/vercel/next.js/releases"
+
+
+def test_reading_the_same_page_twice_never_locks_or_breaks_the_mission(web, monkeypatch):
+    """Two agents reading one page used to update the same memory row at once and deadlock, which rolled back the
+    mission's whole transaction. A kept source record is now left untouched, and a failed write undoes only itself."""
+    from sqlalchemy import select
+
+    from app.core.command.tool_runtime import ToolRuntime
+    from app.core.jarv_memory import memory_service
+    from app.models.memory import Memory
+    from app.models.workspace import Workspace
+
+    web["routes"]["https://plexecute.example/"] = lambda r: httpx.Response(
+        200, headers={"content-type": "text/plain"}, text=LONG)
+
+    async def run():
+        async with AsyncTestingSessionLocal() as db:
+            user_id, ws_id = await _seed(db, None)
+            runtime = ToolRuntime(db, ws_id, None, operator="agent:research", authority_level=1, user_id=user_id)
+            await runtime.fetch_url("https://plexecute.example/")
+            await runtime.fetch_url("https://plexecute.example/")
+            kept = (await db.execute(select(Memory).where(Memory.workspace_id == ws_id,
+                                                          Memory.memory_type == "source"))).scalars().all()
+            reinforced = [m.meta_data.get("reinforced") for m in kept]
+
+            async def deadlock(*args, **kwargs):
+                raise RuntimeError("deadlock detected")
+
+            monkeypatch.setattr(memory_service, "add", deadlock)
+            again = await runtime.fetch_url("https://plexecute.example/")
+            still_usable = (await db.execute(select(Workspace).where(Workspace.id == ws_id))).scalar_one()
+            await db.commit()
+            return len(kept), reinforced, again, still_usable.id == ws_id
+
+    count, reinforced, again, usable = _run(run())
+    assert count == 1 and reinforced == [None]   # one record, never updated by the second read
+    assert again["ok"] is True and usable        # the failed record write did not spoil the mission's session

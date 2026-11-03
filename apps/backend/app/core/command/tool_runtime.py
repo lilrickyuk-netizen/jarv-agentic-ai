@@ -716,12 +716,16 @@ class ToolRuntime:
     # ----- safe internet tools (read-only, SSRF-guarded, logged + source-recorded) -----
 
     async def _source_record(self, url: str, title: str, source_type: str, summary: str) -> None:
-        """Persist a web source record (memory_type=source) so claims are traceable."""
+        """Persist a web source record (memory_type=source) so claims are traceable. It is a record, never the
+        reason a mission fails: an identical record already kept is left as it is (so agents reading the same page
+        at once never lock the same row), and the write is in a savepoint, so a failure undoes only itself."""
         try:
-            await memory_service.add(
-                self.db, content=f"[source:{source_type}] {title or url} | {url} | {summary}"[:600],
-                memory_type="source", workspace_id=self.workspace_id, task_id=self.task_id,
-                importance=0.55, meta={"url": url, "source_type": source_type, "title": title})
+            async with self.db.begin_nested():
+                await memory_service.add(
+                    self.db, content=f"[source:{source_type}] {title or url} | {url} | {summary}"[:600],
+                    memory_type="source", workspace_id=self.workspace_id, task_id=self.task_id,
+                    importance=0.55, meta={"url": url, "source_type": source_type, "title": title},
+                    reinforce=False)
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"source record failed: {exc}")
 

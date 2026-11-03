@@ -228,8 +228,8 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
     const output: Record<string, unknown> = response.error || !response.data
       ? { error: response.error || 'The action failed.' } : response.data;
     if (output.card) showCard(output.card as ScreenCard);  // show_on_screen, research_web
-    add({ who: 'action', text: 'error' in output ? `${ACTION_LABELS[name] ?? name}: ${String(output.error)}`
-      : ACTION_LABELS[name] ?? name });
+    add({ who: 'action', text: refused ? 'Did not act: you had not asked'
+      : 'error' in output ? `${ACTION_LABELS[name] ?? name}: ${String(output.error)}` : ACTION_LABELS[name] ?? name });
     send({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: event.call_id,
       output: JSON.stringify(output) } });
     requestReply();

@@ -13867,3 +13867,16 @@ TESTS RUN: backend suite with new tests that a GitHub releases page is read from
 RESULT: Asked for the latest Next.js release, JAI's research read GitHub's releases page, which lists canary pre-releases first and is too long to read whole, so it never saw the stable releases, and it took 16.4.4 from endoflife.date while v16.4.5 was already on GitHub. A GitHub releases or tags page is now read from GitHub's own release records (its public API): the latest stable release with its date first, then the recent releases each marked stable or pre-release, drafts left out, then the stable release's notes. Research ranks official sources (the project's or vendor's own site and documentation, GitHub, the regulator) above aggregators and is told to go with the official one when they disagree, treating GitHub's release records as the authority for versions, and to say which it relied on.
 BLOCKERS: None
 NEXT TASK: Wave 4: content creation (MoneyPrinterTurbo, ComfyUI on the NVIDIA GPU, Chatterbox, Postiz)
+
+---
+
+TASK ID: FIX-SOURCE-RECORD-DEADLOCK-AND-VOICE-TIMING
+TASK NAME: Two agents reading the same page no longer deadlock and fail the mission; refused actions labelled truthfully; where each spoken reply's time goes is logged
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/jarv_memory.py, apps/backend/app/core/command/tool_runtime.py, apps/backend/app/core/voice/live.py, apps/backend/tests/test_web_research.py, services/voice/app/pipeline.py, apps/dashboard/src/components/voice-conversation.tsx
+COMMANDS RUN: voice image build and its pytest; backend test suite (pgvector test database); dashboard type check and jest; docker compose up -d --no-deps --build backend worker voice
+TESTS RUN: backend suite with a new test that reading the same page twice keeps one source record that is never updated, and that a failed source-record write leaves the mission's session usable; voice service and dashboard suites
+RESULT: The Plexecute review mission failed with "deadlock detected" on UPDATE memories: every page an agent reads is kept as a source record, an identical record was reinforced (its row updated) inside the mission's long transaction, two agents reading plexecute.co.uk/sitemap.xml at once locked the same row, and the database's deadlock error rolled back the whole mission. Source records are now written with reinforce=False (an identical record is left as it is, so no row is locked) inside a savepoint, so a failure there undoes only itself and never the mission. A tool the voice was stopped from using after an activity update is shown as "Did not act: you had not asked" rather than "Started a mission". Richard reported that JAI takes far too long to answer by voice; the voice service now logs, per reply, each service's time to first response (speech-to-text, model, text-to-speech), every tool call's duration and the time from his last word heard to JAI's first words, and the backend logs how long ask_jarv spends gathering facts and in the model, so the slow step can be fixed from evidence.
+BLOCKERS: None
+NEXT TASK: Read the voice timings from one conversation and remove the slow step; then Wave 4

@@ -12,6 +12,8 @@ use to JAI's daily spend, ending the conversation if today's limit is reached.
 """
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any, Dict, List, Optional
 
 from pipecat.adapters.schemas.function_schema import FunctionSchema
@@ -26,7 +28,7 @@ from pipecat.frames.frames import (
     OutputTransportMessageUrgentFrame,
     TranscriptionFrame,
 )
-from pipecat.metrics.metrics import LLMUsageMetricsData, STTUsageMetricsData, TTSUsageMetricsData
+from pipecat.metrics.metrics import LLMUsageMetricsData, STTUsageMetricsData, TTFBMetricsData, TTSUsageMetricsData
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -50,6 +52,10 @@ ACTING_TOOLS = frozenset({"start_mission", "resume_mission", "cancel_mission"})
 REFUSED_AFTER_UPDATE = ("Richard has not asked for this. An activity update is reported to him, never acted on: tell "
                         "him what it says and wait for him to ask.")
 
+# Where each reply's time goes, in the voice service's log ("timing ..." lines): how long each service took to
+# start answering, each tool call, and from Richard's last word being heard to JAI's first words.
+timing = logging.getLogger("jai.voice.timing")
+
 ACTION_LABELS = {"start_mission": "Started a mission", "resume_mission": "Carried on with a mission",
                  "cancel_mission": "Cancelled a mission", "ask_jarv": "Asked JAI", "show_on_screen": "Put it on screen",
                  "list_workspaces": "Listed workspaces", "research_web": "Looked it up on the web", "list_workspace_files": "Looked in a workspace",
@@ -72,6 +78,7 @@ class HeardRelay(FrameProcessor):
     async def _heard(self, frame: Frame) -> None:
         if isinstance(frame, TranscriptionFrame) and (frame.text or "").strip():
             self._state["update_only"] = False
+            self._state["heard_at"] = time.monotonic()
             await self.push_frame(message({"type": "you", "text": frame.text.strip()}))
             await self._backend.turn("you", frame.text.strip())
 
@@ -84,13 +91,17 @@ class HeardRelay(FrameProcessor):
 class SaidRelay(FrameProcessor):
     """What JAI said, once each reply is complete, to the dashboard and the history (after the model)."""
 
-    def __init__(self, backend: Backend, **kwargs):
+    def __init__(self, backend: Backend, state: Optional[Dict[str, Any]] = None, **kwargs):
         super().__init__(**kwargs)
         self._backend = backend
+        self._state = state if state is not None else {}
         self._parts: List[str] = []
 
     async def _said(self, frame: Frame) -> None:
         if isinstance(frame, LLMTextFrame):
+            heard = self._state.pop("heard_at", None)
+            if heard is not None and not self._parts:
+                timing.info(f"timing heard-to-first-words {time.monotonic() - heard:.2f}s")
             self._parts.append(frame.text or "")
         elif isinstance(frame, LLMFullResponseEndFrame):
             text, self._parts = "".join(self._parts).strip(), []
@@ -124,6 +135,10 @@ class SpendMeter(FrameProcessor):
         if isinstance(frame, MetricsFrame):
             for data in frame.data:
                 result: Optional[Dict[str, Any]] = None
+                if isinstance(data, TTFBMetricsData):
+                    if data.value:
+                        timing.info(f"timing {data.processor} first-response {float(data.value):.2f}s")
+                    continue
                 if isinstance(data, LLMUsageMetricsData):
                     usage = data.value
                     result = await self._backend.spend(
@@ -148,16 +163,20 @@ def function_schemas(tools: List[Dict[str, Any]], backend: Backend, worker_ref: 
         parameters = tool.get("parameters") or {}
 
         async def handler(params: FunctionCallParams, _name: str = name):
+            started = time.monotonic()
             if worker_ref.get("update_only") and _name in ACTING_TOOLS:
                 result: Dict[str, Any] = {"error": REFUSED_AFTER_UPDATE}
             else:
                 result = await backend.tool(_name, dict(params.arguments or {}))
+            timing.info(f"timing tool {_name} {time.monotonic() - started:.2f}s")
             worker = worker_ref.get("worker")
             if worker is not None:
                 # The dashboard follows a mission JAI starts or carries on, and tells JAI how it ended.
+                refused = result.get("error") == REFUSED_AFTER_UPDATE
                 frames: List[Frame] = [message({"type": "action", "name": _name,
-                                                "label": ACTION_LABELS.get(_name, _name),
-                                                "error": result.get("error"), "task_id": result.get("task_id"),
+                                                "label": ("Did not act: you had not asked" if refused
+                                                          else ACTION_LABELS.get(_name, _name)),
+                                                "error": None if refused else result.get("error"), "task_id": result.get("task_id"),
                                                 "intent": result.get("intent"), "resumed": result.get("resumed")})]
                 if result.get("card"):  # show_on_screen, research_web: what JAI puts on his screen
                     frames.append(message({"type": "card", "card": result["card"]}))
@@ -206,7 +225,7 @@ def build(websocket, backend: Backend, brief: Dict[str, Any], api_key: str):
     context = LLMContext(tools=function_schemas(brief.get("tools") or [], backend, worker_ref))
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context, user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()))
-    pipeline = Pipeline([transport.input(), stt, HeardRelay(backend, worker_ref), user_aggregator, llm, SaidRelay(backend), tts,
+    pipeline = Pipeline([transport.input(), stt, HeardRelay(backend, worker_ref), user_aggregator, llm, SaidRelay(backend, worker_ref), tts,
                          SpendMeter(backend, local_voice), transport.output(), assistant_aggregator])
     worker = PipelineWorker(pipeline, params=PipelineParams(enable_metrics=True, enable_usage_metrics=True))
     worker_ref["worker"] = worker
