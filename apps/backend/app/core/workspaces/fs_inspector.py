@@ -458,7 +458,7 @@ SAFE_COMMAND_PREFIXES = (
     "git shortlog", "git blame", "git grep", "git stash list", "git tag -l", "git tag --list",
     "yarn --version", "jq --version", "rg --version", "gcc --version", "make --version",
     "task --version", "task --list", "task --list-all", "terraform version", "terraform -version",
-    "helm version",
+    "helm version", "syft version",
 )
 # Build / test commands — allowed at Level 3 (build & test) inside an approved
 # workspace. These compile/test a project (JAI's core job) but do not delete,
@@ -503,6 +503,10 @@ _TASK_RE = re.compile(r"^task ([a-z0-9][a-z0-9:_.-]{0,80})(?: -- [a-z0-9_.:-]{1,
 _TERRAFORM_RE = re.compile(
     r"^terraform(?: -chdir=[a-z0-9_./-]{1,200})? (fmt|validate|version|providers|show|graph|output|plan|init|test)(?: |$)")
 _HELM_RE = re.compile(r"^helm (lint|template|version|show|dependency (?:build|update|list)|env)(?: |$)")
+# Syft (SBOM): cataloguing the project's own files is build work. Pulling an image from a registry or a
+# container engine reaches outside the workspace, and attesting signs and publishes: Richard decides those.
+_SYFT_RE = re.compile(r"^syft (version|scan|packages|convert|cataloger list)(?: |$)")
+_SYFT_REMOTE = ("registry:", "docker:", "podman:", "containerd:", "oci-registry:", "singularity:")
 
 # Trusted project package-manager install commands (project-local). Allowed to
 # run automatically INSIDE an approved workspace (PackageInstallPolicy:
@@ -722,6 +726,11 @@ def classify_command(command: str) -> str:
         if c.startswith("helm version"):
             return "safe"
         return "install" if c.startswith("helm dependency") else "build"
+    syft = _SYFT_RE.match(c)
+    if syft:
+        if syft.group(1) == "version":
+            return "safe"
+        return "risky" if any(a.startswith(_SYFT_REMOTE) for a in words[2:]) else "build"
     task = _TASK_RE.match(c)
     if task and not _RELEASE_SCRIPT_RE.match(f"npm run {task.group(1)}"):
         return "build"

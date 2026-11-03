@@ -127,3 +127,27 @@ def test_a_missing_program_is_reported_not_installed_into_the_project():
         assert "report it as missing" in out["stderr"]
     else:  # refused before running (an unknown program needs approval): it never ran, so nothing was installed
         assert out["success"] is False
+
+
+@pytest.mark.parametrize("command, expected", [
+    ("syft version", "safe"),
+    ("syft scan .", "build"),
+    ("syft scan dir:. -o spdx-json=sbom/myco.spdx.json", "build"),
+    ("syft packages apps/web", "build"),
+    ("syft scan registry:ghcr.io/example/app:latest", "risky"),   # pulls from a registry: Richard decides
+    ("syft scan docker:myco-api:dev", "risky"),
+    ("syft attest --key cosign.key dir:.", "risky"),             # signs and publishes
+    ("syft login ghcr.io", "risky"),
+])
+def test_syft_is_a_known_build_tool(command, expected):
+    from app.core.workspaces.fs_inspector import classify_command
+
+    assert classify_command(command) == expected, command
+
+
+def test_jais_image_installs_a_pinned_checked_syft():
+    from tests.repo_paths import repo_path
+
+    dockerfile = repo_path("apps", "backend", "Dockerfile").read_text()
+    assert "ARG SYFT_VERSION=1.55.0" in dockerfile
+    assert 'grep " syft_${SYFT_VERSION}_linux_amd64.tar.gz$" "syft_${SYFT_VERSION}_checksums.txt" | sha256sum -c -' in dockerfile

@@ -60,7 +60,7 @@ CMD ["python", "-m", "pytest"]
 
 # Toolchains JAI's agents use to build projects in a workspace (copied into the runtime image).
 # Versions follow the most demanding project JAI builds (MYCO V3.2 §40): Node 24 LTS, uv 0.12,
-# Task 3.52, Terraform 1.16, Helm 4.3. Change them here, in one place.
+# Task 3.52, Terraform 1.16, Helm 4.3, Syft 1.55 (SBOMs). Change them here, in one place.
 FROM ${NODE_IMAGE} AS node
 FROM ${UV_IMAGE} AS uv
 
@@ -76,12 +76,13 @@ WORKDIR /app
 # Node.js 24 LTS with npm and Corepack (each project's pnpm or yarn version, from its
 # packageManager field), uv with Python 3.12 to 3.14 (Python projects; uv fetches any exact
 # version a project pins), Task (Taskfile.yml), Terraform and Helm (infrastructure modules),
-# a C/C++ compiler and make (native packages), jq, unzip and ripgrep.
+# Syft (software bills of materials), a C/C++ compiler and make (native packages), jq, unzip and ripgrep.
 # Anything else a project needs, JAI installs itself from the official registries into its
 # tool home (/home/jarv, a persistent volume): uv tool install, uv python install, pnpm, npm.
 ARG TASK_VERSION=3.52.0
 ARG TERRAFORM_VERSION=1.16.3
 ARG HELM_VERSION=4.3.0
+ARG SYFT_VERSION=1.55.0
 RUN apt-get update && apt-get install -y \
     curl \
     git \
@@ -99,7 +100,7 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -s ../lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack \
     && corepack enable --install-directory /usr/local/bin pnpm yarn \
     && npm cache clean --force
-# Task, Terraform and Helm from their official release downloads, checked against the published
+# Task, Terraform, Helm and Syft from their official release downloads, checked against the published
 # checksums before installing.
 RUN set -eu; cd /tmp \
     && curl -fsSLO "https://github.com/go-task/task/releases/download/v${TASK_VERSION}/task_linux_amd64.tar.gz" \
@@ -114,6 +115,10 @@ RUN set -eu; cd /tmp \
     && curl -fsSLO "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz.sha256sum" \
     && sha256sum -c "helm-v${HELM_VERSION}-linux-amd64.tar.gz.sha256sum" \
     && tar -xzf "helm-v${HELM_VERSION}-linux-amd64.tar.gz" --strip-components=1 -C /usr/local/bin linux-amd64/helm \
+    && curl -fsSLO "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz" \
+    && curl -fsSLO "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_checksums.txt" \
+    && grep " syft_${SYFT_VERSION}_linux_amd64.tar.gz$" "syft_${SYFT_VERSION}_checksums.txt" | sha256sum -c - \
+    && tar -xzf "syft_${SYFT_VERSION}_linux_amd64.tar.gz" -C /usr/local/bin syft \
     && rm -rf /tmp/*
 COPY --from=uv /uv /uvx /usr/local/bin/
 ENV UV_PYTHON_INSTALL_DIR=/opt/uv-python \

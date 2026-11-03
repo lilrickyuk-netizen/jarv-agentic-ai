@@ -13724,3 +13724,16 @@ TESTS RUN: full backend suite, with new tests for the check's progress, the age 
 RESULT: Asked several times how the verification mission was going, JAI repeated "round 4, step 25, running task bootstrap" for fifteen minutes and filled the gaps with "I'll keep an eye on it". The progress record had frozen when the independent check began, because only the mission's own steps wrote it. Now every step of the independent check updates the record (its step of its allowance, what it is running, what failed for it); every report of progress carries how long the mission has run and how many minutes ago its last step was, so a step that has run for minutes is told as still running, never as new; and the voice is told never to repeat what it has said, to answer what changed or something new (how long, why, what next), to send why, how-long and what-it-means questions to ask_jarv (JAI's reasoning model with its knowledge and memory), and never to say "I'll keep an eye on it" or "I'll let you know".
 BLOCKERS: None
 NEXT TASK: Review the verification mission's report; add Syft to JAI's tool image if the spec's Phase 0 evidence needs it
+
+---
+
+TASK ID: TOOLCHAIN-SYFT
+TASK NAME: Syft in JAI's tool image, and a known build tool in the command policy
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/Dockerfile, apps/backend/app/core/workspaces/fs_inspector.py, apps/backend/tests/test_missions_finish_properly.py
+COMMANDS RUN: backend test suite (pgvector test database); dashboard type check and jest; docker compose up -d --build migrate backend worker scheduler dashboard, after checking no mission was running
+TESTS RUN: full backend suite, with new tests for how Syft commands are classified and for the pinned, checksum-checked install
+RESULT: The MYCO verification mission (96a4fd75) needs SBOM evidence for MYCO_V3_SPEC.md §46, and Syft was not installed where missions run, so "syft version" paused for approval and then failed (exit 127). Syft 1.55.0 (released 19 October 2026) is now installed in JAI's image from Anchore's official GitHub release, checked against the release's published checksums before installing, as Task, Terraform and Helm already are. In the command policy "syft version" is safe; cataloguing the workspace (syft scan, syft packages, syft convert) is build work inside an approved workspace, with no approval needed; scanning a registry or container-engine image, attesting and logging in stay with Richard.
+BLOCKERS: None
+NEXT TASK: Resume the MYCO verification mission (after closing the stray mission 44188d31 that blocked it), then review its report for the v3.2-phase-00-truth-baseline tag
