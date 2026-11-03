@@ -53,7 +53,8 @@ def _exit_code(call: Dict[str, Any]) -> Optional[int]:
 
 def snapshot(calls: List[Dict[str, Any]], requirements: List[Dict[str, Any]], *, round_no: int, step: int,
              step_budget: int, phase: str, usage: Optional[Dict[str, Any]] = None,
-             started_at: Optional[str] = None, root: Optional[str] = None) -> Dict[str, Any]:
+             started_at: Optional[str] = None, root: Optional[str] = None,
+             check: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Where a mission is now, from its own tool calls and requirement list."""
     files: List[str] = []
     for call in calls:
@@ -84,9 +85,41 @@ def snapshot(calls: List[Dict[str, Any]], requirements: List[Dict[str, Any]], *,
         "commands_run": len(commands), "commands_failed": sum(1 for c in commands if not c["ok"]),
         "recent_commands": commands[-6:],
         "recent_failures": failures[-5:],
+        # The independent check, while it runs: its step, its allowance and what it is checking now.
+        "check": check,
         "tokens": ({k: (usage or {}).get(k) for k in ("calls", "input", "cached", "output")}
                    | ({"cost_usd": cost} if cost is not None else {})) if usage else None,
     }
+
+
+def check_state(calls: List[Dict[str, Any]], step: int, steps: int, root: Optional[str] = None) -> Dict[str, Any]:
+    """Where the independent check is: its step of its allowance, what it is doing now and what failed for it."""
+    last = calls[-1] if calls else None
+    return {"step": step, "steps": steps,
+            "doing_now": ({"tool": last.get("tool"), "target": _target(last, root), "ok": bool(last.get("success")),
+                           "result": str(last.get("summary") or "")[:200]} if last else None),
+            "commands_run": sum(1 for c in calls if c.get("tool") == "run_command"),
+            "recent_failures": [{"tool": c.get("tool"), "target": _target(c, root),
+                                 "why": str(c.get("summary") or "")[:200]} for c in calls if not c.get("success")][-3:]}
+
+
+def age(progress: Optional[Dict[str, Any]], now: Optional[datetime] = None) -> Dict[str, Any]:
+    """How old a progress record is and how long the mission has run, in minutes (so nothing stale is told as now)."""
+    if not progress:
+        return {}
+    now = now or datetime.now(timezone.utc)
+
+    def minutes(value: Any) -> Optional[int]:
+        try:
+            moment = datetime.fromisoformat(str(value))
+        except (TypeError, ValueError):
+            return None
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        return max(0, int((now - moment).total_seconds() // 60))
+
+    return {"minutes_since_last_step": minutes(progress.get("updated_at")),
+            "minutes_running": minutes(progress.get("started_at"))}
 
 
 async def save(task_id: Any, data: Dict[str, Any]) -> bool:

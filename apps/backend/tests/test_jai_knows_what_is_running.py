@@ -208,3 +208,28 @@ def test_the_tasks_page_counts_a_running_mission_as_in_progress(client, signed_i
     assert stats["in_progress_tasks"] == 1 and stats["completed_tasks"] == 1, stats
     listed = client.get("/api/tasks/list?task_status=in_progress").json()
     assert [t["title"] for t in listed] == ["MYCO conformance"]
+
+
+
+def test_the_independent_check_keeps_the_progress_moving_and_ages_are_told():
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.command.progress import age, check_state, snapshot
+
+    check = check_state([{"tool": "run_command", "inputs": {"command": "task verify"}, "success": True,
+                          "summary": "exit=0"}], step=7, steps=35)
+    assert check["step"] == 7 and check["steps"] == 35 and check["doing_now"]["target"] == "task verify"
+    now = datetime.now(timezone.utc)
+    p = snapshot(CALLS, REQS, round_no=4, step=25, step_budget=40, phase="independent check",
+                 started_at=(now - timedelta(minutes=28)).isoformat(), check=check)
+    p["updated_at"] = (now - timedelta(minutes=15)).isoformat()
+    assert age(p, now) == {"minutes_since_last_step": 15, "minutes_running": 28}
+    brief = live._brief(p)
+    assert brief["check_step"] == 7 and brief["check_steps"] == 35 and brief["minutes_since_last_step"] == 15
+    assert brief["check_doing_now"]["target"] == "task verify"
+
+
+def test_jai_never_repeats_itself_and_reasons_about_time():
+    text = live.instructions([])
+    assert "Never repeat what you have already told him" in text and "I'll keep an eye on it" in text
+    assert "call ask_jarv" in text and "how long ago the last step was" in text

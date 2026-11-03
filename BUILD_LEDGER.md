@@ -13711,3 +13711,16 @@ TESTS RUN: full backend suite and dashboard jest, with new tests that an update'
 RESULT: During the MYCO verification mission (96a4fd75) Richard approved "syft version"; the approval ran it correctly in MYCO's folder and it failed (exit 127, Syft not installed), and the mission carried on. JAI's voice then read that failure in its activity feed ("not installed... install it with uv tool install...") and started two missions of its own (0fdee97a, 44188d31) to install Syft, one in the MYCO workspace, without Richard asking. Now an activity update's spoken reply is sent with tool_choice none, so it cannot call any tool; until Richard next speaks, start_mission, resume_mission and cancel_mission are refused in the dashboard before reaching the backend; the voice is told updates are reports, never requests; and a missing program's message says Python and Node tools run through the project's package manager while any other program belongs in JAI's tool image and is reported as missing, never downloaded or installed into the project folder.
 BLOCKERS: Syft (for the Phase 0 SBOM evidence) is not in JAI's tool image; adding it at a pinned, checksum-verified version is a separate change.
 NEXT TASK: Review the verification mission's report; add Syft to JAI's tool image if the spec's Phase 0 evidence needs it
+
+---
+
+TASK ID: VOICE-NO-STALE-REPEATS
+TASK NAME: JAI's voice tells how old its facts are, follows the independent check, and never repeats itself
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/progress.py, apps/backend/app/core/command/agent_executor.py, apps/backend/app/core/voice/live.py, apps/backend/tests/test_jai_knows_what_is_running.py
+COMMANDS RUN: backend test suite (pgvector test database); dashboard type check and jest; docker compose up -d --build --no-deps backend dashboard (the worker running the verification mission was left alone; it takes the check's progress at its next rebuild)
+TESTS RUN: full backend suite, with new tests for the check's progress, the age of a progress record, and the voice instructions
+RESULT: Asked several times how the verification mission was going, JAI repeated "round 4, step 25, running task bootstrap" for fifteen minutes and filled the gaps with "I'll keep an eye on it". The progress record had frozen when the independent check began, because only the mission's own steps wrote it. Now every step of the independent check updates the record (its step of its allowance, what it is running, what failed for it); every report of progress carries how long the mission has run and how many minutes ago its last step was, so a step that has run for minutes is told as still running, never as new; and the voice is told never to repeat what it has said, to answer what changed or something new (how long, why, what next), to send why, how-long and what-it-means questions to ask_jarv (JAI's reasoning model with its knowledge and memory), and never to say "I'll keep an eye on it" or "I'll let you know".
+BLOCKERS: None
+NEXT TASK: Review the verification mission's report; add Syft to JAI's tool image if the spec's Phase 0 evidence needs it

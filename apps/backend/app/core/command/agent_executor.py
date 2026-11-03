@@ -336,6 +336,7 @@ class AgentExecutor:
         self.first_edit_step: Optional[int] = None
         self.requirements: List[Dict[str, Any]] = []  # the numbered requirement list (Upgrade 2)
         self._started_at: Optional[str] = None
+        self._round: tuple = (0, 0)  # the round and step allowance of the latest progress record
         self.prior_calls: List[Dict[str, Any]] = []  # earlier rounds' actions, evidence for this round's report
 
     async def _prepare_tools(self) -> List[Dict[str, Any]]:
@@ -351,7 +352,8 @@ class AgentExecutor:
             self.workspace_root = toolbox.root_host
         return toolbox.model_tools() + [_FINISH]
 
-    async def _progress(self, phase: str, continuation: int, budget: int) -> None:
+    async def _progress(self, phase: str, continuation: int, budget: int,
+                        check: Optional[Dict[str, Any]] = None) -> None:
         """The mission's live progress record, after every step (read by "how is it going?")."""
         from datetime import datetime, timezone
 
@@ -359,10 +361,11 @@ class AgentExecutor:
 
         if self._started_at is None:
             self._started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        self._round = (continuation, budget)
         await progress.save(self.runtime.task_id, progress.snapshot(
             self.runtime.calls, self.requirements, round_no=continuation + 1, step=self.iterations,
             step_budget=budget, phase=phase, usage=self.usage.summary(), started_at=self._started_at,
-            root=self.workspace_root))
+            root=self.workspace_root, check=check))
 
     async def run(self, mission: str, steps_per_round: int = 8,
                   max_continuations: int = 4,
@@ -885,6 +888,11 @@ class AgentExecutor:
                                 "content": _clip(out, result_limit(name))})
             messages.append(Message(role="assistant", content=blocks))
             messages.append(Message(role="user", content=results))
+            # The progress record moves on with the check, so "how is it going?" never hears a stale step.
+            from app.core.command import progress
+
+            await self._progress("independent check", *self._round,
+                                 check=progress.check_state(runtime.calls, steps, limit, self.workspace_root))
         self.tokens += tokens
         if verdict is None:
             return {"verified": False, "checks": [], "tokens": tokens, "steps": steps, "hard_checks": hard,
