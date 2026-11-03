@@ -41,6 +41,7 @@ def web(monkeypatch):
     """SearXNG and Crawl4AI configured; every request recorded and answered by `routes`."""
     monkeypatch.setattr(settings, "SEARXNG_URL", "http://searxng:8080")
     monkeypatch.setattr(settings, "CRAWL4AI_URL", "http://crawl4ai:11235")
+    monkeypatch.setattr(settings, "CRAWL4AI_TOKEN", "c4a-test-token")
     monkeypatch.setattr(internet, "_ssrf_ok", lambda url: (False, "private address") if "127.0.0.1" in url
                         else (True, None))
     requests: List[httpx.Request] = []
@@ -99,6 +100,7 @@ def test_a_thin_page_is_read_again_through_the_browser_and_private_addresses_nev
     rendered_request = web["requests"][-1]
     assert page["ok"] and page["rendered"] is True and page["title"] == "Pricing" and "whole article" in page["text"]
     assert json.loads(rendered_request.content) == {"url": "https://app.example.com/", "f": "fit", "c": "0"}
+    assert rendered_request.headers["authorization"] == "Bearer c4a-test-token"  # the browser's access token
 
     web["routes"]["https://blog.example.com/"] = lambda r: httpx.Response(
         200, headers={"content-type": "text/plain"}, text=LONG)

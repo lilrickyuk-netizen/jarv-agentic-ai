@@ -287,6 +287,7 @@ class Settings(BaseSettings):
     # searches DuckDuckGo directly and reads pages without rendering.
     SEARXNG_URL: str = "http://searxng:8080"
     CRAWL4AI_URL: str = "http://crawl4ai:11235"
+    CRAWL4AI_TOKEN: Optional[str] = None
     RESEARCH_TIMEOUT_SECONDS: float = Field(default=20.0, ge=3, le=120)
 
     # Voice

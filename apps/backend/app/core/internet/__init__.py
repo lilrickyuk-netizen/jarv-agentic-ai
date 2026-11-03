@@ -108,7 +108,9 @@ async def render_page(url: str) -> Dict[str, Any]:
 
     try:
         async with httpx.AsyncClient(timeout=float(settings.RESEARCH_TIMEOUT_SECONDS) + 25) as c:
-            r = await c.post(f"{base}/md", json={"url": url, "f": "fit", "c": "0"})
+            token = getattr(settings, "CRAWL4AI_TOKEN", None)
+            r = await c.post(f"{base}/md", json={"url": url, "f": "fit", "c": "0"},
+                             headers={"Authorization": f"Bearer {token}"} if token else {})
         if r.status_code >= 400:
             return {"ok": False, "url": url, "reason": f"the page reader answered {r.status_code}"}
         markdown = str((r.json() or {}).get("markdown") or "")

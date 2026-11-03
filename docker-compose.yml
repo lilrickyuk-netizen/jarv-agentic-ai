@@ -101,6 +101,7 @@ services:
       WORKSPACE_HOST_ROOT: ${WORKSPACE_HOST_ROOT:-C:\\Users\\lilri\\OneDrive\\Desktop}
       WORKSPACE_CONTAINER_ROOT: /host/workspaces
       VOICEBOX_BASE_URL: ${VOICEBOX_BASE_URL:-http://voicebox:17493}
+      CRAWL4AI_TOKEN: ${CRAWL4AI_API_TOKEN:-}
       VOICEBOX_PROFILE_ID: ${VOICEBOX_PROFILE_ID:-}
       WAKEWORD_MODEL_DIR: /data/voice-models/sherpa-kws-gigaspeech
       # Operations (Repair 12d): restricted Docker API and database backups.
@@ -213,11 +214,15 @@ services:
     restart: unless-stopped
 
   # Crawl4AI (open source, Apache 2.0): a headless browser that renders JavaScript pages and returns their main
-  # content as Markdown. No model or key: JAI's own model does the reading.
+  # content as Markdown, refusing to open private addresses. No model key: JAI's own model does the reading. Its
+  # image is pinned to the exact build the installer pulled (CRAWL4AI_IMAGE in .env); its access token is
+  # generated into .env and only JAI's backend and worker hold it.
   crawl4ai:
-    image: ${CRAWL4AI_IMAGE:-unclecode/crawl4ai:0.8.6}
+    image: ${CRAWL4AI_IMAGE:-unclecode/crawl4ai:latest}
     container_name: jarv-crawl4ai
     shm_size: "1g"
+    environment:
+      CRAWL4AI_API_TOKEN: ${CRAWL4AI_API_TOKEN:-}
     networks:
       - jarv-web
     restart: unless-stopped
@@ -274,6 +279,7 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-jarv}:${POSTGRES_PASSWORD:-jarv_password}@postgres:5432/${POSTGRES_DB:-jarv}
       REDIS_URL: redis://redis:6379/0
+      CRAWL4AI_TOKEN: ${CRAWL4AI_API_TOKEN:-}
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
       ENVIRONMENT: ${ENVIRONMENT:-development}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
