@@ -111,6 +111,9 @@
 .state-completed { background: var(--silver); box-shadow: 0 0 8px rgba(184, 194, 204, .5); }
 .cockpit-alert { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; padding: 11px 14px; border: 1px solid rgba(251, 191, 36, .35); background: rgba(251, 191, 36, .06); color: #fcd982; font-size: 11px; }
 .cockpit-grid-main { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(320px, .8fr); gap: 14px; }
+/* Command Center: the intelligence field across the top, centred; Mission Control beneath it, recent activity beside. */
+.cockpit-grid-main > .core-panel { grid-column: 1 / -1; }
+.cockpit-title-row { justify-content: flex-end; }
 .cockpit-panel { min-width: 0; border: 1px solid rgba(142, 155, 170, .2); background: linear-gradient(145deg, rgba(17, 24, 39, .92), rgba(9, 15, 25, .92)); box-shadow: 0 18px 48px rgba(0, 0, 0, .16); }
 .core-panel, .mission-panel, .telemetry-panel, .activity-panel { padding: 18px 20px; }
 /* The intelligence field floats free: no box around it. */

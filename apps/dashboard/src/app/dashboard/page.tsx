@@ -110,7 +110,7 @@ export default function CommandCenterPage() {
   const router = useRouter();
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [agentStats, setAgentStats] = useState<AgentStats | null>(null);
+  const [, setAgentStats] = useState<AgentStats | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [approvalStats, setApprovalStats] = useState<ApprovalStats | null>(null);
@@ -205,7 +205,6 @@ export default function CommandCenterPage() {
 
   const state = deriveState({ loadingCommand: commandLoading, listening: voiceState === 'listening', result: commandResult, tasks, feed, pendingApprovals: approvalStats?.pending_approvals ?? null, voiceState });
   const activeTasks = tasks.filter((task) => ['running', 'queued', 'recovering', 'needs_continuation', 'pending'].includes(task.status));
-  const implementedAgents = agents.filter((agent) => agent.is_implemented);
   const activeSwarmRuns = swarmRuns.filter((run) => run.status === 'running');
   const swarmSpend = swarmRuns.reduce((total, run) => total + (Number.isFinite(run.total_cost_usd) ? run.total_cost_usd : 0), 0);
   const activeSubAgents = swarmRuns.reduce((total, run) => total + (Number.isFinite(run.active_sub_agents) ? run.active_sub_agents : 0), 0);
@@ -250,7 +249,6 @@ export default function CommandCenterPage() {
 
         <div className="cockpit-main">
           <section className="cockpit-title-row">
-            <div><p className="eyebrow">COMMAND CENTER / 01</p><h1>Good to see you.</h1><p className="title-sub">Your operating picture, live.</p></div>
             <div className="state-readout"><span className={`state-indicator state-${state}`} /><span>{state.toUpperCase()}</span><small>{health?.timestamp ? `Updated ${new Date(health.timestamp).toLocaleTimeString()}` : 'Waiting for system data'}</small></div>
           </section>
 
@@ -280,17 +278,6 @@ export default function CommandCenterPage() {
                 <p>{commandResult.response_text || commandResult.error || 'Mission accepted.'}</p>
                 {!!commandResult.selected_agents?.length && <small>Assigned: {commandResult.selected_agents.join(' · ')}</small>}
               </div>}
-            </article>
-
-            <article className="cockpit-panel telemetry-panel">
-              <div className="panel-heading"><div><p className="eyebrow">TELEMETRY</p><h2>System pulse</h2></div><span className="panel-index">LIVE DATA</span></div>
-              <div className="metric-grid">
-                <div className="metric"><span>BACKEND</span><strong className={healthOk ? 'metric-good' : 'metric-dim'}>{health?.status ?? 'UNKNOWN'}</strong><small>{health?.service ?? 'Awaiting health check'}</small></div>
-                <div className="metric"><span>REGISTERED AGENTS</span><strong>{agentStats?.total_registered ?? agents.length}<i> / {agentStats?.total_required ?? '—'}</i></strong><small>{agentStats ? `${agentStats.completion_percentage.toFixed(0)}% implemented` : 'Live roster'}</small></div>
-                <div className="metric"><span>ACTIVE MISSIONS</span><strong>{activeTasks.length.toString().padStart(2, '0')}</strong><small>pending or in execution</small></div>
-                <div className="metric"><span>IMPLEMENTED AGENTS</span><strong>{agentStats?.implemented ?? implementedAgents.length}</strong><small>from registered roster</small></div>
-              </div>
-              <div className="agent-strip"><div className="strip-title"><span>AGENT ROSTER</span><a href="/dashboard/agents">View all ↗</a></div><div className="agent-list">{agents.slice(0, 7).map((agent) => <div key={agent.name} className="agent-line"><span className={`agent-presence ${agent.is_implemented ? 'present' : ''}`} /><span>{agent.name}</span><small>{agent.is_implemented ? 'READY' : 'UNAVAILABLE'}</small></div>)}</div></div>
             </article>
 
             <article className="cockpit-panel activity-panel">
