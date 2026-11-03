@@ -23,7 +23,7 @@ describe('Dashboard', () => {
 
   it('renders welcome message', () => {
     render(<MockDashboard />);
-    const message = screen.getByText(/welcome to jarv dashboard/i);
+    const message = screen.getByText(/welcome to jai dashboard/i);
     expect(message).toBeInTheDocument();
   });
 });
