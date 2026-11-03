@@ -13633,3 +13633,16 @@ TESTS RUN: full backend suite and dashboard type check and jest suite, with the 
 RESULT: Everything Richard sees or hears now says JAI: the dashboard (top bar, Command Center brand, page title, Talk with JAI, every page's wording), agent and Verifier instructions, the voice persona, reports, drafts written by JAI, the voice profile name and the git author name on commits JAI makes in a workspace. The wake phrase hears "JAI" as recognisers write it ("Jai", "Jay", "J.A.I.") and still hears the old name and its mishearings, so either works. The voice profile is renamed in place, and one already named JARV is reused, not duplicated. Unchanged on purpose, so existing data, volumes and settings carry on: container names (jarv-*), JARV_* settings, code identifiers, the repo folder, the database, the migrations, the curated knowledge library text, CLAUDE.md and the build history in this ledger. The README says so.
 BLOCKERS: None
 NEXT TASK: Acceptance mission: bring MYCO Phase 0 into full conformance with MYCO_V3_SPEC.md, measured against the earlier baseline
+
+---
+
+TASK ID: RENAME-JAI-VOICE
+TASK NAME: JAI says its name "Jay"
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/voice/engine.py, apps/backend/app/core/voice/live.py, apps/backend/app/api/v1/voicebox.py, apps/backend/tests/test_repair14c_voice_acceptance.py
+COMMANDS RUN: backend test suite (pgvector test database); dashboard type check and jest; docker compose up -d --build backend worker scheduler dashboard
+TESTS RUN: full backend suite, with new cases for how the name is spoken
+RESULT: Richard says the name "Jay". The live voice is told its name is written JAI and said "Jay", one word, never spelled out. Every spoken reply that goes through a speech engine (Voicebox or OpenAI) has JAI, JAI's and J.A.I. turned into "Jay" first, so no engine reads out the letters; words that only contain the letters, such as "jailbreak", are untouched.
+BLOCKERS: None
+NEXT TASK: Acceptance mission: bring MYCO Phase 0 into full conformance with MYCO_V3_SPEC.md, measured against the earlier baseline

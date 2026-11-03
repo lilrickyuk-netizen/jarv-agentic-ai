@@ -257,6 +257,14 @@ async def _voicebox_speech(client: httpx.AsyncClient, text: str, language: str) 
         delay = min(delay * 2, 2.0)
 
 
+_NAME_IN_TEXT = re.compile(r"\bJ\.A\.I\.(?=[\s,;:!?]|$)|\bJ\.A\.I\b|\bJAI\b")
+
+
+def spoken_name(text: str) -> str:
+    """JAI's name as Richard says it: "Jay", one word. Written as JAI, a speech engine would spell out the letters."""
+    return _NAME_IN_TEXT.sub("Jay", text or "")
+
+
 async def speak(text: str, *, owner: Optional[UUID] = None, language: str = "en",
                 voice: Optional[str] = None) -> Dict[str, Any]:
     text = (text or "").strip()
@@ -267,6 +275,7 @@ async def speak(text: str, *, owner: Optional[UUID] = None, language: str = "en"
     backend = tts_backend()
     if backend is None:
         raise VoiceUnavailable(_tts_missing())
+    text = spoken_name(text)
     lang = (language or "en").split("-")[0].lower()
     started = time.monotonic()
     try:

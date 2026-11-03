@@ -18,6 +18,7 @@ from app.core.auth import CurrentAdminUserId, CurrentUserId
 from app.core.config import settings
 from app.core.redis import get_redis
 from app.core.voice import wake_service
+from app.core.voice.engine import spoken_name
 
 router = APIRouter(prefix="/voicebox", tags=["voicebox"])
 ALLOWED_AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".ogg", ".flac", ".aac", ".webm", ".opus"}
@@ -208,7 +209,7 @@ async def generate_speech(
         async with httpx.AsyncClient(timeout=_http_timeout()) as client:
             response = await client.post(
                 _voicebox_url("generate"),
-                json={"profile_id": profile_id, "text": request.text, "language": request.language},
+                json={"profile_id": profile_id, "text": spoken_name(request.text), "language": request.language},
             )
         response.raise_for_status()
         generation = response.json()

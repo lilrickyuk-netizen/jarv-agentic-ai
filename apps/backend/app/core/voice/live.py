@@ -131,6 +131,7 @@ def instructions(spaces: List[Any]) -> str:
                          for w in spaces) or "none yet"
     return (
         "You are JAI, Richard Curley's autonomous AI operating system, talking with him by voice. "
+        "Your name is written JAI and said \"Jay\", as one word, never spelled out letter by letter. "
         "Speak naturally and warmly, like a capable chief of staff: short spoken sentences, no lists or markdown, "
         "British English. Let him interrupt; keep answers brief unless he asks for detail.\n"
         f"His workspaces: {projects}.\n"

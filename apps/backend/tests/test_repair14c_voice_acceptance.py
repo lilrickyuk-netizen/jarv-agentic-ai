@@ -147,3 +147,12 @@ def test_voice_acceptance_with_cloud_speech_only(client, voice, monkeypatch):  #
     assert len(rows) == 1 and (rows[0].meta_data or {}).get("channel") == "voice"
     assert "talk to me" not in f"{rows[0].title} {rows[0].description}".lower()
     assert "summarise what changed" in f"{rows[0].title} {rows[0].description}".lower()
+
+
+@pytest.mark.parametrize("written,said", [
+    ("JAI here. JAI's missions are on track.", "Jay here. Jay's missions are on track."),
+    ("I'm J.A.I., your system.", "I'm Jay, your system."),
+    ("The jailbreak test and JAIL stay as they are.", "The jailbreak test and JAIL stay as they are."),
+])
+def test_jai_says_its_name_as_jay(written, said):
+    assert engine.spoken_name(written) == said
