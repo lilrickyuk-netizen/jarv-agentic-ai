@@ -464,7 +464,8 @@ def _spoken_report(report: Any) -> Optional[Dict[str, Any]]:
     """The mission's evidence report in short form for speech: the overall line and each requirement's status."""
     if not isinstance(report, dict):
         return None
-    return {"overall": report.get("overall"),
+    return {"overall": report.get("overall"), "confidence": report.get("confidence"),
+            "risks": (report.get("risks") or [])[:5],
             "requirements": [f"{i.get('id')} {i.get('status')}: {str(i.get('text'))[:120]}"
                              for i in (report.get("items") or [])[:30]],
             "hard_checks_failing": len(report.get("hard_failures") or []),

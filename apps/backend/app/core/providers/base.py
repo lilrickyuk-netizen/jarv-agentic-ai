@@ -45,6 +45,8 @@ class CompletionRequest:
     # How hard a reasoning model thinks for this request (none, low, medium, high, xhigh, max); None uses the
     # provider's configured default. Providers without the setting ignore it.
     reasoning_effort: Optional[str] = None
+    # Calls with the same key share the provider's prompt cache (one key per mission); None leaves it to the provider.
+    prompt_cache_key: Optional[str] = None
 
 
 @dataclass

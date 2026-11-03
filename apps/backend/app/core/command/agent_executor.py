@@ -36,6 +36,7 @@ from app.core.providers import CompletionRequest, Message, get_router
 from app.core.command.requirements import (STATUS_TOOL, derive as derive_requirements, render as render_requirements,
                                            unmet_without_evidence, update as update_requirement)
 from app.core.verification.checks import Finding
+from app.core.command.metrics import MeteredRouter, Usage
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,9 @@ _FINISH = {
     },
 }
 
+
+# Tools whose success counts as the mission's first change (Upgrade 5 measures steps until the first edit).
+_EDITS = ("write_file", "edit_file", "move_file", "copy_file", "create_folder", "delete_file_with_boundary")
 
 # The independent check: tools that look and test, never ones that write, delete, push or install.
 VERIFIER_TOOLS = ("list_files", "read_file", "search_files", "scan_workspace", "get_file_metadata",
@@ -290,6 +294,8 @@ class AgentExecutor:
         self.toolbox: Optional[AgentToolbox] = None
         self.context_trimmed = 0
         self.hard_baseline: Optional[set] = None  # hard-check findings when the mission started
+        self.usage = Usage()  # every model call's tokens and cost (Upgrade 5)
+        self.first_edit_step: Optional[int] = None
         self.requirements: List[Dict[str, Any]] = []  # the numbered requirement list (Upgrade 2)
 
     async def _prepare_tools(self) -> List[Dict[str, Any]]:
@@ -319,7 +325,7 @@ class AgentExecutor:
         finished (completed), stalled/no-tools, or the continuation cap reached
         (-> needs_continuation, with a checkpoint to resume from).
         """
-        router = get_router()
+        router = MeteredRouter(get_router(), self.usage, "mission", self._cache_key())
         tools = await self._prepare_tools()
         if not prior_messages:
             standing = await self.hard_checks()
@@ -343,10 +349,15 @@ class AgentExecutor:
                 findings = ([Finding(**f).text() for f in self._hard_in_scope(mission, standing)]
                             if standing and standing.get("findings") and self._conformance(mission, standing)
                             else [])
-                derived = await derive_requirements(router, self.model, mission, spec=spec_text, findings=findings)
+                derived = await derive_requirements(router.as_role("requirements"), self.model, mission,
+                                                    spec=spec_text, findings=findings)
                 self.requirements = derived["requirements"]
                 self.tokens += derived["tokens"]
             await self._graph_requirements()
+            starting = await self._starting_context(mission, standing)
+            if starting:
+                known = (f"{known}\n\n" if known else "") + (
+                    "STARTING CONTEXT (gathered before your first step, so you need not look for it):\n" + starting)
             reference = await self._reference_passages(mission)
             if reference:
                 known = (f"{known}\n\n" if known else "") + (
@@ -483,6 +494,9 @@ class AgentExecutor:
                         out = {"acknowledged": True}
                 else:
                     out = await self._dispatch(call["name"], call["args"])
+                    if (self.first_edit_step is None and call["name"] in _EDITS and isinstance(out, dict)
+                            and out.get("success") is True):
+                        self.first_edit_step = self.iterations
                 result_blocks.append({"type": "tool_result", "tool_use_id": call["id"],
                                       # A read_file part is passed back whole; other results are clipped.
                                       "content": _clip(out, result_limit(call["name"]))})
@@ -515,7 +529,8 @@ class AgentExecutor:
             from app.core.synthesis import build_ledger, render, synthesize
 
             ledger = build_ledger(self.runtime.calls, check_calls)
-            made = await synthesize(router, self.model, mission, self.requirements, ledger, verification,
+            made = await synthesize(router.as_role("report"), self.model, mission, self.requirements, ledger,
+                                    verification,
                                     (verification or {}).get("hard_checks"))
             self.tokens += made["tokens"]
             report = made["report"]
@@ -539,6 +554,12 @@ class AgentExecutor:
             "tools": sorted(names),
             "context_trimmed_chars": self.context_trimmed,
             "requirements": self.requirements,
+            "metrics": {
+                "usage": self.usage.summary(), "steps": self.iterations, "rounds": continuation,
+                "steps_to_first_edit": self.first_edit_step,
+                "verifier_findings": len((verification or {}).get("unmet") or []),
+                "hard_failures": len(((verification or {}).get("hard_checks") or {}).get("findings") or []),
+            },
             "messages": messages,  # checkpoint payload for resume
         }
 
@@ -591,6 +612,61 @@ class AgentExecutor:
                     (hard or {}).get("findings") or [])
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"verification not recorded in the graph: {exc}")
+
+    async def _starting_context(self, mission: str, standing: Optional[Dict[str, Any]]) -> str:
+        """What an engineer looks at first (Upgrade 5): the stack and the project's real commands, the
+        specification's version pins, what the artifact graph knows about files the mission names, and this
+        workspace's recent failures. Each part is optional; a part that cannot be read is left out."""
+        import re
+
+        parts: List[str] = []
+        if self.toolbox is not None:
+            for name in ("detect_stack", "detect_commands"):
+                try:
+                    found = await self.toolbox.call(name, {})
+                    if isinstance(found, dict) and found.get("success") is not False:
+                        parts.append(f"{name}: " + json.dumps({k: v for k, v in found.items() if k != "success"},
+                                                              default=str)[:1500])
+                except Exception as exc:  # noqa: BLE001
+                    logger.info(f"starting context: {name} unavailable: {exc}")
+        pins = (standing or {}).get("pins") or {}
+        if pins:
+            parts.append("Specification pins: " + ", ".join(f"{k} {v}" for k, v in sorted(pins.items())))
+        if self.runtime.workspace_id is not None:
+            named = list(dict.fromkeys(re.findall(r"(?<![\w/])((?:[\w.-]+/)*[\w-]+\.[A-Za-z0-9]{1,8})(?![\w/])",
+                                                  mission)))[:5]
+            if named:
+                try:
+                    from app.core.graph import graph_service
+
+                    for key in named:
+                        trace = await graph_service.trace(self.runtime.db, self.runtime.workspace_id, key, depth=2)
+                        if trace["nodes"]:
+                            parts.append(f"What JARV has recorded about {key}:\n"
+                                         + graph_service.describe(trace, limit=8))
+                except Exception as exc:  # noqa: BLE001
+                    logger.info(f"starting context: graph unavailable: {exc}")
+            try:
+                from datetime import datetime, timedelta, timezone
+
+                from sqlalchemy import select
+
+                from app.models.task import Task
+
+                since = datetime.now(timezone.utc) - timedelta(days=7)
+                failed = (await self.runtime.db.execute(select(Task).where(
+                    Task.workspace_id == self.runtime.workspace_id, Task.status.in_(("failed", "partial")),
+                    Task.updated_at >= since, Task.id != self.runtime.task_id)
+                    .order_by(Task.updated_at.desc()).limit(3))).scalars().all()
+                if failed:
+                    parts.append("Recent failures in this workspace: " + "; ".join(
+                        f"{t.title[:80]} ({t.status}: {(t.error_message or '')[:160]})" for t in failed))
+            except Exception as exc:  # noqa: BLE001
+                logger.info(f"starting context: recent failures unavailable: {exc}")
+        return "\n".join(parts)
+
+    def _cache_key(self) -> Optional[str]:
+        return f"jarv-mission-{self.runtime.task_id}" if getattr(self.runtime, "task_id", None) else None
 
     def _listed(self) -> bool:
         """True when the requirement list is a real breakdown, not just the mission repeated (the requirements step
@@ -707,7 +783,7 @@ class AgentExecutor:
                f"saw; a requirement without evidence is unmet):\n{render_requirements(self.requirements)}\n\n"
                if self._listed() else "")
             + "Check every requirement yourself, then call verdict."))]
-        router = get_router()
+        router = MeteredRouter(get_router(), self.usage, "verifier", self._cache_key())
         tokens = steps = 0
         verdict: Optional[Dict[str, Any]] = None
         while steps < VERIFIER_STEPS and verdict is None:

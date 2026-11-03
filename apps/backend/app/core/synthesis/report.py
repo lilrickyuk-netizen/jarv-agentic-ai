@@ -16,8 +16,10 @@ removed before Richard sees it.
    * a requirement the independent check found unmet cannot be "done";
    * every hard-check failure is listed;
    * a requirement the draft left out is listed as "not shown".
-4. The render: a table (requirement, status, what was found, evidence), each cited id spelled out, the hard-check
-   failures, then what is waiting on Richard. The structured report is stored with the mission, so it is shown again
+4. Confidence (High, Medium, Low) and risks, worked out in code from the evidence: requirements shown done, whether
+   the independent check passed, hard checks failing, steps waiting for approval, steps that failed.
+5. The render: the overall line and the confidence, a table (requirement, status, what was found, evidence), each
+   cited id spelled out, the hard-check failures, what is waiting on Richard, then the risks. The structured report is stored with the mission, so it is shown again
    later without another model call, identically.
 """
 from __future__ import annotations
@@ -167,14 +169,48 @@ def check(draft: Dict[str, Any], requirements: Sequence[Dict[str, Any]], ledger:
     done = sum(1 for i in items if i["status"] == "done")
     if not overall or (done < len(items) and re.search(r"\b(all|every|complete|completed|done)\b", overall, re.I)):
         overall = f"{done} of {len(items)} requirements shown done with evidence."
+    confidence, reason, risks = _confidence(items, failures, waiting, ledger, verification)
     return {"overall": overall, "items": items, "hard_failures": failures,
-            "waiting": [_spell(e) for e in waiting], "ledger": list(ledger)}
+            "waiting": [_spell(e) for e in waiting], "ledger": list(ledger),
+            "confidence": confidence, "confidence_reason": reason, "risks": risks}
+
+
+def _confidence(items, failures, waiting, ledger, verification) -> tuple:
+    """How sure JARV is, worked out from the evidence (never from the draft's tone), and what is risky."""
+    total = len(items)
+    done = sum(1 for i in items if i["status"] == "done")
+    verified = bool((verification or {}).get("verified"))
+    failed_steps = [e for e in ledger if e["by"] == "mission" and not e["success"]
+                    and not str(e.get("summary", "")).startswith("paused for approval")]
+    if total and done == total and verified and not failures:
+        level = "High"
+    elif not total or done * 2 < total or (failures and not verified):
+        level = "Low"
+    else:
+        level = "Medium"
+    reason = (f"{done} of {total} requirements shown done with evidence; independent check "
+              f"{'passed' if verified else 'not passed'}; {len(failures)} hard check(s) failing.")
+    risks: List[str] = []
+    for i in items:
+        if i["status"] != "done":
+            note = f" ({i['note'][:120]})" if i["note"] else ""
+            risks.append(f"{i['id']} is {i['status']}: {i['text'][:120]}{note}")
+    if failures:
+        risks.append(f"{len(failures)} hard check(s) still failing against the specification.")
+    if waiting:
+        risks.append(f"{len(waiting)} step(s) waiting for Richard's approval.")
+    if failed_steps:
+        risks.append(f"{len(failed_steps)} step(s) failed along the way, the last: {_spell(failed_steps[-1])}")
+    return level, reason, risks[:12]
 
 
 def render(report: Dict[str, Any]) -> str:
     """The report as Markdown. Pure: the same stored report always renders the same text."""
     by_id = {e["id"]: e for e in report.get("ledger") or []}
-    lines = [f"**{report.get('overall', '')}**", "", "| Requirement | Status | Found | Evidence |", "|---|---|---|---|"]
+    lines = [f"**{report.get('overall', '')}**"]
+    if report.get("confidence"):
+        lines.append(f"**Confidence: {report['confidence']}.** {report.get('confidence_reason', '')}")
+    lines += ["", "| Requirement | Status | Found | Evidence |", "|---|---|---|---|"]
     cited: List[str] = []
     for item in report.get("items") or []:
         found = item["statement"] or item.get("note") or ""
@@ -189,6 +225,8 @@ def render(report: Dict[str, Any]) -> str:
             f"- [{f.get('check')}] {f.get('file')}: {f.get('detail')}" for f in report["hard_failures"][:30]]
     if report.get("waiting"):
         lines += ["", "**Waiting on Richard**"] + [f"- {w}" for w in report["waiting"][:20]]
+    if report.get("risks"):
+        lines += ["", "**Risks**"] + [f"- {r}" for r in report["risks"]]
     return "\n".join(lines)
 
 

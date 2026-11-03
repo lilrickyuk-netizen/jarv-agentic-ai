@@ -22,6 +22,7 @@ from app.core.command.agent_executor import AgentExecutor
 from app.core.command.tool_runtime import ToolRuntime
 from app.core.config import settings
 from app.core.runtime import lifecycle
+from app.core.command.metrics import merge as merge_metrics
 from app.models.company_operations import LiveOperationsFeedItem
 from app.models.operations import AuditLog
 from app.models.task import Task
@@ -241,6 +242,8 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
         "requirements": result.get("requirements") or res.get("requirements"),
         "report": result.get("report"),
         "agent_summary": result.get("agent_summary"),
+        # The mission's cost and effort across every round so far (Upgrade 5).
+        "metrics": merge_metrics(res.get("metrics"), result.get("metrics") or {}),
         "tool_calls": (res.get("tool_calls") or []) + runtime.calls,
     })
     task.result = updated

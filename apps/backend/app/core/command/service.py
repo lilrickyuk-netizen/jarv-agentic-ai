@@ -127,6 +127,19 @@ def _maybe_uuid(value: Any) -> Optional[UUID]:
         return None
 
 
+def _metrics_line(metrics: Optional[Dict[str, Any]]) -> str:
+    """What the run cost, under the report (Upgrade 5): tokens, the share served from the prompt cache, dollars."""
+    usage = (metrics or {}).get("usage") or {}
+    if not usage.get("calls"):
+        return ""
+    tokens = sum(int(usage.get(k) or 0) for k in ("input", "cached", "cache_write", "output"))
+    cost = f"${usage['cost_usd']:.4f}" if usage.get("cost_usd") is not None else "cost not priced"
+    first = metrics.get("steps_to_first_edit")
+    return (f"\n\n_Run: {tokens:,} tokens ({round(100 * float(usage.get('cache_hit_rate') or 0))}% of input from "
+            f"cache), {cost}, {metrics.get('steps', 0)} steps"
+            + (f", first change at step {first}" if first else "") + "._")
+
+
 def _known_for_mission(system_context: Optional[Dict[str, Any]]) -> str:
     """What JARV recalled for this mission (workspace memory and verified lessons), as short lines."""
     context = system_context or {}
@@ -1967,6 +1980,7 @@ class CommandService:
             "requirements": result.get("requirements"),
             "report": result.get("report"),
             "agent_summary": result.get("agent_summary"),
+            "metrics": result.get("metrics"),
             "agent_iterations": result["iterations"],
             "agent_success": result["success"],
             "agent_needs_continuation": result["needs_continuation"],
@@ -2023,7 +2037,7 @@ class CommandService:
                     f"{len(runtime.calls)} tool calls).**\n\n"
                     + (f"_Workspace:_ `{root}`\n\n" if root else
                        "_No approved workspace resolved — register one, or include its path._\n\n"))
-        return head + result["answer"], steps, agents, extra
+        return head + result["answer"] + _metrics_line(result.get("metrics")), steps, agents, extra
 
     async def _resolve_ws_root(self, db: AsyncSession, command_text: str) -> Optional[str]:
         """The folder a mission works in.

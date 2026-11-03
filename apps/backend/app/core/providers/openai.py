@@ -427,6 +427,14 @@ class OpenAIProvider(BaseLLMProvider):
             body["instructions"] = instructions
         if request.tool_choice:
             body["tool_choice"] = {"any": "required"}.get(request.tool_choice, request.tool_choice)
+        if getattr(request, "prompt_cache_key", None):
+            # One key per mission: every step's identical opening is served from the prompt cache.
+            body["prompt_cache_key"] = str(request.prompt_cache_key)[:64]
+            from app.core.config import settings
+
+            ttl = str(getattr(settings, "OPENAI_PROMPT_CACHE_TTL", "") or "").strip()
+            if ttl:
+                body["prompt_cache_options"] = {"ttl": ttl}
         return body
 
     def _convert_responses_response(self, data: Dict[str, Any], model: str) -> CompletionResponse:
@@ -448,6 +456,8 @@ class OpenAIProvider(BaseLLMProvider):
                    "completion_tokens": int(usage.get("output_tokens") or 0),
                    "reasoning_tokens": int((usage.get("output_tokens_details") or {}).get("reasoning_tokens") or 0),
                    "cached_tokens": int((usage.get("input_tokens_details") or {}).get("cached_tokens") or 0),
+                   "cache_write_tokens": int((usage.get("input_tokens_details") or {}).get("cache_write_tokens")
+                                             or usage.get("cache_write_tokens") or 0),
                    "total_tokens": int(usage.get("total_tokens") or 0)},
             tool_calls=calls or None, provider="openai")
 

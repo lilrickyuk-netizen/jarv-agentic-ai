@@ -9,12 +9,17 @@ import '@testing-library/jest-dom';
 import { VoiceConversation } from '@/components/voice-conversation';
 
 const mockPosts: { path: string; body: unknown }[] = [];
+const mockFeed: { id: string; title: string; message: string; severity: string; requires_action?: boolean; created_at: string }[] = [];
 
 jest.mock('@/lib/api', () => ({
   apiClient: {
-    get: jest.fn(async (path: string) => (path === '/api/voice/live/history'
-      ? { status: 200, data: { turns: [{ who: 'you', text: 'Earlier: keep Phase 0 offline.', at: '2026-11-02T18:00:00' }] } }
-      : { status: 404, error: `no ${path}` })),
+    get: jest.fn(async (path: string) => {
+      if (path === '/api/voice/live/history') {
+        return { status: 200, data: { turns: [{ who: 'you', text: 'Earlier: keep Phase 0 offline.', at: '2026-11-02T18:00:00' }] } };
+      }
+      if (path === '/api/operations-feed/list?limit=8') return { status: 200, data: mockFeed };
+      return { status: 404, error: `no ${path}` };
+    }),
     post: jest.fn(async (path: string, body?: unknown) => {
       mockPosts.push({ path, body });
       if (path === '/api/voice/live/session') {
@@ -60,6 +65,7 @@ const trackStop = jest.fn();
 
 beforeEach(() => {
   mockPosts.length = 0;
+  mockFeed.length = 0;
   closed.length = 0;
   trackStop.mockClear();
   (globalThis as unknown as { RTCPeerConnection: unknown }).RTCPeerConnection = FakePeer;
@@ -132,6 +138,26 @@ describe('VoiceConversation', () => {
     expect(closed).toContain('peer');
     expect(trackStop).toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Talk with JARV' })).toBeInTheDocument();
+  });
+
+  it('speaks up on its own about important new activity once it has finished speaking', async () => {
+    render(<VoiceConversation ready beforeStart={async () => undefined} onMission={async () => null} onStateChange={jest.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Talk with JARV' }));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    act(() => channel.open());
+    expect(await screen.findByText('IN CONVERSATION — JUST TALK')).toBeInTheDocument();
+    mockFeed.push(
+      { id: 'f1', title: 'Mission blocked', message: 'git push waits for your approval.', severity: 'warning',
+        requires_action: true, created_at: new Date(Date.now() + 60000).toISOString() },
+      { id: 'f2', title: 'Heartbeat', message: 'routine', severity: 'info', created_at: new Date(Date.now() + 60000).toISOString() });
+    act(() => channel.emit({ type: 'response.done' }));  // the greeting has been spoken
+    const told = () => channel.sent.find((event) => event.type === 'conversation.item.create'
+      && JSON.stringify(event).includes('New activity in JARV'));
+    await waitFor(() => expect(told()).toBeDefined());
+    expect(JSON.stringify(told())).toContain('Mission blocked: git push waits for your approval.');
+    expect(JSON.stringify(told())).not.toContain('Heartbeat');
+    expect(channel.sent.filter((event) => event.type === 'response.create').length).toBe(2);
+    fireEvent.click(screen.getByRole('button', { name: 'End conversation' }));
   });
 
   it('says what to set up when live conversation is unavailable', () => {

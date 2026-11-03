@@ -117,6 +117,9 @@ class Settings(BaseSettings):
     OPENAI_AGENT_REASONING_EFFORT: str = "medium"
     # The Verifier and the requirements step check rather than build, and think harder (Upgrade 2).
     OPENAI_VERIFIER_REASONING_EFFORT: str = "high"
+    # How long the provider keeps a mission's cached prompt ("30m" or "12h"); empty uses the provider's default.
+    # Only set it for models that accept prompt_cache_options (a cache_write_tokens figure in usage shows they do).
+    OPENAI_PROMPT_CACHE_TTL: str = ""
 
     @validator("CLAUDE_API_KEY", pre=True)
     def claude_key_from_anthropic(cls, v: Optional[str], values: dict) -> Optional[str]:

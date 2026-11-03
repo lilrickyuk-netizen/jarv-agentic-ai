@@ -59,6 +59,9 @@ def test_claims_need_evidence_that_succeeded():
     assert items["R4"]["status"] == "waiting"  # a paused push is not done
     assert report["overall"] == "1 of 4 requirements shown done with evidence."  # "All ... complete" was untrue
     assert report["waiting"] and "git push" in report["waiting"][0]
+    assert report["confidence"] == "Low"  # 1 of 4, check not passed
+    assert any(r.startswith("R2 is not shown") for r in report["risks"])
+    assert any("failed along the way" in r and "pytest -q" in r for r in report["risks"])
 
 
 def test_hard_check_failures_and_unmet_findings_win_over_the_draft():
@@ -87,6 +90,8 @@ def test_a_stored_report_renders_the_same_text_again():
     report = check(draft, REQS[:1], _ledger(), {"unmet": []}, None)
     stored = json.loads(json.dumps(report))
     assert render(stored) == render(report)
+    assert report["confidence"] == "Medium"  # all shown, but the independent check did not pass
+    assert "**Confidence: Medium.** 1 of 1 requirements shown done with evidence" in render(report)
     text = render(report)
     assert "| R1 sub(a, b) in src/app.py | done | sub(a, b) added | E1, E3 |" in text
     assert "- E3 (mission): run_command python3 -m py_compile src/app.py → exit 0" in text

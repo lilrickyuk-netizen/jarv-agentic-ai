@@ -8,6 +8,9 @@ import { setVoiceStream } from '@/lib/voice-signal';
 type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking';
 type Phase = 'off' | 'connecting' | 'live';
 
+/** An operations-feed entry, as the update JARV may speak about. */
+interface FeedUpdate { id: string; title: string; message: string; severity: string; requires_action?: boolean; created_at: string }
+
 /** POST /api/voice/live/session: a short-lived secret for one OpenAI Realtime conversation. */
 export interface LiveSession { client_secret: string; model: string; voice: string; calls_url: string; expires_at?: number }
 
@@ -57,6 +60,8 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
   const respondingRef = useRef(false);
   const replyQueuedRef = useRef(false);
   const mountedRef = useRef(true);
+  // Looks for new activity to tell Richard about; also run as soon as JARV finishes speaking.
+  const updateRef = useRef<(() => Promise<void>) | null>(null);
 
   const add = (line: ConversationLine) => {
     setLines((current) => [...current.slice(-11), line]);
@@ -65,6 +70,42 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
       void apiClient.post('/api/voice/live/turn', { who: line.who, text: line.text });
     }
   };
+
+  // JARV speaks up on its own (Upgrade 5): while the conversation is live, important new activity (a mission
+  // finished, blocked or failed, something waiting for Richard) is told to him without being asked.
+  useEffect(() => {
+    if (phase !== 'live') return undefined;
+    const startedAt = Date.now();
+    const seen = new Set<string>();
+    let lastSpoken = 0;
+    let stopped = false;
+    const check = async () => {
+      const response = await apiClient.get<FeedUpdate[]>('/api/operations-feed/list?limit=8');
+      if (stopped || !response.data) return;
+      const fresh = response.data.filter((item) => !seen.has(item.id)
+        && new Date(item.created_at).getTime() >= startedAt
+        && (item.requires_action || ['success', 'warning', 'error'].includes(item.severity)));
+      // One update at a time, never over JARV or Richard speaking, at most every 20 seconds; anything not told
+      // yet is told at the next chance.
+      if (!fresh.length || respondingRef.current || Date.now() - lastSpoken < 20000) return;
+      fresh.forEach((item) => seen.add(item.id));
+      lastSpoken = Date.now();
+      const text = fresh.slice(0, 3).map((item) => `${item.title}: ${item.message}`).join(' | ');
+      send({ type: 'conversation.item.create', item: { type: 'message', role: 'system',
+        content: [{ type: 'input_text', text: `New activity in JARV (not from Richard): ${text.slice(0, 1200)}` }] } });
+      requestReply({ instructions: 'Tell Richard about this new activity in one or two short sentences: what '
+        + 'happened and whether anything needs him. Then stop and listen.' });
+    };
+    const timer = window.setInterval(() => { void check(); }, 12000);
+    updateRef.current = check;
+    void check();
+    return () => {
+      stopped = true;
+      updateRef.current = null;
+      window.clearInterval(timer);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase]);
 
   const send = (event: Record<string, unknown>) => {
     const channel = channelRef.current;
@@ -181,6 +222,8 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
         if (replyQueuedRef.current) {
           replyQueuedRef.current = false;
           requestReply();
+        } else {
+          void updateRef.current?.();
         }
         break;
       case 'error':
