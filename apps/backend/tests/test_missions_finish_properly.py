@@ -138,6 +138,9 @@ def test_a_missing_program_is_reported_not_installed_into_the_project():
     ("syft scan docker:myco-api:dev", "risky"),
     ("syft attest --key cosign.key dir:.", "risky"),             # signs and publishes
     ("syft login ghcr.io", "risky"),
+    ("syft dir:. -o cyclonedx-json=artifacts/capacity/phase0-sbom.cdx.json", "build"),  # the short form
+    ("syft ./apps/web", "build"),
+    ("syft registry:ghcr.io/example/app", "risky"),
 ])
 def test_syft_is_a_known_build_tool(command, expected):
     from app.core.workspaces.fs_inspector import classify_command
@@ -151,3 +154,10 @@ def test_jais_image_installs_a_pinned_checked_syft():
     dockerfile = repo_path("apps", "backend", "Dockerfile").read_text()
     assert "ARG SYFT_VERSION=1.55.0" in dockerfile
     assert 'grep " syft_${SYFT_VERSION}_linux_amd64.tar.gz$" "syft_${SYFT_VERSION}_checksums.txt" | sha256sum -c -' in dockerfile
+
+
+def test_an_approved_command_and_a_syft_scan_get_the_long_limit():
+    long, short = settings.AGENT_LONG_COMMAND_TIMEOUT_SECONDS, settings.AGENT_COMMAND_TIMEOUT_SECONDS
+    assert command_timeout("syft dir:. -o cyclonedx-json=sbom.json") == long
+    assert command_timeout("some-unknown-tool --check", "risky") == short
+    assert command_timeout("some-unknown-tool --check", "risky", approved=True) == long  # Richard approved it to run

@@ -507,6 +507,7 @@ _HELM_RE = re.compile(r"^helm (lint|template|version|show|dependency (?:build|up
 # container engine reaches outside the workspace, and attesting signs and publishes: Richard decides those.
 _SYFT_RE = re.compile(r"^syft (version|scan|packages|convert|cataloger list)(?: |$)")
 _SYFT_REMOTE = ("registry:", "docker:", "podman:", "containerd:", "oci-registry:", "singularity:")
+_SYFT_SOURCE = re.compile(r"^(?:dir:|file:|\.$|\./|[a-z0-9_][a-z0-9_.-]*/)")  # path-like, never a subcommand
 
 # Trusted project package-manager install commands (project-local). Allowed to
 # run automatically INSIDE an approved workspace (PackageInstallPolicy:
@@ -731,6 +732,9 @@ def classify_command(command: str) -> str:
         if syft.group(1) == "version":
             return "safe"
         return "risky" if any(a.startswith(_SYFT_REMOTE) for a in words[2:]) else "build"
+    # Syft's short form names the source straight away ("syft dir:. -o ...", "syft ./apps"): the same scan.
+    if words[0] == "syft" and len(words) > 1 and _SYFT_SOURCE.match(words[1]):
+        return "risky" if any(a.startswith(_SYFT_REMOTE) for a in words[1:]) else "build"
     task = _TASK_RE.match(c)
     if task and not _RELEASE_SCRIPT_RE.match(f"npm run {task.group(1)}"):
         return "build"

@@ -13737,3 +13737,16 @@ TESTS RUN: full backend suite, with new tests for how Syft commands are classifi
 RESULT: The MYCO verification mission (96a4fd75) needs SBOM evidence for MYCO_V3_SPEC.md §46, and Syft was not installed where missions run, so "syft version" paused for approval and then failed (exit 127). Syft 1.55.0 (released 19 October 2026) is now installed in JAI's image from Anchore's official GitHub release, checked against the release's published checksums before installing, as Task, Terraform and Helm already are. In the command policy "syft version" is safe; cataloguing the workspace (syft scan, syft packages, syft convert) is build work inside an approved workspace, with no approval needed; scanning a registry or container-engine image, attesting and logging in stay with Richard.
 BLOCKERS: None
 NEXT TASK: Resume the MYCO verification mission (after closing the stray mission 44188d31 that blocked it), then review its report for the v3.2-phase-00-truth-baseline tag
+
+---
+
+TASK ID: APPROVED-COMMANDS-RUN-TO-THE-END
+TASK NAME: An approved command gets the long time limit; Syft's short form is a known scan
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/tool_runtime.py, apps/backend/app/core/workspaces/fs_inspector.py, apps/backend/tests/test_missions_finish_properly.py
+COMMANDS RUN: backend test suite (pgvector test database); dashboard type check and jest; docker compose up -d --build migrate backend worker scheduler dashboard
+TESTS RUN: full backend suite, with new cases for Syft's short form and the time limit of approved commands and scans
+RESULT: The verification mission asked to run "syft dir:. -o cyclonedx-json=artifacts/capacity/phase0-sbom.cdx.json" (Syft's short form, without "scan"), which the command policy did not recognise, so it paused for approval. Richard approved it, the approval ran it at once in MYCO's folder, and it was stopped at the 120-second limit, because neither an approved command nor Syft was on the long-limit list. An approved command now runs under the long limit (15 minutes: Richard approved it to run, not to be stopped at two minutes), Syft is on the long-running list, and the short form naming a path ("syft dir:.", "syft ./apps") is classified as the same build-work scan as "syft scan", so it no longer needs approval; registry and container-engine sources, attest and login still go to Richard.
+BLOCKERS: None
+NEXT TASK: Let the verification mission produce the SBOM and finish; review its report for the v3.2-phase-00-truth-baseline tag

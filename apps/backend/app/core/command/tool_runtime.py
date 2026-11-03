@@ -74,15 +74,16 @@ _TOOL_AUTHORITY = {
 # Programs whose runs take minutes: test runners, builds, installs, infrastructure checks and task runners.
 _LONG_RUNNING = frozenset({"task", "make", "just", "pnpm", "npm", "npx", "yarn", "uv", "uvx", "pip", "poetry",
                            "pytest", "vitest", "jest", "tsc", "terraform", "helm", "docker", "cargo", "go",
-                           "gradle", "mvn", "dotnet", "turbo", "nx"})
+                           "gradle", "mvn", "dotnet", "turbo", "nx", "syft"})
 
 
-def command_timeout(command: str, classification: Optional[str] = None) -> int:
-    """How long a command may run: the long limit for builds, tests, installs and task runners, else the short."""
+def command_timeout(command: str, classification: Optional[str] = None, approved: bool = False) -> int:
+    """How long a command may run: the long limit for builds, tests, installs, task runners, SBOM scans and any
+    command Richard approved (he approved it to run, not to be stopped after two minutes), else the short."""
     first = (command or "").strip().split(" ", 1)[0].replace("\\", "/").rsplit("/", 1)[-1].lower()
     for suffix in (".exe", ".cmd"):
         first = first[:-len(suffix)] if first.endswith(suffix) else first
-    if classification in ("build", "install") or first in _LONG_RUNNING:
+    if approved or classification in ("build", "install") or first in _LONG_RUNNING:
         return int(settings.AGENT_LONG_COMMAND_TIMEOUT_SECONDS)
     return int(settings.AGENT_COMMAND_TIMEOUT_SECONDS)
 
@@ -558,7 +559,7 @@ class ToolRuntime:
         """
         cls = fs_inspector.classify_command(command)
         if timeout is None:
-            timeout = command_timeout(command, cls)
+            timeout = command_timeout(command, cls, approved=approval_granted)
         cwd = None
         if cwd_host:
             chk = fs_inspector.path_exists(cwd_host)
