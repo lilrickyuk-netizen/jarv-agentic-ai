@@ -13551,3 +13551,21 @@ TESTS RUN: Owner run by install-upgrade-3.sh: full backend suite with the migrat
 RESULT: Committed by the owner's script only after the tests pass; the graph is then backfilled for every workspace.
 BLOCKERS: None.
 NEXT TASK: Upgrade 4 (Synthesizer); Upgrade 5 with spoken updates and confidence and risk in reports (Richard, 2 Nov 2026: not named protocols); then the rename to JAI.
+
+TASK ID: UPGRADE-4
+TASK NAME: Synthesizer: mission reports built from numbered evidence
+STATUS: COMPLETE
+PROBLEM: The Phase 0 report said "Confirmed Node 24.21.0 settings, authority references" with no way to check each claim; uncited and false claims reached Richard.
+FILES CREATED:
+- apps/backend/app/core/synthesis/__init__.py, report.py (evidence ledger E1, E2, ... over the mission's and the independent check's tool results: who, tool, file or command, success, exit code; the report draft through a fixed-shape tool at the Verifier's effort; the rules in code: unknown ids dropped, "done" only with cited evidence that succeeded, uncited statements removed and shown as "not shown", a requirement the check found unmet never "done", every hard-check failure listed, an "all done" overall line replaced when untrue; render: requirement table, each cited id spelled out, hard checks still failing, waiting on Richard; without a usable draft the report is built from the requirements' and the check's evidence)
+- apps/backend/tests/test_upgrade4_synthesizer.py
+FILES MODIFIED:
+- apps/backend/app/core/command/agent_executor.py (a mission with a requirement list answers with the cited report; the agent's own summary is kept as agent_summary; the structured report is returned for storage; the independent check returns its tool results for the ledger)
+- apps/backend/app/core/command/service.py, continuation.py (report and agent_summary stored with the mission's result and carried across rounds)
+- apps/backend/app/core/voice/live.py (get_mission gives Talk with JARV the report's overall line, each requirement's status, the hard checks failing and what waits on Richard)
+DECISIONS: The ledger records path and command, not each file's SHA-256 (the graph from Upgrade 3 already holds the hashes of written files). ask_jarv and swarm runs keep their present answers for now; a swarm mission's sub-agent work is recorded through the same ToolRuntime and so already reaches the ledger.
+COMMANDS RUN: The pure Synthesizer tests locally (5 passed).
+TESTS RUN: Owner run by install-upgrade-4.sh: full backend suite on PostgreSQL.
+RESULT: Committed by the owner's script only after the tests pass.
+BLOCKERS: None.
+NEXT TASK: Upgrade 5 (measured routing, prompt caching, proactive context, spoken updates, confidence and risk in reports), then the rename to JAI.
