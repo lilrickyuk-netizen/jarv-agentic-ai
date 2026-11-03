@@ -278,3 +278,52 @@ def test_talk_with_jai_answers_from_the_brain_with_the_live_picture(monkeypatch)
     assert "minutes_since_last_step" in now["progress"] and facts["status"].startswith("Status:")
     assert "knowledge" in facts and seen["effort"] == "low"
     assert "speak as JAI, in the first person" in seen["system"] and "never repeat" in seen["system"]
+
+
+
+def test_jai_puts_a_mission_spend_and_approvals_on_screen_from_its_own_records(monkeypatch):
+    """Wave 2a: show_on_screen builds the card from JAI's records (the live progress, today's spend, approvals), so
+    the screen shows the facts themselves."""
+    from app.core import spend
+    from app.core.command import progress
+
+    monkeypatch.setattr(settings_module().settings, "DAILY_SPEND_LIMIT_USD", 10.0)
+
+    async def run():
+        async with AsyncTestingSessionLocal() as db:
+            owner, ws_id = await _seed(db)
+            task = Task(id=uuid4(), workspace_id=ws_id, title="Verify that MYCO Phase 0 conforms", task_type="command",
+                        status=lifecycle.RUNNING, priority=5, meta_data={}, result={})
+            db.add(task)
+            await db.commit()
+            await progress.save(task.id, progress.snapshot(CALLS, REQS, round_no=4, step=25, step_budget=40,
+                                                           phase="independent check",
+                                                           check=progress.check_state([], 7, 35)))
+            await (await spend._redis()).delete(spend.key())
+            await spend.record("voice", 1.25)
+            mission = await live.run_tool(db, owner, "show_on_screen", {"what": "mission"})
+            money = await live.run_tool(db, owner, "show_on_screen", {"what": "spend"})
+            waiting = await live.run_tool(db, owner, "show_on_screen", {"what": "approvals"})
+            nothing = await live.run_tool(db, owner, "show_on_screen", {"what": "weather"})
+            no_file = await live.run_tool(db, owner, "show_on_screen", {"what": "file", "workspace": "MYCO",
+                                                                         "path": "README.md"})
+            return mission, money, waiting, nothing, no_file
+
+    mission, money, waiting, nothing, no_file = asyncio.run(run())
+    card = mission["card"]
+    assert card["title"] == "Verify that MYCO Phase 0 conforms" and "check step 7 of 35" in card["subtitle"]
+    reqs = next(s for s in card["sections"] if s["heading"].startswith("Requirements"))
+    assert reqs["heading"] == "Requirements (1 of 3 done)" and ["R1", "done", "Python pinned to 3.14.7"] in reqs["rows"]
+    assert any(s["heading"].startswith("Files changed") and ".python-version" in s["items"] for s in card["sections"])
+    assert any(s["heading"] == "Recent failures" for s in card["sections"])
+    assert ["Live voice", "$1.25"] in money["card"]["sections"][0]["rows"]
+    assert ["Daily limit", "$10.00"] in money["card"]["sections"][0]["rows"]
+    assert waiting["card"]["link"] == "/dashboard/approvals"
+    assert "error" in nothing and "error" in no_file  # MYCO here has no folder registered
+    assert "say one sentence" in mission["note"]
+
+
+def settings_module():
+    import app.core.config as config
+
+    return config

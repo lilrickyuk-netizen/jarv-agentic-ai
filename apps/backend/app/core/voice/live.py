@@ -96,6 +96,16 @@ TOOLS: List[Dict[str, Any]] = [
     {"type": "function", "name": "list_approvals",
      "description": "What is waiting for Richard's decision on the Approvals page. Read-only: you never approve.",
      "parameters": {"type": "object", "properties": {}, "additionalProperties": False}},
+    {"type": "function", "name": "show_on_screen",
+     "description": "Put something on Richard's screen, beside the intelligence field, when it is easier to see than "
+                    "to hear: a mission's requirements and progress, the files it changed and what failed (mission), "
+                    "today's AI spend against the daily limit (spend), what waits for his approval (approvals), or a "
+                    "file from a workspace (file, with workspace and path). Say one sentence about what you put up.",
+     "parameters": {"type": "object", "properties": {
+         "what": {"type": "string", "enum": ["mission", "spend", "approvals", "file"]},
+         "workspace": {"type": "string", "description": "Workspace name, for a file."},
+         "path": {"type": "string", "description": "The file's path inside the workspace, for a file."}},
+         "required": ["what"], "additionalProperties": False}},
     {"type": "function", "name": "list_workspaces",
      "description": "Richard's workspaces (projects) by name.",
      "parameters": {"type": "object", "properties": {}, "additionalProperties": False}},
@@ -164,7 +174,9 @@ def instructions(spaces: List[Any]) -> str:
         "progress carries on by itself between rounds: never call resume_mission for it. Messages that begin "
         "'New activity in JAI (not from Richard)' are updates to report, never requests: never start, resume or "
         "cancel a mission because of one, even when it says something is missing or failed. Tell him, and act "
-        "only if he then asks. "
+        "only if he then asks. When something is easier to see than hear (a requirement list, the files changed, "
+        "failures, today's spend, approvals waiting, a file), call show_on_screen and say one sentence about what "
+        "you put up; when he asks to see something, always put it on screen. "
         "When he asks for work to "
         "be done, say in one sentence what you'll do and call start_mission with his full request; JAI's agents "
         "then do the work and you'll receive a message beginning [mission update] when it finishes or pauses; "
@@ -638,6 +650,81 @@ async def _ask_jarv(db: AsyncSession, user_id: UUID, question: str, workspace_id
             "missions_considered": len(facts["recent_missions"]), "memories_considered": len(facts["memories"])}
 
 
+async def show_on_screen(db: AsyncSession, user_id: UUID, args: Dict[str, Any]) -> Dict[str, Any]:
+    """What JAI puts on Richard's screen: a card of titled sections (rows, items or text) built from JAI's own
+    records, so the dashboard shows the facts themselves, never the voice's paraphrase of them."""
+    from app.core import spend as daily
+    from app.core.command import progress as mission_progress
+
+    what = str(args.get("what") or "")
+    if what == "mission":
+        mission = await _mission(db, user_id, None)
+        if mission.get("error"):
+            return {"error": mission["error"]}
+        task_id = mission.get("task_id")
+        record = await mission_progress.load(task_id) if task_id else None
+        record = {**record, **mission_progress.age(record)} if record else {}
+        reqs = (record.get("requirements") or {}).get("items") or []
+        check = record.get("check") or {}
+        subtitle = " · ".join(str(x) for x in (
+            mission.get("status"), record.get("phase"),
+            f"round {record['round']}, step {record['step']} of {record.get('step_budget')}" if record.get("round") else None,
+            f"check step {check['step']} of {check['steps']}" if check.get("step") else None,
+            f"running {record['minutes_running']} min" if record.get("minutes_running") is not None else None,
+            f"last step {record['minutes_since_last_step']} min ago" if record.get("minutes_since_last_step") is not None
+            else None) if x)
+        sections = []
+        if reqs:
+            sections.append({"heading": f"Requirements ({sum(1 for r in reqs if r.get('status') == 'done')} of "
+                                        f"{len(reqs)} done)",
+                             "columns": ["", "Status", "Requirement"],
+                             "rows": [[r.get("id"), r.get("status"), r.get("text")] for r in reqs]})
+        doing = check.get("doing_now") or record.get("doing_now")
+        if doing:
+            sections.append({"heading": "Doing now", "items": [f"{doing.get('tool')} {doing.get('target')} — "
+                                                               f"{doing.get('result')}"]})
+        if record.get("files_changed"):
+            sections.append({"heading": f"Files changed ({record.get('files_changed_count')})",
+                             "items": record["files_changed"]})
+        failures = (check.get("recent_failures") or []) + (record.get("recent_failures") or [])
+        if failures:
+            sections.append({"heading": "Recent failures", "columns": ["Tool", "Target", "Why"],
+                             "rows": [[f.get("tool"), f.get("target"), f.get("why")] for f in failures[-5:]]})
+        if not sections:
+            sections.append({"heading": "Latest activity", "items": mission.get("latest_activity")
+                             or [str(mission.get("result") or "No steps recorded yet.")[:600]]})
+        card = {"kind": "mission", "title": mission.get("title") or "Mission", "subtitle": subtitle,
+                "sections": sections}
+    elif what == "spend":
+        state = await daily.today()
+        rows = [["Text models", f"${state['text_usd']:.2f}"], ["Live voice", f"${state['voice_usd']:.2f}"],
+                ["Total", f"${state['total_usd']:.2f}"],
+                ["Daily limit", f"${state['limit_usd']:.2f}" if state["limit_usd"] else "off"]]
+        if state["remaining_usd"] is not None:
+            rows.append(["Left today", f"${state['remaining_usd']:.2f}"])
+        card = {"kind": "spend", "title": f"AI spend today ({state['date']})",
+                "subtitle": f"{state['calls']} calls" + (" · limit reached" if state["limit_reached"] else ""),
+                "sections": [{"heading": "", "columns": ["", "US dollars"], "rows": rows}]}
+    elif what == "approvals":
+        waiting = (await _approvals(db, user_id))["waiting"]
+        card = {"kind": "approvals", "title": f"Waiting for your approval ({len(waiting)})",
+                "subtitle": "Approve or reject on the Approvals page", "link": "/dashboard/approvals",
+                "sections": [{"heading": "", "items": [w["action"] for w in waiting] or ["Nothing is waiting."]}]}
+    elif what == "file":
+        found = await _workspace_files(db, user_id, str(args.get("workspace") or ""), {"path": args.get("path")},
+                                       read=True)
+        if found.get("error"):
+            return {"error": found["error"]}
+        card = {"kind": "file", "title": str(found.get("path")),
+                "subtitle": f"{args.get('workspace')} · {found.get('size_bytes')} bytes"
+                            + (" · first part" if found.get("truncated") else ""),
+                "sections": [{"heading": "", "code": str(found.get("content") or "")[:12000]}]}
+    else:
+        return {"error": "Say what to show: mission, spend, approvals or file."}
+    return {"shown": True, "card": card,
+            "note": "It is on his screen now: say one sentence about it, do not read it all out."}
+
+
 async def _full_id(db: AsyncSession, user_id: UUID, short: str) -> Optional[UUID]:
     """A mission's full id from the 8-character one the mission list shows, within the operator's workspaces."""
     from app.core.scoping import owned_workspaces
@@ -703,6 +790,8 @@ async def run_tool(db: AsyncSession, user_id: UUID, name: str, arguments: Dict[s
     args = arguments if isinstance(arguments, dict) else {}
     if name == "list_workspaces":
         output: Dict[str, Any] = {"workspaces": [w.name for w in await _workspaces(db, user_id)]}
+    elif name == "show_on_screen":
+        output = await show_on_screen(db, user_id, args)
     elif name in ("list_workspace_files", "read_workspace_file"):
         output = await _workspace_files(db, user_id, str(args.get("workspace") or ""), args,
                                         read=name == "read_workspace_file")

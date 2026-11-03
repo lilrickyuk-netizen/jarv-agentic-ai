@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { apiClient } from '@/lib/api';
 import type { MissionReport } from '@/components/voice-operator';
 import { setVoiceStream } from '@/lib/voice-signal';
+import { showCard, type ScreenCard } from '@/lib/screen-signal';
 
 type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking';
 type Phase = 'off' | 'connecting' | 'live';
@@ -45,6 +46,8 @@ const ACTION_LABELS: Record<string, string> = {
   cancel_mission: 'Cancelled a mission',
   resume_mission: 'Carried on with a mission',
   list_workspaces: 'Listed workspaces',
+  show_on_screen: 'Put it on screen',
+  ask_jarv: 'Asked JAI',
 };
 
 /**
@@ -202,6 +205,7 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
       : await apiClient.post<Record<string, unknown>>('/api/voice/live/tool', { name, arguments: args });
     const output: Record<string, unknown> = response.error || !response.data
       ? { error: response.error || 'The action failed.' } : response.data;
+    if (name === 'show_on_screen' && output.card) showCard(output.card as ScreenCard);
     add({ who: 'action', text: 'error' in output ? `${ACTION_LABELS[name] ?? name}: ${String(output.error)}`
       : ACTION_LABELS[name] ?? name });
     send({ type: 'conversation.item.create', item: { type: 'function_call_output', call_id: event.call_id,

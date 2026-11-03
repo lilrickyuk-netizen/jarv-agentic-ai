@@ -7,6 +7,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { VoiceConversation } from '@/components/voice-conversation';
+import { getCard, showCard } from '@/lib/screen-signal';
 
 const mockPosts: { path: string; body: unknown }[] = [];
 const mockFeed: { id: string; title: string; message: string; severity: string; requires_action?: boolean; created_at: string }[] = [];
@@ -31,6 +32,10 @@ jest.mock('@/lib/api', () => ({
         return { status: 200, data: tokens > 1000000
           ? { stop: true, reason: "Today's AI spending limit is reached ($10.00 of $10.00); the conversation has ended." }
           : { stop: false } };
+      }
+      if (path === '/api/voice/live/tool' && (body as { name?: string })?.name === 'show_on_screen') {
+        return { status: 200, data: { shown: true, card: { kind: 'spend', title: 'AI spend today (2026-11-03)',
+          sections: [{ heading: '', columns: ['', 'US dollars'], rows: [['Total', '$1.20']] }] } } };
       }
       if (path === '/api/voice/live/tool') {
         return { status: 200, data: { intent: 'mission', task_id: 'task-7', reply: 'On it.' } };
@@ -203,6 +208,22 @@ describe('VoiceConversation', () => {
     await act(async () => channel.emit({ type: 'response.done', response: { usage: { total_tokens: 2000000 } } }));
     expect(await screen.findByText(/spending limit is reached/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Talk with JAI' })).toBeInTheDocument();  // the conversation ended
+  });
+
+  it('puts what JAI shows on screen', async () => {
+    showCard(null);
+    render(<VoiceConversation ready beforeStart={async () => undefined} onMission={async () => null} onStateChange={jest.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Talk with JAI' }));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    act(() => channel.open());
+    expect(await screen.findByText('IN CONVERSATION — JUST TALK')).toBeInTheDocument();
+    act(() => channel.emit({ type: 'input_audio_buffer.speech_started' }));
+    await act(async () => channel.emit({ type: 'response.function_call_arguments.done', name: 'show_on_screen',
+      call_id: 's1', arguments: JSON.stringify({ what: 'spend' }) }));
+    await waitFor(() => expect(getCard()?.title).toBe('AI spend today (2026-11-03)'));
+    expect(screen.getByText('Put it on screen')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'End conversation' }));
+    showCard(null);
   });
 
   it('says what to set up when live conversation is unavailable', () => {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CockpitCore } from '@/components/cockpit-core';
 import { JarvMark } from '@/components/jarv-mark';
+import { JaiDisplay } from '@/components/jai-display';
 import { apiClient, HealthResponse } from '@/lib/api';
 import { followMission, runMission } from '@/lib/missions';
 import { VOICE_SLOT_ID } from '@/components/persistent-voice';
@@ -260,6 +261,7 @@ export default function CommandCenterPage() {
               <div className="panel-heading"><div><p className="eyebrow">JAI CORE</p><h2>Intelligence field</h2></div><span className="panel-index">CORE / 01</span></div>
               <div className="core-visual"><CockpitCore state={state} /></div><div className="core-readout"><span>OPERATIONAL STATE</span><strong>{state.toUpperCase()}</strong><small>{activeTasks.length ? `${activeTasks.length} active task${activeTasks.length === 1 ? '' : 's'}` : 'No active tasks'}</small></div>
               <div className="core-legend"><span><i className="legend-dot cyan" />LIVE SIGNAL</span><span><i className="legend-dot silver" />SYSTEM STATUS</span><span>{loading ? 'SYNCING' : 'SYNC · 15 SEC'}</span></div>
+              <JaiDisplay />
             </article>
 
             <article className="cockpit-panel mission-panel">
