@@ -233,3 +233,48 @@ def test_jai_never_repeats_itself_and_reasons_about_time():
     text = live.instructions([])
     assert "Never repeat what you have already told him" in text and "I'll keep an eye on it" in text
     assert "call ask_jarv" in text and "how long ago the last step was" in text
+
+
+def test_talk_with_jai_answers_from_the_brain_with_the_live_picture(monkeypatch):
+    """Every question about JAI's work goes to the reasoning core, which sees each running mission's full progress,
+    the status line, the knowledge library and the conversation so far; the voice no longer reads raw records."""
+    import json as _json
+
+    from app.core.command import progress
+    from app.core.providers import CompletionResponse
+
+    assert {t["name"] for t in live.VOICE_TOOLS} & live.BRAIN_ONLY == set()
+    assert "ask_jarv" in {t["name"] for t in live.VOICE_TOOLS}
+    text = live.instructions([])
+    assert "call ask_jarv with his question" in text and "adding nothing it does not say" in text
+    seen = {}
+
+    class Router:
+        async def complete(self, request):
+            seen["system"], seen["content"] = request.system, request.messages[0].content
+            seen["effort"] = request.reasoning_effort
+            return CompletionResponse(id="r", model="test", usage={"total_tokens": 1}, tool_calls=[],
+                                      content="I'm on step 7 of 35 of the independent check, running task verify.")
+
+    monkeypatch.setattr("app.core.providers.get_router", lambda: Router())
+
+    async def run():
+        async with AsyncTestingSessionLocal() as db:
+            owner, ws_id = await _seed(db)
+            task = Task(id=uuid4(), workspace_id=ws_id, title="Verify that MYCO Phase 0 conforms", task_type="command",
+                        status=lifecycle.RUNNING, priority=5, meta_data={}, result={})
+            db.add(task)
+            await db.commit()
+            record = progress.snapshot(CALLS, REQS, round_no=4, step=25, step_budget=40, phase="independent check",
+                                       check=progress.check_state([], 7, 35))
+            await progress.save(task.id, record)
+            return await live.run_tool(db, owner, "ask_jarv", {"question": "Why is it taking so long?"})
+
+    answer = asyncio.run(run())
+    assert answer["answer"].startswith("I'm on step 7")
+    facts = _json.loads(seen["content"].split("Facts:\n", 1)[1])
+    now = facts["working_now"][0]
+    assert now["title"].startswith("Verify that MYCO") and now["progress"]["check"]["steps"] == 35
+    assert "minutes_since_last_step" in now["progress"] and facts["status"].startswith("Status:")
+    assert "knowledge" in facts and seen["effort"] == "medium"
+    assert "speak as JAI, in the first person" in seen["system"] and "never repeat" in seen["system"]

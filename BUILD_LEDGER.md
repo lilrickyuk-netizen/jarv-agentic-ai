@@ -13750,3 +13750,16 @@ TESTS RUN: full backend suite, with new cases for Syft's short form and the time
 RESULT: The verification mission asked to run "syft dir:. -o cyclonedx-json=artifacts/capacity/phase0-sbom.cdx.json" (Syft's short form, without "scan"), which the command policy did not recognise, so it paused for approval. Richard approved it, the approval ran it at once in MYCO's folder, and it was stopped at the 120-second limit, because neither an approved command nor Syft was on the long-limit list. An approved command now runs under the long limit (15 minutes: Richard approved it to run, not to be stopped at two minutes), Syft is on the long-running list, and the short form naming a path ("syft dir:.", "syft ./apps") is classified as the same build-work scan as "syft scan", so it no longer needs approval; registry and container-engine sources, attest and login still go to Richard.
 BLOCKERS: None
 NEXT TASK: Let the verification mission produce the SBOM and finish; review its report for the v3.2-phase-00-truth-baseline tag
+
+---
+
+TASK ID: TALK-WITH-JAI-BRAIN
+TASK NAME: Talk with JAI answers from JAI's brain, not the voice model's guesses
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/voice/live.py, apps/backend/tests/test_voice_live_and_mission_session.py, apps/backend/tests/test_jai_knows_what_is_running.py
+COMMANDS RUN: backend test suite (pgvector test database); dashboard type check and jest; docker compose up -d --build --no-deps backend dashboard
+TESTS RUN: full backend suite, with a new test that a work question reaches the reasoning core with every running mission's full progress, the status line and the knowledge library, and that the voice is given no raw status, mission, memory or approval tools
+RESULT: The live voice model answered status questions itself from raw records and, when unsure, improvised: it said a running mission was "flagged as paused" and told Richard to re-approve a command that had run. Now every question about JAI's work or his projects (missions, status, progress, approvals, requirements, files, decisions, failures, why, how long, what next) goes to ask_jarv, JAI's reasoning core (medium reasoning effort), and the voice says its answer faithfully, adding nothing. The voice is no longer given get_status, get_mission, search_memory or list_approvals; it keeps the actions (start, resume and cancel a mission, read workspace files, list workspaces, trace a file or requirement). The reasoning core now sees every running mission's full live progress (each requirement, files changed, failures, the independent check's step) with how old it is, the status line, the waiting approvals, JAI's memory, verified lessons, relevant passages from the knowledge library and the workspace's specification, and the recent conversation; it answers in the first person as JAI, specific and explaining why, without filler, promises or repeats. Optional lookups run in savepoints, so a failed one never spoils the answer.
+BLOCKERS: None
+NEXT TASK: Review the MYCO verification mission's report for the v3.2-phase-00-truth-baseline tag
