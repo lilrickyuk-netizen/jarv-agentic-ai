@@ -109,6 +109,18 @@ def test_progress_says_exactly_where_a_mission_is():
     assert p["doing_now"]["target"] == ".python-version" and p["tokens"]["cost_usd"] == 0.0123
 
 
+def test_progress_names_files_as_the_workspace_sees_them():
+    from app.core.command.progress import snapshot
+
+    calls = [{"tool": "write_file", "inputs": {"path": "C:\\Users\\lilri\\MYCO\\apps\\web\\package.json"},
+              "success": True, "summary": "wrote"},
+             {"tool": "write_file", "inputs": {"path": "/test_workspaces/myco/./.python-version"}, "success": True,
+              "summary": "wrote"}]
+    first = snapshot(calls[:1], [], round_no=1, step=1, step_budget=8, phase="working", root="C:\\Users\\lilri\\MYCO")
+    second = snapshot(calls[1:], [], round_no=1, step=1, step_budget=8, phase="working", root="/test_workspaces/myco")
+    assert first["files_changed"] == ["apps/web/package.json"] and second["files_changed"] == [".python-version"]
+
+
 def test_a_running_mission_keeps_its_progress_after_every_step(monkeypatch):
     import shutil
 

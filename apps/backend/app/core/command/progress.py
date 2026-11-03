@@ -26,11 +26,23 @@ def key(task_id: Any) -> str:
     return f"mission:progress:{task_id}"
 
 
-def _target(call: Dict[str, Any]) -> str:
+def _relative(path: str, root: Optional[str]) -> str:
+    """A path as the workspace sees it: relative to its folder, forward slashes (as the evidence graph keys it)."""
+    norm = str(path).replace("\\", "/").strip()
+    base = str(root or "").replace("\\", "/").rstrip("/")
+    if base and norm.lower().startswith(base.lower() + "/"):
+        norm = norm[len(base) + 1:]
+    while norm.startswith("./"):
+        norm = norm[2:]
+    return norm
+
+
+def _target(call: Dict[str, Any], root: Optional[str] = None) -> str:
     inputs = call.get("inputs") or {}
     for name in ("command", "path", "destination", "file_path", "url", "query", "id"):
         if inputs.get(name):
-            return str(inputs[name])[:160]
+            value = str(inputs[name])
+            return (value if name in ("command", "url", "query", "id") else _relative(value, root))[:160]
     return ""
 
 
@@ -41,17 +53,17 @@ def _exit_code(call: Dict[str, Any]) -> Optional[int]:
 
 def snapshot(calls: List[Dict[str, Any]], requirements: List[Dict[str, Any]], *, round_no: int, step: int,
              step_budget: int, phase: str, usage: Optional[Dict[str, Any]] = None,
-             started_at: Optional[str] = None) -> Dict[str, Any]:
+             started_at: Optional[str] = None, root: Optional[str] = None) -> Dict[str, Any]:
     """Where a mission is now, from its own tool calls and requirement list."""
     files: List[str] = []
     for call in calls:
         if call.get("tool") in EDITS and call.get("success"):
-            target = _target(call)
+            target = _target(call, root)
             if target and target not in files:
                 files.append(target)
     commands = [{"command": _target(c), "exit_code": _exit_code(c), "ok": bool(c.get("success"))}
                 for c in calls if c.get("tool") == "run_command"]
-    failures = [{"tool": c.get("tool"), "target": _target(c), "why": str(c.get("summary") or "")[:200]}
+    failures = [{"tool": c.get("tool"), "target": _target(c, root), "why": str(c.get("summary") or "")[:200]}
                 for c in calls if not c.get("success")]
     counts: Dict[str, int] = {}
     for req in requirements:
@@ -62,7 +74,7 @@ def snapshot(calls: List[Dict[str, Any]], requirements: List[Dict[str, Any]], *,
     return {
         "phase": phase, "round": round_no, "step": step, "step_budget": step_budget,
         "started_at": started_at, "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "doing_now": ({"tool": last.get("tool"), "target": _target(last), "ok": bool(last.get("success")),
+        "doing_now": ({"tool": last.get("tool"), "target": _target(last, root), "ok": bool(last.get("success")),
                        "result": str(last.get("summary") or "")[:200]} if last else None),
         "requirements": {"total": len(requirements), "by_status": counts,
                          "items": [{"id": r.get("id"), "text": str(r.get("text") or "")[:140],

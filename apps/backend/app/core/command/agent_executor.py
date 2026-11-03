@@ -322,7 +322,8 @@ class AgentExecutor:
             self._started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         await progress.save(self.runtime.task_id, progress.snapshot(
             self.runtime.calls, self.requirements, round_no=continuation + 1, step=self.iterations,
-            step_budget=budget, phase=phase, usage=self.usage.summary(), started_at=self._started_at))
+            step_budget=budget, phase=phase, usage=self.usage.summary(), started_at=self._started_at,
+            root=self.workspace_root))
 
     async def run(self, mission: str, steps_per_round: int = 8,
                   max_continuations: int = 4,
