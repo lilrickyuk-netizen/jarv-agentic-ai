@@ -218,9 +218,9 @@ def test_worker_image_carries_the_build_toolchain():
     assert "npm install -g" not in runtime  # each project's pnpm/yarn version comes from Corepack
     assert "COPY --from=uv /uv /uvx /usr/local/bin/" in runtime
     assert "uv python install 3.12 3.13 3.14" in runtime
-    for tool in ("TASK_VERSION=3.52.0", "TERRAFORM_VERSION=1.16.3", "HELM_VERSION=4.3.0"):
+    for tool in ("TASK_VERSION=3.52.0", "TERRAFORM_VERSION=1.16.3", "HELM_VERSION=4.3.0", "SYFT_VERSION=1.55.0"):
         assert f"ARG {tool}" in runtime
-    assert runtime.count("sha256sum -c") == 3  # every downloaded binary is checksum-verified
+    assert runtime.count("sha256sum -c") == 4  # every downloaded binary (Task, Terraform, Helm, Syft) is checksum-verified
     assert "build-essential" in runtime and "ripgrep" in runtime
     assert "PATH=/home/jarv/.local/bin:$PATH" in runtime
     assert "HOME=/home/jarv" in runtime and "GIT_AUTHOR_NAME=JAI" in runtime
