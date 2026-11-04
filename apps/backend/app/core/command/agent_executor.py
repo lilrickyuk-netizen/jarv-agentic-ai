@@ -434,6 +434,9 @@ class AgentExecutor:
             if starting:
                 known = (f"{known}\n\n" if known else "") + (
                     "STARTING CONTEXT (gathered before your first step, so you need not look for it):\n" + starting)
+            remembered = await self._remembered(mission)
+            if remembered:
+                known = (f"{known}\n\n" if known else "") + remembered
             reference = await self._reference_passages(mission)
             if reference:
                 known = (f"{known}\n\n" if known else "") + (
@@ -460,7 +463,10 @@ class AgentExecutor:
                "question that needs several sources, fetch_url to read a page, read_mission_report to read an "
                "earlier mission's whole report, code_overview, code_find_symbol, code_references, "
                "code_implementations and code_diagnostics to understand code as an IDE does (definitions, "
-               "callers, errors) before and after changing it, generate_image to make an image on "
+               "callers, errors) before and after changing it, read_document for PDFs, Word, PowerPoint and "
+               "Excel files, use_browser to click through a site like a visitor (follow its links, its sign-up "
+               "and waitlist flows), knowledge_graph_search and knowledge_graph_add for what JAI's work here has "
+               "established, recall_richard for what Richard has said he wants, generate_image to make an image on "
                "JAI's own GPU (saved in assets/images with its licence recorded), make_voiceover for narration in "
                "JAI's own voice, make_video for a short narrated, subtitled video, social_channels and "
                "social_draft to draft posts in Postiz for Richard to schedule (JAI never publishes), memory_search for what JAI already knows about this workspace, memory_add "
@@ -840,6 +846,31 @@ class AgentExecutor:
         except Exception as exc:  # noqa: BLE001 - reference material is an addition, never a reason to fail
             logger.warning(f"mission reference passages unavailable: {exc}")
             return ""
+
+    async def _remembered(self, mission: str) -> str:
+        """What Richard has told JAI and what JAI's work has established that bear on this mission (Wave 6: Mem0
+        and Graphiti); nothing when the knowledge service is off or slow."""
+        import asyncio
+
+        from app.core import knowledge_service as ks
+
+        if not ks.enabled():
+            return ""
+        workspace = getattr(self.runtime, "workspace_id", None)
+        told, known = await asyncio.gather(
+            ks.quietly(ks.recall(mission, 8, timeout=4.0), []),
+            ks.quietly(ks.search_graph(mission, [workspace], 10, timeout=4.0), []) if workspace
+            else asyncio.sleep(0, []))
+        parts = []
+        if told:
+            parts.append("WHAT RICHARD HAS TOLD JAI THAT BEARS ON THIS (his preferences and decisions; follow them "
+                         "unless the mission says otherwise):\n" + "\n".join(f"- {m['memory']}" for m in told))
+        if known:
+            parts.append("WHAT JAI'S EARLIER WORK HERE ESTABLISHED (its knowledge graph; check against the files "
+                         "before relying on it):\n" + "\n".join(
+                             f"- {f['fact']}" + (" (no longer true)" if f.get("no_longer_true") else "")
+                             for f in known))
+        return "\n\n".join(parts)
 
     async def verify(self, mission: str, summary: str) -> Dict[str, Any]:
         """Check the mission with a separate agent that did not do the work: fresh conversation, its own

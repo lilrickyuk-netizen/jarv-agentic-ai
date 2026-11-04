@@ -301,6 +301,22 @@ class Settings(BaseSettings):
     POSTIZ_API_KEY: Optional[str] = None
     # Wave 5, code understanding: Serena's language servers (the "code" profile), read-only. Empty turns it off.
     SERENA_URL: str = "http://serena:9121"
+    # Wave 6. JAI's model gateway: the services below call OpenAI only through it, with this token, inside the daily
+    # spending limit and only for these models. No token turns the gateway off.
+    JAI_GATEWAY_TOKEN: Optional[str] = None
+    GATEWAY_MODELS: str = "gpt-6-luna,text-embedding-3-small"
+    GATEWAY_UPSTREAM: str = "https://api.openai.com/v1"
+    # Docling (the "docs" profile) turns PDFs, Word, PowerPoint, Excel and scanned pages into text.
+    DOCLING_URL: str = "http://docling:5001"
+    # JAI's browser (the "browser" profile, browser-use with Chromium): agents open pages, click and type.
+    BROWSER_URL: str = "http://browser:8790"
+    BROWSER_TOKEN: Optional[str] = None
+    # JAI's knowledge service (the "knowledge" profile): Graphiti's knowledge graph and Mem0's memory of Richard.
+    KNOWLEDGE_URL: str = "http://knowledge:8791"
+    # promptfoo (the "evals" profile) checks JAI's prompts and every self-evolved agent instruction.
+    PROMPTFOO_URL: str = "http://promptfoo:8792"
+    PROMPTFOO_TOKEN: Optional[str] = None
+    KNOWLEDGE_TOKEN: Optional[str] = None
 
     # Voice
     VOICE_ENABLED: bool = False

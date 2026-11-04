@@ -80,6 +80,9 @@ WEB_TOOLS = ("web_search", "research_web", "fetch_url", "read_mission_report")
 TRACE_TOOL = "trace_artifact"
 # Wave 5: understanding code through Serena's language servers (read-only), offered in a folder when Serena runs.
 CODE_TOOLS = ("code_overview", "code_find_symbol", "code_references", "code_implementations", "code_diagnostics")
+# Wave 6, each offered to every agent while its service is turned on.
+SERVICE_TOOLS = {"read_document": "docs", "use_browser": "browser", "knowledge_graph_search": "knowledge",
+                 "knowledge_graph_add": "knowledge", "recall_richard": "knowledge", "run_prompt_checks": "evals"}
 
 # Registry categories that are reachable only through the confined workspace tools.
 _UNCONFINED_CATEGORIES = {"file", "command", "terminal", "process"}
@@ -90,6 +93,14 @@ _REGISTRY_DENY = {"git_push", "git_reset", "git_rebase", "git_clone", "git_merge
                   "git_checkout", "git_branch", "git_commit", "git_add",
                   "command_sudo", "process_kill", "file_delete", "file_permissions",
                   "workspace_delete", "resource_terminate"}
+
+
+def _service_on(name: str) -> bool:
+    from app.core.config import settings
+
+    setting = {"docs": "DOCLING_URL", "browser": "BROWSER_URL", "knowledge": "KNOWLEDGE_URL",
+               "evals": "PROMPTFOO_URL"}[SERVICE_TOOLS[name]]
+    return bool(str(getattr(settings, setting, "") or "").strip())
 
 
 def _code_available(root_container: Optional[Path]) -> bool:
@@ -216,6 +227,43 @@ WORKSPACE_TOOLS: Dict[str, ToolSpec] = {
                                       "media": {"type": "array", "items": {"type": "string"},
                                                 "description": "Paths in the workspace of images or videos"}},
                                      ["text"]), "workspace"),
+    "read_document": ToolSpec("read_document", "Read a PDF, Word, PowerPoint, Excel, HTML or scanned document as "
+                              "text with its headings and tables (Docling; scans are read with OCR): a file in "
+                              "the workspace (path) or a public address (url). Long documents come in parts: pass "
+                              "next_offset as offset for the next one.",
+                              _schema({"path": _PATH_PROP, "url": {"type": "string"},
+                                       "offset": {"type": "integer"}}), "workspace"),
+    "use_browser": ToolSpec("use_browser", "Use a real web browser, one action at a time, for pages that need "
+                            "clicking, typing or following links (sign-up and waitlist flows, menus, dashboards, "
+                            "pages built by scripts). open a url; the answer lists what is on the page with a "
+                            "number for each thing you can click, type into or choose. Then click (index), type "
+                            "(index, text), select (index, text), options (index), scroll (down true/false, pages), "
+                            "keys (e.g. Enter), back, find_text (text), switch_tab (tab_id), read, close. Public "
+                            "pages only, no sign-ins; it never types passwords, card or bank details.",
+                            _schema({"action": {"type": "string", "enum": ["open", "read", "click", "type", "select",
+                                                                           "options", "scroll", "keys", "back",
+                                                                           "find_text", "switch_tab", "wait", "close"]},
+                                     "url": {"type": "string"}, "index": {"type": "integer"},
+                                     "text": {"type": "string"}, "down": {"type": "boolean"},
+                                     "pages": {"type": "number"}, "keys": {"type": "string"},
+                                     "tab_id": {"type": "string"}}, ["action"]), "workspace"),
+    "knowledge_graph_search": ToolSpec("knowledge_graph_search", "Search what JAI's finished work in this workspace "
+                                       "has established, as facts with when they became true (and stopped being "
+                                       "true): decisions, choices, prices, who uses what.",
+                                       _schema({"query": {"type": "string"}}, ["query"]), "workspace"),
+    "knowledge_graph_add": ToolSpec("knowledge_graph_add", "Add something learned to this workspace's knowledge "
+                                    "graph (a decision, a finding, a changed fact), in a sentence or a short "
+                                    "paragraph with names and dates.",
+                                    _schema({"fact": {"type": "string"}, "title": {"type": "string"}}, ["fact"]),
+                                    "workspace"),
+    "recall_richard": ToolSpec("recall_richard", "What Richard has told JAI about himself, his projects and how he "
+                               "wants things done (his preferences and decisions), on a subject.",
+                               _schema({"query": {"type": "string"}}, ["query"]), "workspace"),
+    "run_prompt_checks": ToolSpec("run_prompt_checks", "Check JAI's prompts with promptfoo: suite voice checks the "
+                                  "voice's instructions; suite boundaries checks the given instructions never cross "
+                                  "Richard's hard boundaries. Costs about a cent; takes a minute or two.",
+                                  _schema({"suite": {"type": "string", "enum": ["voice", "boundaries"]},
+                                           "instructions": {"type": "string"}}, ["suite"]), "workspace"),
     "code_overview": ToolSpec("code_overview", "See the classes, functions and methods in a source file (from its "
                               "language server), to understand a file before reading or changing it.",
                               _schema({"path": _PATH_PROP}, ["path"]), "workspace"),
@@ -348,7 +396,8 @@ def _offset(value: Any) -> int:
 
 
 def result_limit(tool: str) -> int:
-    return READ_RESULT_CHARS if tool == "read_file" else _RESULT_CHARS
+    # A file or document part, and a browser page, are passed back whole.
+    return READ_RESULT_CHARS if tool in ("read_file", "read_document", "use_browser") else _RESULT_CHARS
 
 
 def _clip(value: Any, limit: int = _RESULT_CHARS) -> str:
@@ -422,6 +471,8 @@ class AgentToolbox:
             if name in WORKSPACE_TOOLS:
                 if name in CODE_TOOLS and not _code_available(self.root_container):
                     continue
+                if name in SERVICE_TOOLS and not _service_on(name):
+                    continue
                 if name in _FILESYSTEM_TOOLS and self.root_container is None:
                     continue  # no registered folder: no filesystem access at all
                 specs[name] = WORKSPACE_TOOLS[name]
@@ -451,6 +502,11 @@ class AgentToolbox:
         if _code_available(self.root_container):
             for code in CODE_TOOLS:
                 specs.setdefault(code, WORKSPACE_TOOLS[code])
+        # Every agent can read documents, use the browser, consult the knowledge graph and Richard's memory, and
+        # check prompts, while those services run (Wave 6).
+        for name in SERVICE_TOOLS:
+            if _service_on(name):
+                specs.setdefault(name, WORKSPACE_TOOLS[name])
         # Every agent can search and research the web and read public pages (read-only, Wave 3).
         for web in WEB_TOOLS:
             specs.setdefault(web, WORKSPACE_TOOLS[web])
@@ -589,6 +645,21 @@ class AgentToolbox:
             return await rt.social_channels()
         if name in CODE_TOOLS:
             return await self._code_call(name, args)
+        if name == "read_document":
+            if str(args.get("path") or "").strip():
+                host, refusal = self._resolve_host(args.get("path"))
+                if refusal:
+                    return {"success": False, "blocked": True, "reason": refusal}
+                return await rt.read_document(host_path=host, offset=_offset(args.get("offset")))
+            if not str(args.get("url") or "").strip():
+                return {"success": False, "error": "read_document needs a path in the workspace or a url."}
+            return await rt.read_document(url=str(args["url"]), offset=_offset(args.get("offset")))
+        if name == "use_browser":
+            return await rt.use_browser(str(args.get("action") or ""), args)
+        if name in ("knowledge_graph_search", "knowledge_graph_add", "recall_richard"):
+            return await rt.knowledge(name, args)
+        if name == "run_prompt_checks":
+            return await rt.prompt_checks(str(args.get("suite") or ""), args.get("instructions"))
         if name in _FILESYSTEM_TOOLS:
             key = "cwd" if name == "run_command" else "path"
             host, refusal = self._resolve_host(args.get(key))

@@ -200,6 +200,12 @@ from app.api.v1 import voice
 app.include_router(voice.router, prefix="/api")
 app.include_router(voice.image_router, prefix="/api")
 
+# JAI's model gateway for the services it runs (Wave 6): token-authorised, inside the daily spending limit
+from app.api.v1 import gateway as gateway_api
+app.include_router(gateway_api.router, prefix="/api")
+from app.api.v1 import knowledge as knowledge_api
+app.include_router(knowledge_api.router, prefix="/api")
+
 from app.api.v1 import voicebox
 app.include_router(voicebox.router, prefix="/api")
 

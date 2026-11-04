@@ -19,7 +19,9 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+import urllib.parse
+from pathlib import Path
 from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -70,6 +72,8 @@ _TOOL_AUTHORITY = {
     "social_draft": 2,
     "code_overview": 1, "code_find_symbol": 1, "code_references": 1, "code_implementations": 1,
     "code_diagnostics": 1,
+    "read_document": 1, "use_browser": 2, "knowledge_graph_search": 1, "knowledge_graph_add": 1,
+    "recall_richard": 1, "run_prompt_checks": 2,
     "check_package_registry": 1,
     "check_cve": 1,
     "asset_licence_check": 1,
@@ -768,6 +772,147 @@ class ToolRuntime:
         for source in res.get("sources") or []:
             await self._source_record(source["url"], source.get("title", ""), "web_research", question[:200])
         return {**res, "success": ok}
+
+    async def read_document(self, host_path: Optional[str] = None, url: Optional[str] = None,
+                            offset: int = 0) -> Dict[str, Any]:
+        """A PDF, Word, PowerPoint, Excel, HTML or scanned document, from the workspace or a public address, as
+        Markdown (Docling), in parts of 16,000 characters (next_offset says where the next part starts)."""
+        from app.core import documents
+
+        source = host_path or url or ""
+        denied = await self._enforce("read_document", path=host_path, content=source)
+        if denied:
+            return denied
+        try:
+            if host_path:
+                found = fs_inspector.read_bytes(host_path, max_bytes=documents.MAX_BYTES)
+                if not (found.accessible and found.exists):
+                    await self._record("read_document", {"path": host_path}, False, found.reason or "not readable")
+                    return {"success": False, "error": found.reason or "That file cannot be read."}
+                name, data = Path(str(found.container_path)).name, found.data["bytes"]
+            else:
+                name, data = await self._download_document(str(url or ""))
+            converted = await documents.convert(name, data)
+        except (documents.DocumentUnavailable, ValueError) as exc:
+            await self._record("read_document", {"path": host_path, "url": url}, False, str(exc)[:120])
+            return {"success": False, "error": str(exc)}
+        chunk = documents.part(converted["markdown"], offset)
+        await self._record("read_document", {"path": host_path, "url": url, "offset": chunk["offset"]}, True,
+                           f"{name}: {chunk['total_chars']} characters"
+                           + (" (converted earlier)" if converted["cached"] else f" in {converted['seconds']}s"))
+        if url and not chunk["offset"]:
+            await self._source_record(url, name, "document", source[:200])
+        return {"success": True, "document": name, **chunk}
+
+    async def _download_document(self, url: str) -> Tuple[str, bytes]:
+        from app.core import documents
+        from app.core.internet import _ssrf_ok
+
+        ok, reason = _ssrf_ok(url)
+        if not ok:
+            raise ValueError(f"That address is not opened: {reason}")
+        import httpx as _httpx
+
+        async with _httpx.AsyncClient(timeout=_httpx.Timeout(60.0, connect=10.0), follow_redirects=True) as client:
+            response = await client.get(url, headers={"User-Agent": "JAI-Research/1.0"})
+        final_ok, final_reason = _ssrf_ok(str(response.url))
+        if not final_ok:
+            raise ValueError(f"It redirected to an address that is not opened: {final_reason}")
+        if response.status_code >= 400:
+            raise ValueError(f"{url} answered {response.status_code}.")
+        if len(response.content) > documents.MAX_BYTES:
+            raise ValueError("The document is larger than 60 MB.")
+        name = urllib.parse.urlparse(str(response.url)).path.rsplit("/", 1)[-1] or "document"
+        kind = response.headers.get("content-type", "").split(";")[0].strip()
+        extension = {"application/pdf": ".pdf", "text/html": ".html",
+                     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+                     "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx"}.get(kind, "")
+        if extension and not name.lower().endswith(extension):
+            name += extension
+        return name, response.content
+
+    async def use_browser(self, action: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        """One action in this mission's own browser (browser-use, headless Chromium): open a page, read it, click,
+        type, choose, scroll, press keys, go back, switch tabs or close. Public pages only; never passwords, cards
+        or bank details."""
+        from app.core.internet import browser
+
+        target = str(args.get("url") or (args.get("text") if action != "type" else "") or args.get("index") or "")
+        denied = await self._enforce("use_browser", content=f"{action} {target}"[:500])
+        if denied:
+            return denied
+        session = str(self.task_id or self.workspace_id or "jai")[:80]
+        inputs = {"action": action, **{k: args[k] for k in ("url", "index", "keys", "tab_id") if args.get(k) is not None}}
+        if args.get("text") is not None:
+            # What is typed is not kept in the record (it may be someone's details); only how long it was.
+            inputs["text_chars"] = len(str(args["text"])) if action == "type" else None
+            if action != "type":
+                inputs["text"] = str(args["text"])[:80]
+        try:
+            answer = await browser.act(session, action, args)
+        except browser.BrowserUnavailable as exc:
+            await self._record("use_browser", inputs, False, str(exc)[:120])
+            return {"success": False, "error": str(exc)}
+        ok = bool(answer.get("ok"))
+        if answer.get("boundary"):
+            # A hard boundary JAI never crosses, even with approval: Richard types these himself.
+            answer["next"] = ("Carry on with the rest of the mission. If the mission truly needs this field filled, "
+                              "call create_boundary_report saying which page and field Richard must fill himself.")
+        await self._record("use_browser", inputs, ok,
+                           (f"{answer.get('title') or ''} {answer.get('url') or ''}".strip() or "done") if ok
+                           else str(answer.get("reason") or answer.get("error") or "failed")[:120])
+        if ok and action == "open" and answer.get("url"):
+            await self._source_record(str(answer["url"]), str(answer.get("title") or ""), "browser", target[:200])
+        return {**answer, "success": ok}
+
+    async def knowledge(self, tool: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        """JAI's knowledge graph for this workspace (search, add a fact) and what Richard has told JAI (recall)."""
+        from app.core import knowledge_service as ks
+
+        query = str(args.get("query") or args.get("fact") or "")
+        denied = await self._enforce(tool, content=query[:500])
+        if denied:
+            return denied
+        if not self.workspace_id and tool != "recall_richard":
+            return {"success": False, "error": "The knowledge graph is kept per workspace; this has none."}
+        try:
+            if tool == "knowledge_graph_search":
+                facts = await ks.search_graph(query, [self.workspace_id], int(args.get("limit") or 10), timeout=15.0)
+                out = {"facts": facts}
+                summary = f"{len(facts)} fact(s)"
+            elif tool == "knowledge_graph_add":
+                queued = await ks.add_episode(self.workspace_id, str(args.get("title") or query[:80]), query,
+                                              source=f"JAI agent ({getattr(self, 'agent_name', None) or 'mission'})",
+                                              timeout=10.0)
+                out = {"queued": True, "position": queued.get("position")}
+                summary = "queued for the knowledge graph"
+            else:
+                told = await ks.recall(query, int(args.get("limit") or 8), timeout=15.0)
+                out = {"memories": [m["memory"] for m in told]}
+                summary = f"{len(told)} memory(ies)"
+        except ks.KnowledgeUnavailable as exc:
+            await self._record(tool, {"query": query[:200]}, False, str(exc)[:120])
+            return {"success": False, "error": str(exc)}
+        await self._record(tool, {"query": query[:200]}, True, summary)
+        return {"success": True, **out}
+
+    async def prompt_checks(self, suite: str, instructions: Optional[str] = None) -> Dict[str, Any]:
+        """Check JAI's prompts with promptfoo: the voice's, or the given agent instructions against Richard's hard
+        boundaries. About a cent, through JAI's gateway."""
+        from app.core import evals
+
+        denied = await self._enforce("run_prompt_checks", content=suite)
+        if denied:
+            return denied
+        try:
+            result = await evals.run(suite, instructions)
+        except evals.ChecksUnavailable as exc:
+            await self._record("run_prompt_checks", {"suite": suite}, False, str(exc)[:120])
+            return {"success": False, "error": str(exc)}
+        await self._record("run_prompt_checks", {"suite": suite}, result["all_passed"],
+                           f"{result['passed']} passed, {result['failed']} failed")
+        return {"success": True, **result}
 
     async def code_intel(self, tool: str, project: str, args: Dict[str, Any]) -> Dict[str, Any]:
         """Ask Serena (language servers) about the code in the workspace at this container path: a file's symbols,

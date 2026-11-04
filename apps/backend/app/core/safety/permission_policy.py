@@ -117,6 +117,14 @@ TOOL_POLICIES: Dict[str, ToolPolicy] = {p.tool_id: p for p in [
     ToolPolicy("code_references", "read", RISK_LOW, 1),
     ToolPolicy("code_implementations", "read", RISK_LOW, 1),
     ToolPolicy("code_diagnostics", "read", RISK_LOW, 1),
+    # Wave 6: documents (Docling), the browser (browser-use; public pages only, never passwords, cards or bank
+    # details), the knowledge graph and Richard's memory (Graphiti, Mem0) and prompt checks (promptfoo).
+    ToolPolicy("read_document", "read", RISK_LOW, 1),
+    ToolPolicy("use_browser", "network_read", RISK_MEDIUM, 2),
+    ToolPolicy("knowledge_graph_search", "read", RISK_LOW, 1),
+    ToolPolicy("knowledge_graph_add", "write", RISK_LOW, 1),
+    ToolPolicy("recall_richard", "read", RISK_LOW, 1),
+    ToolPolicy("run_prompt_checks", "network_read", RISK_LOW, 2),
     ToolPolicy("check_package_registry", "network_read", RISK_LOW, 1),
     ToolPolicy("check_cve", "network_read", RISK_LOW, 1),
     ToolPolicy("asset_licence_check", "network_read", RISK_LOW, 1),

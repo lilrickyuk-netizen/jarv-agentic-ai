@@ -170,6 +170,14 @@ def _no_spend_limit_unless_a_test_sets_one(monkeypatch):
     monkeypatch.setattr(settings, "POSTIZ_URL", "")
     monkeypatch.setattr(settings, "POSTIZ_API_KEY", None)
     monkeypatch.setattr(settings, "SERENA_URL", "")
+    monkeypatch.setattr(settings, "JAI_GATEWAY_TOKEN", None)
+    monkeypatch.setattr(settings, "DOCLING_URL", "")
+    monkeypatch.setattr(settings, "BROWSER_URL", "")
+    monkeypatch.setattr(settings, "BROWSER_TOKEN", None)
+    monkeypatch.setattr(settings, "KNOWLEDGE_URL", "")
+    monkeypatch.setattr(settings, "PROMPTFOO_URL", "")
+    monkeypatch.setattr(settings, "PROMPTFOO_TOKEN", None)
+    monkeypatch.setattr(settings, "KNOWLEDGE_TOKEN", None)
 
 
 @pytest.fixture(autouse=True)

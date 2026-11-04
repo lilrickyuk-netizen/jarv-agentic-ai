@@ -301,6 +301,20 @@ class EvolutionEngine:
             merged = self._preview(etype, current, change)
             check("changes_something", merged != {k: v for k, v in current.items() if k in merged},
                   "the change alters the component" if merged else "nothing to change")
+        # Wave 6: new agent instructions are run against Richard's hard boundaries (promptfoo) before they can be
+        # applied; one that would cross any of them fails verification.
+        instructions = str(change.get("instructions") or "").strip() if etype == "agent_instruction" else ""
+        if instructions and all(c["passed"] for c in checks):
+            from app.core import evals
+
+            try:
+                behaviour = await evals.run("boundaries", instructions)
+                failed = [f"{r.get('description')}: {r.get('reason')}" for r in behaviour["results"] if not r.get("pass")]
+                check("behaviour_checks", behaviour["all_passed"],
+                      f"holds all {behaviour['passed']} hard-boundary cases" if behaviour["all_passed"]
+                      else "the new instructions failed: " + "; ".join(failed)[:900])
+            except evals.ChecksUnavailable as exc:
+                warnings.append(f"The behaviour checks did not run ({exc}); the wording checks above still apply.")
         if needs_approval:
             warnings.append("Changes a protected rule: Richard must approve before it is applied.")
         passed = all(c["passed"] for c in checks)

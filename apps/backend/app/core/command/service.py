@@ -617,6 +617,17 @@ class CommandService:
             except Exception as exc:  # noqa: BLE001
                 logger.warning(f"memory persist failed: {exc}")
 
+            # What the mission learned goes into the workspace's knowledge graph (Wave 6, Graphiti), where a fact
+            # that has changed since replaces the old one. Queued in the knowledge service; never holds this up.
+            if ws_id is not None and status in ("completed", "partial", "failed") and answer:
+                from app.core import knowledge_service
+
+                if knowledge_service.enabled():
+                    await knowledge_service.quietly(knowledge_service.add_episode(
+                        ws_id, f"Mission {str(task.id)[:8]}: {command_text[:150]}",
+                        f"Richard asked: {command_text[:4000]}\nOutcome: {status}\nReport:\n{answer}",
+                        source=f"JAI mission report ({status})", reference_time=now, timeout=5.0), None)
+
             # Experience + lesson performance (Repair 11). Approval waits are not outcomes.
             if ws_id is not None and status in ("completed", "partial", "failed"):
                 try:

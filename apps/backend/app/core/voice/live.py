@@ -187,7 +187,10 @@ BRAIN_ROUTING = (
     "answer with where it came from. If you did not catch what he said, or it sounds garbled, ask him to say "
     "it again rather than guessing. Never repeat what you have already told him: say what is new. Videos, "
     "voiceovers and social-post drafts take minutes: when he asks for them, start a mission with the full brief; "
-    "posts are only ever drafted in Postiz for him to schedule, never published by you. ")
+    "posts are only ever drafted in Postiz for him to schedule, never published by you. "
+    "The state may also give what_richard_has_told_me (what he has said before about himself, his projects and how "
+    "he wants things done: follow it without making him repeat it) and what_my_work_has_established (facts from "
+    "your own finished work; one marked no_longer_true is history, not the present). ")
 
 
 def instructions(spaces: List[Any], brain: bool = False) -> str:
@@ -364,7 +367,42 @@ async def live_context(db: AsyncSession, user_id: UUID, text: str) -> Dict[str, 
 
     facts = await brain_facts(db, user_id, text, None)
     facts.pop("recent_conversation", None)  # the conversation itself is already in the voice's context
+    facts.update(await _remembered(db, user_id, text))
     return {"state": json.dumps(facts, default=str, separators=(",", ":"))[:40000]}
+
+
+_KEEPING: set = set()  # what Richard said, on its way to Mem0
+
+
+async def _remembered(db: AsyncSession, user_id: UUID, text: str) -> Dict[str, Any]:
+    """What Richard has told JAI before and what JAI knows from its work that bear on what he just said (Wave 6:
+    Mem0 and Graphiti), and what he said now kept for next time. A slow or stopped knowledge service adds nothing
+    and never holds the reply up."""
+    import asyncio
+
+    from app.core import knowledge_service as ks
+    from app.models.workspace import Workspace
+
+    said = (text or "").strip()
+    if not ks.enabled() or len(said) < 3:
+        return {}
+    spaces = (await db.execute(select(Workspace.id).where(Workspace.owner_id == user_id,
+                                                          Workspace.is_active.is_(True)))).scalars().all()
+    told, known = await asyncio.gather(
+        ks.quietly(ks.recall(said, 6, timeout=2.5), []),
+        ks.quietly(ks.search_graph(said, list(spaces), 8, timeout=2.5), []) if spaces else asyncio.sleep(0, []))
+    if len(said) >= 12:
+        keeping = asyncio.create_task(ks.quietly(ks.remember(said, metadata={"from": "voice"}, timeout=4.0), None))
+        _KEEPING.add(keeping)
+        keeping.add_done_callback(_KEEPING.discard)
+    out: Dict[str, Any] = {}
+    if told:
+        out["what_richard_has_told_me"] = [m["memory"] for m in told]
+    if known:
+        out["what_my_work_has_established"] = [
+            {"fact": f["fact"], **({"no_longer_true": True} if f.get("no_longer_true") else {}),
+             **({"since": f["valid_from"]} if f.get("valid_from") else {})} for f in known]
+    return out
 
 
 async def record_pipeline_usage(kind: str, usage: Dict[str, Any]) -> Dict[str, Any]:

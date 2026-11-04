@@ -102,6 +102,11 @@ services:
       WORKSPACE_CONTAINER_ROOT: /host/workspaces
       VOICEBOX_BASE_URL: ${VOICEBOX_BASE_URL:-http://voicebox:17493}
       CRAWL4AI_TOKEN: ${CRAWL4AI_API_TOKEN:-}
+      # Wave 6: the tokens of JAI's model gateway and of its document, browser, knowledge and prompt-check services.
+      JAI_GATEWAY_TOKEN: ${JAI_GATEWAY_TOKEN:-}
+      BROWSER_TOKEN: ${BROWSER_TOKEN:-}
+      KNOWLEDGE_TOKEN: ${KNOWLEDGE_TOKEN:-}
+      PROMPTFOO_TOKEN: ${PROMPTFOO_TOKEN:-}
       VOICEBOX_PROFILE_ID: ${VOICEBOX_PROFILE_ID:-}
       WAKEWORD_MODEL_DIR: /data/voice-models/sherpa-kws-gigaspeech
       # Operations (Repair 12d): restricted Docker API and database backups.
@@ -141,6 +146,7 @@ services:
       - jarv-gpu
       - jarv-voice
       - jarv-code
+      - jarv-knowledge
     restart: unless-stopped
 
   # Next.js Dashboard Frontend
@@ -390,6 +396,79 @@ services:
     mem_limit: 2g
     restart: unless-stopped
 
+  # Wave 6, documents: Docling (MIT, IBM Research) reads PDFs, Word, PowerPoint, Excel and scans (OCR) into text.
+  # Its models are inside the image; it has no route to the internet, so no document leaves this computer.
+  docling:
+    profiles: ["docs"]
+    image: ${DOCLING_IMAGE:-ghcr.io/docling-project/docling-serve-cpu:v1.38.2}
+    container_name: jarv-docling
+    environment:
+      DOCLING_SERVE_ENABLE_UI: "false"
+      DOCLING_SERVE_MAX_SYNC_WAIT: "900"
+      DOCLING_SERVE_ENG_LOC_NUM_WORKERS: "1"
+      OMP_NUM_THREADS: "4"
+    networks:
+      - jarv-knowledge
+    mem_limit: 3g
+    restart: unless-stopped
+
+  # Wave 6, the browser: browser-use (MIT) with Chromium, driven one action at a time by JAI's agents. Public pages
+  # only, no sign-ins, never passwords, card or bank details (services/browser/server.py).
+  browser:
+    profiles: ["browser"]
+    build:
+      context: ./services/browser
+    container_name: jarv-browser
+    environment:
+      BROWSER_TOKEN: ${BROWSER_TOKEN:-}
+      BROWSER_MAX_SESSIONS: "2"
+    networks:
+      - jarv-web
+    shm_size: 1g
+    mem_limit: 2g
+    restart: unless-stopped
+
+  # Wave 6, knowledge: Graphiti's knowledge graph (on embedded FalkorDB Lite) and Mem0's memory of Richard (on JAI's
+  # PostgreSQL). Both use a model only through JAI's model gateway, inside the daily spending limit.
+  knowledge:
+    profiles: ["knowledge"]
+    build:
+      context: ./services/knowledge
+    container_name: jarv-knowledge
+    environment:
+      KNOWLEDGE_TOKEN: ${KNOWLEDGE_TOKEN:-}
+      JAI_GATEWAY_TOKEN: ${JAI_GATEWAY_TOKEN:-}
+      JAI_GATEWAY_URL: http://backend:8000/api/gateway/v1
+      MEM0_DB_HOST: postgres
+      MEM0_DB: mem0
+      MEM0_DB_USER: mem0
+      MEM0_DB_PASSWORD: ${MEM0_DB_PASSWORD:-}
+    volumes:
+      - knowledge_data:/data
+    # jarv-network for PostgreSQL, where Mem0 keeps its vectors in its own database (it holds no provider key).
+    networks:
+      - jarv-knowledge
+      - jarv-network
+    mem_limit: 1536m
+    restart: unless-stopped
+
+  # Wave 6, prompt checks: promptfoo (MIT) checks JAI's prompts and every self-evolved agent instruction against
+  # Richard's hard boundaries. Its model calls go only to JAI's gateway, with JAI's gateway token as its key.
+  promptfoo:
+    profiles: ["evals"]
+    build:
+      context: ./services/promptfoo
+    container_name: jarv-promptfoo
+    environment:
+      PROMPTFOO_TOKEN: ${PROMPTFOO_TOKEN:-}
+      OPENAI_API_KEY: ${JAI_GATEWAY_TOKEN:-}
+      OPENAI_BASE_URL: http://backend:8000/api/gateway/v1
+      OPENAI_API_BASE_URL: http://backend:8000/api/gateway/v1
+    networks:
+      - jarv-knowledge
+    mem_limit: 1g
+    restart: unless-stopped
+
   # Voicebox is reachable only on the private Compose network. Its API has no
   # authentication, so the dashboard talks to it exclusively through JARV.
   voicebox:
@@ -437,6 +516,11 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER:-jarv}:${POSTGRES_PASSWORD:-jarv_password}@postgres:5432/${POSTGRES_DB:-jarv}
       REDIS_URL: redis://redis:6379/0
       CRAWL4AI_TOKEN: ${CRAWL4AI_API_TOKEN:-}
+      # Wave 6: the tokens of JAI's model gateway and of its document, browser, knowledge and prompt-check services.
+      JAI_GATEWAY_TOKEN: ${JAI_GATEWAY_TOKEN:-}
+      BROWSER_TOKEN: ${BROWSER_TOKEN:-}
+      KNOWLEDGE_TOKEN: ${KNOWLEDGE_TOKEN:-}
+      PROMPTFOO_TOKEN: ${PROMPTFOO_TOKEN:-}
       SECRET_KEY: ${SECRET_KEY:-dev-secret-key-change-in-production}
       ENVIRONMENT: ${ENVIRONMENT:-development}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -468,6 +552,7 @@ services:
       - jarv-gpu
       - jarv-voice
       - jarv-code
+      - jarv-knowledge
     restart: unless-stopped
     command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
     # Celery worker liveness: ping the worker over the broker (not HTTP — this
@@ -570,6 +655,8 @@ volumes:
     name: jai_serena_home
   serena_data:
     name: jai_serena_data
+  knowledge_data:
+    name: jai_knowledge_data
 
 networks:
   jarv-network:
@@ -592,3 +679,8 @@ networks:
   # JAI's code understanding (Wave 5): the backend, the worker and Serena (which may fetch language servers).
   jarv-code:
     driver: bridge
+  # JAI's knowledge network (Wave 6), with no route to the internet: the backend, the worker, Docling, the knowledge
+  # service and promptfoo. Their model calls reach OpenAI only through the backend's gateway.
+  jarv-knowledge:
+    driver: bridge
+    internal: true
