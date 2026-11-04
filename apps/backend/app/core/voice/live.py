@@ -190,7 +190,9 @@ BRAIN_ROUTING = (
     "posts are only ever drafted in Postiz for him to schedule, never published by you. "
     "The state may also give what_richard_has_told_me (what he has said before about himself, his projects and how "
     "he wants things done: follow it without making him repeat it) and what_my_work_has_established (facts from "
-    "your own finished work; one marked no_longer_true is history, not the present). ")
+    "your own finished work; one marked no_longer_true is history, not the present). "
+    "my_recent_upgrades lists what has been installed into you lately, newest first, with when (UTC): when he asks "
+    "what has changed or what upgrades you have had, tell him from it what each one lets you do now. ")
 
 
 def instructions(spaces: List[Any], brain: bool = False) -> str:
@@ -806,6 +808,11 @@ async def brain_facts(db: AsyncSession, user_id: UUID, question: str,
             facts["mission_asked_about"] = await _mission_named_in(db, user_id, question)
     except Exception:  # noqa: BLE001 - an addition; the mission list still answers
         facts["mission_asked_about"] = None
+    # What has been installed into JAI lately (from Richard's repository history), so "what upgrades have you had
+    # today?" has a true answer.
+    from app.core import upgrades
+
+    facts["my_recent_upgrades"] = await upgrades.recent(3, 15)
     try:
         from app.core import spend
 

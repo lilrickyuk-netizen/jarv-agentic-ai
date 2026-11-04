@@ -297,6 +297,37 @@ async def test_every_reply_is_given_jais_live_state_just_before_richards_words()
     assert context.get_messages()[-1]["content"] == "And now?" and brain.asked[-1] == "And now?"
 
 
+async def test_the_live_state_survives_openai_specific_entries_and_never_stops_a_reply():
+    """After a tool call the context holds OpenAI-specific items (reasoning, function calls) that are not plain
+    messages; on Richard's computer one stopped every reply that followed."""
+    from pipecat.processors.aggregators.llm_context import LLMContext, LLMSpecificMessage
+
+    class Brain(FakeBackend):
+        async def context(self, text):
+            return {"state": f"asked about: {text}"}
+
+    relay = pipeline.BrainContext(Brain())
+    context = LLMContext(messages=[{"role": "user", "content": "Do you know you've been upgraded today?"},
+                                   LLMSpecificMessage(llm="openai", message={"type": "reasoning", "summary": []}),
+                                   {"role": "assistant", "content": "Let me check."},
+                                   {"role": "user", "content": "What upgrades have you had?"}])
+    await relay.refresh(context)
+    messages = context.get_messages()
+    assert any(isinstance(m, LLMSpecificMessage) for m in messages)              # kept as it was
+    state = [m for m in messages if isinstance(m, dict) and str(m.get("content")).startswith(pipeline.STATE_MARK)]
+    assert len(state) == 1 and "What upgrades have you had?" in state[0]["content"]
+    assert messages[-1]["content"] == "What upgrades have you had?"
+
+    class Broken(FakeBackend):
+        async def context(self, text):
+            raise RuntimeError("backend restarting")
+
+    stalled = pipeline.BrainContext(Broken())
+    quiet = LLMContext(messages=[{"role": "user", "content": "Jay?"}])
+    assert await stalled.refresh_safely(quiet) is False   # logged, not raised: the reply still goes ahead
+    assert quiet.get_messages()[-1]["content"] == "Jay?"
+
+
 def test_only_the_dashboard_may_open_a_conversation(monkeypatch):
     monkeypatch.setattr(main, "ALLOWED_ORIGINS", {"http://localhost:3000"})
     assert main.origin_allowed("http://localhost:3000")

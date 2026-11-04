@@ -14114,3 +14114,16 @@ TESTS RUN: backend suite with new tests that the image generator is switched on 
 RESULT: Richard asked for the image generator to be switched on and off from the UI so he does not have to use the terminal. The Command Center now has a JAI's services panel with the memory free and a switch for each heavy service: image generator, natural voice, video maker, document reader, browser and code understanding. Each click starts or stops that one container through JAI's restricted Docker proxy (now allowed to start and stop, and still nothing else), refreshed every 15 seconds and recorded in the audit log; the database, Redis, the proxy and JAI's own services can never be switched from there. When a task needs a service that is off, JAI says which switch to turn on. Wave 1's LiteLLM and Langfuse are not added, by Richard's decision: JAI's gateway already keeps every service on JAI's key inside the daily limit, and JAI already reports what the AI costs.
 BLOCKERS: None
 NEXT TASK: Mission quality (deliverables and standards)
+
+---
+
+TASK ID: VOICE-KEEPS-ANSWERING
+TASK NAME: The voice keeps answering after a tool call, knows its own upgrades, and switched-off services are not faults
+STATUS: COMPLETE
+FILES CREATED: apps/backend/app/core/upgrades.py
+FILES MODIFIED: services/voice/app/pipeline.py, services/voice/tests/test_voice_service.py, apps/backend/app/core/voice/live.py, apps/backend/app/core/ops/docker_ops.py, apps/backend/app/core/config.py, apps/backend/tests/conftest.py, apps/backend/tests/test_service_switches.py, docker-compose.yml
+COMMANDS RUN: voice image build and its tests; backend test suite; docker compose up for the backend (its upgrade history mounted read-only) and the voice
+TESTS RUN: voice service suite with a new test that JAI's live state is added around OpenAI-specific context entries (kept as they are) and that a failure to add it never stops the reply; backend suite with new tests that the voice is given JAI's recent upgrades from the repository history (newest first, nothing when it is not mounted) and that no switchable service makes JAI degraded while every core service still does
+RESULT: Richard asked the voice whether it had been upgraded and it said it had no record and that JAI's health was degraded; after its first tool call it stopped answering altogether. After a tool call the conversation holds OpenAI-specific entries (reasoning and function-call items) that are not plain messages, and the step that adds JAI's live state before each reply failed on them, so every later reply was dropped. It now reads only plain messages, keeps the others as they are, and if adding the state ever fails the reply goes ahead without it and the failure is logged. The voice is now given my_recent_upgrades (the last three days of commits in Richard's JAI repository, mounted read-only into the backend) and told to explain what each lets it do. Services that run under their own profile or that Richard switches off from the Command Center no longer make JAI report itself degraded.
+BLOCKERS: None
+NEXT TASK: Mission quality (deliverables and standards)

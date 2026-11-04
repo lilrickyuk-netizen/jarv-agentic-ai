@@ -316,6 +316,8 @@ class Settings(BaseSettings):
     # promptfoo (the "evals" profile) checks JAI's prompts and every self-evolved agent instruction.
     PROMPTFOO_URL: str = "http://promptfoo:8792"
     PROMPTFOO_TOKEN: Optional[str] = None
+    # Richard's JAI repository history, mounted read-only, so JAI can say what has been installed into it lately.
+    JAI_REPO_GIT: str = "/repo/.git"
     KNOWLEDGE_TOKEN: Optional[str] = None
 
     # Voice

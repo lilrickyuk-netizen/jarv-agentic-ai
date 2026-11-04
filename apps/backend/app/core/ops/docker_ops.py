@@ -37,7 +37,11 @@ NEVER_RESTART = frozenset({"postgres", "redis", "docker-proxy"})
 # Services JAI runs without: switched on by a compose profile or the monitoring file, or only for local
 # development. One not running is reported as such, never as JAI being degraded.
 OPTIONAL_SERVICES = frozenset({"voicebox", "prometheus", "grafana", "alertmanager", "postgres-exporter",
-                               "redis-exporter", "node-exporter", "local-runner", "cloud-runner"})
+                               "redis-exporter", "node-exporter", "local-runner", "cloud-runner",
+                               # Waves 2-6: each switched on by its own profile, and the heavy ones switched off by
+                               # Richard from the Command Center to share the memory; JAI is not degraded by one off.
+                               "voice", "chatterbox", "comfyui", "moneyprinter", "postiz", "temporal", "searxng",
+                               "crawl4ai", "serena", "docling", "browser", "knowledge", "promptfoo"})
 # Services Richard switches on and off from the Command Center to share the computer's memory (Wave 6): heavy, and
 # JAI works without each of them (it says which one to switch on when a task needs it). Name -> what it is.
 SWITCHABLE = {

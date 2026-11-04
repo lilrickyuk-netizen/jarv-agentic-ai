@@ -127,6 +127,8 @@ services:
         condition: service_completed_successfully
     volumes:
       - ./apps/backend:/app
+      # JAI's own upgrade history (read-only), so it can say what has been installed into it.
+      - ./.git:/repo/.git:ro
       - voice_models:/data/voice-models
       - backups:/data/backups
       - voice_audio:/data/voice-audio

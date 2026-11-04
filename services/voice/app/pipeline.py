@@ -62,6 +62,7 @@ REFUSED_AFTER_UPDATE = ("Richard has not asked for this. An activity update is r
 # Where each reply's time goes, in the voice service's log ("timing ..." lines): how long each service took to
 # start answering, each tool call, and from Richard's last word being heard to JAI's first words.
 timing = logging.getLogger("jai.voice.timing")
+logger = logging.getLogger("jai.voice")
 
 ACTION_LABELS = {"start_mission": "Started a mission", "resume_mission": "Carried on with a mission",
                  "cancel_mission": "Cancelled a mission", "ask_jarv": "Asked JAI", "show_on_screen": "Put it on screen",
@@ -110,8 +111,17 @@ class BrainContext(FrameProcessor):
         self._last: Optional[str] = None
 
     @staticmethod
-    def _said_last(messages: List[Dict[str, Any]]) -> str:
+    def _is_state(message: Any) -> bool:
+        return isinstance(message, dict) and message.get("role") == "user" and \
+            str(message.get("content", "")).startswith(STATE_MARK)
+
+    @staticmethod
+    def _said_last(messages: List[Any]) -> str:
+        # The context also holds provider-specific entries (reasoning and tool items from OpenAI's Responses API),
+        # which are not plain messages: only plain ones are read.
         for message in reversed(messages):
+            if not isinstance(message, dict):
+                continue
             if message.get("role") == "user" and STATE_MARK not in str(message.get("content")):
                 content = message.get("content")
                 if isinstance(content, list):
@@ -120,8 +130,7 @@ class BrainContext(FrameProcessor):
         return ""
 
     async def refresh(self, context: LLMContext, fetch: bool = True) -> None:
-        messages = [m for m in context.get_messages() if not (m.get("role") == "user"
-                                                             and str(m.get("content", "")).startswith(STATE_MARK))]
+        messages = [m for m in context.get_messages() if not self._is_state(m)]
         if fetch:
             started = time.monotonic()
             found = await self._backend.context(self._said_last(messages))
@@ -129,15 +138,25 @@ class BrainContext(FrameProcessor):
                 self._last = str(found["state"])
             timing.info(f"timing brain-context {time.monotonic() - started:.2f}s")
         if self._last:
-            last_user = max((i for i, m in enumerate(messages) if m.get("role") == "user"), default=len(messages))
+            last_user = max((i for i, m in enumerate(messages) if isinstance(m, dict) and m.get("role") == "user"),
+                            default=len(messages))
             messages.insert(last_user, {"role": "user", "content": f"{STATE_MARK}\n{self._last}"})
         context.set_messages(messages)
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
         if isinstance(frame, LLMContextFrame):
-            await self.refresh(frame.context, fetch=not getattr(frame, "speculation", False))
+            await self.refresh_safely(frame.context, fetch=not getattr(frame, "speculation", False))
         await self.push_frame(frame, direction)
+
+    async def refresh_safely(self, context: LLMContext, fetch: bool = True) -> bool:
+        """refresh(), but a failure never stops the reply: JAI answers without the new state and it is logged."""
+        try:
+            await self.refresh(context, fetch=fetch)
+            return True
+        except Exception:  # noqa: BLE001 - the live state must never stop JAI from answering
+            logger.exception("JAI's live state could not be added to this reply; answering without it")
+            return False
 
 
 class SaidRelay(FrameProcessor):

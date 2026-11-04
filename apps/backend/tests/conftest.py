@@ -178,6 +178,7 @@ def _no_spend_limit_unless_a_test_sets_one(monkeypatch):
     monkeypatch.setattr(settings, "PROMPTFOO_URL", "")
     monkeypatch.setattr(settings, "PROMPTFOO_TOKEN", None)
     monkeypatch.setattr(settings, "KNOWLEDGE_TOKEN", None)
+    monkeypatch.setattr(settings, "JAI_REPO_GIT", "")
 
 
 @pytest.fixture(autouse=True)
