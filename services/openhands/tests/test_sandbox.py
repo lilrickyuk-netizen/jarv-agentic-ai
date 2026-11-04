@@ -41,7 +41,7 @@ class Backend:
             if self.fail:
                 return httpx.Response(500, text="database down")
             self.checks.append(body)
-            text = body.get("command") or body.get("path") or ""
+            text = f"{body.get('command') or ''} {body.get('path') or ''}"
             hit = next((word for word in self.refuse if word in text), None)
             return httpx.Response(200, json={"allow": hit is None,
                                              "reason": f"Not run: '{hit}' waits for Richard." if hit else ""})
