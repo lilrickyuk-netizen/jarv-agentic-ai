@@ -52,7 +52,7 @@ def render(task_id: str, spec: dict, narration: Path, images: List[Path]) -> Pat
         video_clip_duration=int(spec.get("clip_seconds") or 5),
         video_count=1,
         video_source="local" if images else "pexels",
-        video_materials=[MaterialInfo(provider="local", url=str(p), duration=0) for p in images] or None,
+        video_materials=[MaterialInfo(provider="local", url=str(p.resolve()), duration=0) for p in images] or None,
         custom_audio_file=str(narration),
         voice_name="",
         bgm_type="",          # no background music: its licence could not be confirmed for commercial use
@@ -82,11 +82,15 @@ async def render_route(spec: str = Form(...), narration: UploadFile = File(...),
     audio = folder / "jai-narration.wav"
     audio.write_bytes(await narration.read())
     stills: List[Path] = []
+    # MoneyPrinterTurbo only uses local footage from inside its local_videos folder (anything else is refused as
+    # unsafe), so JAI's images go in a folder of their own there for this video.
+    footage = Path(utils.storage_dir("local_videos", create=True)) / task_id
+    footage.mkdir(parents=True, exist_ok=True)
     for index, image in enumerate(images or []):
         suffix = Path(image.filename or "image.png").suffix.lower()
         if suffix not in (".png", ".jpg", ".jpeg", ".webp"):
             raise HTTPException(status_code=400, detail=f"{image.filename} is not an image")
-        path = folder / f"jai-image-{index:02d}{suffix}"
+        path = footage / f"jai-image-{index:02d}{suffix}"
         path.write_bytes(await image.read())
         stills.append(path)
     if not stills and not os.environ.get("PEXELS_API_KEY"):
@@ -96,5 +100,7 @@ async def render_route(spec: str = Form(...), narration: UploadFile = File(...),
     except Exception as exc:  # noqa: BLE001
         shutil.rmtree(folder, ignore_errors=True)
         raise HTTPException(status_code=500, detail=f"the video could not be made: {exc}"[:500])
+    finally:
+        shutil.rmtree(footage, ignore_errors=True)  # the images are in the video now
     return FileResponse(video, media_type="video/mp4", filename=f"{task_id}.mp4",
                         headers={"X-Task-Id": task_id})
