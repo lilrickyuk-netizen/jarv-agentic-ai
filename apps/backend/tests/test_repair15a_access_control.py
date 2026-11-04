@@ -31,6 +31,7 @@ PUBLIC = {
     ("POST", "/api/observability/alerts"),                          # ALERT_WEBHOOK_TOKEN or private network
     ("POST", "/api/revenue/{workspace_id}/stripe-webhook"),         # Stripe signature
     ("GET", "/api/calendar/feed/{workspace_id}/{token}.ics"),       # secret link for calendar apps (404 if wrong)
+    ("GET", "/api/voice/image/{token}"),                            # a day-long secret link to one image (404 if wrong)
 }
 
 

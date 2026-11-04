@@ -18,9 +18,10 @@ router = APIRouter(prefix="/gateway/v1", tags=["gateway"])
 @router.post("/{path:path}")
 async def forward(path: str, request: Request, authorization: str | None = Header(default=None),
                   x_jai_caller: str | None = Header(default=None)) -> JSONResponse:
+    # Without JAI's gateway token nothing is answered: 401 whether the gateway is turned off or the token is wrong.
     if not gateway.token():
-        return JSONResponse(gateway.GatewayRefused(503, "JAI's gateway is turned off (no JAI_GATEWAY_TOKEN).",
-                                                   "not_configured").body(), status_code=503)
+        return JSONResponse(gateway.GatewayRefused(401, "JAI's gateway is turned off (no JAI_GATEWAY_TOKEN).",
+                                                   "not_configured").body(), status_code=401)
     if not gateway.authorised(authorization):
         return JSONResponse(gateway.GatewayRefused(401, "Not JAI's gateway token.", "invalid_api_key").body(),
                             status_code=401)

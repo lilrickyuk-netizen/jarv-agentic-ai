@@ -32,7 +32,8 @@ def _mock(handler):
 # ----- the model gateway --------------------------------------------------------------------------------------------
 
 def test_the_gateway_needs_its_token_and_allows_only_jais_models(client, monkeypatch):
-    assert client.post("/api/gateway/v1/chat/completions", json={"model": "gpt-6-luna"}).status_code == 503
+    off = client.post("/api/gateway/v1/chat/completions", json={"model": "gpt-6-luna"})
+    assert off.status_code == 401 and "turned off" in off.json()["error"]["message"]
     monkeypatch.setattr(settings, "JAI_GATEWAY_TOKEN", "gateway-token")
     assert client.post("/api/gateway/v1/chat/completions", json={"model": "gpt-6-luna"}).status_code == 401
     wrong = client.post("/api/gateway/v1/chat/completions", headers={"Authorization": "Bearer nope"}, json={})
