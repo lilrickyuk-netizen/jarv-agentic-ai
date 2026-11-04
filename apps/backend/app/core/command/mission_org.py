@@ -700,7 +700,10 @@ class MissionTeam:
                        "steps": package.step, "tool_calls": package.calls, "tools": package.tools}
             # The sub-agent's work is over: it dissolves, keeping its result.
             child.status, child.completed_at, child.success = "dissolved", now, package.success
-            child.duration_seconds = int((now - (child.started_at or now)).total_seconds())
+            started = child.started_at or now
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            child.duration_seconds = int((now - started).total_seconds())
             child.result, child.tokens_used = outcome, int(package.tokens)
             child.api_calls = int(package.calls)
             child.cost = Decimal(str(round(package.cost_usd, 6)))
