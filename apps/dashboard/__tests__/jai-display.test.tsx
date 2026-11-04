@@ -52,4 +52,15 @@ describe('JaiDisplay', () => {
     act(() => showCard({ kind: 'image', title: 'Elsewhere', sections: [{ image: 'https://tracker.example/x.png' }] }));
     expect(screen.queryByRole('img')).toBeNull();
   });
+
+  it('plays a video and shows a folder as a gallery, only from JAI\'s own backend', () => {
+    render(<JaiDisplay />);
+    act(() => showCard({ kind: 'gallery', title: 'images', subtitle: 'Plexecute · 2 image(s) and video(s)',
+      sections: [{ heading: 'launch.mp4', video: '/api/backend/api/voice/image/v1' },
+                 { heading: 'banner.png', image: '/api/backend/api/voice/image/i1' },
+                 { heading: 'elsewhere.mp4', video: 'https://tracker.example/x.mp4' }] }));
+    expect(screen.getByLabelText('launch.mp4')).toHaveAttribute('src', '/api/backend/api/voice/image/v1');
+    expect(screen.getByRole('img', { name: 'banner.png' })).toHaveAttribute('src', '/api/backend/api/voice/image/i1');
+    expect(screen.queryByLabelText('elsewhere.mp4')).toBeNull();
+  });
 });

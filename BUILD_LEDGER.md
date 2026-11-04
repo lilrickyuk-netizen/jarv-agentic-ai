@@ -14140,3 +14140,16 @@ TESTS RUN: voice suite with new tests that a sentence is spoken in phrases (the 
 RESULT: Richard said the voice still sounded robotic, like reading text, took a long time to answer and came in segments, not the Jarvis direction; he chose to stay free on his own GPU. Each reply waited for JAI's live state (about a second), a reasoning pass, the whole reply, and then Chatterbox making each full sentence (up to about five seconds for a long one) before any of it played, and the model wrote for a screen (lists, records, clock times). Now: the live state is fetched the moment his words are transcribed, while the turn detector decides he has finished; it is compact (five missions in short, no web-source records, the mission he means still whole) and always whole JSON; there is no reasoning pass before a spoken reply; Chatterbox speaks each sentence in phrases, the first one short so he hears JAI at once, each next phrase made while the one before plays; and the voice is told how to talk: a short first sentence, the answer first, at most three sentences, never reciting lists, ids or clock times, offering the rest instead, following him when he interrupts.
 BLOCKERS: None
 NEXT TASK: Mission quality (deliverables and standards)
+
+---
+
+TASK ID: MEDIA-ON-SCREEN
+TASK NAME: JAI puts a workspace's images and videos on screen as themselves, and a folder as a gallery
+STATUS: COMPLETE
+FILES CREATED: apps/backend/tests/test_media_on_screen.py
+FILES MODIFIED: apps/backend/app/core/voice/live.py, apps/backend/app/api/v1/voice.py, apps/dashboard/src/components/jai-display.tsx, apps/dashboard/src/lib/screen-signal.ts, apps/dashboard/src/app/globals.css, apps/dashboard/__tests__/jai-display.test.tsx
+COMMANDS RUN: backend test suite; dashboard type-check and tests; dashboard rebuilt; backend restarted
+TESTS RUN: backend suite with a new test that an image goes on screen as a picture (served as image/png, never its bytes as text), a video as a player (video/mp4), a folder as a gallery of its images and videos in subfolders newest first, a text file still as text, and a path outside the workspace refused; dashboard test that a video plays and a gallery shows, only from JAI's own backend
+RESULT: Richard asked JAI to bring up an image from the Plexecute workspace and his screen filled with the PNG's bytes as text: show_on_screen read every file as text. Now an image (PNG, JPEG, WebP, GIF) is shown as the picture and a video (MP4, WebM, MOV) as a player, each through a day-long secret link served with its real media type and only from inside the workspaces; asking for a folder (or the whole workspace) shows a gallery of its newest twelve images and videos, looking a few folders down and skipping build and dependency folders; text files are shown as text as before.
+BLOCKERS: None
+NEXT TASK: Mission quality (deliverables and standards)

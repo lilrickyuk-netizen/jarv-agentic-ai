@@ -124,7 +124,9 @@ TOOLS: List[Dict[str, Any]] = [
      "description": "Put something on Richard's screen, beside the intelligence field, when it is easier to see than "
                     "to hear: a mission's requirements and progress, the files it changed and what failed (mission), "
                     "today's AI spend against the daily limit (spend), what waits for his approval (approvals), or a "
-                    "file from a workspace (file, with workspace and path). Say one sentence about what you put up.",
+                    "file from a workspace (file, with workspace and path): an image or video is shown as the picture "
+                    "or a player, a folder as a gallery of its images and videos, a text file as text. Say one "
+                    "sentence about what you put up.",
      "parameters": {"type": "object", "properties": {
          "what": {"type": "string", "enum": ["mission", "spend", "approvals", "file"]},
          "workspace": {"type": "string", "description": "Workspace name, for a file."},
@@ -1005,6 +1007,12 @@ async def show_on_screen(db: AsyncSession, user_id: UUID, args: Dict[str, Any]) 
         card = {"kind": "approvals", "title": f"Waiting for your approval ({len(waiting)})",
                 "subtitle": "Approve or reject on the Approvals page", "link": "/dashboard/approvals",
                 "sections": [{"heading": "", "items": [w["action"] for w in waiting] or ["Nothing is waiting."]}]}
+    elif what == "file" and (str(args.get("path") or "").lower().endswith(IMAGE_TYPES + VIDEO_TYPES)
+                             or await _is_folder(db, user_id, args)):
+        media = await _media_card(db, user_id, args)
+        if media.get("error"):
+            return {"error": media["error"]}
+        card = media
     elif what == "file":
         found = await _workspace_files(db, user_id, str(args.get("workspace") or ""), {"path": args.get("path")},
                                        read=True)
@@ -1021,6 +1029,88 @@ async def show_on_screen(db: AsyncSession, user_id: UUID, args: Dict[str, Any]) 
 
 
 IMAGE_LINK_SECONDS = 24 * 3600
+IMAGE_TYPES = (".png", ".jpg", ".jpeg", ".webp", ".gif")
+VIDEO_TYPES = (".mp4", ".webm", ".mov", ".m4v")
+MEDIA_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
+               ".gif": "image/gif", ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
+               ".m4v": "video/mp4"}
+GALLERY_LIMIT = 12
+
+
+async def _media_target(db: AsyncSession, user_id: UUID, args: Dict[str, Any]) -> Dict[str, Any]:
+    """The workspace and the container path of what was asked for, confined to the workspace's folder."""
+    from app.core.workspaces import fs_inspector
+
+    workspace_id, problem = await _resolve_workspace(db, user_id, str(args.get("workspace") or ""))
+    if problem or workspace_id is None:
+        return {"error": problem or "Name the workspace."}
+    workspace = next(w for w in await _workspaces(db, user_id) if w.id == workspace_id)
+    root = _root(workspace)
+    if not root:
+        return {"error": f"{workspace.name} has no folder registered."}
+    target = _inside(root, args.get("path"))
+    if target is None:
+        return {"error": "That path is outside the workspace."}
+    container = fs_inspector.host_to_container(target)
+    if container is None:
+        return {"error": "That path is outside the workspace."}
+    return {"workspace": workspace.name, "host": target, "container": container}
+
+
+async def _is_folder(db: AsyncSession, user_id: UUID, args: Dict[str, Any]) -> bool:
+    found = await _media_target(db, user_id, args)
+    return not found.get("error") and found["container"].is_dir()
+
+
+_SKIP_FOLDERS = {"node_modules", ".git", ".next", "dist", "build", "__pycache__", ".venv", "venv"}
+
+
+def _media_in(folder, depth: int = 3, limit: int = 3000):
+    """Images and videos in a folder and its subfolders (a few levels down), skipping build and dependency
+    folders and hidden ones."""
+    found, seen = [], 0
+    stack = [(folder, 0)]
+    while stack and seen < limit:
+        current, level = stack.pop()
+        try:
+            entries = list(current.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            seen += 1
+            if entry.is_dir():
+                if level < depth and entry.name not in _SKIP_FOLDERS and not entry.name.startswith("."):
+                    stack.append((entry, level + 1))
+            elif entry.suffix.lower() in MEDIA_TYPES:
+                found.append(entry)
+    return found
+
+
+async def _media_card(db: AsyncSession, user_id: UUID, args: Dict[str, Any]) -> Dict[str, Any]:
+    """An image or video as itself, or a folder as a gallery of its images and videos (newest first)."""
+    found = await _media_target(db, user_id, args)
+    if found.get("error"):
+        return found
+    path, where = found["container"], str(args.get("path") or "")
+    if path.is_dir():
+        files = sorted(_media_in(path), key=lambda f: f.stat().st_mtime, reverse=True)
+        if not files:
+            return {"error": f"There are no images or videos in {where or 'that folder'}."}
+        sections = []
+        for f in files[:GALLERY_LIMIT]:
+            link = await image_link(str(f))
+            sections.append({"heading": str(f.relative_to(path)), **({"video": link} if f.suffix.lower() in VIDEO_TYPES
+                                                    else {"image": link})})
+        more = f" · showing the newest {GALLERY_LIMIT}" if len(files) > GALLERY_LIMIT else ""
+        return {"kind": "gallery", "title": where or found["workspace"],
+                "subtitle": f"{found['workspace']} · {len(files)} image(s) and video(s){more}", "sections": sections}
+    if not path.is_file():
+        return {"error": f"No file at {where}."}
+    link = await image_link(str(path))
+    kind = "video" if path.suffix.lower() in VIDEO_TYPES else "image"
+    return {"kind": kind, "title": path.name,
+            "subtitle": f"{found['workspace']} · {where} · {round(path.stat().st_size / 1e6, 1)} MB",
+            "sections": [{"heading": "", kind: link}]}
 
 
 async def image_link(container_path: str) -> str:
@@ -1052,9 +1142,15 @@ async def image_for(token: str) -> Optional[str]:
     roots = [os.path.normpath(r) for r in (settings.WORKSPACE_CONTAINER_ROOT, SANDBOX_CONTAINER_ROOT)]
     real = os.path.realpath(path)
     inside = any(real.startswith(os.path.realpath(root) + os.sep) for root in roots)
-    if not (inside and real.lower().endswith(".png") and os.path.isfile(real)):
+    if not (inside and real.lower().endswith(tuple(MEDIA_TYPES)) and os.path.isfile(real)):
         return None
     return real
+
+
+def media_type(path: str) -> str:
+    import os
+
+    return MEDIA_TYPES.get(os.path.splitext(path)[1].lower(), "application/octet-stream")
 
 
 async def _make_image(db: AsyncSession, user_id: UUID, args: Dict[str, Any]) -> Dict[str, Any]:

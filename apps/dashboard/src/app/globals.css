@@ -500,3 +500,9 @@ html body.jai-theme .border-rose-100, html body.jai-theme .border-rose-200, html
 .switch-error { margin: 10px 0 0; color: #f87171; font-size: 12px; }
 @media (max-width: 1100px) { .switch-list { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 700px) { .switch-list { grid-template-columns: 1fr; } }
+
+/* A workspace folder's images and videos, as a gallery JAI puts on screen. */
+.jai-display[data-kind="gallery"] .jai-display-section { display: inline-block; width: calc(33.33% - 10px); margin: 0 10px 10px 0; vertical-align: top; }
+.jai-display[data-kind="gallery"] .jai-display-section h4 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.jai-display[data-kind="gallery"] .jai-display-image { max-height: 200px; }
+@media (max-width: 700px) { .jai-display[data-kind="gallery"] .jai-display-section { width: calc(50% - 10px); } }

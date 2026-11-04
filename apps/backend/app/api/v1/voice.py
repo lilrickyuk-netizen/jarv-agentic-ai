@@ -276,7 +276,7 @@ async def voice_image(token: str):
     path = await live.image_for(token)
     if path is None:
         raise HTTPException(status_code=404, detail="That image link has expired.")
-    return FileResponse(path, media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
+    return FileResponse(path, media_type=live.media_type(path), headers={"Cache-Control": "private, max-age=3600"})
 
 
 @router.get("/spend/today")

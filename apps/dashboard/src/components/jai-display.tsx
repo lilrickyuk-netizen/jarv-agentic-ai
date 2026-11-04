@@ -33,10 +33,14 @@ export function JaiDisplay() {
           )}
           {section.items && <ul>{section.items.map((item, i) => <li key={i}>{item}</li>)}</ul>}
           {section.code !== undefined && <pre>{section.code}</pre>}
-          {/* Only JAI's own image links (its backend, through this dashboard) are shown. */}
+          {/* Only JAI's own media links (its backend, through this dashboard) are shown. */}
           {section.image?.startsWith('/api/backend/') && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img className="jai-display-image" src={section.image} alt={card.title} />
+            <img className="jai-display-image" src={section.image} alt={section.heading || card.title} />
+          )}
+          {section.video?.startsWith('/api/backend/') && (
+            <video className="jai-display-image" src={section.video} controls preload="metadata"
+              aria-label={section.heading || card.title} />
           )}
         </div>
       ))}
