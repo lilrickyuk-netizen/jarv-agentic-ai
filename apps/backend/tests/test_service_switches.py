@@ -48,7 +48,8 @@ def test_the_image_generator_is_switched_on_and_off(docker):
     assert asyncio.run(ops.switch("comfyui", True))["changed"] == []  # already on: nothing sent
     asyncio.run(ops.switch("comfyui", False))
     posts = [p for m, p, _ in docker.requests if m == "POST"]
-    assert posts == ["/containers/aaaaaaaaaaaa" + "f" * 52 + "/start", "/containers/aaaaaaaaaaaa" + "f" * 52 + "/stop"]
+    # The adapter addresses a container by its short id, as for restarts.
+    assert posts == ["/containers/aaaaaaaaaaaa/start", "/containers/aaaaaaaaaaaa/stop"]
 
 
 @pytest.mark.parametrize("service", ["postgres", "backend", "redis", "docker-proxy", "anything"])
@@ -64,6 +65,17 @@ def test_a_service_that_is_not_installed_is_reported(docker):
 
 
 def test_the_command_center_switch_is_audited(docker, client):
+    from app.core.auth import get_current_user_id
+    from app.main import app
+
+    app.dependency_overrides[get_current_user_id] = lambda: "admin_richard"
+    try:
+        _switch_through_the_api(client)
+    finally:
+        app.dependency_overrides.pop(get_current_user_id, None)
+
+
+def _switch_through_the_api(client):
     listed = client.get("/api/operations/switches").json()
     assert listed["available"] is True and listed["memory_total_gb"] > 0
     assert [s["service"] for s in listed["switches"]] == list(docker_ops.SWITCHABLE)
