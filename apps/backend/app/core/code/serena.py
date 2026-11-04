@@ -65,7 +65,7 @@ class SerenaClient:
         try:
             return await self.client.post(f"{self.base}/mcp", headers=headers, json=body)
         except httpx.HTTPError as exc:
-            raise CodeUnavailable(f"JAI's code understanding (Serena) could not be reached ({type(exc).__name__}). Switch it on under "JAI's services" in the Command Center.") from exc
+            raise CodeUnavailable(f"JAI's code understanding (Serena) could not be reached ({type(exc).__name__}). Switch it on in the Command Center (JAI's services panel).") from exc
 
     async def _rpc(self, method: str, params: Dict[str, Any]) -> Any:
         self._id += 1

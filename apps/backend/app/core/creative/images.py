@@ -84,7 +84,7 @@ async def generate(prompt: str, width: int = 1024, height: int = 1024, seed: Opt
             queued = await client.post(f"{base}/prompt", json={"prompt": workflow(prompt, width, height, seed)})
         except httpx.HTTPError as exc:
             raise ImageUnavailable(f"JAI's image generator could not be reached ({type(exc).__name__}): it is switched "
-                                   "off or still starting. Switch it on under \"JAI's services\" in the Command Center "
+                                   "off or still starting. Switch it on in the Command Center (JAI's services panel) "
                                    "(it needs the NVIDIA GPU and about 7 GB of memory).") from exc
         if queued.status_code >= 400:
             raise ImageUnavailable(f"The image generator refused the image: {queued.text[:300]}")

@@ -50,7 +50,7 @@ async def act(session: str, action: str, args: Dict[str, Any],
         response = await client.post(f"{base}{path}", json=body,
                                      headers={"Authorization": f"Bearer {getattr(settings, 'BROWSER_TOKEN', '') or ''}"})
     except httpx.HTTPError as exc:
-        raise BrowserUnavailable(f"JAI's browser could not be reached ({type(exc).__name__}). Switch it on under "JAI's services" in the Command Center.") from exc
+        raise BrowserUnavailable(f"JAI's browser could not be reached ({type(exc).__name__}). Switch it on in the Command Center (JAI's services panel).") from exc
     finally:
         if owned:
             await client.aclose()

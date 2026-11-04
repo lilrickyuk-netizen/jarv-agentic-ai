@@ -87,7 +87,7 @@ async def render(spec: Dict[str, Any], narration_wav: bytes, images: List[bytes]
         try:
             made = await client.post(f"{base}/render", data={"spec": json.dumps(spec)}, files=files)
         except httpx.HTTPError as exc:
-            raise VideoUnavailable(f"JAI's video maker could not be reached ({type(exc).__name__}). Switch it on under "JAI's services" in the Command Center.") from exc
+            raise VideoUnavailable(f"JAI's video maker could not be reached ({type(exc).__name__}). Switch it on in the Command Center (JAI's services panel).") from exc
         if made.status_code != 200 or made.content[4:8] != b"ftyp":
             detail = made.text[:300] if made.status_code != 200 else "not an MP4"
             raise VideoUnavailable(f"The video could not be made: {detail}")
