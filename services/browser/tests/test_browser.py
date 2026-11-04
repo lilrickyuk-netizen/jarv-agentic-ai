@@ -5,6 +5,7 @@ container's own loopback (the test allows that address; the service never does).
 import asyncio
 import http.server
 import re
+import signal
 import threading
 import types
 
@@ -36,7 +37,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 @pytest.fixture()
 def site(monkeypatch):
-    httpd = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+    # A threading server: Chromium opens spare connections ahead of time, and a one-at-a-time server would wait on
+    # one of those forever instead of answering the page.
+    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    httpd.daemon_threads = True
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     monkeypatch.setattr(server, "TOKEN", "test-token")
     real = server.public_url
@@ -84,6 +88,18 @@ def test_the_browser_needs_jais_token():
 
 
 def test_an_agent_reads_a_page_types_its_email_and_is_stopped_at_the_password(site):
+    def too_long(*_):
+        raise TimeoutError("the browser test took over 3 minutes")
+
+    signal.signal(signal.SIGALRM, too_long)
+    signal.alarm(180)
+    try:
+        _drive_the_page(site)
+    finally:
+        signal.alarm(0)
+
+
+def _drive_the_page(site):
     with TestClient(server.app) as client:
         opened = client.post("/open", headers=AUTH, json={"session": "m1", "url": site + "/"}).json()
         assert opened["ok"] is True, opened

@@ -121,6 +121,7 @@ class Session:
 
         self.browser = BrowserSession(
             headless=True, chromium_sandbox=False, keep_alive=True, accept_downloads=False,
+            enable_default_extensions=False,  # no ad-blocker or cookie extensions fetched from the web
             user_data_dir=tempfile.mkdtemp(prefix="jai-browser-"),
             prohibited_domains=list(PROHIBITED))
         await self.browser.start()

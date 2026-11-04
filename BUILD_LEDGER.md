@@ -14062,3 +14062,16 @@ TESTS RUN: Serena answered JAI's MCP initialize and tools/list from the worker, 
 RESULT: Serena kept restarting with exit code 127 after Wave 5: v2.1.0 has no serena-mcp-server program (it is the serena command's start-mcp-server). The service now starts with serena start-mcp-server and the same read-only context, options and volumes.
 BLOCKERS: None
 NEXT TASK: Mission quality (deliverables and standards)
+
+---
+
+TASK ID: WAVE-6-BROWSER-TEST
+TASK NAME: The browser's own test serves its page with a threading server; browser-use fetches no extensions
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: services/browser/server.py, services/browser/tests/test_browser.py
+COMMANDS RUN: browser image build (cached) and its tests with no network
+TESTS RUN: browser service suite, now with a three-minute limit on the real-Chromium test
+RESULT: On Richard's computer the real-Chromium test hung: Chromium opens spare connections ahead of time and the test's one-at-a-time page server waited on one of them forever. The test page is now served by a threading server, the test fails within three minutes instead of hanging, and JAI's browser no longer asks browser-use to fetch its ad-blocker and cookie extensions from the web.
+BLOCKERS: None
+NEXT TASK: Mission quality (deliverables and standards)
