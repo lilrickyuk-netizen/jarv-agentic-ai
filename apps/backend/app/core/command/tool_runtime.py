@@ -102,6 +102,89 @@ def command_timeout(command: str, classification: Optional[str] = None, approved
         return int(settings.AGENT_LONG_COMMAND_TIMEOUT_SECONDS)
     return int(settings.AGENT_COMMAND_TIMEOUT_SECONDS)
 
+# Commands that start a server or a watcher: they never end on their own, so as a mission step they would hold the
+# mission until the command timeout (up to 15 minutes) and then report nothing useful.
+_RUNNERS = ("npx", "pnpx", "bunx", "uvx")
+_EXEC = {("pnpm", "exec"), ("pnpm", "dlx"), ("yarn", "dlx"), ("yarn", "exec"), ("npm", "exec"), ("uv", "run"),
+         ("poetry", "run"), ("pipenv", "run")}
+_SERVER_SCRIPTS = {"dev", "start", "serve", "watch", "preview", "develop"}
+_SERVERS = {("next", "dev"), ("next", "start"), ("nuxt", "dev"), ("nuxi", "dev"), ("astro", "dev"),
+            ("remix", "dev"), ("vite", "dev"), ("vite", "serve"), ("vite", "preview"), ("webpack", "serve"),
+            ("ng", "serve"), ("expo", "start"), ("react-scripts", "start"), ("flask", "run"),
+            ("fastapi", "dev"), ("fastapi", "run"), ("wrangler", "dev"), ("vercel", "dev"), ("netlify", "dev"),
+            ("gatsby", "develop"), ("svelte-kit", "dev"), ("ember", "serve"), ("hugo", "server"),
+            ("jekyll", "serve"), ("rails", "server"), ("rails", "s"), ("php", "artisan")}
+_ALWAYS_SERVERS = {"uvicorn", "gunicorn", "hypercorn", "daphne", "nodemon", "http-server", "live-server",
+                   "webpack-dev-server", "tsc-watch", "serve", "json-server", "browser-sync"}
+
+
+def never_ends(argv: List[str]) -> Optional[str]:
+    """Why ``argv`` would run until it is stopped (a dev server, a watcher, compose in the foreground), or None."""
+    words = [str(w) for w in argv]
+    while words:
+        head = Path(words[0]).name.lower()
+        if head in _RUNNERS:
+            words = words[1:]
+        elif len(words) > 1 and (head, words[1].lower()) in _EXEC:
+            words = words[2:]
+        else:
+            break
+        while words and words[0].startswith("-"):  # npx -y next dev
+            words = words[1:]
+    if not words:
+        return None
+    head = Path(words[0]).name.lower()
+    rest = [w.lower() for w in words[1:]]
+    flags = set(rest)
+    why = None
+    if flags & {"--watch", "--watchall", "--watch-all"} or (head == "tsc" and "-w" in flags):
+        why = "it watches for changes and never finishes"
+    elif head in _ALWAYS_SERVERS:
+        why = f"{head} starts a server that keeps running"
+    elif head in ("npm", "pnpm", "yarn", "bun"):
+        script = rest[1] if rest[:1] == ["run"] and len(rest) > 1 else (rest[0] if rest else "")
+        if script in _SERVER_SCRIPTS:
+            why = f"'{head} {'run ' if rest[:1] == ['run'] else ''}{script}' starts the app's server or watcher"
+    elif head == "vite" and (not rest or rest[0].startswith("-")):
+        why = "vite on its own starts the development server"
+    elif head == "vitest" and (not rest or rest[0] in ("watch", "dev")):
+        why = "vitest on its own watches for changes"
+    elif rest and (head, rest[0]) in _SERVERS and not (head == "php" and rest[1:2] != ["serve"]):
+        why = f"'{head} {rest[0]}' starts a server that keeps running"
+    elif head in ("python", "python3") and rest[:2] in (["-m", "http.server"], ["manage.py", "runserver"]):
+        why = "it starts a server that keeps running"
+    elif head == "manage.py" and rest[:1] == ["runserver"]:
+        why = "it starts a server that keeps running"
+    elif head in ("docker", "docker-compose"):
+        sub = rest[1:] if head == "docker" and rest[:1] == ["compose"] else rest
+        if sub[:1] == ["up"] and not flags & {"-d", "--detach", "--wait"}:
+            why = "compose in the foreground keeps running"
+        elif head == "docker" and rest[:1] == ["logs"] and flags & {"-f", "--follow"}:
+            why = "following logs never finishes"
+    if why is None:
+        return None
+    return (f"Not run: {why}, so it would hold this step until the command timeout and tell you nothing. Run the "
+            "check once instead: the build (for example `npm run build`), the tests once (`vitest run`, `jest`, "
+            "`pytest`), the type check (`tsc --noEmit`), or the project's own smoke test. To try a server, "
+            "use `docker compose up -d` (or `--wait`) and then a single request to it.")
+
+
+def _stop_group(proc) -> None:
+    """Stop a command and everything it started."""
+    if proc is None or proc.returncode is not None:
+        return
+    import os
+    import signal
+
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except Exception:  # noqa: BLE001 - the process ended already, or has no group of its own
+        try:
+            proc.kill()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 class ToolRuntime:
     """Executes named tools, recording each call on the task + feed + audit.
 
@@ -626,22 +709,28 @@ class ToolRuntime:
             await self._record("run_command", {"command": command}, False, "blocked: not one plain command")
             return {"success": False, "blocked": True, "classification": "dangerous",
                     "reason": "Run one plain command (no &&, ;, |, >, $ or backticks)."}
+        endless = never_ends(argv)
+        if endless:
+            await self._record("run_command", {"command": command}, False, endless)
+            return {"success": False, "classification": cls, "never_ends": True, "reason": endless}
         stdout = stderr = ""
         exit_code = -1
+        proc = None
         try:
+            # Its own process group, so a timeout stops everything it started (a dev server's children too).
             proc = await asyncio.create_subprocess_exec(
                 *argv,
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, cwd=cwd,
+                stdin=asyncio.subprocess.DEVNULL, start_new_session=True,
             )
             out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
             exit_code = proc.returncode
             stdout = out.decode("utf-8", errors="replace")[:8000]
             stderr = err.decode("utf-8", errors="replace")[:4000]
-        except asyncio.TimeoutError:
-            try:
-                proc.kill()
-            except Exception:  # noqa: BLE001
-                pass
+        except (asyncio.TimeoutError, asyncio.CancelledError) as stopped:
+            _stop_group(proc)
+            if isinstance(stopped, asyncio.CancelledError):
+                raise
             await self._record("run_command", {"command": command}, False,
                                f"timed out after {timeout}s")
             await self._persist_command_run(command, cwd_host, None, "timeout", "timeout", False)

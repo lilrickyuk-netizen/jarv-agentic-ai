@@ -179,6 +179,9 @@ def _no_spend_limit_unless_a_test_sets_one(monkeypatch):
     monkeypatch.setattr(settings, "PROMPTFOO_TOKEN", None)
     monkeypatch.setattr(settings, "KNOWLEDGE_TOKEN", None)
     monkeypatch.setattr(settings, "JAI_REPO_GIT", "")
+    # A mission's team plans with one more model call; the tests of the team turn it on, scripted missions run as
+    # one agent.
+    monkeypatch.setattr(settings, "MISSION_TEAM_ENABLED", False)
 
 
 @pytest.fixture(autouse=True)

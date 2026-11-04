@@ -367,6 +367,14 @@ class Settings(BaseSettings):
     DAILY_SPEND_LIMIT_USD: float = Field(default=10.0, ge=0, le=10000)
     AGENT_COMMAND_TIMEOUT_SECONDS: int = Field(default=120, ge=10, le=3600)
     AGENT_LONG_COMMAND_TIMEOUT_SECONDS: int = Field(default=900, ge=60, le=7200)
+    # Missions are run by a team: the orchestrator plans work packages, specialist agents (sub-agents of the
+    # mission's lead, recorded on the Swarm page) do them in parallel, and an integration lead builds, tests and
+    # hands the whole to the independent Verifier. How many specialists work at once, how many packages one round
+    # may have, and how many 8-step rounds each specialist gets.
+    MISSION_TEAM_ENABLED: bool = True
+    MISSION_PARALLEL_AGENTS: int = Field(default=4, ge=1, le=16)
+    MISSION_MAX_PACKAGES: int = Field(default=10, ge=2, le=40)
+    MISSION_PACKAGE_ROUNDS: int = Field(default=2, ge=0, le=8)
     # Spoken replies are stored here for their owner and pruned after the retention period.
     VOICE_AUDIO_DIR: str = "/data/voice-audio"
     VOICE_AUDIO_RETENTION_HOURS: float = 24.0

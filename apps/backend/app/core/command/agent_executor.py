@@ -41,6 +41,11 @@ from app.core.command.metrics import MeteredRouter, Usage
 
 logger = logging.getLogger(__name__)
 
+# The watchdog on each step (a mission stalled for twelve minutes on one step): how long one model call and one tool
+# call may take before they are abandoned. A tool's own command timeout comes first; this catches the rest.
+MODEL_STEP_SECONDS = 900
+TOOL_STEP_SECONDS = max(1200, int(getattr(settings, "AGENT_LONG_COMMAND_TIMEOUT_SECONDS", 900) or 900) + 300)
+
 # Every workspace tool, for the mission. Memory links act on other records and stay with the Memory Agent.
 MISSION_TOOLS = tuple(sorted(name for name in WORKSPACE_TOOLS
                              if name not in ("memory_link_to_workspace", "memory_link_to_task")))
@@ -380,10 +385,16 @@ class AgentExecutor:
         if self._started_at is None:
             self._started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         self._round = (continuation, budget)
-        await progress.save(self.runtime.task_id, progress.snapshot(
+        record = progress.snapshot(
             self.runtime.calls, self.requirements, round_no=continuation + 1, step=self.iterations,
             step_budget=budget, phase=phase, usage=self.usage.summary(), started_at=self._started_at,
-            root=self.workspace_root, check=check, agent_said=getattr(self, "_agent_said", None)))
+            root=self.workspace_root, check=check, agent_said=getattr(self, "_agent_said", None))
+        record.update(self._progress_extra())
+        await progress.save(self.runtime.task_id, record)
+
+    def _progress_extra(self) -> Dict[str, Any]:
+        """More for the progress record (a mission run by a team adds the team)."""
+        return {}
 
     async def run(self, mission: str, steps_per_round: int = 8,
                   max_continuations: int = 4,
@@ -405,7 +416,9 @@ class AgentExecutor:
         self.prior_calls = [c for c in (prior_calls or []) if isinstance(c, dict)]
         if not prior_messages:
             standing = await self.hard_checks()
-            if standing is not None:
+            # The baseline is what the workspace held when the mission started: a team's lead keeps the one taken
+            # before its specialists changed anything.
+            if standing is not None and self.hard_baseline is None:
                 self.hard_baseline = {f["check"] + "|" + f["file"] + "|" + f["detail"]
                                       for f in standing["findings"]}
             if standing and standing.get("findings"):
@@ -528,10 +541,18 @@ class AgentExecutor:
                     + (f"\n\nREQUIREMENTS NOW:\n{render_requirements(self.requirements)}"
                        if self.requirements else ""))))
             self.context_trimmed += compact_messages(messages)
-            resp = await router.complete(CompletionRequest(
+            resp = await self._model_step(router, CompletionRequest(
                 model=self.model, messages=messages, system=system,
                 tools=tools, max_tokens=settings.AGENT_MAX_OUTPUT_TOKENS, temperature=0.0,
             ))
+            if resp is None:
+                # The model stopped answering: the round ends here with its work kept, and the mission carries
+                # on from this step in its next round instead of waiting on a call that never returns.
+                final_summary = (f"The model did not answer within {MODEL_STEP_SECONDS // 60} minutes, twice, at "
+                                 f"step {self.iterations}; the work so far is kept and the mission carries on "
+                                 f"from here.")
+                self.iterations -= 1
+                break
             self.tokens += (resp.usage or {}).get("total_tokens", 0)
 
             if not resp.tool_calls:
@@ -586,7 +607,7 @@ class AgentExecutor:
                         finished = True
                         out = {"acknowledged": True}
                 else:
-                    out = await self._dispatch(call["name"], call["args"])
+                    out = await self._tool_step(call["name"], call["args"])
                     if (self.first_edit_step is None and call["name"] in _EDITS and isinstance(out, dict)
                             and out.get("success") is True):
                         self.first_edit_step = self.iterations
@@ -1000,6 +1021,35 @@ class AgentExecutor:
         if raw.startswith("/"):
             return raw
         return str(PurePosixPath(root) / raw)
+
+    async def _model_step(self, router, request) -> Optional[Any]:
+        """One model call, with a watchdog: a call that has not answered in MODEL_STEP_SECONDS is abandoned and
+        asked once more; None when the second one does not answer either."""
+        import asyncio
+
+        for attempt in (1, 2):
+            try:
+                return await asyncio.wait_for(router.complete(request), timeout=MODEL_STEP_SECONDS)
+            except asyncio.TimeoutError:
+                logger.warning("mission %s: model call %s of 2 at step %s did not answer within %ss",
+                               getattr(self.runtime, "task_id", ""), attempt, self.iterations, MODEL_STEP_SECONDS)
+        return None
+
+    async def _tool_step(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        """One tool call, with a watchdog: a tool that has not returned in TOOL_STEP_SECONDS is stopped and the
+        agent told, so one hung call never holds the mission."""
+        import asyncio
+
+        limit = TOOL_STEP_SECONDS
+        try:
+            return await asyncio.wait_for(self._dispatch(name, args), timeout=limit)
+        except asyncio.TimeoutError:
+            logger.warning("mission %s: tool %s did not return within %ss", getattr(self.runtime, "task_id", ""),
+                           name, limit)
+            return {"success": False, "timed_out": True,
+                    "error": (f"{name} did not return within {limit // 60} minutes and was stopped. Do not run it "
+                              f"the same way again: if it starts something that keeps running, run a one-off "
+                              f"check instead; if it is slow, narrow it (one package, one test file).")}
 
     async def _dispatch(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         if self.toolbox is not None:

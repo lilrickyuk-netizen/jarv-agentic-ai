@@ -19,6 +19,7 @@ from uuid import uuid4
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.command.agent_executor import AgentExecutor
+from app.core.command.mission_org import mission_executor
 from app.core.command.tool_runtime import ToolRuntime
 from app.core.config import settings
 from app.core.runtime import lifecycle
@@ -236,7 +237,7 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
     runtime = ToolRuntime(db, task.workspace_id, task.id, operator=operator)
     # The same model that started the mission continues it.
     model = res.get("model") or getattr(settings, "DEFAULT_MODEL", "claude-sonnet-4-6")
-    executor = AgentExecutor(runtime, model, root)
+    executor = mission_executor(runtime, model, root)
     note = progress_note(res)
     result = await executor.run(f"{mission}\n\n{note}" if note else mission, steps_per_round=8,
                                 max_continuations=max_cont, start_continuation=prior,
@@ -278,6 +279,7 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
         # The mission's cost and effort across every round so far (Upgrade 5).
         "metrics": merge_metrics(res.get("metrics"), result.get("metrics") or {}),
         "tool_calls": (res.get("tool_calls") or []) + runtime.calls,
+        "team": result.get("team") or res.get("team"),
     })
     task.result = updated
     task.tokens_used = (task.tokens_used or 0) + int(result.get("tokens", 0))

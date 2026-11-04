@@ -20,6 +20,7 @@ class SwitchingDocker(FakeDocker):
         path = request.url.path
         if request.method == "POST" and (path.endswith("/start") or path.endswith("/stop")):
             self.requests.append((request.method, path, dict(request.url.params)))
+            self.waits = getattr(self, "waits", []) + [(request.extensions.get("timeout") or {}).get("read")]
             c = self.containers[path.split("/")[2][:12]]
             c["state"] = "running" if path.endswith("/start") else "exited"
             return httpx.Response(204)
@@ -118,3 +119,13 @@ def test_jai_knows_its_recent_upgrades_from_the_repository_history(tmp_path, mon
     assert found[0]["when"][:4].isdigit()
     monkeypatch.setattr(settings, "JAI_REPO_GIT", str(tmp_path / "missing"))
     assert asyncio.run(upgrades.recent()) == []
+
+
+def test_switching_off_waits_for_the_service_to_close_down(docker):
+    """Docker answers a stop when the container has exited; the video maker takes its full grace period. The request
+    used to give up after 10 seconds, so switching it off reported a failure."""
+    ops = docker.ops()
+    asyncio.run(ops.switch("chatterbox", False))
+    method, path, params = docker.requests[-1]
+    assert path.endswith("/stop") and params == {"t": str(docker_ops.STOP_GRACE_SECONDS)}
+    assert docker.waits[-1] > docker_ops.STOP_GRACE_SECONDS + 30

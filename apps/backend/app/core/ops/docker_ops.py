@@ -52,6 +52,8 @@ SWITCHABLE = {
     "browser": ("Browser", "browser-use with Chromium, for clicking through sites"),
     "serena": ("Code understanding", "Serena's language servers; up to 2 GB"),
 }
+# How long a switched-off service gets to close down before Docker stops it outright.
+STOP_GRACE_SECONDS = 15
 # Jobs that run once and exit (database migrations): exited with code 0 is their finished state.
 ONE_SHOT_SERVICES = frozenset({"migrate"})
 
@@ -241,8 +243,12 @@ class DockerOps:
         for container in matches:
             if (container.state == "running") == on:
                 continue
+            # Docker answers a stop only when the container has exited: up to STOP_GRACE_SECONDS for it to close
+            # down, then it is killed. The request waits that long and more (a 10-second wait made every switch-off
+            # of the video maker and image generator report a failure while they were still closing down).
             response = await self._request("POST", f"/containers/{container.id}/{'start' if on else 'stop'}",
-                                           params={} if on else {"t": "20"})
+                                           params={} if on else {"t": str(STOP_GRACE_SECONDS)},
+                                           timeout=httpx.Timeout(STOP_GRACE_SECONDS + 50.0, connect=5.0))
             if response.status_code not in (204, 304, 200):
                 raise OpsUnavailable(f"{'Starting' if on else 'Stopping'} {container.name} failed: "
                                      f"HTTP {response.status_code}")

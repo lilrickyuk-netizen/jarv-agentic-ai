@@ -2005,21 +2005,21 @@ class CommandService:
         system_context: Optional[Dict[str, Any]] = None,
     ) -> tuple[str, List[str], List[str], Dict[str, Any]]:
         """Autonomous tool-using agent loop: inspect -> edit -> build/test -> iterate."""
-        from app.core.command.agent_executor import AgentExecutor
+        from app.core.command.mission_org import mission_executor
 
         agents = self._validate_agents(
-            ["orchestrator", "coding", "debugging", "devops", "qa", "verifier"]
+            ["orchestrator", "swarm_manager", "coding", "debugging", "devops", "qa", "verifier"]
         )
         steps = [
-            "Orchestrator: hand the mission to the autonomous engineering loop.",
-            "Agent: inspect the workspace (list/read files) via tools.",
-            "Agent: edit files with the scoped write tool (Level 2).",
-            "Agent: run builds/tests via the command tool (Level 3) and read results.",
-            "Agent: iterate until the mission is verified or a boundary is reached.",
+            "Orchestrator: derive the mission's requirements and plan work packages for specialist agents.",
+            "Swarm Manager: spawn one scoped sub-agent per package (authority and tools no more than the lead's).",
+            "Specialists: do their packages in parallel, each writing only inside the paths it owns.",
+            "Integration lead: install, build and test the whole project and fix where the packages meet.",
+            "Verifier: accept the mission only on evidence for every requirement.",
         ]
         root = await self._resolve_ws_root(db, command_text)
         max_cont = 4
-        executor = AgentExecutor(runtime, self.model, root)
+        executor = mission_executor(runtime, self.model, root)
         result = await executor.run(command_text, steps_per_round=8, max_continuations=max_cont,
                                     known=_known_for_mission(system_context))
         extra: Dict[str, Any] = {
@@ -2042,6 +2042,7 @@ class CommandService:
             "agent_tokens": result["tokens"],
             "workspace_path": root,
             "mission": command_text,
+            "team": result.get("team"),
         }
         if result["needs_continuation"]:
             # Save a checkpoint + resume action; the work so far persists on disk in

@@ -818,7 +818,11 @@ def _brief(progress: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
             "files_changed": progress.get("files_changed_count", 0),
             "commands_failed": progress.get("commands_failed", 0),
             "last_failure": (progress.get("recent_failures") or [None])[-1],
-            "doing_now": progress.get("doing_now"), "updated_at": progress.get("updated_at")}
+            "doing_now": progress.get("doing_now"), "updated_at": progress.get("updated_at"),
+            # A mission run by a team: who is on it and what each specialist is doing.
+            "team": [{"who": f"{p.get('id')} {p.get('role')}", "package": p.get("title"), "status": p.get("status"),
+                      "step": p.get("step"), "doing_now": (p.get("doing_now") or "")[:160]}
+                     for p in ((progress.get("team") or {}).get("packages") or [])][:12] or None}
 
 
 async def _recent_missions(db: AsyncSession, user_id: UUID, limit: int = 6) -> List[Dict[str, Any]]:
