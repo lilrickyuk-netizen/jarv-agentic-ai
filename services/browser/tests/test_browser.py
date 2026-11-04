@@ -112,7 +112,8 @@ def test_an_agent_reads_a_page_types_its_email_and_is_stopped_at_the_password(si
 
     opened = call("/open", {"session": "m1", "url": page_site + "/"})
     assert opened["ok"] is True, opened
-    assert opened["title"] == "Plexecute waitlist" and opened["elements"] >= 4
+    # The page is read once it has loaded: its heading and every field and button are there.
+    assert "Join the Plexecute waitlist" in opened["page"] and opened["elements"] >= 4, opened
     page = opened["page"]
     email, password = _index(page, "email"), _index(page, "password")
     typed = call("/act", {"session": "m1", "action": "type", "index": email, "text": "hello@plexecute.co.uk"})

@@ -39,6 +39,7 @@ MAX_SESSIONS = int(os.environ.get("BROWSER_MAX_SESSIONS", "2"))
 IDLE_SECONDS = int(os.environ.get("BROWSER_IDLE_SECONDS", "600"))
 STATE_CHARS = int(os.environ.get("BROWSER_STATE_CHARS", "15000"))
 ACTION_SECONDS = 45.0
+SETTLE_SECONDS = float(os.environ.get("BROWSER_SETTLE_SECONDS", "10"))
 # Also refused by browser-use itself (its security watchdog), as a second lock behind public_url.
 PROHIBITED = ("localhost", "127.0.0.1", "backend", "worker", "searxng", "crawl4ai", "moneyprinter", "postgres",
               "redis", "browser", "knowledge", "docling", "promptfoo", "serena", "chatterbox", "comfyui", "postiz")
@@ -136,9 +137,24 @@ class Session:
                 log.warning("closing %s: %s", self.key, exc)
         self.browser = None
 
+    async def _settled(self):
+        """The page once it has finished loading: its document arrived, it has a title of its own or something to
+        use on it, and nothing it needs is still downloading; at most SETTLE_SECONDS, then as it is."""
+        deadline = time.monotonic() + SETTLE_SECONDS
+        while True:
+            summary = await asyncio.wait_for(self.browser.get_browser_state_summary(include_screenshot=False),
+                                             timeout=ACTION_SECONDS)
+            host = urllib.parse.urlparse(summary.url or "").netloc
+            titled = bool(summary.title) and summary.title not in (host, summary.url)
+            usable = bool(summary.dom_state.selector_map) or titled
+            loading = [r for r in summary.pending_network_requests or []
+                       if (r.resource_type or "") in ("Document", "Script", "Stylesheet", "XHR", "Fetch")]
+            if (usable and not loading) or (summary.url or "").startswith("about:") or time.monotonic() > deadline:
+                return summary
+            await asyncio.sleep(0.4)
+
     async def state(self) -> Dict[str, Any]:
-        summary = await asyncio.wait_for(self.browser.get_browser_state_summary(include_screenshot=False),
-                                         timeout=ACTION_SECONDS)
+        summary = await self._settled()
         problem = public_url(summary.url) if summary.url and not summary.url.startswith("about:") else None
         if problem:
             await self.act_raw("navigate", {"url": "about:blank"})
