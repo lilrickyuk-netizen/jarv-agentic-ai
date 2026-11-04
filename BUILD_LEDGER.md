@@ -14075,3 +14075,16 @@ TESTS RUN: browser service suite, the real-Chromium test against the service run
 RESULT: On Richard's computer the real-Chromium test hung inside the test harness, while the same browser image run as a real service opened example.com and read it back at once. The test now runs JAI's browser service as a real server in its own process (tests/run_service.py, which only lets that copy open the test's loopback page) and drives it over HTTP, the way the backend does; the test page is served by a threading server; and JAI's browser no longer asks browser-use to fetch its ad-blocker and cookie extensions from the web; and the browser now reads a page only once it has settled (its document loaded, a title or something to use on it, nothing it needs still downloading; at most ten seconds), since the first run read the test page a moment before it had loaded.
 BLOCKERS: None
 NEXT TASK: Mission quality (deliverables and standards)
+
+---
+
+TASK ID: WAVE-6-KNOWLEDGE-TEST
+TASK NAME: Knowledge service: a clear error without the gateway token, and each workspace's graph indexed on first use
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: services/knowledge/server.py, services/knowledge/tests/test_knowledge.py
+COMMANDS RUN: knowledge image build and its tests with no network
+TESTS RUN: knowledge service suite: the graph starts with a gateway token and searches a workspace's graph twice, its indexes built on first use; without the token the service says JAI_GATEWAY_TOKEN is missing
+RESULT: On Richard's computer the graph test failed because the test gave the service no gateway token, and Graphiti's OpenAI client will not start without a key (in the real service it is JAI's gateway token). The test now gives one, and the service says plainly when JAI_GATEWAY_TOKEN is missing. Graphiti on FalkorDB keeps one graph per workspace and builds a graph's search indexes only when told, so the service now builds them the first time each workspace's graph is used.
+BLOCKERS: None
+NEXT TASK: Mission quality (deliverables and standards)

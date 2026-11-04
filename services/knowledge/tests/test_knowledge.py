@@ -16,6 +16,8 @@ AUTH = {"Authorization": "Bearer test-token"}
 @pytest.fixture(autouse=True)
 def configured(monkeypatch, tmp_path):
     monkeypatch.setattr(server, "TOKEN", "test-token")
+    # The gateway token the service is given when installed; nothing here reaches the gateway.
+    monkeypatch.setattr(server, "GATEWAY_TOKEN", "test-gateway-token")
     monkeypatch.setattr(server, "GRAPH_FILE", str(tmp_path / "graph" / "jai.db"))
     monkeypatch.setattr(server, "HISTORY_FILE", str(tmp_path / "mem0" / "history.db"))
     monkeypatch.setattr(server, "STORE", server.Store())
@@ -45,7 +47,10 @@ def test_the_embedded_graph_starts_and_answers_a_search():
         server.STORE.graph.clients.embedder = server.STORE.graph.embedder
         found = client.post("/graph/search", headers=AUTH,
                             json={"query": "What does Plexecute use for payments?", "groups": ["ws-plexecute"]})
-        assert found.status_code == 200 and found.json() == {"facts": []}
+        assert found.status_code == 200 and found.json() == {"facts": []}, found.text
+        assert "ws-plexecute" in server.STORE.prepared  # its graph's search indexes were built on first use
+        again = client.post("/graph/search", headers=AUTH, json={"query": "Stripe", "groups": ["ws-plexecute"]})
+        assert again.json() == {"facts": []}
 
 
 def test_additions_are_queued_in_order_and_a_failure_does_not_stop_the_queue():
@@ -72,8 +77,20 @@ def test_additions_are_queued_in_order_and_a_failure_does_not_stop_the_queue():
 
 def test_mem0_is_set_up_on_jais_postgres_through_jais_gateway(monkeypatch):
     monkeypatch.setattr(server, "GATEWAY_TOKEN", "gateway-token")
+    assert asyncio.run(_without_gateway(monkeypatch)) is True
     config = server.STORE.mem0_config()
     assert config["vector_store"]["provider"] == "pgvector"
     assert config["llm"]["config"]["openai_base_url"].endswith("/api/gateway/v1")
     assert config["llm"]["config"]["api_key"] == "gateway-token" and config["embedder"]["config"]["api_key"] == "gateway-token"
     assert server._group("ws 1/../x") == "ws_1____x"
+
+
+async def _without_gateway(monkeypatch):
+    monkeypatch.setattr(server, "GATEWAY_TOKEN", "")
+    try:
+        await server.Store().graphiti()
+    except RuntimeError as exc:
+        return "JAI_GATEWAY_TOKEN" in str(exc)
+    finally:
+        monkeypatch.setattr(server, "GATEWAY_TOKEN", "gateway-token")
+    return False

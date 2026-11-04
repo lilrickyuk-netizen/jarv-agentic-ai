@@ -52,8 +52,11 @@ class Store:
         self.last_error: Optional[str] = None
         self.worker: Optional[asyncio.Task] = None
         self.lock = asyncio.Lock()
+        self.prepared: set = set()
 
     async def graphiti(self):
+        if not GATEWAY_TOKEN:
+            raise RuntimeError("JAI's gateway token is not set (JAI_GATEWAY_TOKEN), so the graph cannot use a model.")
         async with self.lock:
             if self.graph is None:
                 from graphiti_core import Graphiti
@@ -76,6 +79,16 @@ class Store:
                 self.graph = graph
             return self.graph
 
+    async def prepare(self, groups: List[str]):
+        """Graphiti on FalkorDB keeps one graph per workspace and builds a graph's search indexes only when told:
+        build them the first time a workspace's graph is used. The graph, ready."""
+        graph = await self.graphiti()
+        for group in groups:
+            if group not in self.prepared:
+                await graph.driver.clone(database=group).build_indices_and_constraints()
+                self.prepared.add(group)
+        return graph
+
     def mem0_config(self) -> Dict[str, Any]:
         return {
             "llm": {"provider": "openai", "config": {"model": MODEL, "api_key": GATEWAY_TOKEN,
@@ -91,6 +104,8 @@ class Store:
         }
 
     async def mem0(self):
+        if not GATEWAY_TOKEN:
+            raise RuntimeError("JAI's gateway token is not set (JAI_GATEWAY_TOKEN), so memory cannot use a model.")
         async with self.lock:
             if self.memory is None:
                 from mem0 import Memory
@@ -205,7 +220,7 @@ async def add_episode(body: Episode, authorization: Optional[str] = Header(defau
     group = _group(body.group)
 
     async def run() -> None:
-        graph = await STORE.graphiti()
+        graph = await STORE.prepare([group])
         await graph.add_episode(name=body.name, episode_body=body.body, source=EpisodeType.text,
                                 source_description=body.source, group_id=group,
                                 reference_time=body.reference_time or datetime.now(timezone.utc))
@@ -216,8 +231,8 @@ async def add_episode(body: Episode, authorization: Optional[str] = Header(defau
 @app.post("/graph/search")
 async def search_graph(body: GraphSearch, authorization: Optional[str] = Header(default=None)) -> Dict[str, Any]:
     _check(authorization)
-    graph = await STORE.graphiti()
     groups = [_group(g) for g in body.groups] or None
+    graph = await STORE.prepare(groups or [])
     edges = await graph.search(body.query, group_ids=groups, num_results=body.limit)
     return {"facts": [{"fact": e.fact, "relation": e.name, "group": getattr(e, "group_id", None),
                        "valid_from": _when(e.valid_at), "valid_until": _when(e.invalid_at),
