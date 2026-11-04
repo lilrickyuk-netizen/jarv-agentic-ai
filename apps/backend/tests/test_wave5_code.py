@@ -122,17 +122,15 @@ def test_jai_asks_only_read_only_questions_with_paths_inside_the_project():
     with pytest.raises(serena.CodeUnavailable, match="name of the symbol"):
         serena.arguments("code_references", {"path": "src/cart.py"})
     context = open(settings_path("services/serena/jai-context.yml")).read()
-    for editing in ("ToolMarkerCanEdit", "execute_shell_command", "write_memory", "serena_repl"):
+    for editing in ("replace_symbol_body", "create_text_file", "replace_content", "rename_symbol", "safe_delete_symbol",
+                    "execute_shell_command", "write_memory", "serena_repl"):
         assert f"- {editing}" in context
 
 
 def settings_path(relative):
-    from pathlib import Path
+    from tests.repo_paths import repo_path
 
-    for base in Path(__file__).resolve().parents:
-        if (base / relative).exists():
-            return base / relative
-    pytest.skip(f"{relative} is outside this checkout")
+    return repo_path(*relative.split("/"))
 
 
 def test_an_agent_reads_code_through_serena_inside_its_workspace_and_it_is_recorded(project, monkeypatch):

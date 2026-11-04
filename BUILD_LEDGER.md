@@ -14088,3 +14088,16 @@ TESTS RUN: knowledge service suite: the graph starts with a gateway token and se
 RESULT: On Richard's computer the graph test failed because the test gave the service no gateway token, and Graphiti's OpenAI client will not start without a key (in the real service it is JAI's gateway token). The test now gives one, and the service says plainly when JAI_GATEWAY_TOKEN is missing. Graphiti on FalkorDB keeps one graph per workspace and builds a graph's search indexes only when told, so the service now builds them the first time each workspace's graph is used.
 BLOCKERS: None
 NEXT TASK: Mission quality (deliverables and standards)
+
+---
+
+TASK ID: SERENA-AND-TEMPORAL-START
+TASK NAME: Serena's context names each editing tool exactly; Temporal is given its two databases
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: services/serena/jai-context.yml, apps/backend/tests/test_wave5_code.py
+COMMANDS RUN: Wave 5 tests; the temporal and temporal_visibility databases created in JAI's PostgreSQL, owned by the temporal user; Serena and Temporal restarted; JAI's check of the tools Serena offers
+TESTS RUN: Wave 5 suite with the context now required to switch off Serena's file-editing, symbol-editing, shell, memory and REPL tools by name
+RESULT: Serena stopped at start-up: v2.1.0 accepts only tool names in excluded_tools, not the ToolMarkerCanEdit marker. The context now lists every v2.1.0 tool that can change files, run commands or keep notes by its exact name (found from Serena's own source), so Serena starts with read-only tools only. Temporal kept restarting because its databases did not exist and its setup could not create them; they are now created for it.
+BLOCKERS: None
+NEXT TASK: Mission quality (deliverables and standards)
