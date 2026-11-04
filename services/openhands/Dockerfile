@@ -1,6 +1,6 @@
 # JAI's engineering sandbox: the OpenHands Software Agent SDK (MIT) 1.58.2 with the toolchain JAI's own agents use
-# (git, Node 24 with npm, pnpm and yarn, uv with Python 3.12 to 3.14, Task, Terraform, Helm, a C compiler, jq,
-# ripgrep, and mise for any other language). The service (app/server.py) runs as root and holds the tokens; the
+# (git, Node 24 with npm, pnpm and yarn, uv with Python 3.12 to 3.14, Task, Terraform, Helm, Syft, Trivy, Gitleaks,
+# a C compiler, jq, ripgrep, and mise for any other language). The service (app/server.py) runs as root and holds the tokens; the
 # agent's shell runs as the unprivileged user "openhands" (uid 1000, the owner of the workspace folders), so it
 # cannot read them. No Docker socket, no database and no other service's secrets are in this container.
 ARG NODE_IMAGE=node:24.21.0-bookworm-slim
@@ -35,6 +35,9 @@ RUN uv python install 3.12 3.13 3.14 && chmod -R a+rX /opt/uv-python
 ARG TASK_VERSION=3.52.0
 ARG TERRAFORM_VERSION=1.16.3
 ARG HELM_VERSION=4.3.0
+ARG SYFT_VERSION=1.55.0
+ARG TRIVY_VERSION=0.76.1
+ARG GITLEAKS_VERSION=8.30.1
 RUN set -eu; cd /tmp \
     && curl -fsSLO "https://github.com/go-task/task/releases/download/v${TASK_VERSION}/task_linux_amd64.tar.gz" \
     && curl -fsSLO "https://github.com/go-task/task/releases/download/v${TASK_VERSION}/task_checksums.txt" \
@@ -48,7 +51,24 @@ RUN set -eu; cd /tmp \
     && curl -fsSLO "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz.sha256sum" \
     && sha256sum -c "helm-v${HELM_VERSION}-linux-amd64.tar.gz.sha256sum" \
     && tar -xzf "helm-v${HELM_VERSION}-linux-amd64.tar.gz" --strip-components=1 -C /usr/local/bin linux-amd64/helm \
-    && rm -rf /tmp/*
+    && curl -fsSLO "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz" \
+    && curl -fsSLO "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_checksums.txt" \
+    && grep " syft_${SYFT_VERSION}_linux_amd64.tar.gz$" "syft_${SYFT_VERSION}_checksums.txt" | sha256sum -c - \
+    && tar -xzf "syft_${SYFT_VERSION}_linux_amd64.tar.gz" -C /usr/local/bin syft \
+    && curl -fsSLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_checksums.txt" \
+    && TRIVY_TGZ="$(grep -Eio "trivy_${TRIVY_VERSION}_linux[-_](64bit|amd64)\.tar\.gz" "trivy_${TRIVY_VERSION}_checksums.txt" | head -1)" \
+    && test -n "$TRIVY_TGZ" \
+    && curl -fsSLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${TRIVY_TGZ}" \
+    && grep " ${TRIVY_TGZ}$" "trivy_${TRIVY_VERSION}_checksums.txt" | sha256sum -c - \
+    && tar -xzf "${TRIVY_TGZ}" -C /usr/local/bin trivy \
+    && curl -fsSLO "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_checksums.txt" \
+    && GITLEAKS_TGZ="$(grep -Eio "gitleaks_${GITLEAKS_VERSION}_linux_(x64|amd64)\.tar\.gz" "gitleaks_${GITLEAKS_VERSION}_checksums.txt" | head -1)" \
+    && test -n "$GITLEAKS_TGZ" \
+    && curl -fsSLO "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${GITLEAKS_TGZ}" \
+    && grep " ${GITLEAKS_TGZ}$" "gitleaks_${GITLEAKS_VERSION}_checksums.txt" | sha256sum -c - \
+    && tar -xzf "${GITLEAKS_TGZ}" -C /usr/local/bin gitleaks \
+    && rm -rf /tmp/* \
+    && task --version && terraform version && helm version --short && syft version && trivy --version && gitleaks version
 
 # The agent's user, and git for it: commits it makes are authored as JAI; the workspace folders belong to the
 # Windows user, so git is told they are safe.

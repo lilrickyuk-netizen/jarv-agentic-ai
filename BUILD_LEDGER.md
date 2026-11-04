@@ -14218,3 +14218,16 @@ TESTS RUN: sandbox suite with a new test that builds and readies the whole OpenH
 RESULT: The first MYCO mission after the sandbox was installed sent its four packages (P1, P2, P3 and the integration engineer) to the sandbox, and every one failed the moment it started: OpenHands' Conversation shortcut does not take the per-run spending limit (only LocalConversation does), so no specialist ever ran a step. The run is now built with LocalConversation, and the test that builds the real conversation, which would have caught it, is part of the sandbox's suite. LiteLLM uses its own model price list instead of downloading one.
 BLOCKERS: None
 NEXT TASK: MYCO Phase 0
+
+---
+
+TASK ID: SANDBOX-TOOLCHAIN
+TASK NAME: The sandbox has Syft, Trivy and Gitleaks at JAI's pinned versions, so MYCO's verify task can pass there
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: services/openhands/Dockerfile, services/openhands/tests/test_sandbox.py
+COMMANDS RUN: sandbox image build and its tests (no network); sandbox rebuilt
+TESTS RUN: sandbox suite with a new test that Task, Terraform, Helm, Syft, Trivy and Gitleaks are installed at the versions JAI's own machine pins
+RESULT: The first sandbox mission on MYCO Phase 0 finished its audit and implementation packages (4 of 7 requirements done, about 13,400 lines changed), then its QA Engineer found "task verify" failing at the SBOM step: verify_syft_version.py, because the sandbox image had been built without Syft, Trivy and Gitleaks, which MYCO's Phase 0 verification runs. They are now in the image, checked against their published checksums, at the versions JAI's backend uses (Syft 1.55.0, Trivy 0.76.1, Gitleaks 8.30.1), and a test fails the build if any of the six tools is missing or at another version.
+BLOCKERS: None
+NEXT TASK: MYCO Phase 0

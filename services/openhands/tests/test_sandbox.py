@@ -159,3 +159,17 @@ def test_a_run_builds_the_whole_openhands_conversation_a_mission_uses(folder):
         assert conversation.max_budget_per_run == 2.0
     finally:
         conversation.close()
+
+
+@pytest.mark.parametrize("tool, version", [("task", "3.52.0"), ("terraform", "1.16.3"), ("helm", "4.3.0"),
+                                           ("syft", "1.55.0"), ("trivy", "0.76.1"), ("gitleaks", "8.30.1")])
+def test_the_sandbox_has_jais_toolchain_at_its_pinned_versions(tool, version):
+    """The same tools at the same versions as JAI's own machine: MYCO's verify task needs Syft, Trivy and Gitleaks."""
+    import shutil
+    import subprocess
+
+    assert shutil.which(tool), f"{tool} is missing from the sandbox"
+    flag = {"task": ["--version"], "terraform": ["version"], "helm": ["version", "--short"], "syft": ["version"],
+            "trivy": ["--version"], "gitleaks": ["version"]}[tool]
+    out = subprocess.run([tool, *flag], capture_output=True, text=True, timeout=30)
+    assert version in out.stdout + out.stderr
