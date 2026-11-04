@@ -44,7 +44,8 @@ def _fresh_clone_verify(folder: Path) -> Dict[str, Any]:
     """The project's acceptance command in a fresh clone, run here, outside the mission."""
     with tempfile.TemporaryDirectory(prefix="jai-acceptance-") as tmp:
         clone = Path(tmp) / "clone"
-        steps = [["git", "clone", "-q", str(folder), str(clone)], ["task", "verify"]]
+        # The workspace folder belongs to Richard's user on the Windows mount: git is told it is safe to clone.
+        steps = [["git", "-c", "safe.directory=*", "clone", "-q", str(folder), str(clone)], ["task", "verify"]]
         for argv in steps:
             done = subprocess.run(argv, cwd=None if argv[0] == "git" else clone, capture_output=True, text=True,
                                   timeout=600)
