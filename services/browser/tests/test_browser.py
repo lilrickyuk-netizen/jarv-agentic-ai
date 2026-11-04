@@ -2,12 +2,17 @@
 JAI's browser service: a real headless Chromium driven through browser-use, against a page served on this
 container's own loopback (the test allows that address; the service never does). No network is needed.
 """
-import asyncio
 import http.server
 import re
-import signal
+import socket
+import subprocess
+import sys
 import threading
+import time
 import types
+from pathlib import Path
+
+import httpx
 
 import pytest
 from fastapi.testclient import TestClient
@@ -36,20 +41,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 
 @pytest.fixture()
-def site(monkeypatch):
+def site():
+    """The test's own page on loopback, and JAI's browser service running as a real server in its own process."""
     # A threading server: Chromium opens spare connections ahead of time, and a one-at-a-time server would wait on
     # one of those forever instead of answering the page.
     httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     httpd.daemon_threads = True
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    monkeypatch.setattr(server, "TOKEN", "test-token")
-    real = server.public_url
-    monkeypatch.setattr(server, "public_url", lambda url: None if url.startswith("http://127.0.0.1:") else real(url))
-    monkeypatch.setattr(server, "PROHIBITED", tuple(d for d in server.PROHIBITED if d not in ("127.0.0.1",)))
-    yield f"http://127.0.0.1:{httpd.server_port}"
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    service = subprocess.Popen([sys.executable, str(Path(__file__).with_name("serve_for_test.py")), str(port)],
+                               cwd=str(Path(server.__file__).parent))
+    base = f"http://127.0.0.1:{port}"
+    for _ in range(100):
+        try:
+            if httpx.get(f"{base}/health", timeout=1).status_code == 200:
+                break
+        except httpx.HTTPError:
+            time.sleep(0.2)
+    yield f"http://127.0.0.1:{httpd.server_port}", base
+    service.terminate()
+    try:
+        service.wait(timeout=20)
+    except subprocess.TimeoutExpired:
+        service.kill()
     httpd.shutdown()
-    for key in list(server.SESSIONS):
-        asyncio.run(server.SESSIONS.pop(key).close())
 
 
 AUTH = {"Authorization": "Bearer test-token"}
@@ -88,33 +105,24 @@ def test_the_browser_needs_jais_token():
 
 
 def test_an_agent_reads_a_page_types_its_email_and_is_stopped_at_the_password(site):
-    def too_long(*_):
-        raise TimeoutError("the browser test took over 3 minutes")
+    page_site, base = site
 
-    signal.signal(signal.SIGALRM, too_long)
-    signal.alarm(180)
-    try:
-        _drive_the_page(site)
-    finally:
-        signal.alarm(0)
+    def call(path, body):
+        return httpx.post(base + path, json=body, headers=AUTH, timeout=90).json()
 
-
-def _drive_the_page(site):
-    with TestClient(server.app) as client:
-        opened = client.post("/open", headers=AUTH, json={"session": "m1", "url": site + "/"}).json()
-        assert opened["ok"] is True, opened
-        assert opened["title"] == "Plexecute waitlist" and opened["elements"] >= 4
-        page = opened["page"]
-        email, password = _index(page, "email"), _index(page, "password")
-        typed = client.post("/act", headers=AUTH, json={"session": "m1", "action": "type", "index": email,
-                                                        "text": "hello@plexecute.co.uk"}).json()
-        assert typed["ok"] is True, typed
-        refused = client.post("/act", headers=AUTH, json={"session": "m1", "action": "type", "index": password,
-                                                          "text": "hunter2"}).json()
-        assert refused["refused"] is True and refused["boundary"] is True and "password" in refused["reason"]
-        about = _index(client.post("/act", headers=AUTH, json={"session": "m1", "action": "read"}).json()["page"],
-                       "About Plexecute")
-        followed = client.post("/act", headers=AUTH, json={"session": "m1", "action": "click", "index": about}).json()
-        assert followed["ok"] is True and "helps you execute" in followed["page"], followed
-        assert client.post("/act", headers=AUTH, json={"session": "m1", "action": "evaluate"}).json()["refused"]
-        assert client.post("/close", headers=AUTH, json={"session": "m1"}).json()["closed"] is True
+    opened = call("/open", {"session": "m1", "url": page_site + "/"})
+    assert opened["ok"] is True, opened
+    assert opened["title"] == "Plexecute waitlist" and opened["elements"] >= 4
+    page = opened["page"]
+    email, password = _index(page, "email"), _index(page, "password")
+    typed = call("/act", {"session": "m1", "action": "type", "index": email, "text": "hello@plexecute.co.uk"})
+    assert typed["ok"] is True, typed
+    refused = call("/act", {"session": "m1", "action": "type", "index": password, "text": "hunter2"})
+    assert refused["refused"] is True and refused["boundary"] is True and "password" in refused["reason"]
+    about = _index(call("/act", {"session": "m1", "action": "read"})["page"], "About Plexecute")
+    followed = call("/act", {"session": "m1", "action": "click", "index": about})
+    assert followed["ok"] is True and "helps you execute" in followed["page"], followed
+    assert call("/act", {"session": "m1", "action": "evaluate"})["refused"]
+    assert call("/close", {"session": "m1"})["closed"] is True
+    # The real service still refuses this computer's own addresses: only the test's copy allows its page.
+    assert server.public_url(page_site + "/") is not None
