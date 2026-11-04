@@ -14257,3 +14257,16 @@ TESTS RUN: backend: a sandbox mission runs the environment engineer first, the s
 RESULT: Three days on MYCO Phase 0 came from JAI being held back rather than from the work: the lead and the Verifier still used JAI's old tool loop (one plain command, no /tmp), so the specification's fresh-clone acceptance check could never be run and Phase 0 could never be accepted; specialists were blocked from files outside their package; nothing prepared the environment, so a pinned tool missing (Syft 1.52.0) stopped every package; and the sandbox's specialists had none of JAI's knowledge or services. Now a sandbox mission is: the Environment Engineer (every pinned tool at its version, bootstrap passing), the planned specialists, the integration engineer (the whole build, tests and acceptance commands), and the independent Verifier, which runs the acceptance commands itself with a full shell (fresh clone in /tmp) and never changes files; its evidence for every requirement, with JAI's hard checks, decides the round. Every specialist has JAI's memory, knowledge graph, Richard's wishes, specialist knowledge, research, documents, browser, code understanding and media through JAI's MCP server, each call through JAI's toolbox at the run's authority and recorded. Only Richard's hard boundaries stay blocked. Each upgrade is now proved by a real mission before it is kept.
 BLOCKERS: None
 NEXT TASK: MYCO Phase 0
+
+---
+
+TASK ID: VOICE-JAY-REALTIME
+TASK NAME: Jay talks in real time (OpenAI Realtime, speech to speech) as a JARVIS-style British aide who calls Richard boss
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/voice/live.py, apps/backend/tests/test_voice_conversational.py
+COMMANDS RUN: backend test suite; VOICE_ENGINE=realtime set in apps/backend/.env; backend restarted
+TESTS RUN: backend suite with a new test that both voice engines are told who Jay is (a JARVIS-style British aide with a Received Pronunciation accent, calm, dry wit, calling Richard boss now and then, never sir) along with how to talk
+RESULT: Richard wanted a real-time conversation in a JARVIS-style voice and personality. The voice now runs on OpenAI's Realtime model (speech to speech, interruptible, replies in about a second) instead of the slower transcribe, think and speak pipeline, which stays as the fallback. Both engines get the same instructions: JAI's facts and tools, how to talk (short first sentence, never recite), and who Jay is: an unflappable, refined British aide with a dry wit who is a step ahead, candid about problems and calls him boss now and then. The live voice's cost counts against the daily spending limit.
+BLOCKERS: None
+NEXT TASK: MYCO Phase 0

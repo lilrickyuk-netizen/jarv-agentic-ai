@@ -50,3 +50,10 @@ def test_the_workspace_is_taken_from_what_he_said_as_heard():
     assert live.workspace_named_in(spaces, "carry on building my core mission").name == "MYCO"
     assert live.workspace_named_in(spaces, "a banner for Plexecute's waitlist").name == "Plexecute"
     assert live.workspace_named_in(spaces, "what's the weather") is None
+
+
+def test_both_voices_speak_as_richards_jarvis_style_aide():
+    for brain in (True, False):
+        text = live.spoken_instructions([], brain=brain)
+        assert "You are Jay, a JARVIS-style aide" in text and "Received Pronunciation" in text
+        assert "'boss' now and then" in text and "never 'sir'" in text and "Never recite" in text

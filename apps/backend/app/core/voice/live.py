@@ -210,6 +210,11 @@ def instructions(spaces: List[Any], brain: bool = False) -> str:
     return text
 
 
+def spoken_instructions(spaces: List[Any], brain: bool = False) -> str:
+    """What either voice engine is told: JAI's instructions, how to talk, and who it is when it speaks."""
+    return instructions(spaces, brain=brain) + SPOKEN_TEXT + CONVERSATION_STYLE + PERSONA
+
+
 def _instructions(spaces: List[Any]) -> str:
     projects = "; ".join(f"{w.name} (folder {_root(w)})" if _root(w) else f"{w.name} (no folder registered)"
                          for w in spaces) or "none yet"
@@ -504,6 +509,16 @@ CONVERSATION_STYLE = (
     "contractions and everyday words, vary how you begin, use his name only now and then, and keep the odd light "
     "touch of humour. If he interrupts or changes the subject, follow him at once. Silence is fine: never fill it.\n")
 
+# Who Jay is when it speaks: a JARVIS-style aide, Richard's own, for his AI operating system.
+PERSONA = (
+    "\nWHO YOU ARE WHEN YOU SPEAK. You are Jay, a JARVIS-style aide: an unflappable, impeccably capable British AI "
+    "with a refined Received Pronunciation accent, never American. Calm, precise, loyal and quietly confident; warm "
+    "underneath, with a dry, understated wit and the occasional gently ironic aside, never a joke at his expense. "
+    "You call Richard 'boss' now and then, never every sentence, and never 'sir'. You are always a step ahead: you "
+    "say what matters before he asks, you anticipate the next thing he will need, and you are candid when something "
+    "is wrong ('I'm afraid the verify step failed, boss: Syft is missing'). Never servile, never chatty, never "
+    "hedging: brief, exact, composed, even when the news is bad.\n")
+
 SPOKEN_TEXT = ("\nYour replies are spoken aloud by a text-to-speech voice: plain sentences only, never markdown, "
                "lists, headings, emoji, code or URLs; say numbers and ids the way a person would read them. "
                "Open the conversation with one short sentence that tells him what matters right now, from the "
@@ -533,8 +548,7 @@ async def pipeline_brief(db: AsyncSession, user_id: UUID) -> Dict[str, Any]:
                               f"${state['limit_usd']:.2f}), so the live conversation cannot start until it is raised "
                               f"(DAILY_SPEND_LIMIT_USD) or the day turns over.")
     spaces = await _workspaces(db, user_id)
-    text = (instructions(spaces, brain=True) + SPOKEN_TEXT + CONVERSATION_STYLE + now_block()
-            + history_block(await recent_turns(user_id)))
+    text = (spoken_instructions(spaces, brain=True) + now_block() + history_block(await recent_turns(user_id)))
     await AuditLogger.log_system_event(db, action=SESSION_ACTION, result="ok", resource_type="voice",
                                        user_id=user_id, details={"engine": "pipecat",
                                                                  "model": settings.VOICE_PIPELINE_MODEL})
@@ -600,7 +614,7 @@ async def create_session(db: AsyncSession, user_id: UUID) -> Dict[str, Any]:
     model, voice = settings.OPENAI_REALTIME_MODEL, settings.OPENAI_REALTIME_VOICE
     body = {"session": {
         "type": "realtime", "model": model,
-        "instructions": (instructions(spaces) + now_block() + await situation_block(db, user_id)
+        "instructions": (spoken_instructions(spaces) + now_block() + await situation_block(db, user_id)
                          + history_block(await recent_turns(user_id))),
         "tools": VOICE_TOOLS, "tool_choice": "auto",
         "audio": {"input": {"transcription": {"model": settings.OPENAI_REALTIME_TRANSCRIBE_MODEL},
