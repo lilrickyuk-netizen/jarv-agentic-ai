@@ -14179,3 +14179,16 @@ TESTS RUN: backend suite with new tests: a mission planned into two packages run
 RESULT: Missions ran as one agent with 40 steps, however big the job, while JAI's specialist agents and swarm sat unused, so MYCO Phase 0 crawled for two days. Now the Orchestrator plans each mission from its requirements, the workspace and the specification into up to 10 work packages, each for one of 21 specialists briefed with that role's working standard; the Swarm Manager spawns them as sub-agents (authority and tools no more than the lead's, no deleting or pushing, no further spawning), up to 4 at once in dependency waves, each writing only in the paths its package owns while commands, installs and git take turns on the machine; every sub-agent, task and tool call is on the Swarm page with its parent agent and cost. The integration lead then builds and tests the whole and fixes the joins, and the independent Verifier accepts only on evidence for every requirement; a later round plans again for what is still open. A step can no longer hang a mission: a model call that does not answer in 15 minutes (twice) ends the round with the work kept, a tool that does not return in 20 minutes is stopped, a dev server or watcher (npm run dev, vite, uvicorn, compose without -d) is not started, and a timed-out command's whole process group is stopped. Paths copied out of a sentence lose its brackets and punctuation. Switching the video maker or image generator off no longer reports a failure while it closes down (the request waited 10 seconds for a 20-second stop). The voice's mission updates include who on the team is doing what.
 BLOCKERS: None
 NEXT TASK: MYCO Phase 0
+
+---
+
+TASK ID: SWARM-PAGE
+TASK NAME: The Swarm page shows each mission's team from the backend's real data
+STATUS: COMPLETE
+FILES CREATED: apps/dashboard/__tests__/swarm-page.test.tsx
+FILES MODIFIED: apps/dashboard/src/app/dashboard/swarm/page.tsx
+COMMANDS RUN: dashboard type check and tests; dashboard rebuilt
+TESTS RUN: dashboard suite with a new test rendering a running mission team exactly as the backend sends it (cost as a decimal string, tokens by model): the run, its lead and approach, and each specialist with its package, owned paths, steps, tool calls, cost and report
+RESULT: The first real swarm run (the MYCO mission's team) crashed the Swarm page with a client-side exception: the page read fields the backend never sends (total_cost_usd, created_at, tokens as one number), which went unnoticed while there were no runs. It now reads the backend's real fields, tolerates decimal strings and tokens by model, lists each run with its purpose, lead and approach, opens the newest run to show its team (role, work package, owned paths, status, steps, tool calls, tokens, cost and its report) and refreshes every 10 seconds while a run is active.
+BLOCKERS: None
+NEXT TASK: MYCO Phase 0
