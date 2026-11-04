@@ -78,6 +78,8 @@ CONSULT_TOOL = "consult_specialist_knowledge"
 CREATIVE_TOOLS = ("generate_image", "make_voiceover", "make_video", "social_channels", "social_draft")
 WEB_TOOLS = ("web_search", "research_web", "fetch_url", "read_mission_report")
 TRACE_TOOL = "trace_artifact"
+# Wave 5: understanding code through Serena's language servers (read-only), offered in a folder when Serena runs.
+CODE_TOOLS = ("code_overview", "code_find_symbol", "code_references", "code_implementations", "code_diagnostics")
 
 # Registry categories that are reachable only through the confined workspace tools.
 _UNCONFINED_CATEGORIES = {"file", "command", "terminal", "process"}
@@ -88,6 +90,14 @@ _REGISTRY_DENY = {"git_push", "git_reset", "git_rebase", "git_clone", "git_merge
                   "git_checkout", "git_branch", "git_commit", "git_add",
                   "command_sudo", "process_kill", "file_delete", "file_permissions",
                   "workspace_delete", "resource_terminate"}
+
+
+def _code_available(root_container: Optional[Path]) -> bool:
+    if root_container is None:
+        return False
+    from app.core.code.serena import serena_url
+
+    return bool(serena_url())
 
 
 @dataclass
@@ -206,6 +216,27 @@ WORKSPACE_TOOLS: Dict[str, ToolSpec] = {
                                       "media": {"type": "array", "items": {"type": "string"},
                                                 "description": "Paths in the workspace of images or videos"}},
                                      ["text"]), "workspace"),
+    "code_overview": ToolSpec("code_overview", "See the classes, functions and methods in a source file (from its "
+                              "language server), to understand a file before reading or changing it.",
+                              _schema({"path": _PATH_PROP}, ["path"]), "workspace"),
+    "code_find_symbol": ToolSpec("code_find_symbol", "Find where a class, function or method is defined, across "
+                                 "the project or in one path, with its body if include_body is true. symbol is a "
+                                 "name or a name path such as MyClass/method; part of a name matches.",
+                                 _schema({"symbol": {"type": "string"}, "path": _PATH_PROP,
+                                          "include_body": {"type": "boolean"}}, ["symbol"]), "workspace"),
+    "code_references": ToolSpec("code_references", "Find every place that uses a symbol (who calls a function, "
+                                "who uses a class) before changing it. symbol is its name path, path the file "
+                                "that defines it.",
+                                _schema({"symbol": {"type": "string"}, "path": _PATH_PROP}, ["symbol", "path"]),
+                                "workspace"),
+    "code_implementations": ToolSpec("code_implementations", "Find the implementations of an interface, abstract "
+                                     "class or method. symbol is its name path, path the file that defines it.",
+                                     _schema({"symbol": {"type": "string"}, "path": _PATH_PROP},
+                                             ["symbol", "path"]), "workspace"),
+    "code_diagnostics": ToolSpec("code_diagnostics", "The errors and warnings the language server finds in a "
+                                 "file (type errors, unknown names, bad imports), grouped by symbol: check a file "
+                                 "after changing it.",
+                                 _schema({"path": _PATH_PROP}, ["path"]), "workspace"),
     "read_mission_report": ToolSpec("read_mission_report", "Read another mission's whole report in this "
                                     "workspace (its findings, recommendations and evidence): give its id or its first "
                                     "eight characters, or nothing for the latest finished mission.",
@@ -389,6 +420,8 @@ class AgentToolbox:
         for requested in self.agent.get_allowed_tools():
             name = ALIASES.get(requested, requested)
             if name in WORKSPACE_TOOLS:
+                if name in CODE_TOOLS and not _code_available(self.root_container):
+                    continue
                 if name in _FILESYSTEM_TOOLS and self.root_container is None:
                     continue  # no registered folder: no filesystem access at all
                 specs[name] = WORKSPACE_TOOLS[name]
@@ -414,6 +447,10 @@ class AgentToolbox:
         if self.root_container is not None:
             for creative in CREATIVE_TOOLS:
                 specs.setdefault(creative, WORKSPACE_TOOLS[creative])
+        # Every agent working in a folder can read its code as an IDE does when Serena runs (read-only, Wave 5).
+        if _code_available(self.root_container):
+            for code in CODE_TOOLS:
+                specs.setdefault(code, WORKSPACE_TOOLS[code])
         # Every agent can search and research the web and read public pages (read-only, Wave 3).
         for web in WEB_TOOLS:
             specs.setdefault(web, WORKSPACE_TOOLS[web])
@@ -510,6 +547,23 @@ class AgentToolbox:
 
     # ----- workspace tools ---------------------------------------------------
 
+    async def _code_call(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        """A Serena question about this workspace's code, with its path confined to the workspace and given to
+        Serena relative to the workspace root."""
+        if self.root_container is None:
+            return {"success": False, "blocked": True,
+                    "reason": "This workspace has no registered folder; register it before reading its code."}
+        relative = ""
+        if str(args.get("path") or "").strip():
+            host, refusal = self._resolve_host(args.get("path"))
+            if refusal:
+                return {"success": False, "blocked": True, "reason": refusal}
+            container = self._to_container(host)
+            parts = container.relative_to(Path(os.path.normpath(str(self.root_container)))).parts
+            relative = "/".join(parts)
+        project = str(Path(os.path.normpath(str(self.root_container))))
+        return await self.runtime.code_intel(name, project, {**args, "path": relative})
+
     async def _workspace_call(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         from app.core.agents import workspace_ops
 
@@ -533,6 +587,8 @@ class AgentToolbox:
             return await rt.social_draft(str(args.get("text", "")), list(args.get("channels") or []) or None, media)
         if name == "social_channels":
             return await rt.social_channels()
+        if name in CODE_TOOLS:
+            return await self._code_call(name, args)
         if name in _FILESYSTEM_TOOLS:
             key = "cwd" if name == "run_command" else "path"
             host, refusal = self._resolve_host(args.get(key))

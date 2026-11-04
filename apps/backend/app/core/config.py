@@ -299,6 +299,8 @@ class Settings(BaseSettings):
     CHATTERBOX_URL: str = "http://chatterbox:8770"
     POSTIZ_URL: str = "http://postiz:5000/api"
     POSTIZ_API_KEY: Optional[str] = None
+    # Wave 5, code understanding: Serena's language servers (the "code" profile), read-only. Empty turns it off.
+    SERENA_URL: str = "http://serena:9121"
 
     # Voice
     VOICE_ENABLED: bool = False

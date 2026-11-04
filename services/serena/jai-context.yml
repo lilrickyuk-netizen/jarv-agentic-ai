@@ -1,0 +1,23 @@
+# JAI's context for Serena (open source, MIT): semantic code understanding through language servers. JAI uses only
+# its read-only tools (symbols, references, declarations, implementations, diagnostics, pattern search); editing,
+# the shell and Serena's own memories are excluded, so every change still goes through JAI's confined, recorded
+# edit tools and every command through JAI's command rules.
+description: JAI's agents reading code like an engineer
+prompt: |
+  You are serving JAI's agents. Answer code questions precisely; you do not edit files or run commands.
+excluded_tools:
+  - ToolMarkerCanEdit
+  - execute_shell_command
+  - initial_instructions
+  - onboarding
+  - open_dashboard
+  - remove_project
+  - write_memory
+  - read_memory
+  - list_memories
+  - delete_memory
+  - rename_memory
+  - edit_memory
+  - serena_repl
+  - query_project
+tool_description_overrides: {}

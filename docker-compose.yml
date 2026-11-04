@@ -140,6 +140,7 @@ services:
       - jarv-web
       - jarv-gpu
       - jarv-voice
+      - jarv-code
     restart: unless-stopped
 
   # Next.js Dashboard Frontend
@@ -361,6 +362,34 @@ services:
     mem_limit: 1536m
     restart: unless-stopped
 
+  # Wave 5, code understanding: Serena (open source, MIT) gives JAI's agents an IDE's view of a codebase through
+  # language servers (symbols, references, declarations, diagnostics). It sees the workspaces at the same paths as
+  # JAI, runs with JAI's read-only context (no editing, no shell), and only the backend and worker reach it. It may
+  # download a language's server the first time it reads that language.
+  serena:
+    profiles: ["code"]
+    build:
+      context: https://github.com/oraios/serena.git#v2.1.0
+    container_name: jarv-serena
+    # Serena keeps its notes about each project in its own volume (never inside Richard's folders, which it sees
+    # read-only), offers one tool per operation, and runs without its web dashboard.
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["sed -i 's#^project_serena_folder_location:.*#project_serena_folder_location: \"/serena-data$$projectDir/.serena\"#' \"$$SERENA_HOME/serena_config.yml\" && exec serena-mcp-server --transport streamable-http --host 0.0.0.0 --port 9121 --context /jai/jai-context.yml --agent-interface tools --enable-web-dashboard False"]
+    environment:
+      SERENA_DOCKER: "1"
+    volumes:
+      - ./services/serena:/jai:ro
+      - serena_home:/workspaces/serena/config
+      - serena_data:/serena-data
+      - type: bind
+        source: ${WORKSPACE_MOUNT_SOURCE:-/mnt/c/Users/lilri/OneDrive/Desktop}
+        target: /host/workspaces
+        read_only: true
+    networks:
+      - jarv-code
+    mem_limit: 2g
+    restart: unless-stopped
+
   # Voicebox is reachable only on the private Compose network. Its API has no
   # authentication, so the dashboard talks to it exclusively through JARV.
   voicebox:
@@ -438,6 +467,7 @@ services:
       - jarv-web
       - jarv-gpu
       - jarv-voice
+      - jarv-code
     restart: unless-stopped
     command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
     # Celery worker liveness: ping the worker over the broker (not HTTP — this
@@ -536,6 +566,10 @@ volumes:
     driver: local
   postiz_uploads:
     driver: local
+  serena_home:
+    name: jai_serena_home
+  serena_data:
+    name: jai_serena_data
 
 networks:
   jarv-network:
@@ -555,3 +589,6 @@ networks:
   jarv-gpu:
     driver: bridge
     internal: true
+  # JAI's code understanding (Wave 5): the backend, the worker and Serena (which may fetch language servers).
+  jarv-code:
+    driver: bridge

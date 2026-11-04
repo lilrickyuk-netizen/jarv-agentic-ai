@@ -136,7 +136,10 @@ def _responses_input(request: CompletionRequest) -> tuple:
             continue
         text = "\n".join(str(b.get("text", "")) for b in msg.content
                          if isinstance(b, dict) and b.get("type") == "text" and b.get("text"))
-        if text:
+        # A note sent with tool results (such as "[STUCK]") follows the results it is about: each function call
+        # must be answered before the conversation goes on.
+        answers = any(isinstance(b, dict) and b.get("type") == "tool_result" for b in msg.content)
+        if text and not answers:
             items.append({"role": msg.role, "content": text})
         for block in msg.content:
             if not isinstance(block, dict):
@@ -148,6 +151,8 @@ def _responses_input(request: CompletionRequest) -> tuple:
                 content = block.get("content")
                 items.append({"type": "function_call_output", "call_id": block.get("tool_use_id"),
                               "output": content if isinstance(content, str) else json.dumps(content, default=str)})
+        if text and answers:
+            items.append({"role": msg.role, "content": text})
     return "\n\n".join(instructions), items
 
 

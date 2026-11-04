@@ -169,6 +169,7 @@ def _no_spend_limit_unless_a_test_sets_one(monkeypatch):
     monkeypatch.setattr(settings, "CHATTERBOX_URL", "")
     monkeypatch.setattr(settings, "POSTIZ_URL", "")
     monkeypatch.setattr(settings, "POSTIZ_API_KEY", None)
+    monkeypatch.setattr(settings, "SERENA_URL", "")
 
 
 @pytest.fixture(autouse=True)

@@ -30,6 +30,7 @@ from typing import Any, Dict, List, Optional
 
 from types import SimpleNamespace
 
+from app.core.command.stuck import StuckDetector
 from app.core.agents.toolbox import BROKEN_ARGUMENTS, WORKSPACE_TOOLS, AgentToolbox, _clip, result_limit
 from app.core.config import settings
 from app.core.providers import CompletionRequest, Message, get_router
@@ -347,6 +348,7 @@ class AgentExecutor:
         self.tokens = 0
         self.toolbox: Optional[AgentToolbox] = None
         self.context_trimmed = 0
+        self.stuck_loops = 0  # times the mission was told it was going round in circles (Wave 5)
         self.hard_baseline: Optional[set] = None  # hard-check findings when the mission started
         self.usage = Usage()  # every model call's tokens and cost (Upgrade 5)
         self.first_edit_step: Optional[int] = None
@@ -456,7 +458,9 @@ class AgentExecutor:
                "check_package_registry and check_cve before adding a dependency, web_search to find "
                "current documentation, releases and fixes for an error, research_web for a cited answer to a "
                "question that needs several sources, fetch_url to read a page, read_mission_report to read an "
-               "earlier mission's whole report, generate_image to make an image on "
+               "earlier mission's whole report, code_overview, code_find_symbol, code_references, "
+               "code_implementations and code_diagnostics to understand code as an IDE does (definitions, "
+               "callers, errors) before and after changing it, generate_image to make an image on "
                "JAI's own GPU (saved in assets/images with its licence recorded), make_voiceover for narration in "
                "JAI's own voice, make_video for a short narrated, subtitled video, social_channels and "
                "social_draft to draft posts in Postiz for Richard to schedule (JAI never publishes), memory_search for what JAI already knows about this workspace, memory_add "
@@ -503,6 +507,7 @@ class AgentExecutor:
         continuation = start_continuation
         total_budget = steps_per_round * (max_continuations + 1)
         refused_stops = 0
+        stuck = StuckDetector()
         await self._progress("working", continuation, total_budget)
 
         while self.iterations < total_budget and not finished:
@@ -582,6 +587,12 @@ class AgentExecutor:
                 result_blocks.append({"type": "tool_result", "tool_use_id": call["id"],
                                       # A read_file part is passed back whole; other results are clipped.
                                       "content": _clip(out, result_limit(call["name"]))})
+                if call["name"] not in ("finish", STATUS_TOOL["name"]):
+                    nudge = stuck.observe(call["name"], call["args"], out)
+                    if nudge:
+                        self.stuck_loops += 1
+                        logger.info("mission %s: %s", getattr(self.runtime, "task_id", ""), nudge[:200])
+                        result_blocks.append({"type": "text", "text": nudge})
             messages.append(Message(role="user", content=result_blocks))
             await self._progress("working", continuation, total_budget)
 
@@ -638,6 +649,7 @@ class AgentExecutor:
             "tokens": self.tokens,
             "tools": sorted(names),
             "context_trimmed_chars": self.context_trimmed,
+            "stuck_loops": self.stuck_loops,
             "requirements": self.requirements,
             "metrics": {
                 "usage": self.usage.summary(), "steps": self.iterations, "rounds": continuation,

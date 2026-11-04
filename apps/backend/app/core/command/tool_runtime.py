@@ -68,6 +68,8 @@ _TOOL_AUTHORITY = {
     "make_video": 2,
     "social_channels": 1,
     "social_draft": 2,
+    "code_overview": 1, "code_find_symbol": 1, "code_references": 1, "code_implementations": 1,
+    "code_diagnostics": 1,
     "check_package_registry": 1,
     "check_cve": 1,
     "asset_licence_check": 1,
@@ -766,6 +768,25 @@ class ToolRuntime:
         for source in res.get("sources") or []:
             await self._source_record(source["url"], source.get("title", ""), "web_research", question[:200])
         return {**res, "success": ok}
+
+    async def code_intel(self, tool: str, project: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Ask Serena (language servers) about the code in the workspace at this container path: a file's symbols,
+        a symbol's definition and body, its references or implementations, or a file's diagnostics. Read-only."""
+        from app.core.code import serena
+
+        target = str(args.get("symbol") or args.get("path") or "")
+        denied = await self._enforce(tool, content=target)
+        if denied:
+            return denied
+        inputs = {k: args.get(k) for k in ("path", "symbol", "include_body") if args.get(k) not in (None, "")}
+        try:
+            answer = await serena.client().call(project, serena.TOOLS[tool], serena.arguments(tool, args))
+        except serena.CodeUnavailable as exc:
+            await self._record(tool, inputs, False, str(exc)[:120])
+            return {"success": False, "error": str(exc)}
+        limit = 30000
+        await self._record(tool, inputs, True, f"{len(answer)} characters from the language server")
+        return {"success": True, "answer": answer[:limit], "truncated": len(answer) > limit}
 
     async def read_mission_report(self, mission: Optional[str] = None) -> Dict[str, Any]:
         """Another mission's whole report in this workspace: the one whose id (or its first eight characters) is
