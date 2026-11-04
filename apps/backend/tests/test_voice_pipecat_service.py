@@ -75,11 +75,14 @@ def test_the_brief_carries_jais_instructions_tools_and_voice_but_never_the_key(c
     openai_voice = client.get("/api/voice/live/brief").json()
     assert openai_voice["tts_engine"] == "openai" and openai_voice["tts_voice"] == settings.VOICE_PIPELINE_TTS_VOICE
     assert "British" in openai_voice["tts_instructions"]
-    assert {t["name"] for t in body["tools"]} == {"start_mission", "resume_mission", "cancel_mission", "ask_jarv",
+    # The voice is JAI's brain: JAI's tools, and no ask_jarv (it is given JAI's live state every turn instead).
+    assert {t["name"] for t in body["tools"]} == {"start_mission", "resume_mission", "cancel_mission",
                                                   "list_workspaces", "list_workspace_files", "read_workspace_file",
                                                   "trace_artifact", "show_on_screen", "research_web",
                                                   "make_image"}
-    assert "voice of JAI's whole system" in body["instructions"] and "never markdown" in body["instructions"]
+    assert "You are JAI's own mind" in body["instructions"] and "never markdown" in body["instructions"]
+    assert "call ask_jarv" not in body["instructions"] and "Never answer about the outside world" in body["instructions"]
+    assert body["reasoning"] == "low" and body["stt_model"] == "gpt-transcribe" and "Plexecute" in body["stt_prompt"]
     assert "Approvals page" in body["instructions"]
     assert engine_choice["engine"] == "pipecat" and engine_choice["url"].startswith("ws")
     assert engine_choice["fallback"] == "realtime"
@@ -115,3 +118,26 @@ def test_voice_use_is_counted_and_the_limit_ends_and_refuses_the_conversation(cl
 def test_the_realtime_voice_can_be_chosen_instead(client, operator, monkeypatch):
     monkeypatch.setattr(settings, "VOICE_ENGINE", "realtime")
     assert client.get("/api/voice/live/engine").json()["engine"] == "realtime"
+
+
+def test_every_reply_of_the_brain_voice_gets_jais_live_state(client, voice, operator, monkeypatch):  # noqa: F811
+    from app.core.runtime import lifecycle
+    from app.models.task import Task
+    from app.models.workspace import Workspace
+
+    async def seed():
+        async with AsyncTestingSessionLocal() as db:
+            ws = (await db.execute(select(Workspace).where(Workspace.owner_id == operator))).scalars().first()
+            db.add(Task(workspace_id=ws.id, title="Plexecute marketing plan", description="plan", task_type="command",
+                        status=lifecycle.COMPLETED, priority=5,
+                        result={"response": "The plan: positioning, audience, channels. " * 200}))
+            await db.commit()
+
+    _run(seed())
+    state = client.post("/api/voice/live/context", json={"text": "Read out the last mission's report"})
+    assert state.status_code == 200
+    import json
+    facts = json.loads(state.json()["state"])
+    assert facts["mission_asked_about"]["title"] == "Plexecute marketing plan"
+    assert len(facts["mission_asked_about"]["result"]) > 5000            # the whole report, not its first lines
+    assert "now" in facts and "working_now" in facts and "recent_conversation" not in facts

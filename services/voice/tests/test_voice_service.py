@@ -29,6 +29,9 @@ from app.serializer import IN_RATE, OUT_RATE, JaiFrameSerializer
 
 
 class FakeBackend:
+    async def context(self, text):
+        return {"state": "No mission is in progress."}
+
     def __init__(self, stop_after: float = 1e9):
         self.calls: List[Any] = []
         self.spent = 0.0
@@ -260,6 +263,38 @@ async def test_the_natural_voice_is_used_when_it_is_up_and_kokoro_when_it_is_not
 
 async def _nothing():
     return None
+
+
+async def test_every_reply_is_given_jais_live_state_just_before_richards_words():
+    from pipecat.processors.aggregators.llm_context import LLMContext
+
+    class Brain(FakeBackend):
+        def __init__(self):
+            super().__init__()
+            self.asked = []
+            self.state = "MYCO Phase 0: round 3, 8 of 9 requirements done."
+
+        async def context(self, text):
+            self.asked.append(text)
+            return {"state": self.state}
+
+    brain = Brain()
+    relay = pipeline.BrainContext(brain)
+    context = LLMContext(messages=[{"role": "assistant", "content": "Evening."},
+                                   {"role": "user", "content": "How is the MYCO build going?"}])
+    await relay.refresh(context)
+    messages = context.get_messages()
+    assert brain.asked == ["How is the MYCO build going?"]
+    assert messages[1]["content"].startswith(pipeline.STATE_MARK) and "8 of 9" in messages[1]["content"]
+    assert messages[2]["content"] == "How is the MYCO build going?"
+
+    brain.state = "MYCO Phase 0: finished, 9 of 9 done."
+    context.add_message({"role": "assistant", "content": "Round three."})
+    context.add_message({"role": "user", "content": "And now?"})
+    await relay.refresh(context)
+    states = [m for m in context.get_messages() if str(m["content"]).startswith(pipeline.STATE_MARK)]
+    assert len(states) == 1 and "9 of 9" in states[0]["content"]          # replaced, never piled up
+    assert context.get_messages()[-1]["content"] == "And now?" and brain.asked[-1] == "And now?"
 
 
 def test_only_the_dashboard_may_open_a_conversation(monkeypatch):

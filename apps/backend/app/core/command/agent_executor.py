@@ -381,7 +381,7 @@ class AgentExecutor:
         await progress.save(self.runtime.task_id, progress.snapshot(
             self.runtime.calls, self.requirements, round_no=continuation + 1, step=self.iterations,
             step_budget=budget, phase=phase, usage=self.usage.summary(), started_at=self._started_at,
-            root=self.workspace_root, check=check))
+            root=self.workspace_root, check=check, agent_said=getattr(self, "_agent_said", None)))
 
     async def run(self, mission: str, steps_per_round: int = 8,
                   max_continuations: int = 4,
@@ -530,6 +530,8 @@ class AgentExecutor:
             assistant_blocks: List[Dict[str, Any]] = []
             if resp.content:
                 assistant_blocks.append({"type": "text", "text": resp.content})
+                # What the agent last said it is doing and why, for "what's going on?" (the progress record).
+                self._agent_said = resp.content.strip()[:800]
             parsed: List[Dict[str, Any]] = []
             for tc in resp.tool_calls:
                 name = tc["function"]["name"]

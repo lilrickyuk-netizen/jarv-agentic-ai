@@ -169,7 +169,37 @@ def _root(workspace) -> Optional[str]:
     return config.get("root_path") or None
 
 
-def instructions(spaces: List[Any]) -> str:
+# The voice as JAI's brain (the Pipecat voice): it is given JAI's live state before every reply, so it answers
+# about JAI's work itself, with JAI's tools, instead of asking a separate brain.
+BRAIN_ROUTING = (
+    "You are JAI's own mind, not a voice in front of it. Before everything Richard says you are given a message "
+    "beginning [JAI's live state, not from Richard]: JAI's records as they are this second (every mission and what "
+    "its agents are doing, each requirement, files changed, failures, the agents' own latest words, the mission "
+    "he is asking about with its whole report, what waits for him, memory, knowledge, verified lessons, today's "
+    "spend, the date and the recent conversation). It is the truth of now; earlier ones are out of date. When he "
+    "asks what is going on, do not read the status back: find out from the state what the agents are actually "
+    "doing and why, what they found, what is going wrong, what it means and what happens next, and tell him "
+    "that in your own words like an engineer who has just checked with the team; if the state does not show "
+    "something, say so and what you would need. When he asks for a report to be read out or analysed, use the "
+    "whole report and give it fully. Never answer about the outside world from your own knowledge: your "
+    "training is out of date. For news, prices, releases, versions, companies, people, products, laws or "
+    "anything that changes, say in a few words that you are looking it up, call research_web, and give the "
+    "answer with where it came from. If you did not catch what he said, or it sounds garbled, ask him to say "
+    "it again rather than guessing. Never repeat what you have already told him: say what is new. ")
+
+
+def instructions(spaces: List[Any], brain: bool = False) -> str:
+    """JAI's voice instructions; brain=True for the voice that is given JAI's live state every turn."""
+    text = _instructions(spaces)
+    if brain:
+        start = text.index("You are the voice of JAI's whole system")
+        end = text.index("Small talk and general questions you answer yourself. ") + len(
+            "Small talk and general questions you answer yourself. ")
+        text = text[:start] + BRAIN_ROUTING + text[end:]
+    return text
+
+
+def _instructions(spaces: List[Any]) -> str:
     projects = "; ".join(f"{w.name} (folder {_root(w)})" if _root(w) else f"{w.name} (no folder registered)"
                          for w in spaces) or "none yet"
     return (
@@ -320,6 +350,21 @@ async def record_usage(usage: Dict[str, Any]) -> Dict[str, Any]:
                        f"the conversation has ended.") if state["limit_reached"] else None}
 
 
+# Words Richard uses that a transcriber would otherwise get wrong.
+STT_VOCABULARY = ("Richard talking to JAI (said Jay), his AI operating system, in British English, about his "
+                  "projects MYCO, Plexecute, Pardosa, MystaAI, Secundas, ContractusAI and AURELIUS: missions, "
+                  "agents, Phase 0, approvals, workspaces, deploy, Docker, Pipecat, ComfyUI, GitHub.")
+
+
+async def live_context(db: AsyncSession, user_id: UUID, text: str) -> Dict[str, Any]:
+    """JAI's live state for the brain voice's next reply, as compact text."""
+    import json
+
+    facts = await brain_facts(db, user_id, text, None)
+    facts.pop("recent_conversation", None)  # the conversation itself is already in the voice's context
+    return {"state": json.dumps(facts, default=str, separators=(",", ":"))[:40000]}
+
+
 async def record_pipeline_usage(kind: str, usage: Dict[str, Any]) -> Dict[str, Any]:
     """One use by the Pipecat voice (model, speech-to-text or text-to-speech): priced, added to today's spend as
     voice, and whether the conversation must stop because today's limit is now reached."""
@@ -365,7 +410,7 @@ async def pipeline_brief(db: AsyncSession, user_id: UUID) -> Dict[str, Any]:
                               f"${state['limit_usd']:.2f}), so the live conversation cannot start until it is raised "
                               f"(DAILY_SPEND_LIMIT_USD) or the day turns over.")
     spaces = await _workspaces(db, user_id)
-    text = (instructions(spaces) + SPOKEN_TEXT + now_block() + await situation_block(db, user_id)
+    text = (instructions(spaces, brain=True) + SPOKEN_TEXT + now_block()
             + history_block(await recent_turns(user_id)))
     await AuditLogger.log_system_event(db, action=SESSION_ACTION, result="ok", resource_type="voice",
                                        user_id=user_id, details={"engine": "pipecat",
@@ -375,7 +420,11 @@ async def pipeline_brief(db: AsyncSession, user_id: UUID) -> Dict[str, Any]:
     engine = choice if choice in ("chatterbox", "kokoro", "openai") else "chatterbox"
     voice = {"chatterbox": settings.VOICE_PIPELINE_CHATTERBOX_VOICE, "kokoro": settings.VOICE_PIPELINE_KOKORO_VOICE,
              "openai": settings.VOICE_PIPELINE_TTS_VOICE}[engine]
-    return {"engine": "pipecat", "instructions": text, "tools": VOICE_TOOLS, "model": settings.VOICE_PIPELINE_MODEL,
+    return {"engine": "pipecat", "instructions": text, "model": settings.VOICE_PIPELINE_MODEL,
+            # The voice is the brain: it has JAI's tools, and no ask_jarv (it is given what ask_jarv knows).
+            "tools": [t for t in VOICE_TOOLS if t["name"] != "ask_jarv"],
+            "reasoning": settings.VOICE_PIPELINE_REASONING or None,
+            "stt_model": settings.VOICE_PIPELINE_STT_MODEL, "stt_prompt": STT_VOCABULARY,
             "tts_engine": engine, "tts_voice": voice, "fallback_voice": settings.VOICE_PIPELINE_KOKORO_VOICE,
             "tts_speed": settings.VOICE_PIPELINE_SPEED, "tts_model": settings.VOICE_PIPELINE_TTS_MODEL,
             "tts_instructions": "Accent: Received Pronunciation, an educated southern English British accent, "
@@ -678,18 +727,13 @@ async def _recent_missions(db: AsyncSession, user_id: UUID, limit: int = 6) -> L
     return missions
 
 
-async def _ask_jarv(db: AsyncSession, user_id: UUID, question: str, workspace_id: Optional[UUID]) -> Dict[str, Any]:
-    """Answer from JAI's own memory, lessons, missions and approvals with JAI's reasoning model."""
-    import json
-    import logging
-    import time
-
-    timing = logging.getLogger("jai.voice.timing")
-    started = time.monotonic()
-
-    from app.core.command import CommandService
+async def brain_facts(db: AsyncSession, user_id: UUID, question: str,
+                      workspace_id: Optional[UUID] = None) -> Dict[str, Any]:
+    """JAI's live state as it bears on what Richard just said: workspaces, every mission with what is being worked
+    on now (full progress), the mission he is asking about with its whole report, what waits for him, today's
+    spend, the status line, memories, knowledge and verified lessons relevant to it, the date and the recent
+    conversation. The voice receives this on every turn; ask_jarv answers from it too."""
     from app.core.learning import learning_service
-    from app.core.providers import CompletionRequest, Message, get_router
 
     facts: Dict[str, Any] = {
         "workspaces": [{"name": w.name, "folder": _root(w), "authority_level": w.authority_level}
@@ -752,6 +796,22 @@ async def _ask_jarv(db: AsyncSession, user_id: UUID, question: str, workspace_id
                                                         query=question, limit=3)]
         except Exception:  # noqa: BLE001 - lessons are an addition, never a reason to fail the answer
             facts["verified_lessons"] = []
+    return facts
+
+
+async def _ask_jarv(db: AsyncSession, user_id: UUID, question: str, workspace_id: Optional[UUID]) -> Dict[str, Any]:
+    """Answer from JAI's own memory, lessons, missions and approvals with JAI's reasoning model."""
+    import json
+    import logging
+    import time
+
+    timing = logging.getLogger("jai.voice.timing")
+    started = time.monotonic()
+
+    from app.core.command import CommandService
+    from app.core.providers import CompletionRequest, Message, get_router
+
+    facts = await brain_facts(db, user_id, question, workspace_id)
     gathered = time.monotonic()
     service = CommandService()
     response = await get_router().complete(CompletionRequest(

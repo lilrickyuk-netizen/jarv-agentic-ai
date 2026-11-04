@@ -54,8 +54,9 @@ def _exit_code(call: Dict[str, Any]) -> Optional[int]:
 def snapshot(calls: List[Dict[str, Any]], requirements: List[Dict[str, Any]], *, round_no: int, step: int,
              step_budget: int, phase: str, usage: Optional[Dict[str, Any]] = None,
              started_at: Optional[str] = None, root: Optional[str] = None,
-             check: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Where a mission is now, from its own tool calls and requirement list."""
+             check: Optional[Dict[str, Any]] = None, agent_said: Optional[str] = None) -> Dict[str, Any]:
+    """Where a mission is now, from its own tool calls and requirement list, with the agent's own latest words
+    about what it is doing and why, and its last steps in order."""
     files: List[str] = []
     for call in calls:
         if call.get("tool") in EDITS and call.get("success"):
@@ -85,6 +86,9 @@ def snapshot(calls: List[Dict[str, Any]], requirements: List[Dict[str, Any]], *,
         "commands_run": len(commands), "commands_failed": sum(1 for c in commands if not c["ok"]),
         "recent_commands": commands[-6:],
         "recent_failures": failures[-5:],
+        "agent_said": agent_said,
+        "recent_steps": [{"tool": c.get("tool"), "target": _target(c, root), "ok": bool(c.get("success")),
+                          "result": str(c.get("summary") or "")[:160]} for c in calls[-8:]],
         # The independent check, while it runs: its step, its allowance and what it is checking now.
         "check": check,
         "tokens": ({k: (usage or {}).get(k) for k in ("calls", "input", "cached", "output")}

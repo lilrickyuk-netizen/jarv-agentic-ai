@@ -22,6 +22,7 @@ from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
     EndFrame,
     ErrorFrame,
+    LLMContextFrame,
     Frame,
     LLMFullResponseEndFrame,
     LLMRunFrame,
@@ -37,7 +38,7 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair, LLMUserAggregatorParams
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.llm_service import FunctionCallParams
-from pipecat.services.openai.responses.llm import OpenAIResponsesLLMService
+from pipecat.services.openai.responses.llm import OpenAIResponsesLLMService, OpenAIResponsesReasoningConfig
 from pipecat.services.openai.stt import OpenAIRealtimeSTTService
 from pipecat.services.kokoro.tts import KokoroTTSService
 from pipecat.services.settings import TTSSettings
@@ -91,6 +92,51 @@ class HeardRelay(FrameProcessor):
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
         await self._heard(frame)
+        await self.push_frame(frame, direction)
+
+
+STATE_MARK = "[JAI's live state, not from Richard]"
+
+
+class BrainContext(FrameProcessor):
+    """Makes the voice JAI's brain: before every reply, JAI's live state as it bears on what Richard just said
+    (missions and their progress, the mission he means with its whole report, approvals, memory, knowledge,
+    spend, the date) goes into the conversation just before his words, replacing the previous one, so the model
+    always answers from the truth of now. If the backend is slow the last state is used."""
+
+    def __init__(self, backend: Backend, **kwargs):
+        super().__init__(**kwargs)
+        self._backend = backend
+        self._last: Optional[str] = None
+
+    @staticmethod
+    def _said_last(messages: List[Dict[str, Any]]) -> str:
+        for message in reversed(messages):
+            if message.get("role") == "user" and STATE_MARK not in str(message.get("content")):
+                content = message.get("content")
+                if isinstance(content, list):
+                    return " ".join(str(part.get("text", "")) for part in content if isinstance(part, dict))
+                return str(content or "")
+        return ""
+
+    async def refresh(self, context: LLMContext, fetch: bool = True) -> None:
+        messages = [m for m in context.get_messages() if not (m.get("role") == "user"
+                                                             and str(m.get("content", "")).startswith(STATE_MARK))]
+        if fetch:
+            started = time.monotonic()
+            found = await self._backend.context(self._said_last(messages))
+            if found.get("state"):
+                self._last = str(found["state"])
+            timing.info(f"timing brain-context {time.monotonic() - started:.2f}s")
+        if self._last:
+            last_user = max((i for i, m in enumerate(messages) if m.get("role") == "user"), default=len(messages))
+            messages.insert(last_user, {"role": "user", "content": f"{STATE_MARK}\n{self._last}"})
+        context.set_messages(messages)
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if isinstance(frame, LLMContextFrame):
+            await self.refresh(frame.context, fetch=not getattr(frame, "speculation", False))
         await self.push_frame(frame, direction)
 
 
@@ -359,17 +405,23 @@ def build(websocket, backend: Backend, brief: Dict[str, Any], api_key: str):
         params=FastAPIWebsocketParams(audio_in_enabled=True, audio_out_enabled=True, add_wav_header=False,
                                       audio_in_sample_rate=IN_RATE, audio_out_sample_rate=OUT_RATE,
                                       serializer=JaiFrameSerializer(worker_ref)))
-    stt = OpenAIRealtimeSTTService(api_key=api_key)
+    # The most accurate transcription, told the names and words Richard uses, British English, a close microphone.
+    stt = OpenAIRealtimeSTTService(api_key=api_key, settings=OpenAIRealtimeSTTService.Settings(
+        model=brief.get("stt_model") or "gpt-transcribe", language=Language.EN,
+        prompt=brief.get("stt_prompt") or None, noise_reduction="near_field"))
     # The Responses API over a WebSocket: Pipecat's recommended service for conversation (lowest latency, only the
     # new part of the context sent each turn, nothing stored on OpenAI's side). Reasoning stays off for speed; the
     # thinking happens in ask_jarv, JAI's brain on the backend.
+    reasoning = brief.get("reasoning")
     llm = OpenAIResponsesLLMService(api_key=api_key, settings=OpenAIResponsesLLMService.Settings(
-        model=brief.get("model") or "gpt-6-luna", system_instruction=brief.get("instructions") or ""))
+        model=brief.get("model") or "gpt-6-luna", system_instruction=brief.get("instructions") or "",
+        **({"reasoning": OpenAIResponsesReasoningConfig(effort=reasoning)} if reasoning else {})))
     tts, local_voice = speech(brief, api_key)
     context = LLMContext(tools=function_schemas(brief.get("tools") or [], backend, worker_ref))
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context, user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()))
-    pipeline = Pipeline([transport.input(), stt, HeardRelay(backend, worker_ref), user_aggregator, llm, SaidRelay(backend, worker_ref), tts,
+    pipeline = Pipeline([transport.input(), stt, HeardRelay(backend, worker_ref), user_aggregator,
+                         BrainContext(backend), llm, SaidRelay(backend, worker_ref), tts,
                          SpendMeter(backend, local_voice), transport.output(), assistant_aggregator])
     worker = PipelineWorker(pipeline, params=PipelineParams(enable_metrics=True, enable_usage_metrics=True))
     worker_ref["worker"] = worker

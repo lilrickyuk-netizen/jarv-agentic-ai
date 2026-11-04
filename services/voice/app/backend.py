@@ -60,6 +60,16 @@ class Backend:
         except httpx.HTTPError:
             pass  # remembering a turn never interrupts the conversation
 
+    async def context(self, text: str) -> Dict[str, Any]:
+        """JAI's live state as it bears on what Richard just said (missions, progress, reports, approvals, memory,
+        knowledge, spend, the date)."""
+        try:
+            response = await self._client.post("/api/voice/live/context", json={"text": text[:2000]},
+                                               timeout=httpx.Timeout(4.0, connect=2.0))
+            return response.json() if response.status_code < 400 else {"error": response.text[:200]}
+        except (httpx.HTTPError, ValueError) as exc:
+            return {"error": str(exc)}
+
     async def spend(self, kind: str, **usage: Any) -> Dict[str, Any]:
         try:
             return await self._post("/api/voice/live/spend", {"kind": kind, **usage})

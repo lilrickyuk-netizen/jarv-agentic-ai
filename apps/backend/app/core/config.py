@@ -319,6 +319,10 @@ class Settings(BaseSettings):
     # bf_alice, bf_lily (women). openai = OpenAI text-to-speech (paid) with VOICE_PIPELINE_TTS_VOICE.
     # chatterbox = Chatterbox Turbo (open source, natural speech, on the GPU) in the voice of a reference clip in the
     # jai_voice_refs volume (george: made from Kokoro's British bm_george); Kokoro is its fallback.
+    # How hard the brain voice thinks before answering (none, low, medium): low follows JAI's rules reliably and
+    # still answers in about a second. The transcriber: gpt-transcribe is OpenAI's most accurate.
+    VOICE_PIPELINE_REASONING: str = "low"
+    VOICE_PIPELINE_STT_MODEL: str = "gpt-transcribe"
     VOICE_PIPELINE_TTS: str = "chatterbox"
     VOICE_PIPELINE_CHATTERBOX_VOICE: str = "george"
     VOICE_PIPELINE_KOKORO_VOICE: str = "bm_george"

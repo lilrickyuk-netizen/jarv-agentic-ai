@@ -246,6 +246,17 @@ async def live_brief(user_id: CurrentUserId, db: AsyncSession = Depends(get_db))
         raise HTTPException(status_code=503, detail=str(exc))
 
 
+class LiveContextRequest(BaseModel):
+    text: str = Field("", max_length=4000)
+
+
+@router.post("/live/context")
+async def live_context(request: LiveContextRequest, user_id: CurrentUserId,
+                       db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """JAI's live state as it bears on what Richard just said, for the brain voice's next reply."""
+    return await live.live_context(db, UUID(str(user_id)), request.text)
+
+
 @router.post("/live/spend")
 async def live_spend(request: PipelineSpendRequest, user_id: CurrentUserId) -> Dict[str, Any]:
     """One model, speech-to-text or text-to-speech use by the Pipecat voice: added to today's AI spend; says
