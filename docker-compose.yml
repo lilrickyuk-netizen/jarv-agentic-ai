@@ -380,7 +380,7 @@ services:
     # Serena keeps its notes about each project in its own volume (never inside Richard's folders, which it sees
     # read-only), offers one tool per operation, and runs without its web dashboard.
     entrypoint: ["/bin/sh", "-c"]
-    command: ["sed -i 's#^project_serena_folder_location:.*#project_serena_folder_location: \"/serena-data$$projectDir/.serena\"#' \"$$SERENA_HOME/serena_config.yml\" && exec serena-mcp-server --transport streamable-http --host 0.0.0.0 --port 9121 --context /jai/jai-context.yml --agent-interface tools --enable-web-dashboard False"]
+    command: ["sed -i 's#^project_serena_folder_location:.*#project_serena_folder_location: \"/serena-data$$projectDir/.serena\"#' \"$$SERENA_HOME/serena_config.yml\" && exec serena start-mcp-server --transport streamable-http --host 0.0.0.0 --port 9121 --context /jai/jai-context.yml --agent-interface tools --enable-web-dashboard False"]
     environment:
       SERENA_DOCKER: "1"
     volumes:

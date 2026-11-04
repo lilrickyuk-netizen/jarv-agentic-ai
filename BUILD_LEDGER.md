@@ -14049,3 +14049,16 @@ TESTS RUN: browser service (a real headless Chromium through browser-use: a page
 RESULT: JAI's agents can now read any document (Docling reads PDFs, Word, PowerPoint, Excel and scans with OCR, on this computer), use a real browser like a visitor (open a site, follow its links, click through its sign-up and waitlist flows, fill ordinary fields), remember (Graphiti keeps what each finished mission established as facts that know when they stopped being true, per workspace; Mem0 keeps what Richard tells the voice about himself and how he wants things done), and check JAI's prompts (promptfoo). Missions start with what Richard has told JAI and what earlier work established; the voice is given both before every reply and keeps what he says. Every self-evolved agent instruction is now run against Richard's hard boundaries (card details and paying, audit logs, publishing from his accounts, helper authority) before it can be applied, and fails verification if it crosses any. None of these services holds a provider key: they call JAI's new model gateway with JAI's own token, which allows only JAI's models, shapes requests for gpt-6-luna, and prices every call into today's spend inside the daily limit. The browser opens public pages only, has no sign-ins, never types passwords, card, bank or one-time codes, runs no scripts and keeps no downloads. Docling, the knowledge service and promptfoo sit on a network with no route to the internet.
 BLOCKERS: None
 NEXT TASK: Wave 1 leftovers (LiteLLM, Langfuse); then mission quality (deliverables and standards)
+
+---
+
+TASK ID: WAVE-5-SERENA-START
+TASK NAME: Serena starts with its real v2.1.0 command (serena start-mcp-server)
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: docker-compose.yml
+COMMANDS RUN: docker compose up -d serena; JAI's check of the tools Serena offers (none that edit)
+TESTS RUN: Serena answered JAI's MCP initialize and tools/list from the worker, offering every read-only tool JAI uses and none that edit
+RESULT: Serena kept restarting with exit code 127 after Wave 5: v2.1.0 has no serena-mcp-server program (it is the serena command's start-mcp-server). The service now starts with serena start-mcp-server and the same read-only context, options and volumes.
+BLOCKERS: None
+NEXT TASK: Mission quality (deliverables and standards)
