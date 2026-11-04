@@ -14068,10 +14068,10 @@ NEXT TASK: Mission quality (deliverables and standards)
 TASK ID: WAVE-6-BROWSER-TEST
 TASK NAME: The browser's own test drives the service as a real server; browser-use fetches no extensions
 STATUS: COMPLETE
-FILES CREATED: services/browser/tests/serve_for_test.py
+FILES CREATED: services/browser/tests/run_service.py
 FILES MODIFIED: services/browser/server.py, services/browser/tests/test_browser.py
 COMMANDS RUN: browser image build (cached) and its tests with no network
 TESTS RUN: browser service suite, the real-Chromium test against the service running as a server
-RESULT: On Richard's computer the real-Chromium test hung inside the test harness, while the same browser image run as a real service opened example.com and read it back at once. The test now runs JAI's browser service as a real server in its own process (tests/serve_for_test.py, which only lets that copy open the test's loopback page) and drives it over HTTP, the way the backend does; the test page is served by a threading server; and JAI's browser no longer asks browser-use to fetch its ad-blocker and cookie extensions from the web.
+RESULT: On Richard's computer the real-Chromium test hung inside the test harness, while the same browser image run as a real service opened example.com and read it back at once. The test now runs JAI's browser service as a real server in its own process (tests/run_service.py, which only lets that copy open the test's loopback page) and drives it over HTTP, the way the backend does; the test page is served by a threading server; and JAI's browser no longer asks browser-use to fetch its ad-blocker and cookie extensions from the web.
 BLOCKERS: None
 NEXT TASK: Mission quality (deliverables and standards)

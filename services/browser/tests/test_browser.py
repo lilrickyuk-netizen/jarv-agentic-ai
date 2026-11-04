@@ -51,7 +51,7 @@ def site():
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
-    service = subprocess.Popen([sys.executable, str(Path(__file__).with_name("serve_for_test.py")), str(port)],
+    service = subprocess.Popen([sys.executable, str(Path(__file__).with_name("run_service.py")), str(port)],
                                cwd=str(Path(server.__file__).parent))
     base = f"http://127.0.0.1:{port}"
     for _ in range(100):
