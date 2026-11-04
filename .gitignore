@@ -102,3 +102,6 @@ apps/backend/data/
 
 # Patch files handed over between sessions
 *.patch
+
+# Postiz social network app keys (Wave 4d)
+services/postiz/social.env

@@ -185,7 +185,9 @@ BRAIN_ROUTING = (
     "training is out of date. For news, prices, releases, versions, companies, people, products, laws or "
     "anything that changes, say in a few words that you are looking it up, call research_web, and give the "
     "answer with where it came from. If you did not catch what he said, or it sounds garbled, ask him to say "
-    "it again rather than guessing. Never repeat what you have already told him: say what is new. ")
+    "it again rather than guessing. Never repeat what you have already told him: say what is new. Videos, "
+    "voiceovers and social-post drafts take minutes: when he asks for them, start a mission with the full brief; "
+    "posts are only ever drafted in Postiz for him to schedule, never published by you. ")
 
 
 def instructions(spaces: List[Any], brain: bool = False) -> str:

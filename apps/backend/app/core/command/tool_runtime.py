@@ -64,6 +64,10 @@ _TOOL_AUTHORITY = {
     "research_web": 1,
     "generate_image": 2,
     "read_mission_report": 1,
+    "make_voiceover": 2,
+    "make_video": 2,
+    "social_channels": 1,
+    "social_draft": 2,
     "check_package_registry": 1,
     "check_cve": 1,
     "asset_licence_check": 1,
@@ -795,6 +799,125 @@ class ToolRuntime:
                 "started": found.created_at.isoformat(timespec="minutes") if found.created_at else None,
                 "report": report[:20000], "evidence": result.get("report"),
                 "agents": result.get("selected_agents")}
+
+    def _note_licence(self, licence_file: Optional[str], entry: str) -> None:
+        if not licence_file:
+            return
+        found = fs_inspector.read_file(licence_file, max_bytes=400_000)
+        existing = found.data.get("content", "") if found.accessible and found.exists else (
+            "# Asset licences\n\nWhere every asset in this workspace came from and the terms it is used under.\n")
+        fs_inspector.write_file(licence_file, existing + entry, overwrite=True)
+
+    async def make_voiceover(self, host_path: str, text: str, voice: Optional[str] = None,
+                             licence_file: Optional[str] = None, shown_as: Optional[str] = None) -> Dict[str, Any]:
+        """Narration in JAI's natural voice (Chatterbox on the GPU), saved as a WAV inside the workspace."""
+        denied = await self._enforce("make_voiceover", path=host_path, content=text)
+        if denied:
+            return denied
+        from app.core.creative import voiceover
+
+        try:
+            spoken = await voiceover.speak(text, voice)
+        except voiceover.VoiceoverUnavailable as exc:
+            await self._record("make_voiceover", {"path": host_path}, False, str(exc)[:120])
+            return {"success": False, "error": str(exc)}
+        res = fs_inspector.write_bytes(host_path, spoken["wav"], overwrite=True)
+        ok = res.accessible and res.exists
+        if ok:
+            from datetime import datetime, timezone
+
+            self._note_licence(licence_file, (
+                f"\n## {shown_as or host_path}\n- Narration made by JAI on "
+                f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} with Chatterbox Turbo (MIT), voice "
+                f"{spoken['voice']} (reference made with Kokoro, Apache-2.0), {spoken['seconds']}s\n"))
+        await self._record("make_voiceover", {"path": host_path, "characters": len(text)}, ok,
+                           f"{spoken['seconds']}s of narration" if ok else (res.reason or "blocked"))
+        return {"success": ok, "path": host_path, "seconds": spoken["seconds"], "voice": spoken["voice"],
+                "reason": None if ok else res.reason}
+
+    async def make_video(self, host_path: str, topic: str, seconds: int = 40, aspect: str = "portrait",
+                         audience: str = "", footage: str = "auto", licence_file: Optional[str] = None,
+                         shown_as: Optional[str] = None) -> Dict[str, Any]:
+        """A short video: JAI writes it, narrates it, makes or finds the footage, MoneyPrinterTurbo renders it; the
+        MP4 and its script are saved inside the workspace. Nothing is published."""
+        denied = await self._enforce("make_video", path=host_path, content=topic)
+        if denied:
+            return denied
+        from app.core.creative import images, videos, voiceover
+
+        seconds = max(15, min(int(seconds or 40), 120))
+        stock = footage == "stock" or (footage == "auto" and await videos.stock_available())
+        scenes = 0 if stock else max(3, min(8, seconds // 7))
+        try:
+            plan = await videos.plan_video(topic, seconds, audience, scenes)
+            if not plan["script"]:
+                raise videos.VideoUnavailable("No narration was written for that topic.")
+            spoken = await voiceover.speak(plan["script"])
+            stills = []
+            if scenes:
+                width, height = images.size_of(videos.ASPECT_SHAPES.get(aspect, "story"))
+                for prompt in plan["image_prompts"]:
+                    stills.append((await images.generate(prompt, width, height))["png"])
+            mp4 = await videos.render({"subject": plan["title"], "script": plan["script"], "terms": plan["terms"],
+                                       "aspect": aspect, "clip_seconds": max(3, int(spoken["seconds"] / max(1, scenes or 6))),
+                                       "subtitles": True}, spoken["wav"], stills)
+        except (videos.VideoUnavailable, voiceover.VoiceoverUnavailable, images.ImageUnavailable) as exc:
+            await self._record("make_video", {"path": host_path, "topic": topic[:200]}, False, str(exc)[:120])
+            return {"success": False, "error": str(exc)}
+        res = fs_inspector.write_bytes(host_path, mp4, overwrite=True)
+        ok = res.accessible and res.exists
+        if ok:
+            script_path = host_path.rsplit(".", 1)[0] + ".script.txt"
+            fs_inspector.write_file(script_path, f"{plan['title']}\n\n{plan['script']}\n", overwrite=True)
+            self._note_licence(licence_file, videos.licence_entry(shown_as or host_path, plan["title"],
+                                                                  "pexels" if stock else "generated",
+                                                                  spoken["seconds"]))
+        await self._record("make_video", {"path": host_path, "topic": topic[:200]}, ok,
+                           f"{spoken['seconds']}s video" if ok else (res.reason or "blocked"),
+                           output={"bytes": len(mp4), "scenes": scenes})
+        return {"success": ok, "path": host_path, "title": plan["title"], "script": plan["script"],
+                "seconds": spoken["seconds"], "footage": "Pexels" if stock else f"{scenes} generated images",
+                "reason": None if ok else res.reason}
+
+    async def social_channels(self) -> Dict[str, Any]:
+        denied = await self._enforce("social_channels", content="channels")
+        if denied:
+            return denied
+        from app.core.creative import social
+
+        try:
+            found = await social.channels()
+        except social.SocialUnavailable as exc:
+            await self._record("social_channels", {}, False, str(exc)[:120])
+            return {"success": False, "error": str(exc)}
+        await self._record("social_channels", {}, True, f"{len(found)} channel(s) connected")
+        return {"success": True, "channels": found}
+
+    async def social_draft(self, text: str, channels: Optional[List[str]] = None,
+                           media_host_paths: Optional[List[str]] = None) -> Dict[str, Any]:
+        """A post drafted in Postiz (never scheduled or published), with images or videos from the workspace."""
+        denied = await self._enforce("social_draft", content=text)
+        if denied:
+            return denied
+        from app.core.creative import social
+
+        try:
+            media = []
+            for path in media_host_paths or []:
+                found = fs_inspector.read_bytes(path)
+                if not found.accessible:
+                    return {"success": False, "error": f"{path}: {found.reason}"}
+                name = path.replace("\\", "/").rsplit("/", 1)[-1]
+                kind = "video/mp4" if name.lower().endswith(".mp4") else "image/png" if name.lower().endswith(
+                    ".png") else "image/jpeg"
+                media.append(await social.upload(name, found.data["bytes"], kind))
+            drafted = await social.draft(text, channels, media)
+        except social.SocialUnavailable as exc:
+            await self._record("social_draft", {"channels": channels}, False, str(exc)[:120])
+            return {"success": False, "error": str(exc)}
+        await self._record("social_draft", {"channels": drafted["channels"], "characters": len(text)}, True,
+                           f"draft for {', '.join(drafted['channels'])}")
+        return {"success": True, **drafted}
 
     async def generate_image(self, host_path: str, prompt: str, width: int = 1024, height: int = 1024,
                              licence_file: Optional[str] = None, seed: Optional[int] = None,

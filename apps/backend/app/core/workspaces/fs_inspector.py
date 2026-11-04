@@ -446,6 +446,24 @@ def write_file(host_path: str, content: str, overwrite: bool = False) -> FsResul
                         reason=f"Write failed: {exc}")
 
 
+def read_bytes(host_path: str, max_bytes: int = 200_000_000) -> FsResult:
+    """Read a file's bytes (an image or video to attach) inside an approved workspace; secret files refused."""
+    if _is_banned(host_path):
+        return FsResult(accessible=False, host_path=host_path, reason="Target is a protected location; read blocked.")
+    container = host_to_container(host_path)
+    if container is None:
+        return FsResult(accessible=False, host_path=host_path, reason="Path is outside the approved workspace root.")
+    name = container.name.lower()
+    if name.startswith(".env") or name.endswith(".env") or "secret" in name or "id_rsa" in name:
+        return FsResult(accessible=False, host_path=host_path, reason="Target is a secret-bearing file; read blocked.")
+    if not container.is_file():
+        return FsResult(accessible=False, host_path=host_path, reason="No such file.")
+    if container.stat().st_size > max_bytes:
+        return FsResult(accessible=False, host_path=host_path, reason="The file is too large to attach.")
+    return FsResult(accessible=True, host_path=host_path, container_path=str(container), exists=True,
+                    data={"bytes": container.read_bytes()})
+
+
 def write_bytes(host_path: str, data: bytes, overwrite: bool = False) -> FsResult:
     """Controlled binary write (an image, audio, a video) inside an approved workspace, with the same scope, secret
     and overwrite rules as write_file."""

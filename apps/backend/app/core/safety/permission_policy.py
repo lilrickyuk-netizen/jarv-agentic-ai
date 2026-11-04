@@ -106,6 +106,11 @@ TOOL_POLICIES: Dict[str, ToolPolicy] = {p.tool_id: p for p in [
     ToolPolicy("research_web", "network_read", RISK_LOW, 1),
     ToolPolicy("generate_image", "write", RISK_LOW, 2, workspace_scope_required=True),
     ToolPolicy("read_mission_report", "read", RISK_LOW, 1),
+    ToolPolicy("make_voiceover", "write", RISK_LOW, 2, workspace_scope_required=True),
+    ToolPolicy("make_video", "write", RISK_LOW, 2, workspace_scope_required=True),
+    ToolPolicy("social_channels", "network_read", RISK_LOW, 1),
+    # A draft only: Postiz holds it until Richard schedules it himself (publishing stays his hard boundary).
+    ToolPolicy("social_draft", "write", RISK_MEDIUM, 2),
     ToolPolicy("check_package_registry", "network_read", RISK_LOW, 1),
     ToolPolicy("check_cve", "network_read", RISK_LOW, 1),
     ToolPolicy("asset_licence_check", "network_read", RISK_LOW, 1),

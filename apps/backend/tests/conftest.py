@@ -165,6 +165,10 @@ def _no_spend_limit_unless_a_test_sets_one(monkeypatch):
     monkeypatch.setattr(settings, "SEARXNG_URL", "")
     monkeypatch.setattr(settings, "CRAWL4AI_URL", "")
     monkeypatch.setattr(settings, "COMFYUI_URL", "")
+    monkeypatch.setattr(settings, "MONEYPRINTER_URL", "")
+    monkeypatch.setattr(settings, "CHATTERBOX_URL", "")
+    monkeypatch.setattr(settings, "POSTIZ_URL", "")
+    monkeypatch.setattr(settings, "POSTIZ_API_KEY", None)
 
 
 @pytest.fixture(autouse=True)

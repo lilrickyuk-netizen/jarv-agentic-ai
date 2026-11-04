@@ -292,6 +292,13 @@ class Settings(BaseSettings):
     # Wave 4a, images: JAI's ComfyUI with FLUX.1-schnell on the NVIDIA GPU (the "images" compose profile). Empty turns
     # image generation off.
     COMFYUI_URL: str = "http://comfyui:8188"
+    # Wave 4b-d: JAI's video maker (MoneyPrinterTurbo, the "content" profile), its natural voice for voiceovers
+    # (Chatterbox), and Postiz for social drafts (the "social" profile; POSTIZ_API_KEY from Postiz's Settings >
+    # Public API once Richard has created his account and connected his channels). Empty turns each off.
+    MONEYPRINTER_URL: str = "http://moneyprinter:8090"
+    CHATTERBOX_URL: str = "http://chatterbox:8770"
+    POSTIZ_URL: str = "http://postiz:5000/api"
+    POSTIZ_API_KEY: Optional[str] = None
 
     # Voice
     VOICE_ENABLED: bool = False

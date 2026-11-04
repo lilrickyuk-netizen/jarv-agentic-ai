@@ -75,6 +75,7 @@ ALIASES: Dict[str, str] = {
 }
 
 CONSULT_TOOL = "consult_specialist_knowledge"
+CREATIVE_TOOLS = ("generate_image", "make_voiceover", "make_video", "social_channels", "social_draft")
 WEB_TOOLS = ("web_search", "research_web", "fetch_url", "read_mission_report")
 TRACE_TOOL = "trace_artifact"
 
@@ -179,6 +180,32 @@ WORKSPACE_TOOLS: Dict[str, ToolSpec] = {
                                     "enum": ["general", "news", "it", "science"]},
                                     "time_range": {"type": "string", "enum": ["day", "week", "month", "year"]},
                                     "limit": {"type": "integer"}}, ["query"]), "workspace"),
+    "make_voiceover": ToolSpec("make_voiceover", "Record narration in JAI's own natural British voice (on JAI's GPU, "
+                               "free) and save it in the workspace as a WAV (assets/audio/ by default), recorded in "
+                               "ASSET_LICENCES.md. Write the text exactly as it should be spoken.",
+                               _schema({"text": {"type": "string"}, "path": _PATH_PROP}, ["text"]), "workspace"),
+    "make_video": ToolSpec("make_video", "Make a short video for social media (15 to 120 seconds): JAI writes the "
+                           "narration from your brief, narrates it in its own voice, makes the footage on its GPU (or "
+                           "uses Pexels stock footage when set up), adds subtitles and saves the MP4 and its script "
+                           "in the workspace (assets/videos/ by default). Nothing is published. Takes several "
+                           "minutes. Give a full brief: the message, the facts to use, the audience, the call to "
+                           "action. aspect: portrait (TikTok, Reels, Shorts), landscape or square.",
+                           _schema({"brief": {"type": "string"}, "seconds": {"type": "integer"},
+                                    "aspect": {"type": "string", "enum": ["portrait", "landscape", "square"]},
+                                    "audience": {"type": "string"},
+                                    "footage": {"type": "string", "enum": ["auto", "generated", "stock"]},
+                                    "path": _PATH_PROP}, ["brief"]), "workspace"),
+    "social_channels": ToolSpec("social_channels", "The social media channels Richard has connected in Postiz "
+                                "(name and platform), to draft posts for.", _schema({}), "workspace"),
+    "social_draft": ToolSpec("social_draft", "Draft a social post in Postiz for Richard's connected channels (all "
+                             "of them unless named), with images or videos from the workspace attached. It is saved "
+                             "as a draft only: Richard reviews and schedules it in Postiz himself; nothing is "
+                             "published by JAI.",
+                             _schema({"text": {"type": "string"},
+                                      "channels": {"type": "array", "items": {"type": "string"}},
+                                      "media": {"type": "array", "items": {"type": "string"},
+                                                "description": "Paths in the workspace of images or videos"}},
+                                     ["text"]), "workspace"),
     "read_mission_report": ToolSpec("read_mission_report", "Read another mission's whole report in this "
                                     "workspace (its findings, recommendations and evidence): give its id or its first "
                                     "eight characters, or nothing for the latest finished mission.",
@@ -266,7 +293,7 @@ WORKSPACE_TOOLS.update({
                                             ["memory_id"]), "workspace"),
 })
 
-_FILESYSTEM_TOOLS = {"generate_image", "list_files", "read_file", "search_files", "scan_workspace", "write_file",
+_FILESYSTEM_TOOLS = {"generate_image", "make_voiceover", "make_video", "list_files", "read_file", "search_files", "scan_workspace", "write_file",
                      "run_command", "git_status", "git_diff", "git_log", "edit_file", "create_folder",
                      "move_file", "copy_file", "delete_file_with_boundary", "get_file_metadata",
                      "detect_workspace_type", "detect_stack", "detect_commands", "find_missing_files",
@@ -385,7 +412,8 @@ class AgentToolbox:
             specs[name] = ToolSpec(name, (meta.description or name)[:500], json_schema, "registry", name)
         # Every agent working in a folder can make images for it (Wave 4a).
         if self.root_container is not None:
-            specs.setdefault("generate_image", WORKSPACE_TOOLS["generate_image"])
+            for creative in CREATIVE_TOOLS:
+                specs.setdefault(creative, WORKSPACE_TOOLS[creative])
         # Every agent can search and research the web and read public pages (read-only, Wave 3).
         for web in WEB_TOOLS:
             specs.setdefault(web, WORKSPACE_TOOLS[web])
@@ -488,10 +516,23 @@ class AgentToolbox:
         rt = self.runtime
         if name in workspace_ops.HANDLERS:
             return await workspace_ops.HANDLERS[name](self, args)
-        if name == "generate_image" and not str(args.get("path") or "").strip():
+        if name in ("generate_image", "make_voiceover", "make_video") and not str(args.get("path") or "").strip():
             from app.core.creative import images
 
-            args = {**args, "path": images.default_path(str(args.get("prompt") or ""))}
+            stem = images.default_path(str(args.get("prompt") or args.get("brief") or args.get("text") or ""))
+            args = {**args, "path": {"generate_image": stem,
+                                     "make_voiceover": stem.replace("assets/images/", "assets/audio/")[:-4] + ".wav",
+                                     "make_video": stem.replace("assets/images/", "assets/videos/")[:-4] + ".mp4"}[name]}
+        if name == "social_draft":
+            media = []
+            for item in args.get("media") or []:
+                found, refusal = self._resolve_host(str(item))
+                if refusal:
+                    return {"success": False, "blocked": True, "reason": refusal}
+                media.append(found)
+            return await rt.social_draft(str(args.get("text", "")), list(args.get("channels") or []) or None, media)
+        if name == "social_channels":
+            return await rt.social_channels()
         if name in _FILESYSTEM_TOOLS:
             key = "cwd" if name == "run_command" else "path"
             host, refusal = self._resolve_host(args.get(key))
@@ -503,6 +544,16 @@ class AgentToolbox:
                 return await rt.read_file(host, offset=_offset(args.get("offset")))
             if name == "scan_workspace":
                 return await rt.scan_workspace(host)
+            if name == "make_voiceover":
+                return await rt.make_voiceover(host, str(args.get("text", "")),
+                                               licence_file=self._resolve_host("ASSET_LICENCES.md")[0],
+                                               shown_as=str(args["path"]))
+            if name == "make_video":
+                return await rt.make_video(host, str(args.get("brief", "")), int(args.get("seconds") or 40),
+                                           str(args.get("aspect") or "portrait"), str(args.get("audience") or ""),
+                                           str(args.get("footage") or "auto"),
+                                           licence_file=self._resolve_host("ASSET_LICENCES.md")[0],
+                                           shown_as=str(args["path"]))
             if name == "generate_image":
                 from app.core.creative import images
 

@@ -139,6 +139,7 @@ services:
       - jarv-ops
       - jarv-web
       - jarv-gpu
+      - jarv-voice
     restart: unless-stopped
 
   # Next.js Dashboard Frontend
@@ -278,6 +279,88 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
 
+  # Wave 4b, videos: MoneyPrinterTurbo (open source, MIT) behind JAI's small render API. JAI writes and narrates;
+  # it gathers footage (JAI's images, or Pexels with PEXELS_API_KEY in .env), times subtitles and renders. It never
+  # calls an AI provider. On JAI's research network (it needs the internet only for Pexels).
+  moneyprinter:
+    profiles: ["content"]
+    build:
+      context: ./services/moneyprinter
+      dockerfile: Dockerfile
+    container_name: jarv-moneyprinter
+    environment:
+      PEXELS_API_KEY: ${PEXELS_API_KEY:-}
+    networks:
+      - jarv-web
+    mem_limit: 3g
+    restart: unless-stopped
+
+  # Wave 4d, social drafts: Postiz (open source, AGPL-3.0) with its job scheduler, Temporal. Both use JAI's own
+  # PostgreSQL (each its own database and its own user, created by the installer) and Redis. Postiz is published on
+  # this computer only (http://localhost:4007), where Richard creates his account and connects his channels; JAI
+  # writes drafts through its public API and never schedules or publishes.
+  temporal:
+    profiles: ["social"]
+    image: temporalio/auto-setup:1.28.1
+    container_name: jarv-temporal
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: ${TEMPORAL_DB_PASSWORD:-}
+      POSTGRES_SEEDS: postgres
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+      TEMPORAL_NAMESPACE: default
+    volumes:
+      - ./services/postiz/dynamicconfig:/etc/temporal/config/dynamicconfig:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - jarv-network
+    mem_limit: 768m
+    restart: unless-stopped
+
+  postiz:
+    profiles: ["social"]
+    image: ${POSTIZ_IMAGE:-ghcr.io/gitroomhq/postiz-app:latest}
+    container_name: jarv-postiz
+    environment:
+      MAIN_URL: http://localhost:4007
+      FRONTEND_URL: http://localhost:4007
+      NEXT_PUBLIC_BACKEND_URL: http://localhost:4007/api
+      BACKEND_INTERNAL_URL: http://localhost:3000
+      JWT_SECRET: ${POSTIZ_JWT_SECRET:-}
+      DATABASE_URL: postgresql://postiz:${POSTIZ_DB_PASSWORD:-}@postgres:5432/postiz
+      REDIS_URL: redis://redis:6379/6
+      TEMPORAL_ADDRESS: temporal:7233
+      IS_GENERAL: "true"
+      DISABLE_REGISTRATION: "false"
+      RUN_CRON: "true"
+      STORAGE_PROVIDER: local
+      UPLOAD_DIRECTORY: /uploads
+      NEXT_PUBLIC_UPLOAD_DIRECTORY: /uploads
+      API_LIMIT: "60"
+    env_file:
+      - path: ./services/postiz/social.env
+        required: false
+    volumes:
+      - postiz_config:/config
+      - postiz_uploads:/uploads
+    ports:
+      - "127.0.0.1:4007:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+    networks:
+      - jarv-network
+    mem_limit: 1536m
+    restart: unless-stopped
+
   # Voicebox is reachable only on the private Compose network. Its API has no
   # authentication, so the dashboard talks to it exclusively through JARV.
   voicebox:
@@ -354,6 +437,7 @@ services:
       - jarv-ops
       - jarv-web
       - jarv-gpu
+      - jarv-voice
     restart: unless-stopped
     command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
     # Celery worker liveness: ping the worker over the broker (not HTTP — this
@@ -448,6 +532,10 @@ volumes:
     name: jai_voice_refs
   comfyui_models:
     name: jai_comfyui_models
+  postiz_config:
+    driver: local
+  postiz_uploads:
+    driver: local
 
 networks:
   jarv-network:
