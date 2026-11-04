@@ -570,7 +570,8 @@ class AgentToolbox:
 
         if self.root_host is None or self.root_container is None:
             return None, "This workspace has no registered folder; register it before using file tools."
-        raw = (value or "").strip().strip('"').strip("'")
+        # A path copied out of a sentence keeps its punctuation: "(C:\\Users\\...\\MYCO)." is the folder itself.
+        raw = (value or "").strip().strip('"').strip("'").strip("`").lstrip("([").rstrip(").,;:]").strip()
         windows_root = ":" in self.root_host[:3] or "\\" in self.root_host
         if not raw or raw in (".", "./"):
             candidate = self.root_host
