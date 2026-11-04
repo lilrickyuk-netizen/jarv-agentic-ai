@@ -46,6 +46,10 @@ services:
     environment:
       CONTAINERS: 1
       ALLOW_RESTARTS: 1
+      # Start and stop only: JAI's backend lets Richard switch its heavy services (docker_ops.SWITCHABLE) on and
+      # off from the Command Center; it refuses every other container.
+      ALLOW_START: 1
+      ALLOW_STOP: 1
       POST: 0
       LOG_LEVEL: warning
     volumes:

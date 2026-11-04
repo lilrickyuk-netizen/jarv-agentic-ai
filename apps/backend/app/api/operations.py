@@ -104,6 +104,36 @@ async def restart(service: str, body: RestartRequest, user: CurrentUserId,
     return result
 
 
+class SwitchRequest(BaseModel):
+    on: bool
+
+
+@router.get("/switches")
+async def switches(user: CurrentUserId) -> Dict[str, Any]:
+    """The heavy services Richard switches on and off, and the memory free now."""
+    memory = psutil.virtual_memory()
+    try:
+        items = await docker_ops.get_docker_ops().switches()
+    except docker_ops.OpsUnavailable as exc:
+        return {"available": False, "reason": str(exc), "switches": []}
+    return {"available": True, "switches": items, "memory_available_gb": round(memory.available / 1e9, 1),
+            "memory_total_gb": round(memory.total / 1e9, 1)}
+
+
+@router.post("/switches/{service}")
+async def switch(service: str, body: SwitchRequest, user: CurrentUserId,
+                 db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    try:
+        result = await docker_ops.get_docker_ops().switch(service, body.on)
+    except docker_ops.OpsRefused as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except docker_ops.OpsUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    await AuditLogger.log_system_event(db, action="service_switch", result="success", resource_type="service",
+                                       details={**result, "operator": user}, severity="info")
+    return result
+
+
 def _backup_info(record) -> Dict[str, Any]:
     return {"id": str(record.id), "file": record.backup_name, "status": record.status,
             "size_bytes": record.backup_size_bytes, "verified": record.is_verified,

@@ -14101,3 +14101,16 @@ TESTS RUN: Wave 5 suite with the context now required to switch off Serena's fil
 RESULT: Serena stopped at start-up: v2.1.0 accepts only tool names in excluded_tools, not the ToolMarkerCanEdit marker. The context now lists every v2.1.0 tool that can change files, run commands or keep notes by its exact name (found from Serena's own source), so Serena starts with read-only tools only. Temporal kept restarting because its databases did not exist and its setup could not create them; they are now created for it.
 BLOCKERS: None
 NEXT TASK: Mission quality (deliverables and standards)
+
+---
+
+TASK ID: SERVICE-SWITCHES
+TASK NAME: Richard switches JAI's heavy services on and off from the Command Center
+STATUS: COMPLETE
+FILES CREATED: apps/dashboard/src/components/service-switches.tsx, apps/dashboard/__tests__/service-switches.test.tsx, apps/backend/tests/test_service_switches.py
+FILES MODIFIED: apps/backend/app/core/ops/docker_ops.py, apps/backend/app/api/operations.py, apps/backend/app/core/creative/images.py, apps/backend/app/core/creative/voiceover.py, apps/backend/app/core/creative/videos.py, apps/backend/app/core/documents.py, apps/backend/app/core/internet/browser.py, apps/backend/app/core/code/serena.py, apps/dashboard/src/app/dashboard/page.tsx, apps/dashboard/src/app/globals.css, docker-compose.yml
+COMMANDS RUN: backend test suite; dashboard type-check and tests; docker compose up for the Docker proxy (start and stop allowed), the dashboard, backend and worker
+TESTS RUN: backend suite with new tests that the image generator is switched on and off (one start, one stop, nothing sent when already so), that nothing outside the six switchable services can be switched (the database, Redis, the proxy, the backend), that a service not installed is reported, that the API lists the switches with the memory free and records each change in the audit log, and that the proxy allows start and stop but still no general POST; dashboard test that one click switches the image generator on and a service not installed cannot be switched
+RESULT: Richard asked for the image generator to be switched on and off from the UI so he does not have to use the terminal. The Command Center now has a JAI's services panel with the memory free and a switch for each heavy service: image generator, natural voice, video maker, document reader, browser and code understanding. Each click starts or stops that one container through JAI's restricted Docker proxy (now allowed to start and stop, and still nothing else), refreshed every 15 seconds and recorded in the audit log; the database, Redis, the proxy and JAI's own services can never be switched from there. When a task needs a service that is off, JAI says which switch to turn on. Wave 1's LiteLLM and Langfuse are not added, by Richard's decision: JAI's gateway already keeps every service on JAI's key inside the daily limit, and JAI already reports what the AI costs.
+BLOCKERS: None
+NEXT TASK: Mission quality (deliverables and standards)

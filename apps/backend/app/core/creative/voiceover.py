@@ -71,7 +71,7 @@ async def speak(text: str, voice: Optional[str] = None, client: Optional[httpx.A
             try:
                 spoken = await client.post(f"{base}/speak", json={"text": line, "voice": voice})
             except httpx.HTTPError as exc:
-                raise VoiceoverUnavailable(f"JAI's natural voice could not be reached ({type(exc).__name__}).") from exc
+                raise VoiceoverUnavailable(f"JAI's natural voice could not be reached ({type(exc).__name__}). Switch it on under "JAI's services" in the Command Center.") from exc
             if spoken.status_code != 200:
                 raise VoiceoverUnavailable(f"JAI's natural voice answered {spoken.status_code}: {spoken.text[:200]}")
             pcm.extend(spoken.content)

@@ -38,6 +38,16 @@ NEVER_RESTART = frozenset({"postgres", "redis", "docker-proxy"})
 # development. One not running is reported as such, never as JAI being degraded.
 OPTIONAL_SERVICES = frozenset({"voicebox", "prometheus", "grafana", "alertmanager", "postgres-exporter",
                                "redis-exporter", "node-exporter", "local-runner", "cloud-runner"})
+# Services Richard switches on and off from the Command Center to share the computer's memory (Wave 6): heavy, and
+# JAI works without each of them (it says which one to switch on when a task needs it). Name -> what it is.
+SWITCHABLE = {
+    "comfyui": ("Image generator", "FLUX.1-schnell on the GPU; about 7 GB of memory while it works"),
+    "chatterbox": ("Natural voice", "Chatterbox in George's voice; Kokoro speaks when it is off"),
+    "moneyprinter": ("Video maker", "MoneyPrinterTurbo; up to 3 GB while rendering"),
+    "docling": ("Document reader", "Docling for PDFs, Word, PowerPoint and scans; up to 3 GB"),
+    "browser": ("Browser", "browser-use with Chromium, for clicking through sites"),
+    "serena": ("Code understanding", "Serena's language servers; up to 2 GB"),
+}
 # Jobs that run once and exit (database migrations): exited with code 0 is their finished state.
 ONE_SHOT_SERVICES = frozenset({"migrate"})
 
@@ -202,6 +212,39 @@ class DockerOps:
             logger.warning(f"Restarted service {name} ({container.name})")
             restarted.append(container.name)
         return {"service": name, "containers": restarted, "container": restarted[0], "restarted": True}
+
+
+    async def switches(self) -> List[Dict[str, Any]]:
+        """Each switchable service: whether it is on, as the Command Center shows it."""
+        found = {c.service: c for c in await self.containers()}
+        out = []
+        for service, (label, about) in SWITCHABLE.items():
+            container = found.get(service)
+            out.append({"service": service, "label": label, "about": about, "installed": container is not None,
+                        "on": bool(container and container.state == "running"),
+                        "status": container.status if container else "not installed"})
+        return out
+
+    async def switch(self, service: str, on: bool) -> Dict[str, Any]:
+        """Start or stop one of the SWITCHABLE services, and nothing else."""
+        service = (service or "").strip().lower()
+        if service not in SWITCHABLE:
+            raise OpsRefused(f"'{service}' is not one of the services switched on and off from the Command Center.")
+        matches = [c for c in await self.containers() if c.service == service]
+        if not matches:
+            raise OpsRefused(f"{SWITCHABLE[service][0]} is not installed on this computer.")
+        changed: List[str] = []
+        for container in matches:
+            if (container.state == "running") == on:
+                continue
+            response = await self._request("POST", f"/containers/{container.id}/{'start' if on else 'stop'}",
+                                           params={} if on else {"t": "20"})
+            if response.status_code not in (204, 304, 200):
+                raise OpsUnavailable(f"{'Starting' if on else 'Stopping'} {container.name} failed: "
+                                     f"HTTP {response.status_code}")
+            changed.append(container.name)
+        logger.warning(f"Switched {service} {'on' if on else 'off'} ({', '.join(changed) or 'already so'})")
+        return {"service": service, "label": SWITCHABLE[service][0], "on": on, "changed": changed}
 
 
 def _demux(raw: bytes) -> str:

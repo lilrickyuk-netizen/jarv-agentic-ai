@@ -79,7 +79,7 @@ async def convert(name: str, data: bytes, client: Optional[httpx.AsyncClient] = 
         response = await client.post(f"{base}/v1/convert/file", files={"files": (name, data)},
                                      data={"to_formats": "md", "image_export_mode": "placeholder", "do_ocr": "true"})
     except httpx.HTTPError as exc:
-        raise DocumentUnavailable(f"JAI's document reader (Docling) could not be reached ({type(exc).__name__}).") from exc
+        raise DocumentUnavailable(f"JAI's document reader (Docling) could not be reached ({type(exc).__name__}). Switch it on under "JAI's services" in the Command Center.") from exc
     finally:
         if owned:
             await client.aclose()

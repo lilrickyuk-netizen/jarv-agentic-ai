@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { CockpitCore } from '@/components/cockpit-core';
 import { JarvMark } from '@/components/jarv-mark';
 import { JaiDisplay } from '@/components/jai-display';
+import { ServiceSwitches } from '@/components/service-switches';
 import { apiClient, HealthResponse } from '@/lib/api';
 import { followMission, runMission } from '@/lib/missions';
 import { VOICE_SLOT_ID } from '@/components/persistent-voice';
@@ -306,6 +307,8 @@ export default function CommandCenterPage() {
               <div className="signal-foot"><a href="/dashboard/agents">Versioned agent knowledge is retrieved per agent ↗</a></div>
             </article>
           </section>
+
+          <section className="switch-rail"><ServiceSwitches /></section>
 
           <section className="bottom-rail">
             <div><span className="eyebrow">ACTIVE MISSIONS</span><a href="/dashboard/tasks">Open task board ↗</a></div>

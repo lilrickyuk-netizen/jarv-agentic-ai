@@ -485,3 +485,18 @@ html body.jai-theme .border-rose-100, html body.jai-theme .border-rose-200, html
 .jai-display ul { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.6; }
 .jai-display pre { max-height: 420px; overflow: auto; margin: 0; padding: 10px; background: rgba(5, 7, 11, .7); font-size: 12px;
   line-height: 1.5; white-space: pre; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #d1d9e2; }
+
+/* JAI's services: the heavy ones switched on and off from the Command Center (Wave 6). */
+.switch-rail { margin-top: 14px; }
+.switch-panel { padding: 16px 18px; }
+.switch-memory { color: #8290a2; font-size: 11px; white-space: nowrap; }
+.switch-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 12px 0 0; padding: 0; list-style: none; }
+.switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid rgba(142, 155, 170, .16); background: rgba(9, 15, 25, .6); }
+.switch-row strong { display: block; color: #e8edf3; font-size: 13px; font-weight: 500; }
+.switch-row small { display: block; margin-top: 3px; color: #8290a2; font-size: 11px; line-height: 1.35; }
+.switch-toggle { flex: none; min-width: 74px; padding: 6px 12px; border: 1px solid rgba(142, 155, 170, .35); background: transparent; color: #c3ccd7; font-size: 12px; cursor: pointer; }
+.switch-toggle.is-on { border-color: var(--cyan); color: var(--cyan); background: rgba(34, 211, 238, .08); }
+.switch-toggle:disabled { opacity: .5; cursor: default; }
+.switch-error { margin: 10px 0 0; color: #f87171; font-size: 12px; }
+@media (max-width: 1100px) { .switch-list { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 700px) { .switch-list { grid-template-columns: 1fr; } }
