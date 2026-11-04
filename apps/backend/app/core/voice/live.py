@@ -370,7 +370,48 @@ async def live_context(db: AsyncSession, user_id: UUID, text: str) -> Dict[str, 
     facts = await brain_facts(db, user_id, text, None)
     facts.pop("recent_conversation", None)  # the conversation itself is already in the voice's context
     facts.update(await _remembered(db, user_id, text))
-    return {"state": json.dumps(facts, default=str, separators=(",", ":"))[:40000]}
+    return {"state": voice_state_text(compact_for_voice(facts))}
+
+
+# The voice reads the live state before every reply, so its size is time Richard waits: it carries what a spoken
+# answer needs (the mission he means keeps its whole report, for read-outs), and the rest in short.
+VOICE_STATE_CHARS = 20000
+
+
+def voice_state_text(facts: Dict[str, Any]) -> str:
+    """The state as JSON within VOICE_STATE_CHARS, always whole JSON: when it is too long, the report of the mission
+    he asked about is shortened to fit, then the rest is dropped piece by piece."""
+    import json
+
+    def dump(value):
+        return json.dumps(value, default=str, separators=(",", ":"))
+
+    text = dump(facts)
+    if len(text) <= VOICE_STATE_CHARS:
+        return text
+    facts = dict(facts)
+    asked = facts.get("mission_asked_about")
+    if isinstance(asked, dict) and asked.get("result"):
+        over = len(text) - VOICE_STATE_CHARS
+        report = str(asked["result"])
+        facts["mission_asked_about"] = {**asked, "result": report[:max(2000, len(report) - over - 40)] + " [...]"}
+        text = dump(facts)
+    for key in ("knowledge", "memories", "what_my_work_has_established", "recent_missions", "my_recent_upgrades"):
+        if len(text) <= VOICE_STATE_CHARS:
+            break
+        facts.pop(key, None)
+        text = dump(facts)
+    return text
+
+
+def compact_for_voice(facts: Dict[str, Any]) -> Dict[str, Any]:
+    out = dict(facts)
+    out["recent_missions"] = [{**m, **({"last_report": str(m["last_report"])[:350]} if m.get("last_report") else {})}
+                              for m in (facts.get("recent_missions") or [])[:5]]
+    out["memories"] = [{"content": str(m.get("content", ""))[:240], "type": m.get("type")}
+                       for m in facts.get("memories") or [] if m.get("type") != "source"][:5]
+    out["knowledge"] = [{**k, "content": str(k.get("content", ""))[:300]} for k in facts.get("knowledge") or []][:3]
+    return out
 
 
 _KEEPING: set = set()  # what Richard said, on its way to Mem0
@@ -423,6 +464,18 @@ async def record_pipeline_usage(kind: str, usage: Dict[str, Any]) -> Dict[str, A
 
 
 # The Pipecat voice speaks the model's text through text-to-speech, so the text must read aloud well.
+# How the voice talks (Richard: "not robotic, conversational, the Jarvis direction"). Last, so it governs the tone.
+CONVERSATION_STYLE = (
+    "\nHOW YOU TALK. You are talking with Richard, not reading to him: think of a composed, quick, dryly witty "
+    "British aide who knows everything going on and gets to the point. Start every reply with a short sentence of "
+    "under ten words, so he hears you at once, then at most two more. Answer what he asked first. Never recite: "
+    "do not read out lists, records, field names, ids, statuses or timestamps; pick what matters most and say it "
+    "in your own words, and if there is more, offer it ('Want the rest?') rather than listing it. When he says "
+    "'what else' or 'carry on', give the next most important thing in a sentence or two, never the whole list "
+    "again. Say times the way a person does ('this morning', 'about an hour ago'), not clock readings. Use "
+    "contractions and everyday words, vary how you begin, use his name only now and then, and keep the odd light "
+    "touch of humour. If he interrupts or changes the subject, follow him at once. Silence is fine: never fill it.\n")
+
 SPOKEN_TEXT = ("\nYour replies are spoken aloud by a text-to-speech voice: plain sentences only, never markdown, "
                "lists, headings, emoji, code or URLs; say numbers and ids the way a person would read them. "
                "Open the conversation with one short sentence that tells him what matters right now, from the "
@@ -452,7 +505,7 @@ async def pipeline_brief(db: AsyncSession, user_id: UUID) -> Dict[str, Any]:
                               f"${state['limit_usd']:.2f}), so the live conversation cannot start until it is raised "
                               f"(DAILY_SPEND_LIMIT_USD) or the day turns over.")
     spaces = await _workspaces(db, user_id)
-    text = (instructions(spaces, brain=True) + SPOKEN_TEXT + now_block()
+    text = (instructions(spaces, brain=True) + SPOKEN_TEXT + CONVERSATION_STYLE + now_block()
             + history_block(await recent_turns(user_id)))
     await AuditLogger.log_system_event(db, action=SESSION_ACTION, result="ok", resource_type="voice",
                                        user_id=user_id, details={"engine": "pipecat",

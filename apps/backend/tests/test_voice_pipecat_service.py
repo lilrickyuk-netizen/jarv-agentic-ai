@@ -82,7 +82,7 @@ def test_the_brief_carries_jais_instructions_tools_and_voice_but_never_the_key(c
                                                   "make_image"}
     assert "You are JAI's own mind" in body["instructions"] and "never markdown" in body["instructions"]
     assert "call ask_jarv" not in body["instructions"] and "Never answer about the outside world" in body["instructions"]
-    assert body["reasoning"] == "low" and body["stt_model"] == "gpt-transcribe" and "Plexecute" in body["stt_prompt"]
+    assert body["reasoning"] == "none" and body["stt_model"] == "gpt-transcribe" and "Plexecute" in body["stt_prompt"]
     assert "Approvals page" in body["instructions"]
     assert engine_choice["engine"] == "pipecat" and engine_choice["url"].startswith("ws")
     assert engine_choice["fallback"] == "realtime"

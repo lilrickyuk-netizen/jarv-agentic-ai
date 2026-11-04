@@ -328,6 +328,70 @@ async def test_the_live_state_survives_openai_specific_entries_and_never_stops_a
     assert quiet.get_messages()[-1]["content"] == "Jay?"
 
 
+def test_a_sentence_is_spoken_in_phrases_the_first_one_short():
+    assert pipeline.phrases("Yes.") == ["Yes."]
+    first, *rest = pipeline.phrases("At two thirty-five, I gained live system context before each reply, direct "
+                                    "access to my tools, current web research, and improved speech handling.")
+    assert first == "At two thirty-five," and rest and all(len(p.split()) >= 3 for p in rest)
+    assert pipeline.phrases("It cost 1,500 pounds, which is a lot.") == ["It cost 1,500 pounds, which is a lot."]
+    long = pipeline.phrases("word " * 60)
+    assert len(long[0].split()) <= pipeline.FIRST_PHRASE_WORDS and " ".join(long).split() == ["word"] * 60
+
+
+async def test_the_natural_voice_speaks_phrase_by_phrase(monkeypatch):
+    import httpx
+
+    asked = []
+
+    def chatterbox(request):
+        asked.append(json.loads(request.content)["text"])
+        return httpx.Response(200, content=b"\x01\x00" * 4800)
+
+    tts = pipeline.ChatterboxTTSService(base_url="http://chatterbox:8770", voice="george",
+                                        client=httpx.AsyncClient(transport=httpx.MockTransport(chatterbox)))
+
+    async def no_metrics(*a, **k):
+        return None
+
+    monkeypatch.setattr(tts, "start_tts_usage_metrics", no_metrics)
+    monkeypatch.setattr(tts, "stop_ttfb_metrics", no_metrics)
+
+    async def frames(audio, in_sample_rate, context_id):
+        async for piece in audio:
+            yield piece
+
+    monkeypatch.setattr(tts, "_stream_audio_frames_from_iterator", frames)
+    out = [f async for f in tts.run_tts("Since this morning, I've had several upgrades to how I work.", "c1")]
+    assert asked == ["Since this morning,", "I've had several upgrades to how I work."] and len(out) == 2
+
+
+async def test_the_live_state_is_fetched_while_the_turn_is_still_being_judged():
+    import asyncio
+
+    from pipecat.processors.aggregators.llm_context import LLMContext
+
+    class Brain(FakeBackend):
+        def __init__(self):
+            super().__init__()
+            self.asked = []
+
+        async def context(self, text):
+            self.asked.append(text)
+            await asyncio.sleep(0)
+            return {"state": f"for: {text}"}
+
+    brain = Brain()
+    relay = pipeline.BrainContext(brain)
+    relay.prefetch("How is MYCO going?")                # as soon as the words are transcribed
+    context = LLMContext(messages=[{"role": "user", "content": "How is MYCO going?"}])
+    await relay.refresh(context)
+    assert brain.asked == ["How is MYCO going?"]        # one lookup, started early, used
+    assert "for: How is MYCO going?" in context.get_messages()[0]["content"]
+    relay.prefetch("Something else entirely")
+    await relay.refresh(LLMContext(messages=[{"role": "user", "content": "What day is it?"}]))
+    assert brain.asked[-1] == "What day is it?"         # a stale early lookup is not used
+
+
 def test_only_the_dashboard_may_open_a_conversation(monkeypatch):
     monkeypatch.setattr(main, "ALLOWED_ORIGINS", {"http://localhost:3000"})
     assert main.origin_allowed("http://localhost:3000")

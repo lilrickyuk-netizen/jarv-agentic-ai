@@ -14127,3 +14127,16 @@ TESTS RUN: voice service suite with a new test that JAI's live state is added ar
 RESULT: Richard asked the voice whether it had been upgraded and it said it had no record and that JAI's health was degraded; after its first tool call it stopped answering altogether. After a tool call the conversation holds OpenAI-specific entries (reasoning and function-call items) that are not plain messages, and the step that adds JAI's live state before each reply failed on them, so every later reply was dropped. It now reads only plain messages, keeps the others as they are, and if adding the state ever fails the reply goes ahead without it and the failure is logged. The voice is now given my_recent_upgrades (the last three days of commits in Richard's JAI repository, mounted read-only into the backend) and told to explain what each lets it do. Services that run under their own profile or that Richard switches off from the Command Center no longer make JAI report itself degraded.
 BLOCKERS: None
 NEXT TASK: Mission quality (deliverables and standards)
+
+---
+
+TASK ID: VOICE-CONVERSATIONAL
+TASK NAME: The voice starts sooner, speaks without gaps and talks rather than recites (staying free on Richard's GPU)
+STATUS: COMPLETE
+FILES CREATED: apps/backend/tests/test_voice_conversational.py
+FILES MODIFIED: services/voice/app/pipeline.py, services/voice/tests/test_voice_service.py, apps/backend/app/core/voice/live.py, apps/backend/app/core/config.py, apps/backend/tests/test_voice_pipecat_service.py
+COMMANDS RUN: voice image build and its tests; backend test suite; docker compose up for the voice; backend and worker restarted
+TESTS RUN: voice suite with new tests that a sentence is spoken in phrases (the first short, none under three words, numbers never split), that the natural voice asks Chatterbox phrase by phrase, and that the live state is fetched as soon as the words are transcribed and used only when it matches what he said; backend suite with new tests that the voice is told how to talk and has no reasoning pass, and that its live state is compact and always whole JSON
+RESULT: Richard said the voice still sounded robotic, like reading text, took a long time to answer and came in segments, not the Jarvis direction; he chose to stay free on his own GPU. Each reply waited for JAI's live state (about a second), a reasoning pass, the whole reply, and then Chatterbox making each full sentence (up to about five seconds for a long one) before any of it played, and the model wrote for a screen (lists, records, clock times). Now: the live state is fetched the moment his words are transcribed, while the turn detector decides he has finished; it is compact (five missions in short, no web-source records, the mission he means still whole) and always whole JSON; there is no reasoning pass before a spoken reply; Chatterbox speaks each sentence in phrases, the first one short so he hears JAI at once, each next phrase made while the one before plays; and the voice is told how to talk: a short first sentence, the answer first, at most three sentences, never reciting lists, ids or clock times, offering the rest instead, following him when he interrupts.
+BLOCKERS: None
+NEXT TASK: Mission quality (deliverables and standards)

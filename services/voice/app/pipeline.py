@@ -12,6 +12,7 @@ use to JAI's daily spend, ending the conversation if today's limit is reached.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -78,15 +79,18 @@ class HeardRelay(FrameProcessor):
     """What Richard said, to the dashboard and to the conversation history (after speech-to-text). Once he
     speaks, what he asks for next is his own request again."""
 
-    def __init__(self, backend: Backend, state: Optional[Dict[str, Any]] = None, **kwargs):
+    def __init__(self, backend: Backend, state: Optional[Dict[str, Any]] = None, on_heard=None, **kwargs):
         super().__init__(**kwargs)
         self._backend = backend
         self._state = state if state is not None else {}
+        self._on_heard = on_heard
 
     async def _heard(self, frame: Frame) -> None:
         if isinstance(frame, TranscriptionFrame) and (frame.text or "").strip():
             self._state["update_only"] = False
             self._state["heard_at"] = time.monotonic()
+            if self._on_heard is not None:
+                self._on_heard(frame.text.strip())  # JAI starts looking while it decides he has finished
             await self.push_frame(message({"type": "you", "text": frame.text.strip()}))
             await self._backend.turn("you", frame.text.strip())
 
@@ -109,6 +113,28 @@ class BrainContext(FrameProcessor):
         super().__init__(**kwargs)
         self._backend = backend
         self._last: Optional[str] = None
+        self._early: Optional[tuple] = None  # (what he said, the lookup already started for it)
+
+    def prefetch(self, said: str) -> None:
+        """Start fetching JAI's live state for what Richard has just said, as soon as it is transcribed: the turn
+        detector is still deciding whether he has finished, so the wait overlaps it."""
+        try:
+            self._early = (said, asyncio.get_running_loop().create_task(self._backend.context(said)))
+        except RuntimeError:  # no running loop (tests calling directly)
+            self._early = None
+
+    async def _state_for(self, said: str) -> Dict[str, Any]:
+        early, self._early = self._early, None
+        if early is not None:
+            text, task = early
+            if text and (text in said or said in text):
+                try:
+                    return await task
+                except Exception:  # noqa: BLE001 - fall back to asking now
+                    pass
+            else:
+                task.cancel()
+        return await self._backend.context(said)
 
     @staticmethod
     def _is_state(message: Any) -> bool:
@@ -133,7 +159,7 @@ class BrainContext(FrameProcessor):
         messages = [m for m in context.get_messages() if not self._is_state(m)]
         if fetch:
             started = time.monotonic()
-            found = await self._backend.context(self._said_last(messages))
+            found = await self._state_for(self._said_last(messages))
             if found.get("state"):
                 self._last = str(found["state"])
             timing.info(f"timing brain-context {time.monotonic() - started:.2f}s")
@@ -341,6 +367,46 @@ CHATTERBOX_URL = os.environ.get("CHATTERBOX_URL", "").rstrip("/")
 CHATTERBOX_RATE = 24000
 
 
+FIRST_PHRASE_WORDS = 9     # the first thing JAI says is short, so it starts speaking at once
+PHRASE_WORDS = 18          # later phrases are about a breath long
+
+
+def phrases(text: str) -> List[str]:
+    """A sentence as phrases to speak one after another: split at commas, semicolons, colons and dashes (never
+    inside a number such as 1,500), the first phrase short, later ones about a breath long, none under three words."""
+    text = " ".join((text or "").split())
+    if not text:
+        return []
+    parts = [p.strip() for p in re.split(r"(?<=[,;:])\s+(?=\D)|(?<=\s)(?=[\u2013\u2014-]\s)", text) if p.strip()]
+    out: List[str] = []
+    current = ""
+    for part in parts:
+        target = FIRST_PHRASE_WORDS if not out else PHRASE_WORDS
+        if not current or len(current.split()) + len(part.split()) <= target:
+            current = f"{current} {part}".strip()
+        else:
+            out.append(current)
+            current = part
+    if current:
+        out.append(current)
+    cut: List[str] = []
+    for phrase in out:  # a long stretch with no punctuation is cut at a word, about a breath in
+        words = phrase.split()
+        while len(words) > (FIRST_PHRASE_WORDS if not cut else PHRASE_WORDS) + 6:
+            size = FIRST_PHRASE_WORDS if not cut else PHRASE_WORDS
+            cut.append(" ".join(words[:size]))
+            words = words[size:]
+        if words:
+            cut.append(" ".join(words))
+    final: List[str] = []
+    for phrase in cut:  # a scrap of one or two words joins the phrase before it
+        if final and len(phrase.split()) < 3:
+            final[-1] = f"{final[-1]} {phrase}"
+        else:
+            final.append(phrase)
+    return final
+
+
 class ChatterboxTTSService(TTSService):
     """JAI's natural voice: each sentence spoken by the Chatterbox service (Chatterbox Turbo on the GPU) in the
     named reference voice, returned as 24 kHz 16-bit PCM and streamed into the conversation."""
@@ -359,22 +425,28 @@ class ChatterboxTTSService(TTSService):
         return True
 
     async def run_tts(self, text: str, context_id: str):
+        # Chatterbox makes a whole piece before any of it can play, and a long sentence takes seconds on a laptop
+        # GPU. So a sentence is spoken in phrases: the first one short, so Richard hears JAI at once, and each next
+        # phrase is made while the one before it plays, so there are no gaps.
         try:
             await self.start_tts_usage_metrics(text)
-            response = await self._client.post(f"{self._url}/speak", json={"text": text, "voice": self._settings.voice})
-            if response.status_code != 200:
-                yield ErrorFrame(error=f"JAI's natural voice answered {response.status_code}: {response.text[:200]}")
-                return
+            for piece in phrases(text):
+                started = time.monotonic()
+                response = await self._client.post(f"{self._url}/speak",
+                                                   json={"text": piece, "voice": self._settings.voice})
+                if response.status_code != 200:
+                    yield ErrorFrame(error=f"JAI's natural voice answered {response.status_code}: {response.text[:200]}")
+                    return
+                timing.info(f"timing chatterbox-phrase {len(piece)} characters {time.monotonic() - started:.2f}s")
 
-            async def pcm():
-                audio = response.content
-                for start in range(0, len(audio), 9600):  # 0.2 s pieces
-                    yield audio[start:start + 9600]
+                async def pcm(audio=response.content):
+                    for start in range(0, len(audio), 9600):  # 0.2 s pieces
+                        yield audio[start:start + 9600]
 
-            async for frame in self._stream_audio_frames_from_iterator(pcm(), in_sample_rate=CHATTERBOX_RATE,
-                                                                       context_id=context_id):
-                await self.stop_ttfb_metrics()
-                yield frame
+                async for frame in self._stream_audio_frames_from_iterator(pcm(), in_sample_rate=CHATTERBOX_RATE,
+                                                                           context_id=context_id):
+                    await self.stop_ttfb_metrics()
+                    yield frame
         except Exception as exc:  # noqa: BLE001
             yield ErrorFrame(error=f"JAI's natural voice failed: {exc}")
         finally:
@@ -439,8 +511,9 @@ def build(websocket, backend: Backend, brief: Dict[str, Any], api_key: str):
     context = LLMContext(tools=function_schemas(brief.get("tools") or [], backend, worker_ref))
     user_aggregator, assistant_aggregator = LLMContextAggregatorPair(
         context, user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()))
-    pipeline = Pipeline([transport.input(), stt, HeardRelay(backend, worker_ref), user_aggregator,
-                         BrainContext(backend), llm, SaidRelay(backend, worker_ref), tts,
+    brain = BrainContext(backend)
+    pipeline = Pipeline([transport.input(), stt, HeardRelay(backend, worker_ref, on_heard=brain.prefetch),
+                         user_aggregator, brain, llm, SaidRelay(backend, worker_ref), tts,
                          SpendMeter(backend, local_voice), transport.output(), assistant_aggregator])
     worker = PipelineWorker(pipeline, params=PipelineParams(enable_metrics=True, enable_usage_metrics=True))
     worker_ref["worker"] = worker

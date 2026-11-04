@@ -348,7 +348,8 @@ class Settings(BaseSettings):
     # jai_voice_refs volume (george: made from Kokoro's British bm_george); Kokoro is its fallback.
     # How hard the brain voice thinks before answering (none, low, medium): low follows JAI's rules reliably and
     # still answers in about a second. The transcriber: gpt-transcribe is OpenAI's most accurate.
-    VOICE_PIPELINE_REASONING: str = "low"
+    # No reasoning pass before a spoken reply: it is the largest wait before JAI starts talking.
+    VOICE_PIPELINE_REASONING: str = "none"
     VOICE_PIPELINE_STT_MODEL: str = "gpt-transcribe"
     VOICE_PIPELINE_TTS: str = "chatterbox"
     VOICE_PIPELINE_CHATTERBOX_VOICE: str = "george"
