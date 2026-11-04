@@ -33,10 +33,10 @@ def sentences(text: str):
     parts = re.split(r"(?<=[.!?])\s+", " ".join((text or "").split()))
     for part in parts:
         while len(part) > 300:
-            cut = part.rfind(",", 0, 300)
-            cut = cut if cut > 80 else 300
-            yield part[:cut + 1].strip()
-            part = part[cut + 1:].strip()
+            comma = part.rfind(",", 0, 300)
+            cut = comma + 1 if comma > 80 else 300  # after a comma when there is one, otherwise at 300
+            yield part[:cut].strip()
+            part = part[cut:].strip()
         if part:
             yield part
 
