@@ -14205,3 +14205,16 @@ TESTS RUN: sandbox: OpenHands' own terminal (tmux) and file editor resolve throu
 RESULT: Specialists no longer work through JAI's home-made tool loop with its one-plain-command rule. Each work package now runs in JAI's engineering sandbox on the OpenHands Software Agent SDK 1.58.2 (MIT): its agent loop with context condenser, stuck detection and task tracker, a full shell and file editor on the mission's workspace, thinking with gpt-6-luna on the Responses API at medium reasoning through JAI's gateway (inside the daily spending limit, at most $2 and 80 steps per package). JAI keeps every rule: the sandbox asks the backend before each command and file action, and the backend decides from the run's registered scope (the workspace, the package's owned paths, authority no more than the lead's) and the hard boundaries; refused actions never run and the agent is told why, and a check that cannot be answered refuses. Every action goes to the audit trail, live feed and the sub-agent's log with its parent agent, and onto the mission's record for the report and the independent Verifier. The sandbox sees only the workspaces folder (no Docker socket, database or provider key) and the agent's shell runs as an unprivileged user without the tokens. With the sandbox on, every mission with a workspace is done by specialists (one Senior Software Engineer for a small one) and finished by an integration engineer who builds and tests the whole, then the lead confirms and the Verifier decides; with it off, the team works as before. The sandbox is switched on and off from the Command Center (Engineering sandbox).
 BLOCKERS: None
 NEXT TASK: MYCO Phase 0
+
+---
+
+TASK ID: OPENHANDS-SANDBOX-FIX
+TASK NAME: The sandbox's specialists start: the conversation is built with the class that takes the spending limit
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: services/openhands/app/server.py, services/openhands/Dockerfile, services/openhands/tests/test_sandbox.py
+COMMANDS RUN: sandbox image build and its tests (no network); sandbox rebuilt, backend and worker restarted
+TESTS RUN: sandbox suite with a new test that builds and readies the whole OpenHands conversation exactly as a mission's run does (JAI's model settings, the gated terminal and file editor resolved through OpenHands' registry, the task tracker, the condenser and the $2 spending limit), without calling the model
+RESULT: The first MYCO mission after the sandbox was installed sent its four packages (P1, P2, P3 and the integration engineer) to the sandbox, and every one failed the moment it started: OpenHands' Conversation shortcut does not take the per-run spending limit (only LocalConversation does), so no specialist ever ran a step. The run is now built with LocalConversation, and the test that builds the real conversation, which would have caught it, is part of the sandbox's suite. LiteLLM uses its own model price list instead of downloading one.
+BLOCKERS: None
+NEXT TASK: MYCO Phase 0

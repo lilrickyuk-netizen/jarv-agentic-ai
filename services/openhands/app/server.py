@@ -131,31 +131,41 @@ def _inside(path: str) -> Path:
     return folder
 
 
-def _execute(run: Run) -> None:
-    from openhands.sdk import LLM, Agent, AgentContext, Conversation, Tool
+def build_conversation(run: Run):
+    """The OpenHands conversation for one run: JAI's model through JAI's gateway, JAI's gated terminal and file
+    editor, OpenHands' task tracker and context condenser, the specialist's standard in the system prompt."""
+    from openhands.sdk import LLM, Agent, AgentContext, Tool
     from openhands.sdk.context.condenser import default_condenser
-    from openhands.sdk.conversation.state import ConversationExecutionStatus
+    from openhands.sdk.conversation import LocalConversation
     from openhands.tools.task_tracker import TaskTrackerTool
 
     request = run.request
+    llm = LLM(
+        usage_id="agent", model=f"openai/{request.model}", base_url=f"{BACKEND_URL}/api/gateway/v1",
+        api_key=SecretStr(SECRETS["JAI_GATEWAY_TOKEN"] or "unset"), api_mode="responses",
+        reasoning_effort=request.reasoning_effort, timeout=600, num_retries=4,
+        input_cost_per_token=request.input_cost_per_token, output_cost_per_token=request.output_cost_per_token)
+    agent = Agent(
+        llm=llm,
+        tools=[Tool(name=gates.TerminalTool.name, params={"jai_run": request.run_id}),
+               Tool(name=gates.FileEditorTool.name, params={"jai_run": request.run_id}),
+               Tool(name=TaskTrackerTool.name)],
+        system_prompt_kwargs={"cli_mode": True},
+        condenser=default_condenser(llm.model_copy(update={"usage_id": "condenser"})),
+        agent_context=AgentContext(system_message_suffix=request.standard or None))
+    # LocalConversation itself: the Conversation shortcut does not take the per-run spending limit.
+    return LocalConversation(
+        agent=agent, workspace=request.workspace, callbacks=[run.on_event],
+        max_iteration_per_run=request.max_iterations, stuck_detection=True, visualizer=None,
+        max_budget_per_run=request.max_cost_usd)
+
+
+def _execute(run: Run) -> None:
+    from openhands.sdk.conversation.state import ConversationExecutionStatus
+
+    request = run.request
     try:
-        llm = LLM(
-            usage_id="agent", model=f"openai/{request.model}", base_url=f"{BACKEND_URL}/api/gateway/v1",
-            api_key=SecretStr(SECRETS["JAI_GATEWAY_TOKEN"]), api_mode="responses",
-            reasoning_effort=request.reasoning_effort, timeout=600, num_retries=4,
-            input_cost_per_token=request.input_cost_per_token, output_cost_per_token=request.output_cost_per_token)
-        agent = Agent(
-            llm=llm,
-            tools=[Tool(name=gates.TerminalTool.name, params={"jai_run": request.run_id}),
-                   Tool(name=gates.FileEditorTool.name, params={"jai_run": request.run_id}),
-                   Tool(name=TaskTrackerTool.name)],
-            system_prompt_kwargs={"cli_mode": True},
-            condenser=default_condenser(llm.model_copy(update={"usage_id": "condenser"})),
-            agent_context=AgentContext(system_message_suffix=request.standard or None))
-        conversation = Conversation(
-            agent=agent, workspace=request.workspace, callbacks=[run.on_event],
-            max_iteration_per_run=request.max_iterations, stuck_detection=True, visualizer=None,
-            max_budget_per_run=request.max_cost_usd)
+        conversation = build_conversation(run)
         run.conversation = conversation
         run.status = "running"
         conversation.send_message(request.brief)

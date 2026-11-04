@@ -138,3 +138,24 @@ def test_the_api_needs_its_token_and_stays_inside_the_workspaces(folder):
     outside = client.post("/runs", json={**body, "workspace": "/etc"}, headers=auth)
     assert outside.status_code == 400 and "not inside" in outside.json()["detail"]
     assert client.get("/runs/run-missing-01", headers=auth).status_code == 404
+
+
+def test_a_run_builds_the_whole_openhands_conversation_a_mission_uses(folder):
+    """Every argument of the real conversation, its agent, tools and condenser, built and readied exactly as a
+    mission's run does (only the model is not called)."""
+    backend = Backend()
+    run_id = "run-build-0001"
+    gate = _gate(backend, run_id)
+    request = server.RunRequest(run_id=run_id, workspace=str(folder), brief="Write hello.txt.",
+                                standard="You are JAI's Senior Software Engineer.", max_iterations=40,
+                                max_cost_usd=2.0, input_cost_per_token=1e-7, output_cost_per_token=5e-7)
+    run = server.Run(request, gate)
+    conversation = server.build_conversation(run)
+    try:
+        conversation._ensure_agent_ready()  # resolves the tools through the registry, as conversation.run() does
+        names = sorted(conversation.agent.tools_map)
+        assert "terminal" in names and "file_editor" in names and "task_tracker" in names
+        assert isinstance(conversation.agent.tools_map["terminal"].executor, gates.GatedTerminal)
+        assert conversation.max_budget_per_run == 2.0
+    finally:
+        conversation.close()
