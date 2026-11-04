@@ -125,7 +125,8 @@ async def forward(path: str, body: Dict[str, Any], caller: str = "service",
         raise GatewayRefused(429, str(exc), "spend_limit_reached") from exc
     base = str(getattr(settings, "GATEWAY_UPSTREAM", "") or "https://api.openai.com/v1").rstrip("/")
     owned = client is None
-    client = client or httpx.AsyncClient(timeout=httpx.Timeout(180.0, connect=10.0))
+    # A reasoning model working through a long engineering task can think for several minutes on one call.
+    client = client or httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=10.0))
     try:
         response = await client.post(f"{base}/{path}", json=request,
                                      headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})

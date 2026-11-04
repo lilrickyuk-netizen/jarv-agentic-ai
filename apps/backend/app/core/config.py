@@ -319,6 +319,14 @@ class Settings(BaseSettings):
     # Richard's JAI repository history, mounted read-only, so JAI can say what has been installed into it lately.
     JAI_REPO_GIT: str = "/repo/.git"
     KNOWLEDGE_TOKEN: Optional[str] = None
+    # JAI's engineering sandbox (the "engineer" profile): the OpenHands Software Agent SDK runs each specialist's
+    # work package with a full shell and file editor, every action checked by JAI first (POST /api/agent-gate/check)
+    # and its model calls going through JAI's gateway. Empty URL or no token: specialists use JAI's own tool loop.
+    OPENHANDS_URL: str = "http://openhands:8010"
+    OPENHANDS_TOKEN: Optional[str] = None
+    OPENHANDS_MAX_ITERATIONS: int = Field(default=80, ge=5, le=400)
+    OPENHANDS_REASONING_EFFORT: str = "medium"
+    OPENHANDS_MAX_COST_PER_PACKAGE_USD: float = Field(default=2.0, gt=0, le=100)
 
     # Voice
     VOICE_ENABLED: bool = False

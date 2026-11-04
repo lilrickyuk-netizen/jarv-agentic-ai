@@ -54,6 +54,8 @@ SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "bu
 TREE_ENTRIES = 400
 PACKAGE_STEPS = 8
 SUB_AGENT_TIMEOUT_SECONDS = 4 * 3600
+# With the sandbox, the team's last package is the integration engineer's: build and test the whole and fix the joins.
+INTEGRATION_ID = "INT"
 
 # The specialists a mission can call on, with each role's working standard. A sub-agent is briefed with its role's
 # standard, so it works the way a senior person in that role works.
@@ -544,6 +546,7 @@ class MissionTeam:
         self.lead_agent_id: Optional[UUID] = None
         self.phase = "planning"
         self.round_no = 1
+        self.sandbox = False  # specialists work in JAI's OpenHands sandbox (when it is switched on and answers)
         self._session_factory = session_factory
         self._machine = asyncio.Lock()
         self._services = asyncio.Lock()
@@ -839,12 +842,18 @@ class MissionTeam:
         await self.log(p, "info", "lifecycle", f"spawned by the orchestrator for {p.id}: {p.title}",
                        {"owns": p.owns, "depends_on": p.depends_on})
         await self.save_progress()
-        mine = [dict(r) for r in self.lead.requirements if str(r["id"]).upper() in p.requirements]
+        if p.id == INTEGRATION_ID:  # the integration engineer answers for every requirement still open
+            mine = [dict(r) for r in self.lead.requirements if r.get("status") != "done"]
+        else:
+            mine = [dict(r) for r in self.lead.requirements if str(r["id"]).upper() in p.requirements]
         if not mine:
             mine = [{"id": f"{p.id}.1", "text": p.done_when or p.goal, "source": f"work package {p.id}",
                      "status": "open", "evidence": ""}]
         result: Dict[str, Any] = {}
         executor: Optional[SpecialistExecutor] = None
+        if self.sandbox:
+            await self._run_in_sandbox(p, mission, known, mine)
+            return
         try:
             async with self.sessions() as db:
                 rt = ToolRuntime(db, self.runtime.workspace_id, self.runtime.task_id,
@@ -877,6 +886,37 @@ class MissionTeam:
         await self._mark(p, starting=False)
         await self.save_progress()
 
+    async def _run_in_sandbox(self, p: Package, mission: str, known: Optional[str],
+                              mine: List[Dict[str, Any]]) -> None:
+        """The package done by OpenHands in JAI's engineering sandbox, every action checked by JAI."""
+        from app.core.command.sandbox_engine import SandboxSpecialist
+
+        try:
+            result = await SandboxSpecialist(self, p, mission, known).run(mine)
+        except Exception as exc:  # noqa: BLE001 - one specialist's failure is reported; the team goes on
+            logger.warning(f"work package {p.id} stopped in the sandbox: {exc}", exc_info=True)
+            result = {"success": False, "answer": f"{p.role} stopped: {type(exc).__name__}: {exc}"}
+        p.success = bool(result.get("success"))
+        p.summary = str(result.get("answer") or "")
+        p.status = "finished" if p.success else "stopped"
+        p.tokens = int(result.get("tokens") or 0)
+        p.cost_usd = float(result.get("cost_usd") or 0)
+        p.step = int(result.get("steps") or p.step)
+        detail = result.get("token_detail") or {}
+        self.lead.usage.totals["input"] += int(detail.get("input") or 0) - int(detail.get("cached") or 0)
+        self.lead.usage.totals["cached"] += int(detail.get("cached") or 0)
+        self.lead.usage.totals["output"] += int(detail.get("output") or 0)
+        self.lead.usage.calls += p.step
+        self.lead.usage.cost_usd += p.cost_usd
+        self.lead.tokens += p.tokens
+        self._merge_requirements(p, result.get("requirements") or mine)
+        await self.log(p, "info" if p.success else "warning", "execution_result",
+                       f"{p.id} {'finished' if p.success else 'stopped'} (OpenHands sandbox, "
+                       f"{result.get('status') or 'no status'}): {p.summary[:1500]}",
+                       {"success": p.success, "steps": p.step, "engine": "openhands"})
+        await self._mark(p, starting=False)
+        await self.save_progress()
+
     def _merge_requirements(self, p: Package, theirs: List[Dict[str, Any]]) -> None:
         by_id = {str(r["id"]).upper(): r for r in self.lead.requirements}
         for r in theirs:
@@ -902,16 +942,23 @@ class MissionTeam:
         for p in self.packages:
             lines.append(f"- {p.id} {p.role} — {p.title}: {'finished' if p.success else 'stopped'} after "
                          f"{p.step} steps. {p.summary[:1500]}")
-        lines += ["", "YOUR ROLE NOW: you are the integration lead. Install, build and test the whole project with "
-                      "its real commands, fix whatever breaks where the packages meet, finish anything the team "
-                      "left open or stopped on, ask Richard (through the boundary tools) only for what truly needs "
-                      "him, and call finish when the whole mission is done and verified."]
+        if self.sandbox:
+            lines += ["", "YOUR ROLE NOW: you are the mission's lead. The integration engineer (INT) has built and "
+                          "tested the whole project. Confirm it with the project's own checks, fix only what small "
+                          "thing is still wrong, ask Richard (through the boundary tools) for what the team left for "
+                          "him (pushing, deploying), mark each requirement with its evidence, and call finish."]
+        else:
+            lines += ["", "YOUR ROLE NOW: you are the integration lead. Install, build and test the whole project "
+                          "with its real commands, fix whatever breaks where the packages meet, finish anything the "
+                          "team left open or stopped on, ask Richard (through the boundary tools) only for what "
+                          "truly needs him, and call finish when the whole mission is done and verified."]
         return "\n".join(lines)
 
     def _team_report(self) -> str:
         if not self.packages:
             return ""
         lines = [f"**The team** ({len(self.packages)} specialists, up to {self.parallel} at a time"
+                 + (", in JAI's OpenHands sandbox" if self.sandbox else "")
                  + (f"; {self.approach}" if self.approach else "") + ")"]
         for p in self.packages:
             lines.append(f"- {p.id} {p.role} — {p.title}: {'finished' if p.success else 'stopped'} "
@@ -952,8 +999,25 @@ class MissionTeam:
             self.lead.requirements = derived["requirements"]
             self.lead.tokens += derived["tokens"]
         self.parallel = await self._parallel_limit()
-        if any(r.get("status") != "done" for r in self.lead.requirements):
+        from app.core.command import sandbox_engine
+
+        self.sandbox = await sandbox_engine.available()
+        open_ids = [str(r["id"]).upper() for r in self.lead.requirements if r.get("status") != "done"]
+        if open_ids:
             await self._plan(router, mission, known)
+        if self.sandbox and open_ids:
+            # In the sandbox every mission is done by specialists, however small, and finished by the integration
+            # engineer; without a plan the whole mission is one Senior Software Engineer's package.
+            if not self.packages:
+                self.packages = [Package(id="P1", title="The mission", specialist="coding_agent", goal=mission[:1500],
+                                         owns=[], depends_on=[], requirements=open_ids,
+                                         done_when="every requirement has evidence")]
+            self.packages.append(Package(
+                id=INTEGRATION_ID, title="Integration: build, test and fix the whole", specialist="devops",
+                goal=("Install, build, lint, type-check and test the whole project with its own commands, fix "
+                      "whatever breaks where the team's packages meet, and finish what any package left open."),
+                owns=[], depends_on=[p.id for p in self.packages], requirements=[],
+                done_when="the project's whole install, build, lint, type-check and test commands pass"))
         if len(self.packages) < 2:
             # One small change (or no plan): the lead does it alone, as one agent.
             self.packages = []
@@ -972,7 +1036,9 @@ class MissionTeam:
         await self._run_team(mission, known)
         self.phase = "integration"
         team_steps = sum(p.step for p in self.packages)
-        result = await self.lead.run(self._integration_mission(mission), steps_per_round, max_continuations,
+        # After the sandbox's integration engineer the lead only confirms and hands over to the Verifier.
+        rounds = min(max_continuations, 1) if self.sandbox else max_continuations
+        result = await self.lead.run(self._integration_mission(mission), steps_per_round, rounds,
                                      None, start_continuation, known, verify, self.lead.requirements, prior_calls)
         team = [p.card() for p in self.packages]
         await self._close_swarm(bool(result.get("success")), str(result.get("answer") or ""))

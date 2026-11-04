@@ -182,6 +182,8 @@ def _no_spend_limit_unless_a_test_sets_one(monkeypatch):
     # A mission's team plans with one more model call; the tests of the team turn it on, scripted missions run as
     # one agent.
     monkeypatch.setattr(settings, "MISSION_TEAM_ENABLED", False)
+    monkeypatch.setattr(settings, "OPENHANDS_URL", "")
+    monkeypatch.setattr(settings, "OPENHANDS_TOKEN", None)
 
 
 @pytest.fixture(autouse=True)

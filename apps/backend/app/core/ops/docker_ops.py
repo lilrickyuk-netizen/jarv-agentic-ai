@@ -41,7 +41,7 @@ OPTIONAL_SERVICES = frozenset({"voicebox", "prometheus", "grafana", "alertmanage
                                # Waves 2-6: each switched on by its own profile, and the heavy ones switched off by
                                # Richard from the Command Center to share the memory; JAI is not degraded by one off.
                                "voice", "chatterbox", "comfyui", "moneyprinter", "postiz", "temporal", "searxng",
-                               "crawl4ai", "serena", "docling", "browser", "knowledge", "promptfoo"})
+                               "crawl4ai", "serena", "docling", "browser", "knowledge", "promptfoo", "openhands"})
 # Services Richard switches on and off from the Command Center to share the computer's memory (Wave 6): heavy, and
 # JAI works without each of them (it says which one to switch on when a task needs it). Name -> what it is.
 SWITCHABLE = {
@@ -51,6 +51,7 @@ SWITCHABLE = {
     "docling": ("Document reader", "Docling for PDFs, Word, PowerPoint and scans; up to 3 GB"),
     "browser": ("Browser", "browser-use with Chromium, for clicking through sites"),
     "serena": ("Code understanding", "Serena's language servers; up to 2 GB"),
+    "openhands": ("Engineering sandbox", "OpenHands, where JAI's specialists build and test; up to 4 GB"),
 }
 # How long a switched-off service gets to close down before Docker stops it outright.
 STOP_GRACE_SECONDS = 15

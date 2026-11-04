@@ -203,6 +203,9 @@ app.include_router(voice.image_router, prefix="/api")
 # JAI's model gateway for the services it runs (Wave 6): token-authorised, inside the daily spending limit
 from app.api.v1 import gateway as gateway_api
 app.include_router(gateway_api.router, prefix="/api")
+# JAI's engineering sandbox asks here before every command and file action, and reports what it did.
+from app.api.v1 import agent_gate as agent_gate_api
+app.include_router(agent_gate_api.router, prefix="/api")
 from app.api.v1 import knowledge as knowledge_api
 app.include_router(knowledge_api.router, prefix="/api")
 
