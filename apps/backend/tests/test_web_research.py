@@ -281,3 +281,31 @@ def test_a_research_command_is_researched_not_answered_with_a_fixed_page():
     assert asked["depth"] == "deep" and "competitors" in asked["question"]
     assert answer.startswith("Plexecute calls itself") and "[1] Plexecute — https://plexecute.co.uk/" in answer
     assert "nodejs" not in answer and extra["research"]["pages_read"] == 3
+
+
+def test_a_mission_can_read_another_missions_whole_report(monkeypatch):
+    """The analysis of the Plexecute review could not find the review's report; agents can now read it."""
+    from app.core.command.tool_runtime import ToolRuntime
+    from app.core.runtime import lifecycle
+    from app.models.task import Task
+
+    report = "## Plexecute: organic-marketing briefing\n" + "Finding with https://plexecute.co.uk/ evidence. " * 300
+
+    async def run():
+        async with AsyncTestingSessionLocal() as db:
+            user_id, ws_id = await _seed(db, None)
+            done = Task(workspace_id=ws_id, title="Plexecute research", description="research", task_type="command",
+                        status=lifecycle.COMPLETED, priority=5, result={"response": report, "report": {"rows": 2}})
+            now = Task(workspace_id=ws_id, title="Analyse it", description="analyse", task_type="command",
+                       status=lifecycle.RUNNING, priority=5)
+            db.add_all([done, now])
+            await db.commit()
+            runtime = ToolRuntime(db, ws_id, now.id, operator="agent:research", authority_level=1, user_id=user_id)
+            latest = await runtime.read_mission_report()
+            by_id = await runtime.read_mission_report(str(done.id)[:8].upper())
+            missing = await runtime.read_mission_report("ffffffff")
+            return latest, by_id, missing, str(done.id)
+
+    latest, by_id, missing, done_id = _run(run())
+    assert latest["success"] and latest["task_id"] == done_id and latest["report"] == report  # whole, not cut
+    assert by_id["task_id"] == done_id and missing["success"] is False

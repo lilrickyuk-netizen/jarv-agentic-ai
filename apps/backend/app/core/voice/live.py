@@ -16,6 +16,7 @@ push-to-talk. Every session and tool call is written to the audit log.
 from __future__ import annotations
 
 import hashlib
+import re
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -521,6 +522,25 @@ def _between_rounds(status: Optional[str]) -> bool:
     return lifecycle.normalise(status) == lifecycle.NEEDS_CONTINUATION
 
 
+MISSION_REPORT_CHARS = 12000
+_MISSION_ID = re.compile(r"\b([0-9a-f]{8})(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?\b", re.I)
+
+
+async def _mission_named_in(db: AsyncSession, user_id: UUID, text: str) -> Optional[Dict[str, Any]]:
+    """The mission a question is about: one whose id (or its first eight characters) it names, otherwise the
+    latest; with its whole report."""
+    compact = re.sub(r"[\s-]", "", text or "")
+    for match in _MISSION_ID.finditer(text or "") or []:
+        full = await _full_id(db, user_id, match.group(1).lower())
+        if full:
+            return await _mission(db, user_id, str(full))
+    for match in _MISSION_ID.finditer(compact):
+        full = await _full_id(db, user_id, match.group(1).lower())
+        if full:
+            return await _mission(db, user_id, str(full))
+    return await _mission(db, user_id, None)
+
+
 async def _mission(db: AsyncSession, user_id: UUID, task_id: Optional[str]) -> Dict[str, Any]:
     from app.core.scoping import owned_workspaces
     from app.models.task import Task
@@ -561,7 +581,8 @@ async def _mission(db: AsyncSession, user_id: UUID, task_id: Optional[str]) -> D
                or result.get("summary") or "")
     return {"task_id": str(task.id), "title": task.title, "status": task.status,
             "folder": result.get("workspace_path"),
-            "result": str(summary)[:1500], "error": (task.error_message or "")[:300] or None,
+            # The whole report: Richard asks for it to be read out or analysed, and a cut one cannot be.
+            "result": str(summary)[:MISSION_REPORT_CHARS], "error": (task.error_message or "")[:300] or None,
             # The evidence report (Upgrade 4): say what is shown done with evidence, nothing more.
             "report": _spoken_report(result.get("report"))}
 
@@ -694,6 +715,13 @@ async def _ask_jarv(db: AsyncSession, user_id: UUID, question: str, workspace_id
                             "progress": {**record, **mission_progress.age(record)} if record else None,
                             "latest_activity": mission.get("latest_activity")})
     facts["working_now"] = working
+    # The mission the question is about, with its whole report, so "read it out" or "analyse the last report"
+    # has the report itself to work from (the mission list carries only the start of each report).
+    try:
+        async with db.begin_nested():
+            facts["mission_asked_about"] = await _mission_named_in(db, user_id, question)
+    except Exception:  # noqa: BLE001 - an addition; the mission list still answers
+        facts["mission_asked_about"] = None
     try:
         from app.core import spend
 
@@ -728,7 +756,7 @@ async def _ask_jarv(db: AsyncSession, user_id: UUID, question: str, workspace_id
     service = CommandService()
     response = await get_router().complete(CompletionRequest(
         # Low effort: a spoken answer must come in seconds; the facts already carry the live picture.
-        model=service.model, max_tokens=700, temperature=0.2, reasoning_effort="low",
+        model=service.model, max_tokens=1400, temperature=0.2, reasoning_effort="low",
         system=("You are JAI's reasoning core answering Richard Curley's spoken question; your answer is spoken "
                 "aloud by JAI's voice, so speak as JAI, in the first person ('I am on step 7 of the check'). Answer "
                 "only from the facts given (working_now with each mission's live progress, the status line, "
@@ -745,7 +773,9 @@ async def _ask_jarv(db: AsyncSession, user_id: UUID, question: str, workspace_id
                 "mission. Use the timing facts (minutes running, minutes since the last step) to explain how "
                 "long things take and why; a step that has run for minutes is usually a full build, test or verify "
                 "run. Answer the question asked, with what is new; do not restate the whole status. Two to five "
-                "spoken sentences, British English, no lists or markdown."),
+                "spoken sentences, British English, no lists or markdown; but when he asks for a report to be read "
+                "out, for the details, or for an analysis, give it from mission_asked_about's whole report, in full "
+                "and in order, up to about 350 words, still as spoken prose."),
         messages=[Message(role="user", content=f"Question: {question}\n\nFacts:\n{json.dumps(facts, default=str)}")]))
     timing.info(f"timing ask_jarv facts {gathered - started:.2f}s, model {time.monotonic() - gathered:.2f}s "
                 f"({len(json.dumps(facts, default=str))} characters of facts)")
@@ -793,9 +823,11 @@ async def show_on_screen(db: AsyncSession, user_id: UUID, args: Dict[str, Any]) 
         if failures:
             sections.append({"heading": "Recent failures", "columns": ["Tool", "Target", "Why"],
                              "rows": [[f.get("tool"), f.get("target"), f.get("why")] for f in failures[-5:]]})
+        if not mission.get("in_progress") and mission.get("result"):
+            sections.append({"heading": "Report", "code": str(mission["result"])})
         if not sections:
             sections.append({"heading": "Latest activity", "items": mission.get("latest_activity")
-                             or [str(mission.get("result") or "No steps recorded yet.")[:600]]})
+                             or ["No steps recorded yet."]})
         card = {"kind": "mission", "title": mission.get("title") or "Mission", "subtitle": subtitle,
                 "sections": sections}
     elif what == "spend":

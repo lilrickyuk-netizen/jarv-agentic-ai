@@ -13984,3 +13984,16 @@ TESTS RUN: backend suite with new tests for the FLUX.1-schnell graph and the nam
 RESULT: JAI makes images on Richard's RTX 4050 (6 GB) with ComfyUI (open source) and FLUX.1-schnell (Apache-2.0, commercial use allowed), compressed to GGUF Q4_K_S with a GGUF T5 encoder so it fits the card beside JAI's voice (ComfyUI keeps 3.5 GB of the card free and offloads the rest to memory). PyTorch for CUDA 12.8 runs on his installed driver (551.76); below CUDA 13 ComfyUI only turns off optional fp8/fp4 kernels these models do not use. ComfyUI runs on an internal network with no internet, reachable only by the backend and worker, with the images compose profile; its model files (about 11 GB) live in their own volume, each checked against the published checksum, and after every image it releases its memory. generate_image is offered to every agent working in a folder: the image is saved in assets/images (or a given path inside the workspace) and recorded in ASSET_LICENCES.md with the model, licence, size, seed and prompt. By voice, make_image makes one for a named workspace and puts it on screen through a short-lived (one day) random link that serves only files inside the workspaces.
 BLOCKERS: None
 NEXT TASK: Wave 4b: short videos (MoneyPrinterTurbo) with JAI's scripts and voice; then 4d scheduling (Postiz)
+
+---
+
+TASK ID: FIX-WHOLE-MISSION-REPORTS-READABLE
+TASK NAME: JAI can read out, show and analyse a mission's whole report; agents can read another mission's report
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/voice/live.py, apps/backend/app/core/command/tool_runtime.py, apps/backend/app/core/command/agent_executor.py, apps/backend/app/core/agents/toolbox.py, apps/backend/app/core/safety/permission_policy.py, apps/backend/tests/test_web_research.py
+COMMANDS RUN: backend test suite (pgvector test database); docker compose restart backend worker
+TESTS RUN: backend suite with a new test that a mission reads another mission's whole report (the latest finished one, or by its id or first eight characters, case and spacing ignored) and is told plainly when there is none
+RESULT: Asked "how did the last mission finish? read it out", JAI said its report was truncated, and a mission started to analyse that report found nothing: the voice and brain saw only the first 700 to 1,500 characters of a mission's report, the brain could answer in at most five sentences, and missions had no way to read another mission's report at all. The mission record the voice reads now carries the whole report (up to 12,000 characters); the brain is given the mission a question is about (one whose id it names, spoken or written, otherwise the latest) with its whole report, and when Richard asks for a report to be read out, for the details or for an analysis it gives it in full and in order (up to about 350 spoken words, with room to say it); show_on_screen puts a finished mission's whole report on screen; and every agent has read_mission_report to read an earlier mission's whole report in its workspace, with its evidence.
+BLOCKERS: None
+NEXT TASK: Wave 4b short videos; then mission quality

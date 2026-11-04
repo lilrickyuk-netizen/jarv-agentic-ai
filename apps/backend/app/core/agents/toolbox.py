@@ -75,7 +75,7 @@ ALIASES: Dict[str, str] = {
 }
 
 CONSULT_TOOL = "consult_specialist_knowledge"
-WEB_TOOLS = ("web_search", "research_web", "fetch_url")
+WEB_TOOLS = ("web_search", "research_web", "fetch_url", "read_mission_report")
 TRACE_TOOL = "trace_artifact"
 
 # Registry categories that are reachable only through the confined workspace tools.
@@ -179,6 +179,10 @@ WORKSPACE_TOOLS: Dict[str, ToolSpec] = {
                                     "enum": ["general", "news", "it", "science"]},
                                     "time_range": {"type": "string", "enum": ["day", "week", "month", "year"]},
                                     "limit": {"type": "integer"}}, ["query"]), "workspace"),
+    "read_mission_report": ToolSpec("read_mission_report", "Read another mission's whole report in this "
+                                    "workspace (its findings, recommendations and evidence): give its id or its first "
+                                    "eight characters, or nothing for the latest finished mission.",
+                                    _schema({"mission": {"type": "string"}}), "workspace"),
     "generate_image": ToolSpec("generate_image", "Make an image on JAI's own GPU (FLUX.1-schnell, Apache-2.0, "
                                "commercial use allowed) and save it in the workspace (assets/images/ by default), "
                                "recorded in ASSET_LICENCES.md. Describe it fully: subject, setting, style, light, "
@@ -534,6 +538,8 @@ class AgentToolbox:
         if name == "fetch_url":
             return await rt.fetch_url(str(args.get("url", "")), args.get("render") if isinstance(args.get("render"),
                                                                                               bool) else None)
+        if name == "read_mission_report":
+            return await rt.read_mission_report(args.get("mission"))
         if name == "web_search":
             return await rt.web_search(str(args.get("query", "")), int(args.get("limit") or 8),
                                        args.get("category"), args.get("time_range"))

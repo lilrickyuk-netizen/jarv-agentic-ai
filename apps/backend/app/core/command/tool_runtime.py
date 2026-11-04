@@ -17,6 +17,7 @@ actually acted, with which tool, on which inputs, and with what result.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
@@ -62,6 +63,7 @@ _TOOL_AUTHORITY = {
     "web_search": 1,
     "research_web": 1,
     "generate_image": 2,
+    "read_mission_report": 1,
     "check_package_registry": 1,
     "check_cve": 1,
     "asset_licence_check": 1,
@@ -760,6 +762,39 @@ class ToolRuntime:
         for source in res.get("sources") or []:
             await self._source_record(source["url"], source.get("title", ""), "web_research", question[:200])
         return {**res, "success": ok}
+
+    async def read_mission_report(self, mission: Optional[str] = None) -> Dict[str, Any]:
+        """Another mission's whole report in this workspace: the one whose id (or its first eight characters) is
+        given, otherwise the latest one that has finished. Read-only."""
+        denied = await self._enforce("read_mission_report", content=mission or "latest")
+        if denied:
+            return denied
+        from sqlalchemy import select as _select
+
+        from app.core.runtime import lifecycle
+        from app.models.task import Task
+
+        rows = (await self.db.execute(_select(Task).where(
+            Task.workspace_id == self.workspace_id, Task.task_type == "command")
+            .order_by(Task.created_at.desc()).limit(80))).scalars().all()
+        rows = [t for t in rows if t.id != self.task_id]
+        wanted = re.sub(r"[^0-9a-f]", "", (mission or "").lower())[:8]
+        if wanted:
+            found = next((t for t in rows if str(t.id).replace("-", "").startswith(wanted)), None)
+        else:
+            finished = lifecycle.TERMINAL - {lifecycle.CANCELLED}
+            found = next((t for t in rows if lifecycle.normalise(t.status) in finished), None)
+        if found is None:
+            await self._record("read_mission_report", {"mission": mission}, False, "no such mission here")
+            return {"success": False, "error": "No finished mission with that id in this workspace."}
+        result = found.result if isinstance(found.result, dict) else {}
+        report = str(result.get("response") or result.get("response_text") or found.error_message or "")
+        await self._record("read_mission_report", {"mission": mission}, True,
+                           f"read {str(found.id)[:8]} ({len(report)} characters)")
+        return {"success": True, "task_id": str(found.id), "title": found.title, "status": found.status,
+                "started": found.created_at.isoformat(timespec="minutes") if found.created_at else None,
+                "report": report[:20000], "evidence": result.get("report"),
+                "agents": result.get("selected_agents")}
 
     async def generate_image(self, host_path: str, prompt: str, width: int = 1024, height: int = 1024,
                              licence_file: Optional[str] = None, seed: Optional[int] = None,

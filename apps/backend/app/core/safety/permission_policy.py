@@ -105,6 +105,7 @@ TOOL_POLICIES: Dict[str, ToolPolicy] = {p.tool_id: p for p in [
     ToolPolicy("web_search", "network_read", RISK_LOW, 1),
     ToolPolicy("research_web", "network_read", RISK_LOW, 1),
     ToolPolicy("generate_image", "write", RISK_LOW, 2, workspace_scope_required=True),
+    ToolPolicy("read_mission_report", "read", RISK_LOW, 1),
     ToolPolicy("check_package_registry", "network_read", RISK_LOW, 1),
     ToolPolicy("check_cve", "network_read", RISK_LOW, 1),
     ToolPolicy("asset_licence_check", "network_read", RISK_LOW, 1),
