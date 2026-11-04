@@ -41,7 +41,9 @@ TOOLS: List[Dict[str, Any]] = [
     {"type": "function", "name": "start_mission",
      "description": "Start real work: hands Richard's request to JAI's agents as a Command Center mission. Use it "
                     "when Richard asks for something to be done (built, fixed, researched, written, checked, "
-                    "deployed), not for a question you can answer in conversation.",
+                    "deployed), not for a question you can answer in conversation. Only once he has said what the "
+                    "work is: if he just says 'new mission' or 'start a mission', ask him what it should do. Name "
+                    "the workspace it is for; ask him if it is not clear.",
      "parameters": {"type": "object", "properties": {
          "instruction": {"type": "string", "description": "The full request in Richard's words, with every detail "
                                                           "he gave, as a written instruction."},
@@ -360,8 +362,32 @@ async def record_usage(usage: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # Words Richard uses that a transcriber would otherwise get wrong.
+# Words that make a request sound like a mission without saying what it is ("New mission, Jay, keep me updated").
+_NOT_THE_TASK = re.compile(r"\b(new|a|the|start|begin|another|mission|task|job|please|jay|jai|j|ok|okay|right|so|"
+                           r"and|can|could|would|you|will|keep|me|updated|update|posted|informed|let|know|now|go|"
+                           r"for|it|on|to|do|that|this|one|up|us)\b", re.I)
+
+
+def mission_brief_is_real(instruction: str) -> bool:
+    """Whether a mission brief says what the work is (not just 'new mission, keep me updated')."""
+    rest = _NOT_THE_TASK.sub(" ", re.sub(r"[^\w\s]", " ", instruction or ""))
+    return len(rest.split()) >= 2
+
+
+def _letters(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (text or "").lower())
+
+
+def workspace_named_in(spaces: List[Any], text: str):
+    """The workspace a request names, as heard ('MYCO' heard as 'my co' or 'my core'): letters only, so spacing and
+    punctuation do not matter; the longest name heard wins. None when none is named."""
+    heard = _letters(text)
+    found = [w for w in spaces if len(_letters(w.name)) >= 4 and _letters(w.name) in heard]
+    return max(found, key=lambda w: len(_letters(w.name)), default=None)
+
+
 STT_VOCABULARY = ("Richard talking to JAI (said Jay), his AI operating system, in British English, about his "
-                  "projects MYCO, Plexecute, Pardosa, MystaAI, Secundas, ContractusAI and AURELIUS: missions, "
+                  "projects MYCO (said my-co; it is never 'my core'), Plexecute, Pardosa, MystaAI, Secundas, ContractusAI and AURELIUS: missions, "
                   "agents, Phase 0, approvals, workspaces, deploy, Docker, Pipecat, ComfyUI, GitHub.")
 
 
@@ -1245,6 +1271,25 @@ async def _resume(db: AsyncSession, user_id: UUID, task_id: Optional[str]) -> Di
         return {"error": f"{exc} It can only carry on when it has paused part-way.", "task_id": str(task.id)}
 
 
+async def _start_mission(db: AsyncSession, user_id: UUID, instruction: str,
+                         workspace_id: Optional[UUID]) -> Dict[str, Any]:
+    """Start a mission in the workspace he named, or the one his words name (as heard), or ask which: never in
+    whichever workspace was used last."""
+    spaces = await _workspaces(db, user_id)
+    if workspace_id is None:
+        named = workspace_named_in(spaces, instruction)
+        with_folders = [w for w in spaces if _root(w)]
+        if named is not None:
+            workspace_id = named.id
+        elif len(with_folders) > 1:
+            return {"error": "Ask Richard which workspace this is for: " + ", ".join(w.name for w in with_folders)
+                             + "."}
+    chosen = next((w for w in spaces if w.id == workspace_id), None)
+    if chosen is not None and chosen.name.lower() not in instruction.lower():
+        instruction = f"{instruction}\n(Workspace: {chosen.name})"
+    return await engine.route(db, instruction, user_id=user_id, workspace_id=workspace_id)
+
+
 async def run_tool(db: AsyncSession, user_id: UUID, name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
     """Carry out one tool call from the live conversation as the signed-in operator; audit-logged."""
     from app.core.audit import AuditLogger
@@ -1320,10 +1365,11 @@ async def run_tool(db: AsyncSession, user_id: UUID, name: str, arguments: Dict[s
             output = await engine.route(db, "cancel the current mission", user_id=user_id, workspace_id=workspace_id)
         else:
             instruction = str(args.get("instruction") or "").strip()
-            if not instruction:
-                output = {"error": "The mission needs an instruction."}
+            if not mission_brief_is_real(instruction):
+                output = {"error": "That is not a task yet: ask Richard what the mission should do, and for which "
+                                   "project, before starting it."}
             else:
-                output = await engine.route(db, instruction, user_id=user_id, workspace_id=workspace_id)
+                output = await _start_mission(db, user_id, instruction, workspace_id)
     else:
         raise LookupError(f"Unknown tool: {name}")
     await AuditLogger.log_system_event(

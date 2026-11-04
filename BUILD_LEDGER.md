@@ -14153,3 +14153,16 @@ TESTS RUN: backend suite with a new test that an image goes on screen as a pictu
 RESULT: Richard asked JAI to bring up an image from the Plexecute workspace and his screen filled with the PNG's bytes as text: show_on_screen read every file as text. Now an image (PNG, JPEG, WebP, GIF) is shown as the picture and a video (MP4, WebM, MOV) as a player, each through a day-long secret link served with its real media type and only from inside the workspaces; asking for a folder (or the whole workspace) shows a gallery of its newest twelve images and videos, looking a few folders down and skipping build and dependency folders; text files are shown as text as before.
 BLOCKERS: None
 NEXT TASK: Mission quality (deliverables and standards)
+
+---
+
+TASK ID: VOICE-MISSION-BRIEFS
+TASK NAME: The voice never starts a mission without a task, and puts it in the workspace he named
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/voice/live.py, apps/backend/tests/test_voice_conversational.py
+COMMANDS RUN: backend test suite; backend and worker restarted
+TESTS RUN: backend suite with new tests that words which do not say what the work is ("New mission, Jay, keep me updated", "Start a mission") never start a mission while real requests do, and that the workspace is taken from what he said as heard (MYCO heard as "my core")
+RESULT: Richard said "New mission, Jay, keep me updated" and the voice started a mission whose whole brief was that sentence, in the Plexecute workspace; when he then said MYCO it heard "my core". start_mission now refuses a brief that does not say what the work is and tells the voice to ask him; when no workspace is given it takes the one his words name, matched on letters only so "my core" finds MYCO, and when none is named and there is more than one it asks which instead of using whichever came first; the chosen workspace is written into the brief. The transcriber is told MYCO is said "my-co" and is never "my core".
+BLOCKERS: None
+NEXT TASK: MYCO Phase 0

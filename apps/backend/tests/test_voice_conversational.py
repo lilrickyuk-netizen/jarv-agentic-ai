@@ -33,3 +33,20 @@ def test_the_live_state_is_compact_and_always_whole_json():
     assert len(text) <= live.VOICE_STATE_CHARS
     parsed = json.loads(text)                                            # never cut mid-JSON
     assert parsed["mission_asked_about"]["result"].startswith("The plan.") and parsed["now"] == "Wednesday"
+
+
+def test_a_mission_is_not_started_from_words_that_do_not_say_what_it_is():
+    for empty in ("New mission, Jay, keep me updated.", "Start a mission", "Jay, new task please", "Keep me posted."):
+        assert live.mission_brief_is_real(empty) is False, empty
+    for real in ("Carry on building MYCO from Phase 0", "Keep me updated on the carry on building my core mission",
+                 "Make a launch banner for Plexecute", "Research competitors"):
+        assert live.mission_brief_is_real(real) is True, real
+
+
+def test_the_workspace_is_taken_from_what_he_said_as_heard():
+    from types import SimpleNamespace as W
+
+    spaces = [W(name="MYCO", id=1), W(name="Plexecute", id=2), W(name="Command Center", id=3)]
+    assert live.workspace_named_in(spaces, "carry on building my core mission").name == "MYCO"
+    assert live.workspace_named_in(spaces, "a banner for Plexecute's waitlist").name == "Plexecute"
+    assert live.workspace_named_in(spaces, "what's the weather") is None
