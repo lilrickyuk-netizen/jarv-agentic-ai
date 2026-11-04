@@ -14231,3 +14231,16 @@ TESTS RUN: sandbox suite with a new test that Task, Terraform, Helm, Syft, Trivy
 RESULT: The first sandbox mission on MYCO Phase 0 finished its audit and implementation packages (4 of 7 requirements done, about 13,400 lines changed), then its QA Engineer found "task verify" failing at the SBOM step: verify_syft_version.py, because the sandbox image had been built without Syft, Trivy and Gitleaks, which MYCO's Phase 0 verification runs. They are now in the image, checked against their published checksums, at the versions JAI's backend uses (Syft 1.55.0, Trivy 0.76.1, Gitleaks 8.30.1), and a test fails the build if any of the six tools is missing or at another version.
 BLOCKERS: None
 NEXT TASK: MYCO Phase 0
+
+---
+
+TASK ID: SANDBOX-ENGINEERING-RULES
+TASK NAME: Sandbox specialists install the tools a project pins themselves, do fresh-clone checks in /tmp, and a run lost to a sandbox restart is reported at once
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: services/openhands/app/server.py, services/openhands/tests/test_sandbox.py, apps/backend/app/core/command/sandbox_engine.py, apps/backend/app/core/command/sandbox_policy.py, apps/backend/tests/test_openhands_sandbox.py
+COMMANDS RUN: sandbox image build and its tests (no network); backend test suite; sandbox rebuilt, backend and worker restarted
+TESTS RUN: sandbox suite: the conversation's system prompt carries the specialist's standard and JAI's engineering rules; backend suite: specialists' briefs say to install pinned tools themselves and to clone into /tmp; a fresh-clone check (git clone into /tmp, task bootstrap and task verify there) and "mise install syft@1.52.0" are allowed while other projects stay refused from /tmp; a run lost to a sandbox restart is reported at once as lost
+RESULT: The sandbox mission's specialists did real work on MYCO Phase 0 (lint, type-check, build, unit, integration, e2e and Terraform tests passing; audit, verification report and checkpoint evidence written) but stopped at Syft: MYCO pins Syft 1.52.0, it was not installed, and they reported it as an action for Richard instead of installing it. Their earlier fresh-clone checks had also been cloned inside the repository, leaving .clone-verification folders that break the Biome formatter, and a fresh clone in /tmp would have been refused because the terminal left the workspace. Every sandbox specialist now works to JAI's engineering rules: install a tool the project pins at its exact version (mise install tool@version, then mise exec), never treat a missing tool as Richard's; clone into /tmp for fresh-clone checks and remove leftover clone folders; run checks to the end. /tmp is the sandbox's scratch space (other projects stay refused). A run lost because the sandbox was restarted is reported at once, and the next round carries on from the files on disk.
+BLOCKERS: None
+NEXT TASK: MYCO Phase 0

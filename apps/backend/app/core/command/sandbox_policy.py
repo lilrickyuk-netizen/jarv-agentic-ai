@@ -56,6 +56,10 @@ _RM = re.compile(r"(^|[;&|\s(])rm\s+((-[a-zA-Z]+\s+)*)(.+?)(?=$|[;&|])")
 _DANGEROUS_RM_TARGETS = {"/", "/*", "~", "~/", "~/*", ".", "./", "./*", "..", "../", "*", ".git"}
 
 
+# Scratch space for fresh-clone checks and throwaway builds; nothing of another project is there.
+SCRATCH = "/tmp"
+
+
 @dataclass
 class Scope:
     root: str                       # the workspace folder, as the sandbox sees it
@@ -129,9 +133,9 @@ def check_command(command: str, cwd: str, scope: Scope) -> Optional[str]:
     """Why ``command`` may not run in the sandbox, or None."""
     if scope.authority < 3:
         return f"Not run: running commands needs authority 3; this specialist has {scope.authority}."
-    if not _inside(cwd or scope.root, scope.root):
-        return (f"Not run: the terminal is in {cwd}, outside this mission's workspace ({scope.root}). Run "
-                f"cd {scope.root} first.")
+    if not (_inside(cwd or scope.root, scope.root) or _inside(cwd, SCRATCH)):
+        return (f"Not run: the terminal is in {cwd}, outside this mission's workspace ({scope.root}) and the "
+                f"scratch space (/tmp). Run cd {scope.root} first.")
     text = " ".join(command.split())
     if _SECRET_STORES.search(text):
         return "Not run: reading a secret store is never done from JAI's sandbox."

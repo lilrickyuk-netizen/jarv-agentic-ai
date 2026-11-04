@@ -144,9 +144,12 @@ class SandboxSpecialist:
         return brief + (
             "\n\nHOW TO WORK: you have a full shell (chaining, pipes and redirection work) and a file editor, in "
             "the mission's workspace. Use the project's own commands to install, build, lint, type-check and test, "
-            "and fix what fails before you finish. Run a check once rather than starting a server or a watcher "
-            "that never ends. JAI checks every action: pushing, publishing, deploying and anything outside this "
-            "workspace are refused; when one is needed, leave it and name it in your report."
+            "and fix what fails before you finish. A tool or version the project pins that is missing (Syft, a CLI, "
+            "a language) you install yourself at that exact version (`mise install <tool>@<version>`); that is never "
+            "a blocker and never an action for Richard. Fresh-clone checks go in a new folder under /tmp, never "
+            "inside the repository. Run a check once rather than starting a server or a watcher that never ends. "
+            "JAI checks every action: pushing, publishing, deploying and anything outside this workspace are "
+            "refused; when one is needed, leave it and name it in your report."
             "\n\nYOUR FINAL MESSAGE (call finish with it): what you changed (files), the commands you ran and "
             "their results, and one line per requirement, exactly like `R3: done — <the file or command that "
             "proves it>` or `R3: open — <what is still missing>`.")
@@ -224,6 +227,11 @@ class SandboxSpecialist:
             try:
                 response = await client.get(f"{sandbox_url()}/runs/{self.run_id}", params={"since": seen},
                                             headers=_headers())
+                if response.status_code == 404:
+                    # The sandbox was restarted (switched off and on, or rebuilt) and the run went with it.
+                    return {**view, "status": "lost",
+                            "error": "The sandbox was restarted while this package was working, so the run was lost; "
+                                     "its files are on disk and the next round carries on from them."}
                 response.raise_for_status()
                 view = response.json()
                 failures = 0

@@ -131,6 +131,21 @@ def _inside(path: str) -> Path:
     return folder
 
 
+# How JAI's engineers work, for every specialist in the sandbox (after the specialist's own standard).
+ENGINEERING_RULES = (
+    "JAI'S ENGINEERING RULES. "
+    "Tools: when the project needs a tool or a version that is not installed (a pinned Syft, Go, a CLI), install it "
+    "yourself at the exact version the project pins, from the official source: `mise install <tool>@<version>` then "
+    "`mise exec <tool>@<version> -- <command>`, `uv tool install`, `pnpm add -D`, `npx`. Installing a tool is your "
+    "job, never Richard's; never report a missing tool as a blocker or as an action for Richard. "
+    "Fresh-clone checks: clone into a new folder under /tmp (git clone <workspace> /tmp/clone-<name>), never inside "
+    "the repository, and delete leftover clone folders that earlier runs left inside it. "
+    "Long commands: run builds and tests once, to the end, with a timeout long enough for them; never start a "
+    "server or a watcher that does not finish. "
+    "Evidence: a requirement is done only when a command in this conversation shows it; report failures exactly. "
+    "Only Richard can approve pushing, publishing, deploying, spending money and anything outside this workspace.")
+
+
 def build_conversation(run: Run):
     """The OpenHands conversation for one run: JAI's model through JAI's gateway, JAI's gated terminal and file
     editor, OpenHands' task tracker and context condenser, the specialist's standard in the system prompt."""
@@ -152,7 +167,8 @@ def build_conversation(run: Run):
                Tool(name=TaskTrackerTool.name)],
         system_prompt_kwargs={"cli_mode": True},
         condenser=default_condenser(llm.model_copy(update={"usage_id": "condenser"})),
-        agent_context=AgentContext(system_message_suffix=request.standard or None))
+        agent_context=AgentContext(system_message_suffix="\n\n".join(
+            part for part in (request.standard, ENGINEERING_RULES) if part)))
     # LocalConversation itself: the Conversation shortcut does not take the per-run spending limit.
     return LocalConversation(
         agent=agent, workspace=request.workspace, callbacks=[run.on_event],

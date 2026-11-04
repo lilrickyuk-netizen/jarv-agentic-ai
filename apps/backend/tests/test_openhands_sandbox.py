@@ -51,6 +51,12 @@ def test_boundaries_and_other_projects_are_refused(command, why):
 
 def test_the_terminal_stays_in_the_workspace_and_authority_is_never_exceeded():
     assert "outside this mission's workspace" in check_command("ls", "/host/workspaces", SCOPE)
+    assert "outside this mission's workspace" in check_command("ls", "/home/openhands", SCOPE)
+    # A fresh-clone check works in scratch space: clone the workspace into /tmp and build it there.
+    assert check_command(f"git clone {ROOT} /tmp/clone-myco", ROOT, SCOPE) is None
+    assert check_command("task bootstrap && task verify", "/tmp/clone-myco", SCOPE) is None
+    assert "outside this mission's workspace" in check_command("ls /host/workspaces/Other", "/tmp/clone-myco", SCOPE)
+    assert check_command("mise install syft@1.52.0 && mise exec syft@1.52.0 -- syft version", ROOT, SCOPE) is None
     assert "authority 3" in check_command("ls", ROOT, Scope(root=ROOT, authority=2))
     assert check_file("view", ROOT + "/docs/spec.md", SCOPE) is None
     assert check_file("create", ROOT + "/apps/api/app.py", SCOPE) is None
@@ -293,3 +299,39 @@ def test_with_the_sandbox_every_mission_is_done_by_specialists_and_an_integratio
     assert [p["id"] for p in result["team"]["packages"]] == ["P1", "P2", "INT"]
     assert "YOUR ROLE NOW: you are the mission's lead" in router.briefs["lead"]
     assert router.offered.keys() == {"lead"}  # JAI's own tool loop ran only for the lead's confirmation
+
+
+def test_a_run_lost_to_a_sandbox_restart_is_reported_at_once(sandbox_token):
+    from app.core.command.mission_org import Package
+
+    def restarted(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(200, json={"status": "starting"})
+        return httpx.Response(404, json={"detail": "No run."})
+
+    async def nothing(*_):
+        return None
+
+    team = SimpleNamespace(runtime=SimpleNamespace(task_id=uuid4(), workspace_id=uuid4(), user_id=None,
+                                                   authority_level=4),
+                           workspace_root="/test_workspaces/myco-restart", lead_agent_id=None, adopt=nothing,
+                           save_progress=nothing, _brief=lambda p, m: "brief")
+    package = Package("INT", "Integration", "devops", "Build it all", [], [], [], "verify passes")
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(restarted), base_url="http://openhands:8010") as c:
+            return await sandbox_engine.SandboxSpecialist(team, package, "m", None, client=c, poll_seconds=0.01).run([])
+
+    result = asyncio.run(run())
+    assert result["success"] is False and result["status"] == "lost"
+    assert "sandbox was restarted" in result["answer"]
+
+
+def test_specialists_are_told_to_install_pinned_tools_themselves(sandbox_token):
+    from app.core.command.mission_org import Package
+
+    team = SimpleNamespace(runtime=SimpleNamespace(task_id=uuid4()), workspace_root="/test_workspaces/x",
+                           _brief=lambda p, m: "brief")
+    brief = sandbox_engine.SandboxSpecialist(team, Package("P1", "t", "qa", "g", [], [], [], ""), "m", None)._brief([])
+    assert "mise install <tool>@<version>" in brief and "never an action for Richard" in brief
+    assert "under /tmp, never inside the repository" in brief

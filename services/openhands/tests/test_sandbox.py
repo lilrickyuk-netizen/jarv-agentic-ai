@@ -157,6 +157,9 @@ def test_a_run_builds_the_whole_openhands_conversation_a_mission_uses(folder):
         assert "terminal" in names and "file_editor" in names and "task_tracker" in names
         assert isinstance(conversation.agent.tools_map["terminal"].executor, gates.GatedTerminal)
         assert conversation.max_budget_per_run == 2.0
+        rules = conversation.agent.agent_context.system_message_suffix
+        assert rules.startswith("You are JAI's Senior Software Engineer.")
+        assert "never Richard's" in rules and "mise install" in rules and "/tmp" in rules
     finally:
         conversation.close()
 
