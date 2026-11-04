@@ -206,6 +206,10 @@ app.include_router(gateway_api.router, prefix="/api")
 # JAI's engineering sandbox asks here before every command and file action, and reports what it did.
 from app.api.v1 import agent_gate as agent_gate_api
 app.include_router(agent_gate_api.router, prefix="/api")
+# JAI's own capabilities (memory, knowledge, research, documents, browser, code understanding, media) for the
+# sandbox's specialists, as an MCP server, each call through JAI's toolbox at the run's authority.
+from app.api.v1 import agent_tools as agent_tools_api
+app.include_router(agent_tools_api.router, prefix="/api")
 from app.api.v1 import knowledge as knowledge_api
 app.include_router(knowledge_api.router, prefix="/api")
 

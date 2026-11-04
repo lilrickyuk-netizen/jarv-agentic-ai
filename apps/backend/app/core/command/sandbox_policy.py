@@ -5,9 +5,9 @@ A specialist working through the OpenHands sandbox has a full shell, so the old 
 apply there: chaining, pipes and redirection are how engineers work. What still holds, for every command and every
 file action, before it runs:
 
-- Scope: the mission's workspace folder is the whole world. A command may not work in, or name, another project or
-  the folder above it; the file editor may not read or write outside it; with a work package, files are changed only
-  inside the paths the package owns.
+- Scope: the mission's workspace folder (and /tmp, the scratch space for fresh-clone checks) is the whole world. A
+  command may not work in, or name, another project; the file editor may not read or write outside the workspace.
+  The paths a work package owns are guidance in its brief, never a block.
 - Authority: a sub-agent never has more than its lead. Changing files needs level 2, running commands level 3.
 - Hard boundaries (they wait for Richard; the specialist reports them and the integration lead asks him): pushing,
   publishing packages, deploying or changing cloud resources, logging in to registries, reaching other machines.
@@ -46,7 +46,6 @@ _BOUNDARIES: Tuple[Tuple[str, str], ...] = (
 _NEVER: Tuple[Tuple[str, str], ...] = (
     (r"(^|[;&|\s(])(sudo|su|doas|chroot|nsenter)\s", "running as another account"),
     (r"\b(curl|wget)\b[^|;\n]*\|\s*(sudo\s+)?(ba|z|da)?sh\b", "running a downloaded script unseen"),
-    (r"(^|[;&|\s(])(docker|podman)\s", "using containers (the sandbox has none)"),
     (r"\bgit\b[^;&|\n]*\bconfig\b[^;&|\n]*\b(credential|url\.)", "changing git's credentials"),
 )
 # Checked on the whole line, quotes and all: a secret's path is a secret's path inside quotes too.
@@ -101,9 +100,11 @@ def _resolve(word: str, cwd: str, home: str) -> Optional[str]:
 
 def _outside(path: str, scope: Scope) -> bool:
     """A path in JAI's workspaces that is not this mission's folder (another project, or the folder above)."""
-    if _inside(path, scope.root):
+    if _inside(path, scope.root) or _inside(scope.root, path):
+        # Inside the workspace, or a folder above it ("cd .." from a sub-folder is how engineers move; landing
+        # above the workspace is caught by the working-folder check of the next command).
         return False
-    return any(_inside(path, ws) or _inside(ws, path) for ws in _workspaces())
+    return any(_inside(path, ws) for ws in _workspaces())
 
 
 def _words(command: str) -> Iterable[str]:
@@ -176,8 +177,4 @@ def check_file(command: str, path: str, scope: Scope) -> Optional[str]:
     if command != "view":
         if scope.authority < 2:
             return f"Not done: changing files needs authority 2; this specialist has {scope.authority}."
-        if scope.owns and not any(_inside(path, owned) for owned in scope.owns):
-            return (f"Not done: {path} is outside your work package. You write only in "
-                    f"{', '.join(scope.owns)}; another specialist owns the rest. Put what that file needs in "
-                    f"your final report for the integration lead.")
     return None

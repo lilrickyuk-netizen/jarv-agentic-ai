@@ -53,6 +53,7 @@ class RunRequest(BaseModel):
     max_cost_usd: Optional[float] = Field(default=None, gt=0)
     input_cost_per_token: Optional[float] = Field(default=None, ge=0)
     output_cost_per_token: Optional[float] = Field(default=None, ge=0)
+    jai_tools: bool = True  # JAI's own capabilities, from its MCP server
 
 
 class Run:
@@ -68,6 +69,7 @@ class Run:
         self.started_at = time.time()
         self.ended_at: Optional[float] = None
         self.conversation: Any = None
+        self.notes = ""
 
     def on_event(self, event: Any) -> None:
         from openhands.sdk.event import ActionEvent, AgentErrorEvent, MessageEvent
@@ -103,7 +105,7 @@ class Run:
             self.measure()
         return {"run_id": self.request.run_id, "status": self.status, "steps": self.steps,
                 "max_iterations": self.request.max_iterations, "doing_now": self.thought,
-                "final_message": self.final_message, "error": self.error, "tokens": self.tokens,
+                "final_message": self.final_message, "error": self.error, "notes": self.notes, "tokens": self.tokens,
                 "cost_usd": round(self.cost_usd, 6), "actions": self.gate.actions[since:],
                 "action_count": len(self.gate.actions),
                 "started_at": datetime.fromtimestamp(self.started_at, timezone.utc).isoformat(timespec="seconds"),
@@ -142,11 +144,26 @@ ENGINEERING_RULES = (
     "the repository, and delete leftover clone folders that earlier runs left inside it. "
     "Long commands: run builds and tests once, to the end, with a timeout long enough for them; never start a "
     "server or a watcher that does not finish. "
+    "JAI's knowledge: besides the shell and editor you have JAI's own tools: memory_search and "
+    "knowledge_graph_search for what JAI already knows about this workspace, recall_richard for what Richard wants, "
+    "consult_specialist_knowledge for reference material in your field, research_web, web_search and fetch_url for "
+    "current documentation and fixes, read_document for PDFs and Office files, use_browser to click through a "
+    "site, the code_* tools to understand code, read_mission_report for earlier missions. Use them before "
+    "guessing, and record decisions and lessons with memory_add. "
     "Evidence: a requirement is done only when a command in this conversation shows it; report failures exactly. "
     "Only Richard can approve pushing, publishing, deploying, spending money and anything outside this workspace.")
 
 
-def build_conversation(run: Run):
+def jai_tools(run_id: str) -> Dict[str, Any]:
+    """JAI's MCP server for this run: its knowledge and services, each call checked and recorded by JAI."""
+    from openhands.sdk.mcp.config import MCPServer
+
+    return {"jai": MCPServer(url=f"{BACKEND_URL}/api/agent-tools/mcp", transport="streamable-http", timeout=600,
+                             headers={"Authorization": SecretStr(f"Bearer {SECRETS['OPENHANDS_TOKEN']}"),
+                                      "X-JAI-Run": SecretStr(run_id)})}
+
+
+def build_conversation(run: Run, with_jai_tools: bool = True):
     """The OpenHands conversation for one run: JAI's model through JAI's gateway, JAI's gated terminal and file
     editor, OpenHands' task tracker and context condenser, the specialist's standard in the system prompt."""
     from openhands.sdk import LLM, Agent, AgentContext, Tool
@@ -165,6 +182,7 @@ def build_conversation(run: Run):
         tools=[Tool(name=gates.TerminalTool.name, params={"jai_run": request.run_id}),
                Tool(name=gates.FileEditorTool.name, params={"jai_run": request.run_id}),
                Tool(name=TaskTrackerTool.name)],
+        mcp_config=jai_tools(request.run_id) if with_jai_tools else {},
         system_prompt_kwargs={"cli_mode": True},
         condenser=default_condenser(llm.model_copy(update={"usage_id": "condenser"})),
         agent_context=AgentContext(system_message_suffix="\n\n".join(
@@ -181,7 +199,17 @@ def _execute(run: Run) -> None:
 
     request = run.request
     try:
-        conversation = build_conversation(run)
+        conversation = build_conversation(run, request.jai_tools)
+        try:
+            conversation._ensure_agent_ready()  # connects to JAI's tools now, so a failure is handled here
+        except Exception as exc:  # noqa: BLE001 - the specialist still works, with its shell and editor
+            if not request.jai_tools:
+                raise
+            logger.warning("run %s: JAI's tools could not be reached: %s", request.run_id, exc)
+            run.notes = f"JAI's own tools could not be reached ({type(exc).__name__}); worked with shell and editor."
+            conversation.close()
+            conversation = build_conversation(run, False)
+            conversation._ensure_agent_ready()
         run.conversation = conversation
         run.status = "running"
         conversation.send_message(request.brief)

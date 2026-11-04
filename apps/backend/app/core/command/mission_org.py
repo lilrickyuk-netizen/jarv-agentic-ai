@@ -56,6 +56,9 @@ PACKAGE_STEPS = 8
 SUB_AGENT_TIMEOUT_SECONDS = 4 * 3600
 # With the sandbox, the team's last package is the integration engineer's: build and test the whole and fix the joins.
 INTEGRATION_ID = "INT"
+# And it begins with the environment engineer and ends with the independent Verifier, both in the sandbox.
+ENVIRONMENT_ID = "ENV"
+VERIFIER_ID = "VER"
 
 # The specialists a mission can call on, with each role's working standard. A sub-agent is briefed with its role's
 # standard, so it works the way a senior person in that role works.
@@ -214,6 +217,25 @@ SPECIALISTS: Dict[str, Dict[str, str]] = {
             "Set up the community's home, its guidelines and moderation rules, the welcome and engagement plan, "
             "and the first posts as drafts. Everything public from Richard's accounts waits for him."),
     },
+    "environment": {
+        "title": "Environment Engineer",
+        "standard": (
+            "Make the machine match the project before anyone codes. Read every version the project pins: its "
+            "specification's toolchain table, Taskfile, mise.toml or .tool-versions, package.json (engines, "
+            "packageManager), pyproject, lockfiles and CI files. Install every missing tool at exactly that version "
+            "from its official source (mise install <tool>@<version>, uv python install, corepack, uv tool install), "
+            "run the project's bootstrap and its quickest checks, and fix what the environment breaks. Report each "
+            "tool with the version you confirmed."),
+    },
+    "verifier": {
+        "title": "Independent Verifier",
+        "standard": (
+            "You did not do this work and you take nobody's word for it. Check every requirement yourself: read the "
+            "files, and run the project's real acceptance commands to the end, including a fresh clone in /tmp "
+            "(git clone <workspace> /tmp/verify-<name>, then its bootstrap and verify) when the specification asks "
+            "for one. Install any pinned tool you need. Never change the project's files. A requirement is met only "
+            "when you saw the evidence in this conversation."),
+    },
     "partnerships": {
         "title": "Partnerships Lead",
         "standard": (
@@ -233,7 +255,7 @@ PLAN_TOOL = {
             "packages": {"type": "array", "items": {"type": "object", "properties": {
                 "id": {"type": "string", "description": "P1, P2, ..."},
                 "title": {"type": "string"},
-                "specialist": {"type": "string", "enum": sorted(SPECIALISTS)},
+                "specialist": {"type": "string", "enum": sorted(set(SPECIALISTS) - {"environment", "verifier"})},
                 "goal": {"type": "string", "description": "What this package delivers, concretely"},
                 "owns": {"type": "array", "items": {"type": "string"},
                          "description": "The files and folders only this package writes, relative to the "
@@ -547,6 +569,7 @@ class MissionTeam:
         self.phase = "planning"
         self.round_no = 1
         self.sandbox = False  # specialists work in JAI's OpenHands sandbox (when it is switched on and answers)
+        self.verdict: Optional[Dict[str, Any]] = None  # the sandbox Verifier's result
         self._session_factory = session_factory
         self._machine = asyncio.Lock()
         self._services = asyncio.Lock()
@@ -842,7 +865,9 @@ class MissionTeam:
         await self.log(p, "info", "lifecycle", f"spawned by the orchestrator for {p.id}: {p.title}",
                        {"owns": p.owns, "depends_on": p.depends_on})
         await self.save_progress()
-        if p.id == INTEGRATION_ID:  # the integration engineer answers for every requirement still open
+        if p.id == VERIFIER_ID:  # the Verifier judges every requirement, whatever the team reported
+            mine = [dict(r) for r in self.lead.requirements]
+        elif p.id == INTEGRATION_ID:  # the integration engineer answers for every requirement still open
             mine = [dict(r) for r in self.lead.requirements if r.get("status") != "done"]
         else:
             mine = [dict(r) for r in self.lead.requirements if str(r["id"]).upper() in p.requirements]
@@ -909,7 +934,10 @@ class MissionTeam:
         self.lead.usage.calls += p.step
         self.lead.usage.cost_usd += p.cost_usd
         self.lead.tokens += p.tokens
-        self._merge_requirements(p, result.get("requirements") or mine)
+        if p.id == VERIFIER_ID:
+            self.verdict = result
+        else:
+            self._merge_requirements(p, result.get("requirements") or mine)
         await self.log(p, "info" if p.success else "warning", "execution_result",
                        f"{p.id} {'finished' if p.success else 'stopped'} (OpenHands sandbox, "
                        f"{result.get('status') or 'no status'}): {p.summary[:1500]}",
@@ -935,6 +963,55 @@ class MissionTeam:
             await asyncio.gather(*(self._run_package(p, mission, known) for p in wave))
             for p in wave:
                 finished[p.id] = p
+
+    async def _sandbox_outcome(self, mission: str, team_steps: int, start_continuation: int) -> Dict[str, Any]:
+        """The round's result when the whole team, the Verifier included, worked in the sandbox: the Verifier's
+        judgement of every requirement decides, with JAI's own hard checks of the workspace on top."""
+        from app.core.verification.checks import Finding
+
+        self.phase = "independent check"
+        judged = _judged(self.verdict, self.lead.requirements)
+        unmet = list(judged["unmet"])
+        if self.verdict is None or not self.verdict.get("success"):
+            unmet.insert(0, "The independent Verifier did not finish: "
+                            + str((self.verdict or {}).get("answer") or "it did not run")[:300])
+        standing = await self.lead.hard_checks()
+        if standing and standing.get("findings") and self.lead._conformance(mission, standing):
+            unmet += [f"Hard check: {Finding(**f).text()}"[:300]
+                      for f in self.lead._hard_in_scope(mission, standing)][:10]
+        by_id = {str(c["requirement"]).split(" ", 1)[0]: c for c in judged["checks"]}
+        for r in self.lead.requirements:
+            check = by_id.get(str(r["id"]).upper())
+            if check and check["met"]:
+                r["status"], r["evidence"] = "done", f"[Verifier] {check['evidence']}"[:500]
+            elif r.get("status") == "done":
+                r["status"] = "open"  # the team said done; the Verifier did not see it
+        verified = not unmet
+        integration = next((p for p in self.packages if p.id == INTEGRATION_ID), None)
+        summary = (integration.summary if integration else "") or "The team's work is in the workspace."
+        answer = (self._team_report() + summary[:6000] + "\n\n"
+                  + ("**Independent check: verified.** Every requirement was met with evidence the Verifier saw."
+                     if verified else "**Independent check: not complete yet.**\n"
+                     + "\n".join(f"- {item}" for item in unmet[:20])))
+        await self._close_swarm(verified, answer)
+        team = [p.card() for p in self.packages]
+        usage = self.lead.usage.summary()
+        return {
+            "answer": answer, "agent_summary": summary, "report": None, "iterations": team_steps,
+            "success": verified, "finished": True, "needs_continuation": not verified, "step_limit_reached": False,
+            "verification": {"verified": verified, "unmet": unmet, "checks": judged["checks"],
+                             "steps": next((p.step for p in self.packages if p.id == VERIFIER_ID), 0)},
+            "continuation_count": start_continuation, "resume_from_step": team_steps, "remaining_steps": 0,
+            "last_tool_call_id": None, "tokens": self.lead.tokens,
+            "tools": sorted({t for p in self.packages for t in p.tools}),
+            "requirements": self.lead.requirements, "context_trimmed_chars": 0, "stuck_loops": 0,
+            "metrics": {"usage": usage, "steps": team_steps, "rounds": start_continuation,
+                        "verifier_findings": len(unmet),
+                        "team": {"packages": len(self.packages), "parallel": self.parallel,
+                                 "finished": sum(1 for p in self.packages if p.success), "engine": "openhands"}},
+            "team": {"approach": self.approach, "parallel": self.parallel, "packages": team,
+                     "swarm_run_id": str(self.swarm_run_id) if self.swarm_run_id else None},
+        }
 
     def _integration_mission(self, mission: str) -> str:
         lines = [mission, "", "THE TEAM'S WORK THIS ROUND (each specialist's own report: check it against the files "
@@ -1006,18 +1083,37 @@ class MissionTeam:
         if open_ids:
             await self._plan(router, mission, known)
         if self.sandbox and open_ids:
-            # In the sandbox every mission is done by specialists, however small, and finished by the integration
-            # engineer; without a plan the whole mission is one Senior Software Engineer's package.
+            # In the sandbox every mission is done by specialists, however small: the environment engineer makes the
+            # machine match the project first, the team builds, the integration engineer builds and tests the whole,
+            # and the independent Verifier runs the acceptance checks. Without a plan the build is one Senior
+            # Software Engineer's package.
             if not self.packages:
                 self.packages = [Package(id="P1", title="The mission", specialist="coding_agent", goal=mission[:1500],
                                          owns=[], depends_on=[], requirements=open_ids,
                                          done_when="every requirement has evidence")]
+            for p in self.packages:
+                p.depends_on = list(dict.fromkeys([ENVIRONMENT_ID, *p.depends_on]))
+            built = [p.id for p in self.packages]
+            self.packages.insert(0, Package(
+                id=ENVIRONMENT_ID, title="Environment: every pinned tool at its version, bootstrap passing",
+                specialist="environment",
+                goal=("Read every version the project and its specification pin, install whatever is missing at "
+                      "exactly that version, run the project's bootstrap and quickest checks, and fix what the "
+                      "environment breaks, so no package fails for a missing or wrong tool."),
+                owns=[], depends_on=[], requirements=[],
+                done_when="every pinned tool reports its pinned version and the project's bootstrap passes"))
             self.packages.append(Package(
                 id=INTEGRATION_ID, title="Integration: build, test and fix the whole", specialist="devops",
                 goal=("Install, build, lint, type-check and test the whole project with its own commands, fix "
-                      "whatever breaks where the team's packages meet, and finish what any package left open."),
-                owns=[], depends_on=[p.id for p in self.packages], requirements=[],
-                done_when="the project's whole install, build, lint, type-check and test commands pass"))
+                      "whatever breaks where the team's packages meet, finish what any package left open, and run "
+                      "the specification's acceptance commands (in a fresh clone in /tmp when it asks for one)."),
+                owns=[], depends_on=built, requirements=[],
+                done_when="the project's whole install, build, lint, type-check, test and acceptance commands pass"))
+            self.packages.append(Package(
+                id=VERIFIER_ID, title="Independent check of every requirement", specialist="verifier",
+                goal="Check every requirement of the mission yourself, with the project's real acceptance commands.",
+                owns=[], depends_on=[INTEGRATION_ID], requirements=[],
+                done_when="each requirement judged met or unmet with evidence seen in this run"))
         if len(self.packages) < 2:
             # One small change (or no plan): the lead does it alone, as one agent.
             self.packages = []
@@ -1034,8 +1130,10 @@ class MissionTeam:
         await self._open_swarm(mission)
         await self.save_progress()
         await self._run_team(mission, known)
-        self.phase = "integration"
         team_steps = sum(p.step for p in self.packages)
+        if self.sandbox:
+            return await self._sandbox_outcome(mission, team_steps, start_continuation)
+        self.phase = "integration"
         # After the sandbox's integration engineer the lead only confirms and hands over to the Verifier.
         rounds = min(max_continuations, 1) if self.sandbox else max_continuations
         result = await self.lead.run(self._integration_mission(mission), steps_per_round, rounds,
@@ -1053,6 +1151,24 @@ class MissionTeam:
                            "finished": sum(1 for p in self.packages if p.success)}
         result["metrics"] = metrics
         return result
+
+
+def _judged(verdict: Optional[Dict[str, Any]], requirements: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """The sandbox Verifier's judgement of each requirement: {"checks", "unmet"}. A requirement it did not judge is
+    unmet: no evidence, no acceptance."""
+    from app.core.command.sandbox_engine import requirement_statuses
+
+    said = requirement_statuses(str((verdict or {}).get("answer") or ""))
+    checks, unmet = [], []
+    for r in requirements:
+        rid = str(r["id"]).upper()
+        found = said.get(rid) or {}
+        met = found.get("status") in ("met", "done")
+        evidence = found.get("evidence") or ("" if found else "the Verifier gave no judgement for it")
+        checks.append({"requirement": f"{rid} {r.get('text', '')}"[:300], "met": met, "evidence": evidence[:400]})
+        if not met:
+            unmet.append(f"{rid} {str(r.get('text', ''))[:160]}: {evidence[:240] or 'not met'}")
+    return {"checks": checks, "unmet": unmet}
 
 
 def mission_executor(runtime, model: str, workspace_root: Optional[str], **kwargs):

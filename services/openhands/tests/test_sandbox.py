@@ -150,7 +150,12 @@ def test_a_run_builds_the_whole_openhands_conversation_a_mission_uses(folder):
                                 standard="You are JAI's Senior Software Engineer.", max_iterations=40,
                                 max_cost_usd=2.0, input_cost_per_token=1e-7, output_cost_per_token=5e-7)
     run = server.Run(request, gate)
-    conversation = server.build_conversation(run)
+    with_tools = server.build_conversation(run, True)  # JAI's MCP server is configured (connected when readied)
+    jai = with_tools.agent.mcp_config["jai"]
+    assert jai.url == "http://backend:8000/api/agent-tools/mcp" and jai.transport == "streamable-http"
+    assert jai.headers["X-JAI-Run"].get_secret_value() == run_id
+    with_tools.close()
+    conversation = server.build_conversation(run, False)  # no backend in this test: readied without it
     try:
         conversation._ensure_agent_ready()  # resolves the tools through the registry, as conversation.run() does
         names = sorted(conversation.agent.tools_map)
@@ -160,6 +165,7 @@ def test_a_run_builds_the_whole_openhands_conversation_a_mission_uses(folder):
         rules = conversation.agent.agent_context.system_message_suffix
         assert rules.startswith("You are JAI's Senior Software Engineer.")
         assert "never Richard's" in rules and "mise install" in rules and "/tmp" in rules
+        assert "memory_search" in rules and "consult_specialist_knowledge" in rules
     finally:
         conversation.close()
 

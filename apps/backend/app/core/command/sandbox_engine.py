@@ -170,7 +170,7 @@ class SandboxSpecialist:
             "user_id": str(self.team.runtime.user_id) if self.team.runtime.user_id else None,
             "root": container_root, "root_host": self.team.workspace_root, "owns": owns,
             "authority": int(self.team.runtime.authority_level or 3), "specialist": self.package.specialist,
-            "package": self.package.id,
+            "package": self.package.id, "read_only": self.package.id == "VER",
             "sub_agent_id": str(self.package.sub_agent_id) if self.package.sub_agent_id else None,
             "parent_agent_id": str(self.team.lead_agent_id) if self.team.lead_agent_id else None})
 

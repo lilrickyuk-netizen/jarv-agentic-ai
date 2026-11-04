@@ -63,6 +63,8 @@ def decide(action: Action, run: Optional[Dict[str, Any]]) -> Optional[str]:
     if action.tool == "terminal":
         return sandbox_policy.check_command(action.command or "", action.cwd or scope.root, scope)
     if action.tool == "file_editor":
+        if run.get("read_only") and str(action.command or "view") != "view":
+            return "Not done: the independent Verifier looks and tests; it never changes the project's files."
         return sandbox_policy.check_file(str(action.command or "view"), action.path or "", scope)
     return f"Not run: {action.tool} is not a tool JAI's sandbox offers."
 
