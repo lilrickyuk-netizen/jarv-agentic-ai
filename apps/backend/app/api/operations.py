@@ -201,4 +201,3 @@ async def demote_healing(action: str, user: CurrentUserId, db: AsyncSession = De
     await AuditLogger.log_system_event(db, action="self_healing.demote", result="ok", resource_type="runbook_action",
                                        user_id=UUID(str(user)), details={"action": action})
     return result
-

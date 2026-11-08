@@ -358,7 +358,8 @@ def test_jai_check_shows_only_failures_and_never_pays_twice_for_an_unchanged_pas
     lines = "; ".join(f"echo line{i}" for i in range(200))
     code, failed = jai_check.run(f"{lines}; echo 'Error: boom'; exit 3", str(repo))
     assert code == 3 and failed.startswith("FAIL (exit 3") and "Error: boom" in failed
-    assert "line5" not in failed and "full log:" in failed  # the noise stays in the log
+    shown = failed.split("\n", 1)[1]  # what follows the FAIL line (which repeats the command)
+    assert "line5\n" not in shown and "full log:" in shown  # the noise stays in the log
     assert jai_check.run(f"echo 'Error: boom'; exit 3", str(repo))[1].startswith("FAIL")  # failures never cached
 
 
@@ -369,5 +370,6 @@ def test_the_model_sees_the_images_it_opens():
     assert request.vision is True and server.register_prices("anthropic", request)
     import litellm
 
-    assert litellm.model_cost["anthropic/claude-opus-5-5"]["supports_vision"] is True
+    # LiteLLM files the entry under its own key.
+    assert any(v.get("supports_vision") is True for k, v in litellm.model_cost.items() if "claude-opus-5-5" in k)
     assert "jai-check" in server.ENGINEERING_RULES
