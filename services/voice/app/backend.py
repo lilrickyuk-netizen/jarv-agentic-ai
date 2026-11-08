@@ -45,6 +45,13 @@ class Backend:
         self._client = client or httpx.AsyncClient(base_url=base_url, timeout=httpx.Timeout(90.0, connect=5.0),
                                                    headers={"Authorization": f"Bearer {token}"})
 
+    def use_session(self, token: Optional[str]) -> None:
+        """Carry on as the conversation's session token (from the brief): his own sign-in expires after 30 minutes,
+        and every later step of a long conversation (live state, screen, missions) failed with "Invalid
+        authentication credentials"."""
+        if token:
+            self._client.headers["Authorization"] = f"Bearer {token}"
+
     async def _post(self, path: str, body: Dict[str, Any]) -> Dict[str, Any]:
         response = await self._client.post(path, json=body)
         if response.status_code >= 400:

@@ -114,6 +114,8 @@ class BrainContext(FrameProcessor):
         super().__init__(**kwargs)
         self._backend = backend
         self._last: Optional[str] = None
+        self._last_at: float = 0.0  # when the last state was read
+        self._unread: Optional[str] = None  # why the state could not be read this turn
         self._early: Optional[tuple] = None  # (what he said, the lookup already started for it)
 
     def prefetch(self, said: str) -> None:
@@ -162,13 +164,27 @@ class BrainContext(FrameProcessor):
             started = time.monotonic()
             found = await self._state_for(self._said_last(messages))
             if found.get("state"):
-                self._last = str(found["state"])
+                self._last, self._last_at, self._unread = str(found["state"]), time.monotonic(), None
+            else:
+                self._unread = str(found.get("error") or "no answer")[:200]
             timing.info(f"timing brain-context {time.monotonic() - started:.2f}s")
-        if self._last:
+        if self._last or self._unread:
             last_user = max((i for i, m in enumerate(messages) if isinstance(m, dict) and m.get("role") == "user"),
                             default=len(messages))
-            messages.insert(last_user, {"role": "user", "content": f"{STATE_MARK}\n{self._last}"})
+            messages.insert(last_user, {"role": "user", "content": self.state_message()})
         context.set_messages(messages)
+
+    def state_message(self) -> str:
+        """The state for this reply; when it could not be read now, said plainly, so an old picture is never passed
+        off as the present (on 8 November the voice repeated a progress count from minutes earlier)."""
+        if not self._unread:
+            return f"{STATE_MARK}\n{self._last}"
+        minutes = int((time.monotonic() - self._last_at) // 60) if self._last else None
+        note = (f"{STATE_MARK}\nI could not read JAI's live state just now ({self._unread}). Tell Richard that in a "
+                "sentence; do not present anything below as current.")
+        if self._last:
+            note += f"\nThe last state I read, {minutes} minute(s) ago:\n{self._last}"
+        return note
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)

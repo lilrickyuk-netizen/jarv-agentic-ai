@@ -5,7 +5,7 @@ FastAPI dependencies for authentication and authorization.
 """
 import logging
 from typing import Optional, Annotated
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,7 +20,14 @@ logger = logging.getLogger(__name__)
 security = HTTPBearer(auto_error=False)
 
 
+# A spoken conversation outlives a 30-minute sign-in: JAI's voice service is given a session token for the
+# conversation, valid for VOICE_SESSION_HOURS and only on the live-voice endpoints.
+VOICE_SESSION_HOURS = 12
+VOICE_LIVE_PATH = "/voice/live/"
+
+
 async def get_token_subject(
+    request: Request,
     credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(security)],
     redis: Annotated[Redis, Depends(get_redis)]
 ) -> str:
@@ -64,6 +71,12 @@ async def get_token_subject(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    if payload.get("type") == "voice" and VOICE_LIVE_PATH not in request.url.path:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="A voice session token is only for JAI's voice",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     user_id: str = payload.get("sub")
     if user_id is None:
         raise HTTPException(

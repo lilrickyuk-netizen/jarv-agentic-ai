@@ -328,6 +328,54 @@ async def test_the_live_state_survives_openai_specific_entries_and_never_stops_a
     assert quiet.get_messages()[-1]["content"] == "Jay?"
 
 
+async def test_a_state_that_cannot_be_read_is_never_passed_off_as_current():
+    """8 November: after his sign-in expired, every lookup failed and the voice repeated minutes-old progress."""
+    from pipecat.processors.aggregators.llm_context import LLMContext
+
+    class Expiring(FakeBackend):
+        def __init__(self):
+            super().__init__()
+            self.answer = {"state": "Video: 4 of 9 packages done."}
+
+        async def context(self, text):
+            return self.answer
+
+    brain = Expiring()
+    relay = pipeline.BrainContext(brain)
+    context = LLMContext(messages=[{"role": "user", "content": "How is the mission going?"}])
+    await relay.refresh(context)
+    brain.answer = {"error": "Invalid authentication credentials"}
+    context.add_message({"role": "assistant", "content": "Four of nine."})
+    context.add_message({"role": "user", "content": "And now?"})
+    await relay.refresh(context)
+    state = next(m for m in context.get_messages() if str(m["content"]).startswith(pipeline.STATE_MARK))
+    assert "could not read JAI's live state" in state["content"] and "Invalid authentication" in state["content"]
+    assert "do not present anything below as current" in state["content"] and "4 of 9" in state["content"]
+
+
+async def test_the_conversation_carries_on_as_its_session_token():
+    import httpx
+
+    seen = []
+
+    def handler(request):
+        seen.append(request.headers["Authorization"])
+        return httpx.Response(200, json={"ok": True})
+
+    client = httpx.AsyncClient(base_url="http://backend", transport=httpx.MockTransport(handler),
+                               headers={"Authorization": "Bearer sign-in"})
+    from app.backend import Backend
+
+    backend = Backend("sign-in", client=client)
+    await backend.tool("get_status", {})
+    backend.use_session("voice-session")
+    await backend.tool("get_status", {})
+    backend.use_session(None)  # an older backend gives none: the sign-in stays
+    await backend.tool("get_status", {})
+    assert seen == ["Bearer sign-in", "Bearer voice-session", "Bearer voice-session"]
+    await client.aclose()
+
+
 def test_a_sentence_is_spoken_in_phrases_the_first_one_short():
     assert pipeline.phrases("Yes.") == ["Yes."]
     first, *rest = pipeline.phrases("At two thirty-five, I gained live system context before each reply, direct "

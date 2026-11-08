@@ -95,6 +95,29 @@ def test_the_brief_carries_jais_instructions_tools_and_voice_but_never_the_key(c
     assert [(a.meta_data or {}).get("engine") for a in _run(audit())] == ["pipecat", "pipecat", "pipecat"]
 
 
+def test_a_conversation_outlives_the_sign_in_with_a_voice_only_session_token(client, voice, operator, monkeypatch):  # noqa: F811
+    """8 November: after 30 minutes his sign-in expired mid-conversation and every screen and state lookup was
+    refused. The brief now carries a session token for the conversation, accepted only by the live-voice
+    endpoints."""
+    from app.core.auth import get_current_user_id
+    from app.core.security import verify_token
+
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "sk-test-not-real")
+    token = client.get("/api/voice/live/brief").json()["session_token"]
+    payload = verify_token(token)
+    assert payload["type"] == "voice" and payload["sub"] == str(operator)
+    assert payload["exp"] - payload["iat"] >= 11 * 3600
+    app.dependency_overrides.pop(get_current_user_id, None)  # from here on, only the token signs in
+    try:
+        headers = {"Authorization": f"Bearer {token}"}
+        assert client.post("/api/voice/live/turn", json={"who": "you", "text": "Jay?"}, headers=headers).status_code == 200
+        refused = client.get("/api/voice/providers", headers=headers)
+        assert refused.status_code == 401 and "only for JAI's voice" in refused.json()["detail"]
+        assert client.get("/api/approvals/stats", headers=headers).status_code == 401
+    finally:
+        app.dependency_overrides[get_current_user_id] = lambda: str(operator)
+
+
 def test_the_brief_needs_a_signed_in_operator(client):
     assert client.get("/api/voice/live/brief").status_code == 401
     assert client.post("/api/voice/live/spend", json={"kind": "tts", "characters": 10}).status_code == 401

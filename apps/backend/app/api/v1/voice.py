@@ -239,11 +239,19 @@ async def live_engine(user_id: CurrentUserId) -> Dict[str, Any]:
 @router.get("/live/brief")
 async def live_brief(user_id: CurrentUserId, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     """JAI's instructions, tools, model and voice for one Pipecat conversation (asked by the voice service as
-    the signed-in operator)."""
+    the signed-in operator), with a session token for the rest of the conversation: his sign-in lasts 30 minutes,
+    a conversation can last longer, and the session token works only on the live-voice endpoints."""
+    from datetime import timedelta
+
+    from app.core.auth import VOICE_SESSION_HOURS
+    from app.core.security import create_access_token
+
     try:
-        return await live.pipeline_brief(db, UUID(str(user_id)))
+        brief = await live.pipeline_brief(db, UUID(str(user_id)))
     except live.LiveUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
+    return {**brief, "session_token": create_access_token({"sub": str(user_id), "type": "voice"},
+                                                         timedelta(hours=VOICE_SESSION_HOURS))}
 
 
 class LiveContextRequest(BaseModel):

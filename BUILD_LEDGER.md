@@ -14413,3 +14413,16 @@ TESTS RUN: viewing /usr/local/include/node/node_version.h and /usr/local/bin is 
 RESULT: During the Plexecute video mission on 8 November a specialist checking its Node version was refused two read-only views of the sandbox's own toolchain, which its terminal could read anyway. Viewing /usr, /opt and /etc/os-release is now allowed; the workspace boundary for projects and every change is unchanged.
 BLOCKERS: None
 NEXT TASK: MYCO Phase 0
+
+---
+
+TASK ID: VOICE-SESSION
+TASK NAME: A voice conversation outlives the 30-minute sign-in, and an out-of-date picture is never passed off as current
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/auth.py, apps/backend/app/api/v1/voice.py, apps/backend/tests/test_voice_pipecat_service.py, services/voice/app/backend.py, services/voice/app/main.py, services/voice/app/pipeline.py, services/voice/tests/test_voice_service.py
+COMMANDS RUN: backend and voice test suites; backend, worker and voice recreated
+TESTS RUN: the brief carries a 12-hour voice session token that signs in only on the live-voice endpoints (refused on every other endpoint); the voice service switches to it after the brief; when the live state cannot be read the voice is told so, with how old its last picture is, and never presents it as current
+RESULT: On 8 November, about 30 minutes into a conversation, every screen and state lookup failed with "Invalid authentication credentials": the voice service held Richard's 30-minute sign-in for the whole conversation. Worse, the voice then answered progress questions from its last good state as though it were current. The conversation now carries on as its own session token, limited to the voice endpoints, and a state that cannot be read is reported as such.
+BLOCKERS: None
+NEXT TASK: MYCO Phase 0

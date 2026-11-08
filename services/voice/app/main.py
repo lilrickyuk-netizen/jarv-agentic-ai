@@ -70,6 +70,7 @@ async def conversation(websocket: WebSocket):
             await websocket.send_json({"type": "stop", "reason": brief["error"]})
             await websocket.close(code=4403)
             return
+        backend.use_session(brief.pop("session_token", None))
         transport, worker, _context = pipeline.build(websocket, backend, brief, api_key)
 
         @transport.event_handler("on_client_connected")
