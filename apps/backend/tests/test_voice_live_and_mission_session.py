@@ -423,6 +423,29 @@ def test_a_written_mission_goes_to_the_agents_whole(request_text):
     assert CommandService._detect_intent(request_text) == "agent_task"
 
 
+@pytest.mark.parametrize("request_text", [
+    # 8 November, word for word: it went to a one-off research and QA answer, not the mission team.
+    "Carry on building MYCO Phase 0 where the last mission left off, in C:\\Users\\lilri\\Projects\\MYCO. Read "
+    "the V3.2 spec in that folder and complete Phase 0 using the spec's Phase Acceptance Workflow, all of it verified "
+    "with real commands. Do not start Phase 1. Do not push to GitHub or deploy anything.",
+    "Complete Phase 0 of MYCO",
+    "continue building the MYCO backend",
+])
+def test_carrying_on_with_a_build_or_a_phase_is_a_mission(request_text):
+    from app.core.command.service import CommandService
+
+    assert CommandService._detect_intent(request_text) == "agent_task"
+
+
+@pytest.mark.parametrize("request_text", ["Is Phase 0 complete?", "Is the build for Phase 0 done?",
+                                          "How is the mission going?",
+                                          "What did the last mission find?"])
+def test_questions_about_a_phase_are_not_missions(request_text):
+    from app.core.command.service import CommandService
+
+    assert CommandService._detect_intent(request_text) != "agent_task"
+
+
 @pytest.mark.parametrize("request_text, intent", [
     ("npm install in C:\\Users\\lilri\\Projects\\MYCO", "package_install"),
     ("research the npm package left-pad", "research"),

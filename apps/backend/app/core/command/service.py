@@ -874,7 +874,15 @@ class CommandService:
         # must not hand the whole mission to a one-step handler.
         if (re.match(r"\s*(please\s+)?(start|begin|run|new)\s+(a\s+|the\s+|this\s+)?mission\b", text)
                 or re.match(r"\s*mission\s*:", text)
-                or len(re.findall(r"(?:^|\s)\d{1,2}[).]\s", command_text)) >= 2):
+                or len(re.findall(r"(?:^|\s)\d{1,2}[).]\s", command_text)) >= 2
+                # Carrying on with a project or a phase is a mission ("Carry on building MYCO Phase 0 ...", "complete
+                # Phase 0"): on 8 November that brief went to a one-off research and QA answer instead of the team.
+                or (not re.match(r"\s*(is|are|was|has|have|how|what|why|when|where|which|did|does|do|can|could|"
+                                 r"will|should)\b", text)
+                    and re.search(r"\b(carry on|carrying on|continue|resume|finish|complete|build|building)\b"
+                                  r"[^.?]*\bphase\s*\d", text))
+                or re.match(r"\s*(please\s+)?(carry on|continue|resume)\s+(building|developing|working on|"
+                            r"with the build|the build)\b", text)):
             return "agent_task"
         # Self-completion: map Design.md to code and report gaps honestly.
         if re.search(r"\b(self[- ]complet|finish your own|map design to code|"

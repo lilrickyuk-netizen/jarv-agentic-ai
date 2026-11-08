@@ -14465,3 +14465,16 @@ TESTS RUN: dashboard type check and Jest suite
 RESULT: At Richard's request the navy glow across the top of the page (a radial gradient behind the header) and the header's translucent fill are now plain black, matching the orb's panel.
 BLOCKERS: None
 NEXT TASK: MYCO Phase 0
+
+---
+
+TASK ID: CARRY-ON-IS-A-MISSION
+TASK NAME: "Carry on building MYCO Phase 0" goes to the mission team, not a one-off answer
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/service.py, apps/backend/tests/test_voice_live_and_mission_session.py
+COMMANDS RUN: backend test suite; backend and worker recreated
+TESTS RUN: Richard's MYCO brief word for word, "Complete Phase 0 of MYCO" and "continue building the MYCO backend" go to the agents as missions; questions such as "Is Phase 0 complete?" and "Is the build for Phase 0 done?" do not
+RESULT: On 8 November the brief "Carry on building MYCO Phase 0 where the last mission left off..." matched none of the command router's mission patterns ("building" is not "build"), so it was answered in six minutes by a research and QA check instead of the mission team. Carrying on with a build, or building, completing or finishing a phase, is now a mission.
+BLOCKERS: None
+NEXT TASK: MYCO Phase 0
