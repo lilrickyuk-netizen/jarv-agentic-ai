@@ -31,12 +31,28 @@ PHASE = re.compile(r"\bphase\s*(\d+)\b", re.I)
 LOOK_BACK_DAYS = 21
 
 
+FOLDER = re.compile(r"projects[\\/]+([A-Za-z0-9_.-]+)", re.I)
+
+
 def _phases(text: str) -> set:
     return {m.group(1) for m in PHASE.finditer(text or "")}
 
 
+def _folders(text: str) -> set:
+    return {m.group(1).lower() for m in FOLDER.finditer(text or "")}
+
+
+def same_work(brief: str, earlier_brief: str) -> bool:
+    """Both missions are about the same project: when both name a project folder, it is the same one."""
+    mine, theirs = _folders(brief), _folders(earlier_brief)
+    return not (mine and theirs) or bool(mine & theirs)
+
+
 def wants_to_carry_on(brief: str, earlier_brief: str) -> bool:
-    """The new brief says to carry on, or it is about the same phase as the earlier mission."""
+    """The new brief says to carry on, or it is about the same phase as the earlier mission, and both are about
+    the same project."""
+    if not same_work(brief, earlier_brief):
+        return False
     if CARRY_ON.search(brief or ""):
         return True
     shared = _phases(brief) & _phases(earlier_brief)
@@ -51,21 +67,37 @@ async def last_state(db: AsyncSession, workspace_id: Optional[UUID], current_tas
     since = datetime.now(timezone.utc) - timedelta(days=LOOK_BACK_DAYS)
     query = (select(Task).where(Task.workspace_id == workspace_id, Task.task_type == "command",
                                 Task.created_at >= since)
-             .order_by(Task.created_at.desc()).limit(12))
+             .order_by(Task.created_at.desc()).limit(40))
     for task in (await db.execute(query)).scalars().all():
         if current_task_id is not None and task.id == current_task_id:
             continue
-        result = task.result or {}
+        if not wants_to_carry_on(brief, task.description or task.title or ""):
+            continue  # another piece of work in the same workspace
+        result = await _state(task)
         requirements = [r for r in (result.get("requirements") or []) if isinstance(r, dict) and r.get("id")]
         if not requirements:
-            continue
+            continue  # a short command, or a mission that stopped before it had a requirement list
         if (result.get("verification") or {}).get("verified") is True:
-            return None  # the last mission with requirements finished verified: this one is new work
-        if not wants_to_carry_on(brief, task.description or task.title or ""):
-            return None
+            return None  # the last mission on this work finished verified: this one is new work
         return {"task_id": str(task.id), "requirements": carried(requirements, task),
                 "known": left_off(task, result, requirements)}
     return None
+
+
+async def _state(task: Task) -> Dict[str, Any]:
+    """A mission's final record; for one stopped or cancelled before it finished, its live progress (kept for a
+    week): the requirement list with statuses and evidence, and every package's state."""
+    result = dict(task.result or {})
+    if result.get("requirements"):
+        return result
+    from app.core.command import progress
+
+    saved = await progress.load(task.id) or {}
+    items = (saved.get("requirements") or {}).get("items") or []
+    if items:
+        result["requirements"] = [{**item, "source": item.get("source") or "mission"} for item in items]
+        result.setdefault("team", saved.get("team") or {})
+    return result
 
 
 def carried(requirements: List[Dict[str, Any]], task: Task) -> List[Dict[str, Any]]:

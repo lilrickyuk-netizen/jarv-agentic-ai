@@ -14348,3 +14348,16 @@ TESTS RUN: LiteLLM prices a call with 90% cached input at about $0.10 instead of
 RESULT: The 8 November missions failed because every specialist was stopped by "Agent reached maximum budget limit ($6.0000)": the sandbox gave LiteLLM a flat per-token price, which bills every cached token at the full input price, so an agent loop's spend was counted about five times too high and specialists stopped at roughly $1.20 of real spend. The sandbox now registers Opus 5.5's and Sol's full price lists (cache reads at a tenth), so the $6 limit means $6. A momentary Anthropic outage (12:55) no longer ends a package, and a package that does spend its limit is continued once from its own files. AgentShield's report is now written to a file, so ECC's large report is no longer cut off at 64 KB. Real spending stays capped by the daily limit at the gateway. A new mission used to derive a fresh requirement list, so "carry on with Phase 0" re-planned finished work; it now carries on from the last mission's state, and the Verifier still checks every requirement, carried-over ones included, against the files.
 BLOCKERS: None
 NEXT TASK: Read the mission record (planning, parallel waves) and restart MYCO Phase 0 and the Plexecute 2 video
+
+---
+
+TASK ID: RESUME-FROM-PROGRESS
+TASK NAME: A stopped or cancelled mission is carried on from its live progress, and only by later work on the same project
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/resume.py, apps/backend/app/core/command/progress.py, apps/backend/tests/test_mission_resume.py
+COMMANDS RUN: backend test suite; backend and worker recreated
+TESTS RUN: a cancelled MYCO mission that saved only its live progress is carried on from (its requirements with statuses and evidence, and its packages), past newer unrelated missions in the same workspace; missions naming a different project folder are never mixed; live progress keeps each requirement whole (text, source, evidence)
+RESULT: The 8 November record showed every recent mission cancelled with no final record (no team, packages or requirements), and the MYCO mission run in the Command Center workspace among unrelated commands, so the first resume had nothing to carry on from. JAI now reads a stopped or cancelled mission's live progress (kept for a week) and matches the earlier mission on its project folder or phase, never on recency alone. The record also confirmed the spend bug fixed today: the MYCO mission reported $40.35 of agent spend against $5.32 on JAI's live spend dashboard. AgentShield's full ECC scan: 647 findings, none in the 60 ECC skills JAI uses (300 are package checksums in package-lock.json read as Azure keys, most of the rest are in translated documentation).
+BLOCKERS: None
+NEXT TASK: Restart MYCO Phase 0 in the MYCO workspace, then the Plexecute 2 launch video

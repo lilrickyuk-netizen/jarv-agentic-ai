@@ -69,3 +69,35 @@ def test_a_new_mission_takes_over_the_last_unfinished_ones_state():
     assert "P2 DevOps Engineer — Supply-chain checks: stopped" in known and "fresh clone fails" in known
     assert "maximum budget limit" in known
     assert fresh is None and after_verified is None
+
+
+def test_a_cancelled_mission_is_carried_on_from_its_live_progress_past_other_work_in_the_workspace():
+    """8 November: MYCO missions run in the Command Center workspace were cancelled, so they saved no final
+    record, and newer unrelated commands sat in between."""
+    from app.core.command import progress
+
+    async def run():
+        async with AsyncTestingSessionLocal() as db:
+            _, ws, _ = await _seed(db)
+            myco = Task(id=uuid4(), title="MYCO Phase 0", task_type="command", workspace_id=ws, status="cancelled",
+                        description=r"Build MYCO Phase 0. The MYCO workspace folder is C:\Users\lilri\Projects\MYCO.")
+            other = Task(id=uuid4(), title="Acceptance", task_type="command", workspace_id=ws, status="failed",
+                         description=r"Fix the calculator in C:\Users\lilri\Projects\_jai_acceptance",
+                         result={"requirements": [{"id": "R1", "text": "calc", "status": "open", "source": "mission"}]})
+            chat = Task(id=uuid4(), title="Explain the upgrades", task_type="command", workspace_id=ws,
+                        status="cancelled", description="Explain all the upgrades JAI has had")
+            db.add_all([myco, other, chat])
+            await db.commit()
+            await progress.save(myco.id, {"requirements": {"total": 2, "items": [
+                {"id": "R1", "text": "pnpm workspaces", "status": "done", "evidence": "pnpm -r build passed"},
+                {"id": "R2", "text": "task verify from a fresh clone", "status": "open", "evidence": ""}]},
+                "team": {"packages": [{"id": "P1", "role": "DevOps Engineer", "title": "CI", "success": False,
+                                       "summary": "stopped at its spending limit"}]}})
+            brief = PHASE0 + r" The MYCO workspace folder is C:\Users\lilri\Projects\MYCO."
+            return myco.id, await last_state(db, ws, uuid4(), brief)
+
+    myco_id, resumed = asyncio.run(run())
+    assert resumed and resumed["task_id"] == str(myco_id)  # past the acceptance work and the chat
+    assert {r["id"]: r["status"] for r in resumed["requirements"]} == {"R1": "done", "R2": "open"}
+    assert all(r["source"] == "mission" for r in resumed["requirements"])
+    assert "P1 DevOps Engineer — CI: stopped" in resumed["known"]
