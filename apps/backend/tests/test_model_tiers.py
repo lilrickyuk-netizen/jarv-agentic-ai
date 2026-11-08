@@ -125,7 +125,9 @@ def test_the_sandbox_thinks_with_opus_and_with_sol_once_anthropic_is_out_of_cred
     monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", None)
     assert asyncio.run(specialist.model()) == "gpt-6-sol"
     monkeypatch.setattr(settings, "CLAUDE_API_KEY", "anthropic-key-for-tests")
-    assert asyncio.run(specialist.model()) == "claude-opus-5-5"
+    # Since 8 November a hands-on writer works with Sonnet 5.5; Opus builds, checks and takes over.
+    assert asyncio.run(specialist.model()) == "claude-sonnet-5-5"
+    assert asyncio.run(specialist.model(lead=True)) == "claude-opus-5-5"
     asyncio.run(mark_no_credit("claude"))
     assert asyncio.run(specialist.model()) == "gpt-6-sol"
     assert sandbox_engine._no_credit({"success": False, "error": "BadRequestError: Your credit balance is too low"})
