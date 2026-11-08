@@ -270,3 +270,37 @@ def test_only_a_business_shown_to_be_a_company_is_emailed_without_consent(monkey
 
     blocked, allowed = asyncio.run(run())
     assert blocked and "PECR" in blocked and allowed is None
+
+
+# ----- a brief that carries on still has its own instructions -------------------------------------------------------
+
+def test_new_instructions_in_a_carry_on_brief_become_requirements_of_their_own():
+    """8 November: "carry on with Phase 0 ... add .mise/ to .gitignore, merge the reports" reused the earlier
+    mission's list, and the builder changed nothing."""
+    from app.core.command.requirements import additions
+
+    tracked = [{"id": "R1", "text": "Monorepo builds", "status": "done"},
+               {"id": "R9", "text": "Phase 0 acceptance tag exists", "status": "open"}]
+    seen = {}
+
+    class Router:
+        async def complete(self, request):
+            seen["system"], seen["prompt"] = request.system, request.messages[0].content
+            return SimpleNamespace(usage={"total_tokens": 42}, tool_calls=[{"function": {
+                "name": "record_requirements", "arguments": json.dumps({"requirements": [
+                    {"text": ".mise/ is listed in .gitignore and nothing under .mise/ is tracked",
+                     "source": "new brief"},
+                    {"text": "The overlapping Phase 0 reports in docs/ are merged into the ones the spec names",
+                     "source": "new brief"}]})}}])
+
+    out = asyncio.run(additions(Router(), "m", "Carry on with Phase 0; add .mise/ to .gitignore; merge the "
+                                               "reports.", tracked))
+    assert [r["id"] for r in out["requirements"]] == ["R10", "R11"] and out["tokens"] == 42
+    assert all(r["status"] == "open" for r in out["requirements"])
+    assert "R9 [open] Phase 0 acceptance tag exists" in seen["prompt"] and "only what the new brief" in seen["system"]
+
+    class Down:
+        async def complete(self, request):
+            raise RuntimeError("provider down")
+
+    assert asyncio.run(additions(Down(), "m", "Carry on.", tracked))["requirements"] == []  # the list stands

@@ -17,7 +17,7 @@ _PATTERNS = (
     ("environment", re.compile(r"(command not found|not installed|no such file or directory: '?[a-z0-9_.-]+'?$|"
                                r"version mismatch|wrong version|expected version|requires? (node|python|pnpm|go|java)|"
                                r"permission denied|eacces|enotfound|network|timed? ?out|could not resolve|"
-                               r"econnrefused|no space left|missing tool|toolchain|mise|corepack|registry)", re.I)),
+                               r"econnrefused|no space left|missing tool|toolchain|mise |corepack|(npm|package) registry)", re.I)),
     ("spec", re.compile(r"(ambiguous|unclear|spec(ification)? (does not|doesn't) say|contradict|not specified|"
                         r"needs (a )?decision|which (one|version) to|undefined requirement|conflicts with the spec)",
                         re.I)),

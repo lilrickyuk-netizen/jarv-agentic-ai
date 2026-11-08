@@ -14491,3 +14491,16 @@ TESTS RUN: by default one Lead Builder then the Verifier (no planner, environmen
 RESULT: The 8 November research found JAI's team-of-fresh-specialists design wrong for most work: measured studies show such pipelines fail more and cost more, and production systems run one persistent builder with an independent judge. On 8 November about $15 of the $26 day bought nothing (morning MYCO team runs and a duplicate video run), and the BRAG video was split across nine people at medium effort and judged by format tests. JAI now routes work by effort tier, keeps each phase's plan frozen in the project's acceptance ledger, caps each mission's spend, never duplicates a running mission, runs BRAG the way its author intends, and judges creative work by looking at it. The provider cost cross-check was left out at Richard's request (it needs organisation admin keys he does not have).
 BLOCKERS: None
 NEXT TASK: Close MYCO Phase 0 with one builder session; BRAG calibration on its Horse Tinder example
+
+---
+
+TASK ID: CARRY-ON-INSTRUCTIONS
+TASK NAME: A brief that carries on still has its own instructions
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/requirements.py, apps/backend/app/core/command/mission_org.py, apps/backend/app/core/command/failures.py, apps/backend/tests/test_eight_november_fixes.py
+COMMANDS RUN: backend test suite; backend and worker recreated
+TESTS RUN: new instructions in a carry-on brief become requirements numbered after the tracked ones, with nothing restated; when the call fails the tracked list stands; a stray script whose name contains "registry" is no longer classed as an environment failure
+RESULT: The first MYCO Phase 0 run on the one-builder design (8 November, 21:40) proved Phase 0 from a clean clone (bootstrap, verify, 79 Python and 8 Vitest tests, Terraform tests, Semgrep 1.177.0 with no findings, OSV Scanner 2.6.0 with no issues) in 21 steps, but changed nothing: the brief said to carry on, so it took the earlier mission's requirement list and its new instructions (.gitignore, merging the reports, the Terraform lines) never became requirements. On the first round of a carried-on mission, the brief's own new instructions are now added as requirements of their own.
+BLOCKERS: Phase 0 acceptance waits on Richard's manual review (V3.2 §50)
+NEXT TASK: MYCO Phase 0 tidy-up mission, then Richard's review and the acceptance tag

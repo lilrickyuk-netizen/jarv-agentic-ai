@@ -1239,6 +1239,14 @@ class MissionTeam:
         if standing is not None:
             self.lead.hard_baseline = {f["check"] + "|" + f["file"] + "|" + f["detail"]
                                        for f in standing["findings"]}
+        if requirements and not self.restored and start_continuation == 0:
+            # Carrying on (an earlier mission's list, or the phase's ledger): the brief's new instructions become
+            # requirements of their own, so "carry on, and also add X" is never just "carry on".
+            from app.core.command.requirements import additions
+
+            added = await additions(router.as_role("requirements"), self.model, mission, self.lead.requirements)
+            self.lead.requirements = self.lead.requirements + added["requirements"]
+            self.lead.tokens += added["tokens"]
         if not requirements and not self.restored:
             from app.core.command.requirements import derive
             from app.core.verification.checks import Finding

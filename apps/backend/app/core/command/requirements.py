@@ -104,6 +104,44 @@ async def derive(router, model: str, mission: str, *, spec: str = "",
     return {"requirements": number(items), "tokens": tokens}
 
 
+_NEW_ONLY = (
+    "You compare a new brief with the requirements a mission already tracks. List only what the new brief asks "
+    "for that none of the tracked requirements already covers (a new instruction, a file to change, a check to "
+    "run), each concrete enough to check. Do not restate tracked requirements and do not invent work. When "
+    "everything is already covered, record an empty list. Call record_requirements once.")
+
+
+async def additions(router, model: str, brief: str, tracked: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """New instructions in a brief that carries on from earlier work: {"requirements": [...], "tokens": n}, numbered
+    after the tracked ones. On 8 November "carry on with Phase 0 ... add .mise/ to .gitignore, merge the reports"
+    reused the earlier mission's list and the builder ignored every new instruction. When the call fails nothing
+    is added: the tracked list still stands."""
+    from app.core.config import settings
+    from app.core.providers import CompletionRequest, Message
+
+    prompt = (f"TRACKED REQUIREMENTS:\n{render(tracked)[:12000]}\n\nNEW BRIEF:\n{brief[:6000]}\n\n"
+              "List what the new brief adds.")
+    items: List[Dict[str, str]] = []
+    tokens = 0
+    try:
+        resp = await router.complete(CompletionRequest(
+            model=model, messages=[Message(role="user", content=prompt)], system=_NEW_ONLY,
+            tools=[REQUIREMENTS_TOOL], max_tokens=settings.AGENT_MAX_OUTPUT_TOKENS, temperature=0.0))
+        tokens = int((resp.usage or {}).get("total_tokens", 0) or 0)
+        for call in resp.tool_calls or []:
+            if call["function"]["name"] == REQUIREMENTS_TOOL["name"]:
+                items = _clean((json.loads(call["function"]["arguments"] or "{}") or {}).get("requirements"))
+                break
+    except Exception as exc:  # noqa: BLE001 - the tracked list stands
+        logger.warning(f"new instructions in the brief not read: {exc}")
+    start = 1 + max((int(m.group(1)) for r in tracked for m in [re.match(r"R(\d+)$", str(r.get("id") or ""), re.I)]
+                     if m), default=0)
+    room = max(0, MAX_REQUIREMENTS - len(tracked))
+    added = [{"id": f"R{start + i}", "text": item["text"], "source": item.get("source") or "new brief",
+              "status": "open", "evidence": ""} for i, item in enumerate(items[:room])]
+    return {"requirements": added, "tokens": tokens}
+
+
 def render(requirements: List[Dict[str, Any]]) -> str:
     lines = []
     for r in requirements:
