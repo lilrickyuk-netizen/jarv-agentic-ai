@@ -14426,3 +14426,16 @@ TESTS RUN: the brief carries a 12-hour voice session token that signs in only on
 RESULT: On 8 November, about 30 minutes into a conversation, every screen and state lookup failed with "Invalid authentication credentials": the voice service held Richard's 30-minute sign-in for the whole conversation. Worse, the voice then answered progress questions from its last good state as though it were current. The conversation now carries on as its own session token, limited to the voice endpoints, and a state that cannot be read is reported as such.
 BLOCKERS: None
 NEXT TASK: MYCO Phase 0
+
+---
+
+TASK ID: ONE-SKILL-JOBS
+TASK NAME: A one-skill job is one specialist running the skill end to end, then the independent Verifier
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/mission_org.py, apps/backend/app/core/knowledge/skill_packs.py, apps/backend/tests/test_openhands_sandbox.py
+COMMANDS RUN: backend test suite; backend and worker recreated
+TESTS RUN: a brief that names one skill just before the word "skill" ("with your BRAG Slim skill", "using its brag skill") runs as one specialist (the skill's first sandbox specialist, Creation for BRAG) and then the Verifier, with no planning, environment or integration stage; briefs that name no skill, several, or a whole pack of skills are planned by the full team as before; a skill AgentShield blocked is never chosen
+RESULT: On 8 November the Plexecute launch video ("with your BRAG Slim skill") went through the full mission team: requirements, a nine-package plan, the environment engineer, parallel waves, integration and the Verifier, taking over twenty minutes for what BRAG does alone in a few. A brief that names one skill now has that skill as its plan: one specialist runs it end to end, setting up what it needs, and the independent Verifier still checks every requirement. Builds such as MYCO keep the full team.
+BLOCKERS: None
+NEXT TASK: MYCO Phase 0

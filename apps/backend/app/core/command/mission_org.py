@@ -987,7 +987,8 @@ class MissionTeam:
             elif r.get("status") == "done":
                 r["status"] = "open"  # the team said done; the Verifier did not see it
         verified = not unmet
-        integration = next((p for p in self.packages if p.id == INTEGRATION_ID), None)
+        integration = (next((p for p in self.packages if p.id == INTEGRATION_ID), None)
+                       or next((p for p in self.packages if p.id != VERIFIER_ID), None))  # a one-skill job's P1
         summary = (integration.summary if integration else "") or "The team's work is in the workspace."
         answer = (self._team_report() + summary[:6000] + "\n\n"
                   + ("**Independent check: verified.** Every requirement was met with evidence the Verifier saw."
@@ -1080,9 +1081,31 @@ class MissionTeam:
 
         self.sandbox = await sandbox_engine.available()
         open_ids = [str(r["id"]).upper() for r in self.lead.requirements if r.get("status") != "done"]
-        if open_ids:
+        from app.core.knowledge.skill_packs import named_skill
+
+        skill = named_skill(mission) if self.sandbox and open_ids else None
+        if skill is not None:
+            # A one-skill job ("make the video with your BRAG Slim skill"): the skill is the plan. One specialist runs
+            # it end to end, setting up what it needs itself, and the independent Verifier checks the result. No
+            # planning, environment or integration stage: on 8 November the Plexecute video took the full team's
+            # nine packages for what the skill does alone in minutes.
+            self.approach = (f"One {SPECIALISTS[skill['sandbox'][0]]['title']} runs the {skill['skill']} skill end "
+                             "to end; the independent Verifier checks the result against the brief.")
+            self.packages = [Package(
+                id="P1", title=f"The {skill['skill']} skill, end to end", specialist=skill["sandbox"][0],
+                goal=(f"Invoke the {skill['skill']} skill and follow it from start to finish for this mission, "
+                      "keeping to everything the brief says (what to read first, what may be claimed, the format "
+                      "and the deliverables). Install or set up whatever the skill needs yourself as you go, and "
+                      "run the brief's own acceptance checks before you finish."),
+                owns=[], depends_on=[], requirements=open_ids,
+                done_when="every deliverable the brief names exists and passes the brief's acceptance checks"),
+                Package(id=VERIFIER_ID, title="Independent check of every requirement", specialist="verifier",
+                        goal="Check every requirement of the mission yourself, with the brief's acceptance checks.",
+                        owns=[], depends_on=["P1"], requirements=[],
+                        done_when="each requirement judged met or unmet with evidence seen in this run")]
+        elif open_ids:
             await self._plan(router, mission, known)
-        if self.sandbox and open_ids:
+        if self.sandbox and open_ids and skill is None:
             # In the sandbox every mission is done by specialists, however small: the environment engineer makes the
             # machine match the project first, the team builds, the integration engineer builds and tests the whole,
             # and the independent Verifier runs the acceptance checks. Without a plan the build is one Senior

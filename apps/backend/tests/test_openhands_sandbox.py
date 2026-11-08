@@ -332,6 +332,67 @@ def test_with_the_sandbox_every_mission_is_done_by_specialists_and_an_integratio
     assert router.offered == {}  # every step of the mission ran in the sandbox, none in JAI's old tool loop
 
 
+def test_a_one_skill_job_is_one_specialist_running_the_skill_then_the_verifier(monkeypatch):
+    """8 November: "make the Plexecute launch video with your BRAG Slim skill" went through the full team (nine
+    packages, environment, integration) for what the skill does alone in minutes."""
+    from app.core.command import agent_executor, mission_org
+    from app.core.command.mission_org import MissionTeam
+    from app.core.knowledge.skill_packs import named_skill
+    from tests.test_mission_team import TWO_PACKAGES, TeamRouter
+    from tests.test_workspace_toolchain import _mission_folder, _mission_workspace
+
+    assert named_skill("Make the Plexecute launch video with your BRAG Slim skill.")["skill"] == "brag-slim"
+    assert named_skill("make a marketing video using its brag skill")["skill"] == "brag-slim"
+    for planned in ("Carry on building MYCO Phase 0", "Use all your marketing skills",
+                    "Use your test-driven-development skill and your systematic-debugging skill"):
+        assert named_skill(planned) is None, planned
+
+    host, folder = _mission_folder()
+    router = TeamRouter(TWO_PACKAGES, {"lead": [[("finish", {"summary": "Confirmed.", "success": True})]]})
+    monkeypatch.setattr(settings, "MISSION_TEAM_ENABLED", True)
+    monkeypatch.setattr(agent_executor, "get_router", lambda: router)
+    monkeypatch.setattr(mission_org, "get_router", lambda: router)
+    planned_calls = []
+    original_plan = MissionTeam._plan
+
+    async def plan(self, *args, **kwargs):
+        planned_calls.append(1)
+        return await original_plan(self, *args, **kwargs)
+
+    async def up():
+        return True
+
+    done = []
+
+    async def in_sandbox(self, requirements):
+        done.append((self.package.id, self.package.specialist, self.package.goal))
+        return {"success": True, "answer": "\n".join(f"{r['id']}: done — checked" for r in requirements),
+                "requirements": [{**r, "status": "done", "evidence": "checked"} for r in requirements],
+                "steps": 5, "tokens": 100, "token_detail": {"input": 80, "output": 20}, "cost_usd": 0.001}
+
+    monkeypatch.setattr(MissionTeam, "_plan", plan)
+    monkeypatch.setattr(sandbox_engine, "available", up)
+    monkeypatch.setattr(sandbox_engine.SandboxSpecialist, "run", in_sandbox)
+
+    async def run():
+        async with AsyncTestingSessionLocal() as session:
+            rt = await _mission_workspace(session, host)
+            result = await MissionTeam(rt, "test-model", host, session_factory=AsyncTestingSessionLocal).run(
+                "Make the Plexecute launch video with your BRAG Slim skill.", max_continuations=2)
+            await session.commit()
+            return result
+
+    try:
+        result = asyncio.run(run())
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+    assert [(d[0], d[1]) for d in done] == [("P1", "creation"), ("VER", "verifier")]
+    assert "Invoke the brag-slim skill" in done[0][2] and planned_calls == []
+    assert result["success"] is True and result["verification"]["verified"] is True
+    assert [p["id"] for p in result["team"]["packages"]] == ["P1", "VER"]
+    assert "runs the brag-slim skill end to end" in result["team"]["approach"]
+
+
 def test_a_run_lost_to_a_sandbox_restart_is_reported_at_once(sandbox_token):
     from app.core.command.mission_org import Package
 

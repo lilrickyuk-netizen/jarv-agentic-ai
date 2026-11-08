@@ -323,6 +323,35 @@ def sandbox_skills(specialist: str) -> List[str]:
             if path not in refused]
 
 
+def named_skill(text: str) -> Optional[Dict]:
+    """The one skill a brief asks JAI to use, named just before the word "skill" ("with your BRAG Slim skill",
+    "using its brag skill", "the test-driven-development skill"), or None. Letters only, so "BRAG Slim" and
+    "brag-slim" are the same; a pack's name stands for its skill when the pack has only one. A brief that names
+    several skills, or none, is planned as usual."""
+    import re
+
+    def letters(value: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", (value or "").lower())
+
+    refused = blocked()  # a skill AgentShield blocked is never handed to a specialist
+    usable = [e for e in SKILLS if e["sandbox"] and f"{e['pack']}/{skill_path(e)}" not in refused]
+    names: Dict[str, Dict] = {letters(e["skill"]): e for e in usable}
+    for pack, info in PACKS.items():
+        only = [e for e in usable if e["pack"] == pack]
+        if len(only) == 1:
+            names.setdefault(letters(pack), only[0])
+            names.setdefault(letters(info.get("title", "")), only[0])
+    found = {}
+    for match in re.finditer(r"((?:[\w-]+\s+){1,4})skills?\b", text or "", re.I):
+        words = match.group(1).split()
+        for n in range(1, len(words) + 1):  # the words just before "skill": the last one, the last two, ...
+            entry = names.get(letters("".join(words[-n:])))
+            if entry is not None:
+                found[entry["skill"]] = entry
+                break
+    return next(iter(found.values())) if len(found) == 1 else None
+
+
 def installed() -> Dict[str, bool]:
     """Which packs are cloned at their pinned commit (a .jai-commit file written by scripts/skill-packs.sh)."""
     out = {}
