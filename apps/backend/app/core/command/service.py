@@ -313,8 +313,13 @@ class CommandService:
                 forced_safe=True,
             )
 
-        # 2) Resolve a workspace the operator owns
-        ws_id = await self._resolve_workspace(db, workspace_id, operator=self.operator)
+        # 2) Resolve a workspace the operator owns: the one the brief is about (its folder, or its name), else the
+        # one selected.
+        from app.core.command.workspace_choice import choose
+
+        choice = await choose(db, command_text, workspace_id,
+                              user_id if isinstance(user_id, UUID) else _maybe_uuid(self.operator))
+        ws_id = await self._resolve_workspace(db, choice.workspace_id, operator=self.operator)
 
         # 3) Create the real Task record (pending)
         task = Task(
@@ -329,6 +334,7 @@ class CommandService:
                 "source": "command_center",
                 "requires_approval": safety.requires_approval,
                 "safety_reason": safety.reason,
+                **({"workspace_choice": choice.note} if choice.note else {}),
             },
             meta_data={"channel": "dashboard", "operator": self.operator,
                        "user_id": str(user_id) if user_id else None,
@@ -347,6 +353,9 @@ class CommandService:
             title="Command received",
             message=command_text,
         )
+        if choice.note:  # which workspace the brief is about, and any folder move, for Richard to see
+            await self._feed(db, ws_id, task.id, item_type="command", severity="info",
+                             title="Workspace chosen from the brief", message=choice.note)
         await self._audit(
             db, ws_id, action="command_received", category="command",
             description=f"Command received from {self.operator}: {command_text[:300]}",

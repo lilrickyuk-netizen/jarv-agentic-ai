@@ -5,7 +5,8 @@ A mission's rounds already share one requirement list, but a new mission used to
 brief, so "carry on building MYCO Phase 0" re-planned work that was already done and threw the evidence away.
 
 When a new mission says to carry on (carry on, continue, resume, finish, where it left off) or names the same phase
-as a recent mission in the same workspace that was not verified complete, it takes that mission's state over:
+as a recent mission on the same project that was not verified complete (in the same workspace, or in another one
+when both name the project's folder or this workspace), it takes that mission's state over:
 
 - its requirement list, every status and evidence kept, so the team plans only what is still open;
 - a short account of where it left off: each package's outcome, what the Verifier found unmet, the last report.
@@ -48,6 +49,25 @@ def same_work(brief: str, earlier_brief: str) -> bool:
     return not (mine and theirs) or bool(mine & theirs)
 
 
+def _letters(text: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (text or "").lower())
+
+
+def same_project(brief: str, earlier_brief: str, workspace_name: str = "") -> bool:
+    """Plainly the same project, for a mission in another workspace: both name the same project folder, or both
+    name this workspace (four letters or more)."""
+    if _folders(brief) & _folders(earlier_brief):
+        return True
+    name = _letters(workspace_name)
+    return len(name) >= 4 and name in _letters(brief) and name in _letters(earlier_brief)
+
+
+async def _workspace_name(db: AsyncSession, workspace_id: UUID) -> str:
+    from app.models.workspace import Workspace
+
+    return (await db.execute(select(Workspace.name).where(Workspace.id == workspace_id))).scalar_one_or_none() or ""
+
+
 def wants_to_carry_on(brief: str, earlier_brief: str) -> bool:
     """The new brief says to carry on, or it is about the same phase as the earlier mission, and both are about
     the same project."""
@@ -65,13 +85,19 @@ async def last_state(db: AsyncSession, workspace_id: Optional[UUID], current_tas
     if workspace_id is None:
         return None
     since = datetime.now(timezone.utc) - timedelta(days=LOOK_BACK_DAYS)
-    query = (select(Task).where(Task.workspace_id == workspace_id, Task.task_type == "command",
-                                Task.created_at >= since)
-             .order_by(Task.created_at.desc()).limit(40))
+    # Earlier work on the same project may have run in another workspace (MYCO's first missions ran in the
+    # Command Center before missions went to the workspace their brief is about): those count only when they are
+    # plainly the same project, by its folder or by this workspace's name.
+    name = await _workspace_name(db, workspace_id)
+    query = (select(Task).where(Task.task_type == "command", Task.created_at >= since)
+             .order_by(Task.created_at.desc()).limit(80))
     for task in (await db.execute(query)).scalars().all():
         if current_task_id is not None and task.id == current_task_id:
             continue
-        if not wants_to_carry_on(brief, task.description or task.title or ""):
+        earlier = task.description or task.title or ""
+        if task.workspace_id != workspace_id and not same_project(brief, earlier, name):
+            continue  # another workspace's work
+        if not wants_to_carry_on(brief, earlier):
             continue  # another piece of work in the same workspace
         result = await _state(task)
         requirements = [r for r in (result.get("requirements") or []) if isinstance(r, dict) and r.get("id")]

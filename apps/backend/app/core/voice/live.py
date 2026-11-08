@@ -1316,7 +1316,10 @@ async def _start_mission(db: AsyncSession, user_id: UUID, instruction: str,
     whichever workspace was used last."""
     spaces = await _workspaces(db, user_id)
     if workspace_id is None:
-        named = workspace_named_in(spaces, instruction)
+        from app.core.command import workspace_choice
+
+        held = [workspace_choice.holder(spaces, f) for f in workspace_choice.folders_in(instruction)]
+        named = next((w for w in held if w is not None), None) or workspace_named_in(spaces, instruction)
         with_folders = [w for w in spaces if _root(w)]
         if named is not None:
             workspace_id = named.id

@@ -14387,3 +14387,16 @@ TESTS RUN: Richard's own spoken questions ("what upgrades have you had in the la
 RESULT: By voice on 8 November, "what capabilities have you got" started a mission to look into JAI's own records, and the answer that followed (after Richard cancelled it) miscounted the skill packs (eight instead of six), because the voice had only JAI.md's one-paragraph summary and terse commit titles. A question about JAI now gives the voice and the written replies the whole design document, and they answer straight away with its exact numbers and names.
 BLOCKERS: None
 NEXT TASK: Restart MYCO Phase 0, then the Plexecute launch video
+
+---
+
+TASK ID: WORKSPACE-FROM-BRIEF
+TASK NAME: A mission goes to the workspace its brief is about, and carries on from the same project in any workspace
+STATUS: COMPLETE
+FILES CREATED: apps/backend/app/core/command/workspace_choice.py, apps/backend/tests/test_workspace_choice.py
+FILES MODIFIED: apps/backend/app/core/command/service.py, apps/backend/app/core/command/resume.py, apps/backend/app/core/voice/live.py
+COMMANDS RUN: backend test suite; backend and worker recreated; Plexecute images copied into the approved root
+TESTS RUN: the folder a brief names picks the workspace that holds it (the deepest), else the workspace it names, else the one selected; a workspace whose folder is outside the approved root is moved to the folder the brief names, audit-logged, and a folder outside the approved root is never registered; a MYCO mission in the MYCO workspace carries on from the Phase 0 mission run in the Command Center, while other projects never mix
+RESULT: Richard had to pick the workspace for every mission, and missions typed in the Command Center ran in its default workspace even when the brief named another project's folder. The Plexecute workspace still pointed at a Desktop folder outside JAI's approved root. JAI now reads the brief: its folder, or the project it names, decides the workspace; an unreachable workspace folder is moved to the one the brief names inside the approved root, and the move is shown in the Live Operations Feed. Resume looks across workspaces for the same project, so MYCO's earlier Command Center missions are still carried on from.
+BLOCKERS: None
+NEXT TASK: The Plexecute launch video, then MYCO Phase 0
