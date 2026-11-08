@@ -47,6 +47,9 @@ PACKS: Dict[str, Dict[str, str]] = {
     "no-ai-slop": {"repo": "petergyang/no-ai-slop", "commit": "000650b156983f5159695b441477f4e63b25dc85",
                    "root": "skills", "title": "No AI Slop", "publisher": "Peter Yang",
                    "copyright": "Copyright (c) 2026 Peter Yang"},
+    "ecc": {"repo": "affaan-m/ECC", "commit": "d2ef2680594f9a17526a6e1a2e18b3d242c5d17b", "root": "skills",
+            "title": "ECC", "publisher": "Affaan Mustafa (affaan-m/ECC)",
+            "copyright": "Copyright (c) 2026 Affaan Mustafa"},
     "brag": {"repo": "latent-spaces/brag", "commit": "669ab9286aa28b6c3ee30e75f181ee74319d012a", "root": "skills",
              "title": "BRAG", "publisher": "Shunit Haviv Hakimi (latent-spaces/brag)",
              "copyright": "Copyright (c) 2026 Shunit Haviv Hakimi"},
@@ -59,6 +62,7 @@ MARKETING, GROWTH, SUPPORT, SALES, ONBOARD = "marketing", "growth", "customer_su
 COMMUNITY, PARTNER, CONTENT, CREATION = "community", "partnerships", "content", "creation"
 ANALYTICS, BUSINESS, RESEARCH, FINANCE, LEGAL = "analytics", "business", "research", "finance", "legal"
 ENVIRONMENT = "environment"
+SECURITY_ROLE = "security"
 ENGINEERING_ROLES = (CODING, DEBUG, QA, DEVOPS, INFRA, ENVIRONMENT)
 WRITERS = (CONTENT, MARKETING, SALES, SUPPORT, COMMUNITY, DOCS, ONBOARD, PARTNER, GROWTH, BUSINESS)
 
@@ -147,6 +151,69 @@ SKILLS: List[Dict] = [
     _s("marketingskills", "aso", (MARKETING, GROWTH)),
     # ----- No AI Slop (Upgrade 4) -------------------------------------------------------------------------
     _s("no-ai-slop", "no-ai-slop", WRITERS, WRITERS + (CREATION,)),
+    # ----- ECC (everything-claude-code): stack patterns, production checks, growth, video ---------------------
+    # Only the skills; ECC's own agents, hooks and orchestration are left out (JAI's 31 agents and orchestrator
+    # already do that work). Where it overlaps Superpowers, Superpowers stays the sandbox's procedure.
+    _s("ecc", "fastapi-patterns", (CODING, DEBUG, QA), (CODING, DEBUG)),
+    _s("ecc", "python-testing", (CODING, QA, DEBUG), (CODING, QA)),
+    _s("ecc", "nextjs-turbopack", (CODING, DEBUG), (CODING, DEBUG)),
+    _s("ecc", "react-patterns", (CODING,), (CODING,)),
+    _s("ecc", "typescript-patterns", (CODING, QA), (CODING,)),
+    _s("ecc", "frontend-patterns", (CODING, CREATION), (CODING,)),
+    _s("ecc", "backend-patterns", (CODING, INFRA), (CODING,)),
+    _s("ecc", "api-design", (CODING, DOCS), (CODING,)),
+    _s("ecc", "postgres-patterns", (CODING, INFRA, DEBUG), (CODING, INFRA)),
+    _s("ecc", "redis-patterns", (CODING, INFRA)),
+    _s("ecc", "database-migrations", (CODING, DEVOPS, INFRA), (CODING, DEVOPS)),
+    _s("ecc", "docker-patterns", (DEVOPS, INFRA, CODING), (DEVOPS, INFRA, ENVIRONMENT)),
+    _s("ecc", "kubernetes-patterns", (INFRA, DEVOPS)),
+    _s("ecc", "deployment-patterns", (DEVOPS, INFRA), (DEVOPS, INFRA)),
+    _s("ecc", "coding-standards", (CODING, QA, VERIFY)),
+    _s("ecc", "error-handling", (CODING, DEBUG), (CODING, DEBUG)),
+    _s("ecc", "e2e-testing", (QA, CODING), (QA,)),
+    _s("ecc", "browser-qa", (QA, VERIFY), (QA, VERIFY)),
+    _s("ecc", "ai-regression-testing", (QA, VERIFY)),
+    _s("ecc", "verification-loop", (VERIFY, QA)),
+    _s("ecc", "delivery-gate", (VERIFY, DEVOPS), (VERIFY,)),
+    _s("ecc", "production-audit", (VERIFY, SECURITY_ROLE, DEVOPS), (VERIFY, SECURITY_ROLE)),
+    _s("ecc", "canary-watch", (DEVOPS, "monitoring", HEAL)),
+    _s("ecc", "security-review", (SECURITY_ROLE, CODING, VERIFY), (SECURITY_ROLE,)),
+    _s("ecc", "security-scan", (SECURITY_ROLE,), (SECURITY_ROLE,)),
+    _s("ecc", "agent-security-hardening", (SECURITY_ROLE, EVOLVE)),
+    _s("ecc", "architecture-decision-records", (CODING, DOCS, ORCH), (CODING, DOCS)),
+    _s("ecc", "codebase-onboarding", (CODING, DOCS, RESEARCH), (CODING, DOCS)),
+    _s("ecc", "repo-scan", (CODING, SECURITY_ROLE, RESEARCH)),
+    _s("ecc", "git-workflow", (CODING, DEVOPS)),
+    _s("ecc", "documentation-lookup", (CODING, RESEARCH, DOCS)),
+    _s("ecc", "context-budget", (ORCH, SWARM, EVOLVE)),
+    _s("ecc", "cost-aware-llm-pipeline", (ORCH, FINANCE, EVOLVE)),
+    _s("ecc", "prompt-caching-strategy", (ORCH, EVOLVE)),
+    _s("ecc", "deep-research", (RESEARCH,), (RESEARCH,)),
+    _s("ecc", "market-research", (RESEARCH, BUSINESS, MARKETING), (RESEARCH, BUSINESS)),
+    _s("ecc", "search-first", (RESEARCH, CODING)),
+    _s("ecc", "competitive-report-structure", (RESEARCH, BUSINESS)),
+    _s("ecc", "product-lens", (BUSINESS, MARKETING, RESEARCH)),
+    _s("ecc", "seo", (MARKETING, CONTENT), (MARKETING, CONTENT)),
+    _s("ecc", "marketing-campaign", (MARKETING, GROWTH), (MARKETING,)),
+    _s("ecc", "content-engine", (CONTENT, MARKETING), (CONTENT,)),
+    _s("ecc", "article-writing", (CONTENT, DOCS), (CONTENT,)),
+    _s("ecc", "brand-voice", (MARKETING, CONTENT, CREATION)),
+    _s("ecc", "crosspost", (CONTENT, COMMUNITY, MARKETING)),
+    _s("ecc", "social-publisher", (CONTENT, MARKETING)),
+    _s("ecc", "lead-intelligence", (SALES, RESEARCH), (SALES,)),
+    _s("ecc", "email-ops", (SALES, SUPPORT, MARKETING)),
+    _s("ecc", "investor-materials", (BUSINESS, FINANCE, PARTNER), (BUSINESS,)),
+    _s("ecc", "investor-outreach", (BUSINESS, PARTNER, SALES), (BUSINESS, PARTNER)),
+    _s("ecc", "customer-billing-ops", (FINANCE, SUPPORT)),
+    _s("ecc", "finance-billing-ops", (FINANCE, BUSINESS)),
+    _s("ecc", "dashboard-builder", (ANALYTICS, CODING), (ANALYTICS,)),
+    _s("ecc", "remotion-video-creation", (CREATION, MARKETING), (CREATION,)),
+    _s("ecc", "manim-video", (CREATION, CONTENT), (CREATION,)),
+    _s("ecc", "video-editing", (CREATION, CONTENT), (CREATION,)),
+    _s("ecc", "ui-demo", (CREATION, MARKETING, CODING), (CREATION,)),
+    _s("ecc", "frontend-design-direction", (CREATION, CODING)),
+    _s("ecc", "make-interfaces-feel-better", (CODING, CREATION, QA), (CODING,)),
+    _s("ecc", "accessibility", (CODING, QA, CREATION), (CODING, QA)),
     # ----- BRAG Slim (Upgrade 5) --------------------------------------------------------------------------
     _s("brag", "brag-slim", (CREATION, CONTENT, MARKETING), (CREATION, CONTENT, MARKETING)),
 ]
@@ -190,6 +257,36 @@ def catalogue_entries() -> List[Dict]:
     return out
 
 
+def blocked(root: Optional[Path] = None) -> set:
+    """Skills AgentShield flagged (scripts/scan-skill-packs.sh writes each pack's .jai-blocked): never loaded, as
+    "pack/root/skill"."""
+    base = root or packs_dir()
+    out = set()
+    for name in PACKS:
+        try:
+            lines = (base / name / ".jai-blocked").read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        out |= {f"{name}/{line.strip().strip('/')}" for line in lines if line.strip()}
+    return out
+
+
+def scan_status(root: Optional[Path] = None) -> Dict[str, str]:
+    """Each pack's AgentShield verdict: its grade and how many skills were blocked, or that it was not scanned."""
+    import json
+
+    base = root or packs_dir()
+    out = {}
+    for name in PACKS:
+        try:
+            report = json.loads((base / name / ".agentshield.json").read_text(encoding="utf-8", errors="replace"))
+            grade = (report.get("score") or {}).get("grade", "?")
+            out[name] = f"grade {grade}"
+        except (OSError, ValueError):
+            out[name] = "not scanned"
+    return out
+
+
 def read_skill(local_path: str, root: Optional[Path] = None) -> Tuple[Optional[str], str]:
     """(Markdown, reason): the skill's SKILL.md first, then every other Markdown file in its folder, each under
     its own file heading, so passages keep the file they came from. None and the reason when it cannot be read."""
@@ -199,6 +296,8 @@ def read_skill(local_path: str, root: Optional[Path] = None) -> Tuple[Optional[s
         folder.relative_to(base)
     except ValueError:
         return None, "outside the skill packs folder"
+    if local_path.strip("/") in blocked(base):
+        return None, "blocked: AgentShield found a critical risk in this skill, so JAI does not use it"
     main = folder / "SKILL.md"
     if not main.is_file():
         return None, f"skill pack not installed ({local_path}); run scripts/skill-packs.sh"
@@ -219,7 +318,9 @@ def sandbox_skills(specialist: str) -> List[str]:
 
     if not getattr(settings, "SKILL_PACKS_ENABLED", True):
         return []
-    return [f"{e['pack']}/{skill_path(e)}" for e in SKILLS if specialist in e["sandbox"]]
+    refused = blocked()
+    return [path for path in (f"{e['pack']}/{skill_path(e)}" for e in SKILLS if specialist in e["sandbox"])
+            if path not in refused]
 
 
 def installed() -> Dict[str, bool]:

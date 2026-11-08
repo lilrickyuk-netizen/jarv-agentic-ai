@@ -220,6 +220,13 @@ class KnowledgeIngestor:
         from app.core.knowledge.skill_packs import read_skill
 
         markdown, reason = read_skill(local_path)
+        if markdown is None and reason.startswith("blocked"):
+            # AgentShield flagged it: whatever was stored before is taken out of every search.
+            await db.execute(update(KnowledgeChunk).where(KnowledgeChunk.source_id == source.id,
+                                                          KnowledgeChunk.is_active.is_(True)).values(is_active=False))
+            source.status, source.last_error, source.content_sha256 = "blocked", reason[:1000], None
+            await db.flush()
+            return {"url": source.url, "status": "blocked", "reason": reason}
         if markdown is None:
             source.status, source.last_error = "error", reason[:1000]
             await db.flush()

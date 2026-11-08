@@ -34,14 +34,30 @@ def inert(content: str) -> str:
     return _PATTERN.sub(lambda m: "\\" + m.group(0) if m.group("cmd") is not None else m.group(0), content)
 
 
+def blocked(base: Path) -> set:
+    """Skills AgentShield flagged in each pack's .jai-blocked ("pack/root/skill"), refused here as well."""
+    out = set()
+    for marker in base.glob("*/.jai-blocked"):
+        try:
+            lines = marker.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        out |= {f"{marker.parent.name}/{line.strip().strip('/')}" for line in lines if line.strip()}
+    return out
+
+
 def load(folders: Sequence[str], root: Path = SKILLS_DIR) -> List:
     """The named skills, ready for AgentContext(skills=...). A folder that is missing, outside the packs or fails
     to load is skipped (logged): a skill is an addition to a specialist, never a reason for a package to fail."""
     from openhands.sdk.skills import Skill
 
     base = root.resolve()
+    refused = blocked(base)
     skills, names = [], set()
     for folder in folders:
+        if folder.strip("/") in refused:
+            logger.warning("skill %s was flagged by AgentShield; skipped", folder)
+            continue
         path = (base / folder / "SKILL.md").resolve()
         try:
             path.relative_to(base)

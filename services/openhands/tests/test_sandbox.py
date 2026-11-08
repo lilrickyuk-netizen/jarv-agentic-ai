@@ -201,6 +201,7 @@ def test_a_run_can_think_with_claude_through_jais_gateway(folder):
 
 
 SKILL_FOLDERS = ["superpowers/skills/test-driven-development", "superpowers/skills/systematic-debugging",
+                 "ecc/skills/fastapi-patterns", "ecc/skills/remotion-video-creation",
                  "ui-ux-pro-max/.claude/skills/ui-ux-pro-max", "marketingskills/skills/video",
                  "no-ai-slop/skills/no-ai-slop", "brag/skills/brag-slim"]
 
@@ -250,7 +251,7 @@ def test_a_specialist_sees_its_skills_and_loads_one_only_when_it_invokes_it(fold
     loaded = skills.load(SKILL_FOLDERS)
     names = {s.name for s in loaded}
     assert {"test-driven-development", "systematic-debugging", "ui-ux-pro-max", "video", "no-ai-slop",
-            "brag-slim"} <= names
+            "brag-slim", "fastapi-patterns", "remotion-video-creation"} <= names
     assert all(s.is_agentskills_format and s.description for s in loaded)
     run_id = "run-skills-0001"
     gate = _gate(Backend(), run_id)
@@ -290,3 +291,15 @@ def test_the_sandbox_renders_a_real_mp4_with_sound(tmp_path):
     probe = _json.loads(subprocess.run(["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(video)],
                                        capture_output=True, text=True, check=True).stdout)
     assert {s["codec_type"] for s in probe["streams"]} == {"video", "audio"}
+
+
+def test_a_skill_agentshield_flagged_is_not_loaded(tmp_path):
+    from app import skills
+
+    for name in ("tidy-code", "risky"):
+        folder = tmp_path / "pack" / "skills" / name
+        folder.mkdir(parents=True)
+        (folder / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {name} skill.\n---\nBody.\n")
+    (tmp_path / "pack" / ".jai-blocked").write_text("skills/risky\n")
+    loaded = skills.load(["pack/skills/tidy-code", "pack/skills/risky"], root=tmp_path)
+    assert [s.name for s in loaded] == ["tidy-code"]

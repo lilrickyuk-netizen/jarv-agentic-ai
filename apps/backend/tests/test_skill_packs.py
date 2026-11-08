@@ -123,3 +123,60 @@ def test_a_skill_is_stored_for_its_agents_and_found_by_the_task(tmp_path, monkey
     assert mine and mine[0]["licence"] == "MIT" and "superpowers" in mine[0]["url"]
     assert theirs == []  # a skill reaches only the agents whose work it is
     assert again[0]["status"] == "unchanged"
+
+
+def test_ecc_skills_reach_the_right_agents_without_its_agents_or_hooks():
+    ecc = {e["skill"]: e for e in skill_packs.SKILLS if e["pack"] == "ecc"}
+    assert {"fastapi-patterns", "postgres-patterns", "security-review", "remotion-video-creation", "seo",
+            "investor-outreach", "lead-intelligence"} <= set(ecc)
+    assert "coding_agent" in ecc["fastapi-patterns"]["agents"] and "security" in ecc["security-review"]["agents"]
+    assert "ecc/skills/remotion-video-creation" in skill_packs.sandbox_skills("creation")
+    assert skill_packs.PACKS["ecc"]["repo"] == "affaan-m/ECC"
+    # One skill name per specialist: the sandbox loads skills by name.
+    for role in ("coding_agent", "creation", "marketing", "content", "qa", "verifier", "security", "sales"):
+        names = [p.rsplit("/", 1)[1] for p in skill_packs.sandbox_skills(role)]
+        assert len(names) == len(set(names)), role
+
+
+def test_a_skill_agentshield_flags_is_never_read_or_listed(tmp_path, monkeypatch):
+    from app.core.config import settings
+
+    local = _pack(tmp_path)
+    (tmp_path / "superpowers" / ".jai-blocked").write_text("skills/systematic-debugging\n")
+    (tmp_path / "superpowers" / ".agentshield.json").write_text('{"score": {"grade": "B"}, "findings": []}')
+    monkeypatch.setattr(settings, "SKILL_PACKS_DIR", str(tmp_path))
+    text, reason = skill_packs.read_skill(local)
+    assert text is None and reason.startswith("blocked") and "AgentShield" in reason
+    assert "superpowers/skills/systematic-debugging" not in skill_packs.sandbox_skills("debugging_agent")
+    assert skill_packs.scan_status()["superpowers"] == "grade B"
+    assert skill_packs.scan_status()["ecc"] == "not scanned"
+
+
+@pytest.mark.integration
+def test_a_skill_flagged_after_it_was_stored_leaves_every_search(tmp_path, monkeypatch):
+    from app.core.config import settings
+    from app.core.knowledge.ingest import KnowledgeIngestor
+    from app.core.knowledge.search import search_passages
+
+    monkeypatch.setattr(settings, "SKILL_PACKS_DIR", str(tmp_path))
+    local = _pack(tmp_path)
+    entry = {**next(e for e in skill_packs.catalogue_entries() if e["local_path"] == local),
+             "url": f"https://github.com/obra/superpowers/tree/flag-{uuid4().hex[:8]}/skills/systematic-debugging"}
+    ingestor = KnowledgeIngestor()
+
+    async def run():
+        async with AsyncTestingSessionLocal() as db:
+            if db.get_bind().dialect.name != "postgresql":
+                return None
+            await ingestor.install(db, [entry], agents=["debugging_agent"])
+            before = await search_passages(db, f"rootcause{tmp_path.name}", agents=["debugging_agent"])
+            (tmp_path / "superpowers" / ".jai-blocked").write_text("skills/systematic-debugging\n")
+            again = await ingestor.install(db, [entry], agents=["debugging_agent"])
+            after = await search_passages(db, f"rootcause{tmp_path.name}", agents=["debugging_agent"])
+            return before, again, after
+
+    out = asyncio.run(run())
+    if out is None:
+        pytest.skip("passage search needs PostgreSQL")
+    before, again, after = out
+    assert before and again[0]["status"] == "blocked" and after == []

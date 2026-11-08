@@ -245,6 +245,13 @@ class MemoryService:
             return duplicate
 
         embedding, embedding_model = await self._embed(text)
+        if embedding is not None and _dialect(db) == "postgresql":
+            from app.core.memory.recall import same_fact
+
+            near = await self._near_duplicate(db, embedding, embedding_model, memory_category, workspace_id)
+            if near is not None and same_fact(near.content, text) and near.task_id == _as_uuid(task_id):
+                return await self._supersede(db, near, text, summary, embedding, embedding_model, importance,
+                                             confidence, task_id, source_ref)
         owner = _as_uuid(agent_id) or await self._agent_id(db, workspace_id)
         record = Memory(
             id=uuid4(),
@@ -276,6 +283,48 @@ class MemoryService:
             updated_at=_now(),
         )
         db.add(record)
+        await db.flush()
+        return record
+
+    async def _near_duplicate(self, db: AsyncSession, embedding, model_id, category: str,
+                              workspace_id: Optional[UUID]) -> Optional[Memory]:
+        """A live memory in the same workspace and category that says almost the same thing (cosine similarity
+        at least 0.95), or None."""
+        from app.core.memory.recall import NEAR_DUPLICATE
+
+        distance = Memory.embedding.cosine_distance(embedding).label("distance")
+        row = (await db.execute(
+            select(Memory, distance).where(
+                Memory.memory_category == category,
+                Memory.workspace_id == workspace_id if workspace_id else Memory.workspace_id.is_(None),
+                Memory.embedding_model == model_id, Memory.embedding.is_not(None), self._live())
+            .order_by(distance).limit(1))).first()
+        if row is None or float(row[1]) > 1.0 - NEAR_DUPLICATE:
+            return None
+        return row[0]
+
+    async def _supersede(self, db: AsyncSession, record: Memory, text: str, summary: Optional[str], embedding,
+                         model_id, importance: float, confidence: float, task_id, source_ref) -> Memory:
+        """The newer wording replaces the near-duplicate (so a changed fact is current), the earlier wording is
+        kept in its history, and the memory is reinforced instead of stored twice."""
+        meta = dict(record.meta_data or {})
+        history = list(meta.get("previous") or [])
+        history.append({"content": record.content[:2000], "version": record.version,
+                        "at": (record.updated_at or record.created_at or _now()).isoformat()})
+        meta["previous"] = history[-5:]
+        meta["merged"] = int(meta.get("merged", 0)) + 1
+        record.content, record.summary = text, summary or text[:200]
+        record.embedding, record.embedding_model = embedding, model_id
+        record.version = (record.version or 1) + 1
+        record.importance_score = min(1.0, max(record.importance_score or 0.0, importance))
+        record.confidence_score = min(1.0, max(record.confidence_score or 0.0, confidence))
+        if task_id and not record.task_id:
+            record.task_id = _as_uuid(task_id)
+        if source_ref:
+            record.source_ref = source_ref[:255]
+        record.meta_data = meta
+        record.access_count = (record.access_count or 0) + 1
+        record.last_accessed_at = record.updated_at = _now()
         await db.flush()
         return record
 
@@ -435,14 +484,31 @@ class MemoryService:
         min_score: float = 0.12,
         touch: bool = True,
     ) -> List[ScoredMemory]:
-        """Rank memories by semantic similarity, keyword overlap, and importance."""
+        """Rank memories by semantic similarity, keyword overlap and importance, faded by age (critical memories
+        and the records JAI must keep never fade). A question that names a period ("last week", "in October")
+        searches that period first, and everything when nothing was stored then."""
+        from app.core.memory.recall import date_window, without_phrase
+
         limit = max(1, min(int(limit), 50))
         conditions = [self._scope(workspace_id, include_global), self._live()]
         if categories:
             conditions.append(Memory.memory_category.in_([validate_category(c) for c in categories]))
         if task_id:
             conditions.append(Memory.task_id == _as_uuid(task_id))
-        base = and_(*conditions)
+        window = date_window(query or "")
+        if window is not None:
+            dated = await self._ranked(db, and_(*conditions, Memory.created_at >= window[0],
+                                                Memory.created_at < window[1]),
+                                       without_phrase(query, window[2]), limit, min_score, dated=True)
+            if dated:
+                for hit in dated:
+                    hit.reasons.append(f"from {window[2]}")
+                return await self._finish(db, dated, touch)
+        return await self._finish(db, await self._ranked(db, and_(*conditions), query, limit, min_score), touch)
+
+    async def _ranked(self, db: AsyncSession, base, query: str, limit: int, min_score: float,
+                      dated: bool = False) -> List[ScoredMemory]:
+        from app.core.memory.recall import fade
 
         text = (query or "").strip()
         if not text:
@@ -451,8 +517,8 @@ class MemoryService:
                 .order_by(Memory.importance_score.desc(), Memory.created_at.desc())
                 .limit(limit)
             )).scalars().all()
-            hits = [ScoredMemory(r, r.importance_score, 0.0, 0.0, ["importance"]) for r in rows]
-            return await self._finish(db, hits, touch)
+            return [ScoredMemory(r, r.importance_score, 0.0, 0.0, ["period" if dated else "importance"])
+                    for r in rows]
 
         terms = _query_terms(text)
         query_vector, model_id = await self._embed(text)
@@ -500,6 +566,9 @@ class MemoryService:
             kw = _keyword_score(terms, record)
             score = (_SEMANTIC_WEIGHT * sim + _KEYWORD_WEIGHT * kw
                      + _IMPORTANCE_WEIGHT * (record.importance_score or 0.0))
+            # Old, unimportant memories rank lower (ICM-style decay); recalling one refreshes it.
+            score *= fade(record.importance_score or 0.0, record.memory_category or "", record.created_at,
+                          record.last_accessed_at)
             if sim < 0.08 and kw == 0.0:
                 continue
             if score < min_score:
@@ -508,7 +577,7 @@ class MemoryService:
             hits.append(ScoredMemory(record, score, sim, kw, reasons))
 
         hits.sort(key=lambda h: (h.score, _timestamp(h.memory.created_at)), reverse=True)
-        return await self._finish(db, hits[:limit], touch)
+        return hits[:limit]
 
     async def _finish(self, db: AsyncSession, hits: List[ScoredMemory], touch: bool) -> List[ScoredMemory]:
         if touch and hits:
