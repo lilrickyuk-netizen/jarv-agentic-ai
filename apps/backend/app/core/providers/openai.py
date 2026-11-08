@@ -98,7 +98,13 @@ def _openai_messages_from_blocks(role: str, blocks: List[Any]) -> List[Dict[str,
 
 # Models whose tool-using requests go to the Responses API: on Chat Completions they take function tools only
 # with reasoning switched off, so an agent would work every step without thinking.
-RESPONSES_MODELS = frozenset({"gpt-6-luna"})
+RESPONSES_MODELS = frozenset({"gpt-6-luna", "gpt-6-sol"})
+# Reasoning models take max_completion_tokens and no sampling parameters ("Unsupported parameter: 'max_tokens'").
+REASONING_PREFIXES = ("gpt-6", "gpt-5", "o1", "o3", "o4")
+
+
+def _reasoning_model(model: str) -> bool:
+    return str(model or "").startswith(REASONING_PREFIXES)
 _EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
 
 
@@ -165,6 +171,11 @@ class OpenAIProvider(BaseLLMProvider):
 
     # Available OpenAI models with their pricing (per million tokens)
     MODELS = {
+        "gpt-6-sol": {
+            "input_cost": 2.00,
+            "output_cost": 10.00,
+            "context_window": 1_050_000,
+        },
         "gpt-6-luna": {
             "input_cost": 0.10,
             "output_cost": 0.50,
@@ -377,12 +388,12 @@ class OpenAIProvider(BaseLLMProvider):
 
             messages.append(message_dict)
 
-        if request.model == "gpt-6-luna":
+        if _reasoning_model(request.model):
             openai_request = {
                 "model": request.model,
                 "messages": messages,
                 "max_completion_tokens": request.max_tokens,
-                # gpt-6-luna on chat completions takes function tools only with reasoning off
+                # GPT-6 models on chat completions take function tools only with reasoning off
                 # ("Function tools with reasoning_effort are not supported ... set reasoning_effort to 'none'").
                 "reasoning_effort": "none" if request.tools else "low",
                 "service_tier": "default",
@@ -411,7 +422,7 @@ class OpenAIProvider(BaseLLMProvider):
 
     @staticmethod
     def _uses_responses(request: CompletionRequest) -> bool:
-        return request.model in RESPONSES_MODELS and bool(request.tools)
+        return (request.model in RESPONSES_MODELS or str(request.model or "").startswith("gpt-6")) and bool(request.tools)
 
     def _responses_request(self, request: CompletionRequest) -> Dict[str, Any]:
         """A tool-using request on the Responses API, with the model reasoning between tool calls."""

@@ -14283,3 +14283,16 @@ TESTS RUN: hard work stays on Opus 5.5 and light work (answers, drafts, reports,
 RESULT: Richard added his Anthropic key and chose the tiers: Claude Opus 5.5 for hard thinking (missions, planning, every specialist in the sandbox, integration, the Verifier), GPT-6 Sol when Anthropic cannot serve it (no credit, outage), and GPT-6 Luna for work that needs no deep reasoning. The router applies the tiers to every call in JAI; a credit failure rests Anthropic for six hours and is shared through Redis so the sandbox switches too; the sandbox reaches Anthropic only through JAI's gateway (spending limit, allow-list, pricing, no provider key in the sandbox). The daily spending limit is $26 (about £20) and each sandbox package may spend up to $6.
 BLOCKERS: None
 NEXT TASK: MYCO Phase 0
+
+---
+
+TASK ID: MODEL-SOL-FALLBACK-PARAMS
+TASK NAME: GPT-6 Sol, the fallback brain, gets the request parameters OpenAI accepts
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/providers/openai.py, apps/backend/tests/test_openai_provider.py
+COMMANDS RUN: backend test suite; backend and worker restarted; one live call each to Opus 5.5 and Sol through JAI's router
+TESTS RUN: Sol and Luna requests carry max_completion_tokens and none of the sampling parameters reasoning models refuse; Sol's tool turns go to the Responses API with reasoning, like Luna's; Sol is priced at $2 input and $10 output per million tokens
+RESULT: The Opus installer's live check showed Opus 5.5 answering but Sol refused with "Unsupported parameter: 'max_tokens' ... Use 'max_completion_tokens'", so the fallback for when Anthropic credit runs out would have failed. JAI's OpenAI adapter now treats every GPT-6 (and GPT-5 and o-series) model as a reasoning model: max_completion_tokens, no temperature, top_p or penalties, and tool turns on the Responses API with reasoning. Sol is registered with its price so its spend counts against the daily limit.
+BLOCKERS: None
+NEXT TASK: MYCO Phase 0

@@ -301,3 +301,27 @@ async def test_the_same_agent_turns_work_on_claude():
     assert payload["messages"][1]["content"][0]["name"] == "boundary__detect"
     assert payload["messages"][2]["content"][0]["type"] == "tool_result"
     assert response.tool_calls[0]["function"]["name"] == "boundary.detect"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model", ["gpt-6-sol", "gpt-6-luna"])
+async def test_gpt_6_sol_the_fallback_brain_gets_the_parameters_openai_accepts(model):
+    """The live check failed on Sol: "Unsupported parameter: 'max_tokens' ... Use 'max_completion_tokens'"."""
+    provider = OpenAIProvider(api_key="unit-test-key")
+    try:
+        payload = provider._convert_request(CompletionRequest(
+            model=model, messages=[Message(role="user", content="Say OK.")], max_tokens=16))
+        assert payload["max_completion_tokens"] == 16
+        for refused in ("max_tokens", "temperature", "top_p", "frequency_penalty", "presence_penalty"):
+            assert refused not in payload
+        assert provider.validate_model(model)
+        tools = CompletionRequest(model=model, messages=[Message(role="user", content="x")], max_tokens=16,
+                                  tools=[{"name": "a", "description": "b", "input_schema": {"type": "object"}}])
+        assert OpenAIProvider._uses_responses(tools) is True  # Sol reasons between tool calls, like Luna
+    finally:
+        await provider.client.aclose()
+
+
+def test_gpt_6_sol_is_priced():
+    assert OpenAIProvider.MODELS["gpt-6-sol"]["input_cost"] == 2.00
+    assert OpenAIProvider.MODELS["gpt-6-sol"]["output_cost"] == 10.00
