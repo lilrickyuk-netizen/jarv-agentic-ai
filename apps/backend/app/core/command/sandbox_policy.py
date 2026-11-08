@@ -168,6 +168,19 @@ def check_command(command: str, cwd: str, scope: Scope) -> Optional[str]:
     return None
 
 
+# The sandbox's own system folders, which the file editor may view (never change): the toolchain the specialists
+# build with. Projects, the folders above them, scratch space and secret stores are never among them.
+SYSTEM_READ = ("/usr", "/opt", "/etc/os-release")
+
+
+def _system_file(path: str, scope: Scope) -> bool:
+    if _SECRET_STORES.search(path) or fs_inspector._is_banned(path):
+        return False
+    if _inside(scope.root, path) or any(_inside(path, ws) or _inside(ws, path) for ws in _workspaces()):
+        return False  # a project, or a folder that lists projects
+    return any(_inside(path, folder) for folder in SYSTEM_READ)
+
+
 def check_file(command: str, path: str, scope: Scope) -> Optional[str]:
     """Why the file editor may not do ``command`` on ``path``, or None."""
     if not path.startswith("/"):
@@ -176,6 +189,8 @@ def check_file(command: str, path: str, scope: Scope) -> Optional[str]:
     if _inside(path, SKILLS):
         return None if command == "view" else f"Not done: {path} is one of JAI's skill packs, which are read-only."
     if not _inside(path, scope.root):
+        if command == "view" and _system_file(path, scope):
+            return None  # reading the sandbox's own toolchain, as the terminal may (node_version.h, /usr/local/bin)
         return f"Not done: {path} is outside this mission's workspace ({scope.root})."
     if fs_inspector._is_banned(path[len(scope.root):]):
         return f"Not done: {path} looks like a secret or credential store, which JAI's agents never open."

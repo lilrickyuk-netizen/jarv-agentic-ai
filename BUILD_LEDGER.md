@@ -14400,3 +14400,16 @@ TESTS RUN: the folder a brief names picks the workspace that holds it (the deepe
 RESULT: Richard had to pick the workspace for every mission, and missions typed in the Command Center ran in its default workspace even when the brief named another project's folder. The Plexecute workspace still pointed at a Desktop folder outside JAI's approved root. JAI now reads the brief: its folder, or the project it names, decides the workspace; an unreachable workspace folder is moved to the one the brief names inside the approved root, and the move is shown in the Live Operations Feed. Resume looks across workspaces for the same project, so MYCO's earlier Command Center missions are still carried on from.
 BLOCKERS: None
 NEXT TASK: The Plexecute launch video, then MYCO Phase 0
+
+---
+
+TASK ID: SANDBOX-TOOLCHAIN-VIEW
+TASK NAME: The file editor may read the sandbox's own toolchain, as the terminal already may
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/sandbox_policy.py, apps/backend/tests/test_openhands_sandbox.py
+COMMANDS RUN: backend test suite; backend and worker recreated
+TESTS RUN: viewing /usr/local/include/node/node_version.h and /usr/local/bin is allowed; changing anything there, secret stores (/proc/*/environ, .ssh), other projects and the folder that lists them stay refused
+RESULT: During the Plexecute video mission on 8 November a specialist checking its Node version was refused two read-only views of the sandbox's own toolchain, which its terminal could read anyway. Viewing /usr, /opt and /etc/os-release is now allowed; the workspace boundary for projects and every change is unchanged.
+BLOCKERS: None
+NEXT TASK: MYCO Phase 0

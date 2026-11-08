@@ -65,6 +65,13 @@ def test_the_terminal_stays_in_the_workspace_and_authority_is_never_exceeded():
     assert check_command("cd apps/api && cd .. && ls", ROOT, SCOPE) is None
     assert "outside this mission's workspace" in check_file("view", "/host/workspaces/Other/a.md", SCOPE)
     assert "secret" in check_file("view", ROOT + "/.ssh/id_rsa", SCOPE)
+    # 8 November: a specialist checking its Node version was refused these; the terminal could already read them.
+    assert check_file("view", "/usr/local/include/node/node_version.h", SCOPE) is None
+    assert check_file("view", "/usr/local/bin", SCOPE) is None
+    assert "outside" in check_file("create", "/usr/local/bin/node", SCOPE)
+    assert "outside" in check_file("view", "/home/openhands/.ssh/id_rsa", SCOPE)
+    assert "outside" in check_file("view", "/proc/1/environ", SCOPE)
+    assert "outside" in check_file("view", "/host/workspaces", SCOPE)
     assert "authority 2" in check_file("create", ROOT + "/x.py", Scope(root=ROOT, authority=1))
 
 
