@@ -202,6 +202,79 @@ class BrainContext(FrameProcessor):
             return False
 
 
+# A sentence JAI has just said is not said again: Richard heard the opening sentence twice (8 November: "MYCO has
+# restarted under your expanded brief. MYCO has restarted under your expanded brief."), when a reply restarts after
+# a tool call or a revised transcript and the model begins again from the top.
+REPEAT_WINDOW_SECONDS = 45.0
+REPEAT_MIN_WORDS = 4
+_SENTENCE_END = re.compile(r"[.!?]+(?=\s|[A-Z\"'(]|$)")
+
+
+def split_sentences(buffer: str, final: bool = False):
+    """(complete sentences, what is left): a sentence ends at . ! or ? followed by a space or a capital (the model
+    sometimes runs sentences together); at the end of a reply everything left is a sentence."""
+    out, start = [], 0
+    for match in _SENTENCE_END.finditer(buffer):
+        end = match.end()
+        if end == len(buffer) and not final:
+            break  # "1." of "1.5", or more of the sentence may follow: wait for the next piece
+        while end < len(buffer) and buffer[end].isspace():
+            end += 1
+        out.append(buffer[start:end])
+        start = end
+    rest = buffer[start:]
+    if final and rest.strip():
+        out.append(rest)
+        rest = ""
+    return out, rest
+
+
+def _sentence_key(sentence: str) -> str:
+    return " ".join(re.sub(r"[^a-z0-9 ]+", " ", sentence.lower()).split())
+
+
+class RepeatGuard(FrameProcessor):
+    """Between the model and the voice: passes the reply on sentence by sentence and drops a sentence (of four words
+    or more) that JAI said in the last REPEAT_WINDOW_SECONDS."""
+
+    def __init__(self, clock=time.monotonic, **kwargs):
+        super().__init__(**kwargs)
+        self._clock = clock
+        self._buffer = ""
+        self._said: List[tuple] = []  # (when, sentence key)
+
+    def _fresh(self, sentence: str) -> bool:
+        key = _sentence_key(sentence)
+        now = self._clock()
+        self._said = [(t, k) for t, k in self._said if now - t < REPEAT_WINDOW_SECONDS]
+        if len(key.split()) >= REPEAT_MIN_WORDS and any(k == key for _, k in self._said):
+            logger.info("dropped a repeated sentence: %s", sentence.strip()[:120])
+            return False
+        self._said.append((now, key))
+        return True
+
+    def handle(self, frame: Frame) -> List[Frame]:
+        """The frames to pass on for one frame from the model."""
+        if isinstance(frame, LLMTextFrame):
+            sentences, self._buffer = split_sentences(self._buffer + (frame.text or ""))
+            # Run-together sentences get their space back, so "brief.Eight" is never spoken or shown.
+            return [LLMTextFrame(text=s if s[-1:].isspace() else s + " ") for s in sentences if self._fresh(s)]
+        if isinstance(frame, LLMFullResponseEndFrame):
+            sentences, self._buffer = split_sentences(self._buffer, final=True)
+            return [LLMTextFrame(text=s) for s in sentences if self._fresh(s)] + [frame]
+        if type(frame).__name__ in ("InterruptionFrame", "StartInterruptionFrame"):
+            self._buffer = ""  # Richard spoke over JAI: what was not said yet is dropped with the reply
+        return [frame]
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
+        if direction != FrameDirection.DOWNSTREAM:
+            await self.push_frame(frame, direction)
+            return
+        for out in self.handle(frame):
+            await self.push_frame(out, direction)
+
+
 class SaidRelay(FrameProcessor):
     """What JAI said, once each reply is complete, to the dashboard and the history (after the model)."""
 
@@ -539,7 +612,7 @@ def build(websocket, backend: Backend, brief: Dict[str, Any], api_key: str):
         context, user_params=LLMUserAggregatorParams(vad_analyzer=SileroVADAnalyzer()))
     brain = BrainContext(backend)
     pipeline = Pipeline([transport.input(), stt, HeardRelay(backend, worker_ref, on_heard=brain.prefetch),
-                         user_aggregator, brain, llm, SaidRelay(backend, worker_ref), tts,
+                         user_aggregator, brain, llm, RepeatGuard(), SaidRelay(backend, worker_ref), tts,
                          SpendMeter(backend, local_voice), transport.output(), assistant_aggregator])
     worker = PipelineWorker(pipeline, params=PipelineParams(enable_metrics=True, enable_usage_metrics=True))
     worker_ref["worker"] = worker

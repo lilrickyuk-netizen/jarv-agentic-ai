@@ -484,3 +484,23 @@ def test_the_fish_key_is_read_from_the_backends_env_file(tmp_path, monkeypatch):
     monkeypatch.delenv("FISH_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     assert backend.fish_key() == "fish-b" and backend.openai_key() == "sk-a"
+
+
+def test_a_sentence_jai_has_just_said_is_not_said_again():
+    """8 November: "MYCO has restarted under your expanded brief.MYCO has restarted under your expanded brief." """
+    now = [1000.0]
+    guard = pipeline.RepeatGuard(clock=lambda: now[0])
+    out = []
+    for piece in ["MYCO has restarted ", "under your expanded brief.", "MYCO has restarted under your ",
+                  "expanded brief. Eight of ", "nineteen requirements are done. It costs 1.", "5 dollars."]:
+        out += guard.handle(LLMTextFrame(text=piece))
+    out += guard.handle(LLMFullResponseEndFrame())
+    said = "".join(f.text for f in out if isinstance(f, LLMTextFrame))
+    assert said == ("MYCO has restarted under your expanded brief. Eight of nineteen requirements are done. "
+                    "It costs 1.5 dollars.")
+    assert isinstance(out[-1], LLMFullResponseEndFrame)
+    # Short replies may repeat ("Yes."), and after the window the same news may be said again.
+    assert [f.text for f in guard.handle(LLMTextFrame(text="Yes. Yes. "))] == ["Yes. ", "Yes. "]
+    now[0] += pipeline.REPEAT_WINDOW_SECONDS + 1
+    again = guard.handle(LLMTextFrame(text="MYCO has restarted under your expanded brief. "))
+    assert [f.text for f in again] == ["MYCO has restarted under your expanded brief. "]

@@ -14504,3 +14504,16 @@ TESTS RUN: new instructions in a carry-on brief become requirements numbered aft
 RESULT: The first MYCO Phase 0 run on the one-builder design (8 November, 21:40) proved Phase 0 from a clean clone (bootstrap, verify, 79 Python and 8 Vitest tests, Terraform tests, Semgrep 1.177.0 with no findings, OSV Scanner 2.6.0 with no issues) in 21 steps, but changed nothing: the brief said to carry on, so it took the earlier mission's requirement list and its new instructions (.gitignore, merging the reports, the Terraform lines) never became requirements. On the first round of a carried-on mission, the brief's own new instructions are now added as requirements of their own.
 BLOCKERS: Phase 0 acceptance waits on Richard's manual review (V3.2 §50)
 NEXT TASK: MYCO Phase 0 tidy-up mission, then Richard's review and the acceptance tag
+
+---
+
+TASK ID: VOICE-NO-REPEAT
+TASK NAME: Jay never says the same sentence twice in a row
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: services/voice/app/pipeline.py, services/voice/tests/test_voice_service.py
+COMMANDS RUN: voice service tests; voice service rebuilt
+TESTS RUN: a reply whose opening sentence comes twice (run together, as on 8 November) is spoken and shown once, with its spacing restored; numbers such as 1.5 are never split; short replies may repeat; the same news may be said again after 45 seconds
+RESULT: Richard often heard Jay's opening sentence twice ("MYCO has restarted under your expanded brief. MYCO has restarted under your expanded brief."), when a reply restarted after a tool call or a revised transcript. A guard between the model and the voice now passes the reply on sentence by sentence and drops a sentence of four or more words said in the last 45 seconds.
+BLOCKERS: None
+NEXT TASK: MYCO Phase 0 review
