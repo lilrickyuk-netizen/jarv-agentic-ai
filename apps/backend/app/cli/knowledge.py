@@ -57,7 +57,9 @@ async def skills() -> int:
         print(f"{'pinned' if ok else 'MISSING':>8}  {name}")
     async with AsyncSessionLocal() as db:
         results = []
-        for entry in catalogue_entries():
+        from app.core.identity import catalogue_entries as about_jai
+
+        for entry in about_jai() + catalogue_entries():
             source = await knowledge_ingestor.register(db, entry)
             results.append(await knowledge_ingestor.ingest_local(db, source, entry["local_path"]))
             await db.commit()

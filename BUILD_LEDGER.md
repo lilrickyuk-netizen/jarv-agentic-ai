@@ -14361,3 +14361,16 @@ TESTS RUN: a cancelled MYCO mission that saved only its live progress is carried
 RESULT: The 8 November record showed every recent mission cancelled with no final record (no team, packages or requirements), and the MYCO mission run in the Command Center workspace among unrelated commands, so the first resume had nothing to carry on from. JAI now reads a stopped or cancelled mission's live progress (kept for a week) and matches the earlier mission on its project folder or phase, never on recency alone. The record also confirmed the spend bug fixed today: the MYCO mission reported $40.35 of agent spend against $5.32 on JAI's live spend dashboard. AgentShield's full ECC scan: 647 findings, none in the 60 ECC skills JAI uses (300 are package checksums in package-lock.json read as Azure keys, most of the rest are in translated documentation).
 BLOCKERS: None
 NEXT TASK: Restart MYCO Phase 0 in the MYCO workspace, then the Plexecute 2 launch video
+
+---
+
+TASK ID: JAI-IDENTITY
+TASK NAME: JAI knows what it is: its design and architecture document, and Jay's dry-witted JARVIS personality in voice and writing
+STATUS: COMPLETE
+FILES CREATED: apps/backend/app/core/identity/__init__.py, apps/backend/app/core/identity/JAI.md, apps/backend/tests/test_identity.py
+FILES MODIFIED: apps/backend/app/core/voice/live.py, apps/backend/app/core/command/service.py, apps/backend/app/core/knowledge/ingest.py, apps/backend/app/core/knowledge/documentation.py, apps/backend/app/cli/knowledge.py
+COMMANDS RUN: backend test suite; backend and worker recreated; knowledge skills ingestion (JAI.md into the library)
+TESTS RUN: JAI.md has every section and a one-paragraph summary; the voice (both engines) and the Command Center's written replies use the same persona and the summary; JAI.md is a library source for every agent; a search for how missions run finds it
+RESULT: JAI.md describes JAI as installed: the boundary-operator model, every service, the models and spending limits, how a mission runs in parallel waves, the sandbox, the six skill packs, memory and knowledge, business capabilities, voice and the orb, authority and safety, what needs Richard and its honest limits. Its summary goes into every reply and voice conversation and the whole document is searchable by every agent. Jay's personality, now shared by voice and writing, is a JARVIS-style British aide with bone-dry, understated humour that never replaces the facts. PLEXECUTE.md, the product and brand brief, is placed in the Plexecute-Marketing workspace for the launch video.
+BLOCKERS: None
+NEXT TASK: Restart MYCO Phase 0, then the Plexecute 2 launch video (BRAG Slim), reading PLEXECUTE.md first

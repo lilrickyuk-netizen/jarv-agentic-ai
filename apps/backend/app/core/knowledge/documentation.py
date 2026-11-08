@@ -292,7 +292,9 @@ def catalogue() -> List[Dict]:
     from app.core.config import settings
     from app.core.knowledge.skill_packs import catalogue_entries
 
-    entries = [dict(entry) for entry in CATALOGUE]
+    from app.core.identity import catalogue_entries as about_jai
+
+    entries = [dict(entry) for entry in CATALOGUE] + about_jai()
     if getattr(settings, "SKILL_PACKS_ENABLED", True):
         entries += catalogue_entries()
     return entries

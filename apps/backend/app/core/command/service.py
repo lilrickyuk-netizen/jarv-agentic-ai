@@ -2652,9 +2652,11 @@ class CommandService:
         outcome: Optional[Dict[str, Any]] = None,
     ) -> tuple[str, int]:
         """Produce the final user-facing answer with Claude over real context and real results."""
+        from app.core.identity import written_system
+
         router = get_router()
-        system_prompt = (
-            "You are JAI, a private autonomous multi-agent AI operations system. "
+        system_prompt = written_system() + (
+            "\nYou are JAI, a private autonomous multi-agent AI operations system. "
             "Answer the operator's command directly and concretely using the REAL "
             "system context and the execution plan provided. "
             "If the command says not to modify files, only inspect and plan - never "

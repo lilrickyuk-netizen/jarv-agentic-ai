@@ -219,6 +219,15 @@ class KnowledgeIngestor:
         and the Markdown files beside it, stored as passages like any other source."""
         from app.core.knowledge.skill_packs import read_skill
 
+        if local_path.startswith("jai:"):  # JAI's own documents, shipped with the backend
+            from app.core import identity
+
+            text = identity.DOCUMENT.read_text(encoding="utf-8") if identity.DOCUMENT.is_file() else ""
+            if not text:
+                source.status, source.last_error = "error", "JAI.md is missing from the backend"
+                await db.flush()
+                return {"url": source.url, "status": "error", "reason": "JAI.md is missing"}
+            return await self.ingest_text(db, source, text)
         markdown, reason = read_skill(local_path)
         if markdown is None and reason.startswith("blocked"):
             # AgentShield flagged it: whatever was stored before is taken out of every search.

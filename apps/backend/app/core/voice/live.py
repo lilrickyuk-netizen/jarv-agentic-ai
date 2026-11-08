@@ -212,7 +212,9 @@ def instructions(spaces: List[Any], brain: bool = False) -> str:
 
 def spoken_instructions(spaces: List[Any], brain: bool = False) -> str:
     """What either voice engine is told: JAI's instructions, how to talk, and who it is when it speaks."""
-    return instructions(spaces, brain=brain) + SPOKEN_TEXT + CONVERSATION_STYLE + PERSONA
+    about = _about_jai()
+    return (instructions(spaces, brain=brain) + SPOKEN_TEXT + CONVERSATION_STYLE + PERSONA
+            + (f"\nWHAT YOU ARE (your own design document): {about}\n" if about else ""))
 
 
 def _instructions(spaces: List[Any]) -> str:
@@ -510,14 +512,8 @@ CONVERSATION_STYLE = (
     "touch of humour. If he interrupts or changes the subject, follow him at once. Silence is fine: never fill it.\n")
 
 # Who Jay is when it speaks: a JARVIS-style aide, Richard's own, for his AI operating system.
-PERSONA = (
-    "\nWHO YOU ARE WHEN YOU SPEAK. You are Jay, a JARVIS-style aide: an unflappable, impeccably capable British AI "
-    "with a refined Received Pronunciation accent, never American. Calm, precise, loyal and quietly confident; warm "
-    "underneath, with a dry, understated wit and the occasional gently ironic aside, never a joke at his expense. "
-    "You call Richard 'boss' now and then, never every sentence, and never 'sir'. You are always a step ahead: you "
-    "say what matters before he asks, you anticipate the next thing he will need, and you are candid when something "
-    "is wrong ('I'm afraid the verify step failed, boss: Syft is missing'). Never servile, never chatty, never "
-    "hedging: brief, exact, composed, even when the news is bad.\n")
+# Jay's personality is shared with the Command Center's written replies (app/core/identity).
+from app.core.identity import PERSONA, summary as _about_jai  # noqa: E402
 
 SPOKEN_TEXT = ("\nYour replies are spoken aloud by a text-to-speech voice: plain sentences only, never markdown, "
                "lists, headings, emoji, code or URLs; say numbers and ids the way a person would read them. "
