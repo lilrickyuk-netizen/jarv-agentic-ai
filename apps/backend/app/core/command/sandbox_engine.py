@@ -221,6 +221,8 @@ class SandboxSpecialist:
         from app.core.command.metrics import PRICES
 
         await self._register(container_root)
+        from app.core.knowledge.skill_packs import sandbox_skills
+
         price = PRICES.get(model)
         body = {"run_id": self.run_id, "workspace": container_root, "brief": self._brief(requirements),
                 "standard": self._standard(), "model": model,
@@ -229,7 +231,8 @@ class SandboxSpecialist:
                 "max_iterations": int(settings.OPENHANDS_MAX_ITERATIONS),
                 "max_cost_usd": float(settings.OPENHANDS_MAX_COST_PER_PACKAGE_USD),
                 "input_cost_per_token": price[0] / 1e6 if price else None,
-                "output_cost_per_token": price[1] / 1e6 if price else None}
+                "output_cost_per_token": price[1] / 1e6 if price else None,
+                "skills": sandbox_skills(self.package.specialist)}
         owned = self.client is None
         client = self.client or httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=5.0))
         try:

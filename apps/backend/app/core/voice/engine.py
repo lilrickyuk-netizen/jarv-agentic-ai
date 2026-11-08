@@ -6,9 +6,10 @@ Speech in, speech out, the wake phrase, and voice commands, on real backends:
 - Speech-to-text: the self-hosted Voicebox service (local, free) when
   VOICEBOX_BASE_URL is set, otherwise OpenAI transcription when OPENAI_API_KEY
   is set. STT_PROVIDER picks one explicitly (auto, voicebox, openai).
-- Text-to-speech: Voicebox with the JAI voice profile, ElevenLabs
+- Text-to-speech: Voicebox with the JAI voice profile, Fish Audio
+  (FISH_API_KEY, the British voice FISH_VOICE_ID; Upgrade 7), ElevenLabs
   (ELEVENLABS_API_KEY) or OpenAI speech. TTS_PROVIDER picks one (auto,
-  voicebox, elevenlabs, openai). Audio is written to VOICE_AUDIO_DIR with its
+  voicebox, fish, elevenlabs, openai). Audio is written to VOICE_AUDIO_DIR with its
   owner and served only to that owner.
 - Wake phrase: the local sherpa-onnx keyword spotter ("Talk to me.")
   run over a recorded clip; the live browser stream uses the same model.
@@ -40,6 +41,7 @@ from app.core.config import settings
 
 OPENAI_API = "https://api.openai.com/v1"
 ELEVENLABS_API = "https://api.elevenlabs.io/v1"
+FISH_TTS_URL = "https://api.fish.audio/v1/tts"
 PROFILE_KEY = "voice:jarv-profile-id"
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".ogg", ".flac", ".aac", ".webm", ".opus", ".mp4", ".mpeg", ".mpga"}
 _CONTENT_TYPES = {"mp3": "audio/mpeg", "wav": "audio/wav", "ogg": "audio/ogg", "opus": "audio/ogg",
@@ -84,12 +86,13 @@ def stt_backend() -> Optional[str]:
 
 def tts_backend() -> Optional[str]:
     available = {"voicebox": bool(settings.VOICEBOX_BASE_URL),
+                 "fish": bool(getattr(settings, "FISH_API_KEY", None)),
                  "elevenlabs": bool(getattr(settings, "ELEVENLABS_API_KEY", None)),
                  "openai": bool(settings.OPENAI_API_KEY)}
     choice = _choice("TTS_PROVIDER")
     if choice in available:
         return choice if available[choice] else None
-    return next((name for name in ("voicebox", "elevenlabs", "openai") if available[name]), None)
+    return next((name for name in ("voicebox", "fish", "elevenlabs", "openai") if available[name]), None)
 
 
 def _stt_missing() -> str:
@@ -104,10 +107,11 @@ def _stt_missing() -> str:
 
 def _tts_missing() -> str:
     choice = _choice("TTS_PROVIDER")
-    named = {"voicebox": "VOICEBOX_BASE_URL", "elevenlabs": "ELEVENLABS_API_KEY", "openai": "OPENAI_API_KEY"}
+    named = {"voicebox": "VOICEBOX_BASE_URL", "fish": "FISH_API_KEY", "elevenlabs": "ELEVENLABS_API_KEY",
+             "openai": "OPENAI_API_KEY"}
     if choice in named:
         return f"Text-to-speech is set to {choice} but {named[choice]} is not set."
-    return ("No text-to-speech backend: set VOICEBOX_BASE_URL (self-hosted), ELEVENLABS_API_KEY "
+    return ("No text-to-speech backend: set VOICEBOX_BASE_URL (self-hosted), FISH_API_KEY, ELEVENLABS_API_KEY "
             "or OPENAI_API_KEY.")
 
 
@@ -265,6 +269,21 @@ def spoken_name(text: str) -> str:
     return _NAME_IN_TEXT.sub("Jay", text or "")
 
 
+async def fish_speech(client: httpx.AsyncClient, text: str, voice: Optional[str] = None) -> tuple[bytes, str]:
+    """Fish Audio's text-to-speech (Upgrade 7): the configured British voice (FISH_VOICE_ID) as MP3. The key stays
+    on the backend."""
+    voice_id = voice or getattr(settings, "FISH_VOICE_ID", None)
+    if not voice_id:
+        raise VoiceUnavailable("Fish Audio needs a voice: set FISH_VOICE_ID")
+    response = await client.post(FISH_TTS_URL, headers={"Authorization": f"Bearer {settings.FISH_API_KEY}",
+                                                        "model": str(getattr(settings, "FISH_MODEL", "s2.1-pro"))},
+                                 json={"text": text, "reference_id": voice_id, "format": "mp3", "mp3_bitrate": 128,
+                                       "latency": "balanced", "normalize": True})
+    if response.status_code >= 400:
+        raise _error(response, "Speech generation (fish)")
+    return response.content, "mp3"
+
+
 async def speak(text: str, *, owner: Optional[UUID] = None, language: str = "en",
                 voice: Optional[str] = None) -> Dict[str, Any]:
     text = (text or "").strip()
@@ -282,6 +301,8 @@ async def speak(text: str, *, owner: Optional[UUID] = None, language: str = "en"
         async with http_client(timeout=_timeout()) as client:
             if backend == "voicebox":
                 audio, fmt = await _voicebox_speech(client, text, lang)
+            elif backend == "fish":
+                audio, fmt = await fish_speech(client, text, voice)
             elif backend == "elevenlabs":
                 voice_id = voice or getattr(settings, "ELEVENLABS_VOICE_ID", None)
                 if not voice_id:
@@ -307,6 +328,10 @@ async def speak(text: str, *, owner: Optional[UUID] = None, language: str = "en"
         raise RuntimeError(_unreachable(backend, exc)) from exc
     if not audio:
         raise RuntimeError(f"{backend} returned no audio")
+    if backend == "fish":  # a paid voice: counted against the daily spending limit, like the live voice
+        from app.core import spend
+
+        await spend.record("voice", spend.pipeline_cost("tts", {"characters": len(text)}))
     directory = audio_dir()
     _prune(directory)
     audio_id = uuid4().hex

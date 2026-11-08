@@ -288,4 +288,11 @@ ALL_AGENTS = ENGINEERING_AGENTS + (ORCH, SWARM, MONITOR, HEAL, ROLLBACK, COMPANY
 
 
 def catalogue() -> List[Dict]:
-    return [dict(entry) for entry in CATALOGUE]
+    """The official documentation, then the skill packs' skills (Upgrades 1-5) when they are switched on."""
+    from app.core.config import settings
+    from app.core.knowledge.skill_packs import catalogue_entries
+
+    entries = [dict(entry) for entry in CATALOGUE]
+    if getattr(settings, "SKILL_PACKS_ENABLED", True):
+        entries += catalogue_entries()
+    return entries

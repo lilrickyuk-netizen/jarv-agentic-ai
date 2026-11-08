@@ -1,6 +1,6 @@
 # JAI's engineering sandbox: the OpenHands Software Agent SDK (MIT) 1.58.2 with the toolchain JAI's own agents use
 # (git, Node 24 with npm, pnpm and yarn, uv with Python 3.12 to 3.14, Task, Terraform, Helm, Syft, Trivy, Gitleaks,
-# a C compiler, jq, ripgrep, and mise for any other language). The service (app/server.py) runs as root and holds the tokens; the
+# a C compiler, jq, ripgrep, mise for any other language, and ffmpeg with headless Chromium for video work). The service (app/server.py) runs as root and holds the tokens; the
 # agent's shell runs as the unprivileged user "openhands" (uid 1000, the owner of the workspace folders), so it
 # cannot read them. No Docker socket, no database and no other service's secrets are in this container.
 ARG NODE_IMAGE=node:24.21.0-bookworm-slim
@@ -69,6 +69,15 @@ RUN set -eu; cd /tmp \
     && tar -xzf "${GITLEAKS_TGZ}" -C /usr/local/bin gitleaks \
     && rm -rf /tmp/* \
     && task --version && terraform version && helm version --short && syft version && trivy --version && gitleaks version
+
+# After the toolchain, so adding these never makes Docker download the pinned tools again.
+# Video and browser work (BRAG Slim launch videos, rendering a project's real UI): ffmpeg, headless Chromium and
+# fonts, so a specialist can draw frames in a browser and render the MP4 itself.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ffmpeg chromium fonts-liberation fonts-dejavu-core fonts-noto-core fonts-noto-color-emoji \
+    && rm -rf /var/lib/apt/lists/*
+ENV CHROME_PATH=/usr/bin/chromium PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium PUPPETEER_SKIP_DOWNLOAD=1 \
+    JAI_SKILLS_DIR=/jai/skills
 
 # The agent's user, and git for it: commits it makes are authored as JAI; the workspace folders belong to the
 # Windows user, so git is told they are safe.

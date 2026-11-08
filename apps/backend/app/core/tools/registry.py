@@ -1066,6 +1066,12 @@ def _register_implemented_tools(registry: ToolRegistry) -> None:
 
         logger.info(f"Registered {len(BUSINESS_TOOLS)} business tools (real, Repair 12e-4a)")
 
+        from app.tools.sales_prospecting import PROSPECTING_TOOLS
+
+        for tool in PROSPECTING_TOOLS:
+            registry.register(tool, category=tool._category)
+        logger.info(f"Registered {len(PROSPECTING_TOOLS)} sales prospecting tools (Upgrade 6)")
+
     except ImportError as e:
         logger.warning(f"Business tools not available for registration: {e}")
 

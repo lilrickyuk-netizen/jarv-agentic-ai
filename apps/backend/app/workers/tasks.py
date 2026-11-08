@@ -288,6 +288,30 @@ def company_daily_loop(self: Task) -> dict[str, Any]:
     return run_async(run())
 
 
+@celery_app.task(name="sales_send_due", bind=True)
+def sales_send_due(self: Task) -> dict[str, Any]:
+    """Send the sales emails Richard approved that are due now, in every workspace (Upgrade 6, Celery beat)."""
+    from sqlalchemy import select
+
+    from app.core.business.prospecting import prospecting_service
+    from app.core.database import AsyncSessionLocal
+    from app.models.prospecting import OutreachMessage
+
+    async def run() -> dict[str, Any]:
+        async with AsyncSessionLocal() as db:
+            spaces = (await db.execute(select(OutreachMessage.workspace_id).where(
+                OutreachMessage.status == "approved").distinct())).scalars().all()
+            results = {}
+            for workspace_id in spaces:
+                outcome = await prospecting_service.send_due(db, workspace_id)
+                await db.commit()
+                results[str(workspace_id)] = {"sent": len(outcome["sent"]), "waiting": outcome["waiting"],
+                                              "reason": outcome["reason"]}
+        return {"workspaces": len(results), "results": results}
+
+    return run_async(run())
+
+
 @celery_app.task(name="knowledge_refresh", bind=True)
 def knowledge_refresh(self: Task) -> dict[str, Any]:
     """Re-fetch every catalogue source; changed pages get a new version of their passages (Celery beat)."""

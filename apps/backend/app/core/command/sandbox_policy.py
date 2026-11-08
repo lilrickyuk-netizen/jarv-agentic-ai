@@ -57,6 +57,9 @@ _DANGEROUS_RM_TARGETS = {"/", "/*", "~", "~/", "~/*", ".", "./", "./*", "..", ".
 
 # Scratch space for fresh-clone checks and throwaway builds; nothing of another project is there.
 SCRATCH = "/tmp"
+# The skill packs (Upgrades 1-5), mounted read-only: a specialist may read a skill's references and run its
+# scripts (the terminal already may), and the file editor may view them, never change them.
+SKILLS = "/jai/skills"
 
 
 @dataclass
@@ -170,6 +173,8 @@ def check_file(command: str, path: str, scope: Scope) -> Optional[str]:
     if not path.startswith("/"):
         path = str(PurePosixPath(scope.root) / path)
     path = _norm(path)
+    if _inside(path, SKILLS):
+        return None if command == "view" else f"Not done: {path} is one of JAI's skill packs, which are read-only."
     if not _inside(path, scope.root):
         return f"Not done: {path} is outside this mission's workspace ({scope.root})."
     if fs_inspector._is_banned(path[len(scope.root):]):

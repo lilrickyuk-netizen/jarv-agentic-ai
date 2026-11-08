@@ -214,6 +214,18 @@ class KnowledgeIngestor:
             return {"url": source.url, "status": "error", "reason": str(exc)}
         return await self.ingest_text(db, source, markdown)
 
+    async def ingest_local(self, db: AsyncSession, source: KnowledgeSource, local_path: str) -> Dict[str, Any]:
+        """A skill pack's skill, read from its pinned local clone (skill-packs/) instead of fetched: its SKILL.md
+        and the Markdown files beside it, stored as passages like any other source."""
+        from app.core.knowledge.skill_packs import read_skill
+
+        markdown, reason = read_skill(local_path)
+        if markdown is None:
+            source.status, source.last_error = "error", reason[:1000]
+            await db.flush()
+            return {"url": source.url, "status": "error", "reason": reason}
+        return await self.ingest_text(db, source, markdown)
+
     async def ingest_workspace_document(self, db: AsyncSession, workspace_id, folder: Path,
                                         relative: str) -> Dict[str, Any]:
         """A workspace's own governing document (Upgrade 2: the spec as knowledge), stored as that workspace's
@@ -266,7 +278,12 @@ class KnowledgeIngestor:
             if agents and not set(entry.get("agents") or []) & set(agents):
                 continue
             source = await self.register(db, entry)
-            results.append(await self.refresh(db, source) if fetch else {"url": source.url, "status": "registered"})
+            if not fetch:
+                results.append({"url": source.url, "status": "registered"})
+            elif entry.get("local_path"):
+                results.append(await self.ingest_local(db, source, entry["local_path"]))
+            else:
+                results.append(await self.refresh(db, source))
             await db.commit()
         if not agents:
             results += await self.retire_missing(db, {str(e["url"]).strip() for e in entries})

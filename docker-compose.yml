@@ -130,6 +130,8 @@ services:
       - ./apps/backend:/app
       # JAI's own upgrade history (read-only), so it can say what has been installed into it.
       - ./.git:/repo/.git:ro
+      # The skill packs (Upgrades 1-5) for JAI's knowledge library; read-only.
+      - ./skill-packs:/data/skill-packs:ro
       - voice_models:/data/voice-models
       - backups:/data/backups
       - voice_audio:/data/voice-audio
@@ -421,6 +423,8 @@ services:
       OPENHANDS_MAX_RUNS: "4"
     volumes:
       - openhands_home:/home/openhands
+      # The skill packs (Upgrades 1-5), pinned clones made by scripts/skill-packs.sh; read-only.
+      - ./skill-packs:/jai/skills:ro
       - type: bind
         source: ${WORKSPACE_MOUNT_SOURCE:-/mnt/c/Users/lilri/OneDrive/Desktop}
         target: /host/workspaces
@@ -574,6 +578,7 @@ services:
         condition: service_completed_successfully
     volumes:
       - ./apps/backend:/app
+      - ./skill-packs:/data/skill-packs:ro
       - backups:/data/backups
       - tool_home:/home/jarv
       - type: bind

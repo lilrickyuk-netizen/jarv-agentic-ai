@@ -28,6 +28,9 @@ RUN mkdir -p /srv/voice/models \
 # try TensorRT and CUDA and fail where there is no graphics card); JAI's loader chooses the GPU itself.
 ENV KOKORO_MODEL=/srv/voice/models/kokoro-v1.0.onnx KOKORO_VOICES=/srv/voice/models/voices-v1.0.bin \
     ONNX_PROVIDER=CPUExecutionProvider
+# Fish Audio's streamed voice (Upgrade 7): the one package Pipecat's fish extra adds (ormsgpack), added after the voice models so the
+# models are never downloaded again for it.
+RUN pip install "ormsgpack>=1.7.0,<2"
 COPY app ./app
 COPY tests ./tests
 COPY pytest.ini .

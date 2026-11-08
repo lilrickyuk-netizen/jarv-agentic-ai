@@ -265,6 +265,9 @@ def test_a_work_package_is_done_in_the_sandbox_and_followed_to_its_end(monkeypat
     assert "Senior Software Engineer" in fake.started["standard"]
     assert fake.started["model"] == "claude-opus-5-5" and fake.started["provider"] == "anthropic"
     assert fake.started["max_cost_usd"] > 0
+    # Upgrades 1-5: the engineer's skills go with the package (listed in the sandbox, loaded only when invoked).
+    assert "superpowers/skills/test-driven-development" in fake.started["skills"]
+    assert "marketingskills/skills/cold-email" not in fake.started["skills"]
     assert result["success"] is True and result["steps"] == 7 and result["tokens"] == 10200
     assert {r["id"]: r["status"] for r in result["requirements"]} == {"R1": "done", "R2": "open"}
     assert [c["tool"] for c in adopted] == ["write_file", "run_command"]

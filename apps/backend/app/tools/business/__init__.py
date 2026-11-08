@@ -438,3 +438,8 @@ BUSINESS_TOOLS = DRAFT_TOOLS + DATA_TOOLS
 TOOLS_BY_GROUP: Dict[str, List[str]] = {}
 for _tool in BUSINESS_TOOLS:
     TOOLS_BY_GROUP.setdefault(_tool._category, []).append(_tool._name)
+# The Sales agent's prospecting workflow (Upgrade 6), registered on its own (app.tools.sales_prospecting).
+from app.tools.sales_prospecting import PROSPECTING_TOOLS  # noqa: E402
+
+for _tool in PROSPECTING_TOOLS:
+    TOOLS_BY_GROUP.setdefault(_tool._category, []).append(_tool._name)

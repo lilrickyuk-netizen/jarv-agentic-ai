@@ -75,6 +75,11 @@ celery_app.conf.update(
             "schedule": float(getattr(settings, "COMPANY_LOOP_INTERVAL_HOURS", 24)) * 3600,
             "options": {"expires": 3600},
         },
+        "sales-outbox": {
+            "task": "sales_send_due",
+            "schedule": float(getattr(settings, "SALES_OUTBOX_INTERVAL_MINUTES", 15)) * 60,
+            "options": {"expires": 600},
+        },
         "knowledge-refresh": {
             "task": "knowledge_refresh",
             "schedule": float(getattr(settings, "KNOWLEDGE_REFRESH_INTERVAL_HOURS", 168)) * 3600,
@@ -85,6 +90,14 @@ celery_app.conf.update(
 
 # Declarative registry of scheduled jobs (surfaced via /api/scheduler/jobs).
 SCHEDULED_JOBS = [
+    {
+        "name": "sales_outbox",
+        "task": "sales_send_due",
+        "interval_seconds": float(getattr(settings, "SALES_OUTBOX_INTERVAL_MINUTES", 15)) * 60,
+        "enabled": True,
+        "type": "sales/outbox",
+        "description": "Send sales emails Richard approved that are now due (daily limit, weekday office hours).",
+    },
     {
         "name": "knowledge_refresh",
         "task": "knowledge_refresh",

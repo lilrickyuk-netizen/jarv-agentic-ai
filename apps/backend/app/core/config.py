@@ -326,6 +326,21 @@ class Settings(BaseSettings):
     # Richard's JAI repository history, mounted read-only, so JAI can say what has been installed into it lately.
     JAI_REPO_GIT: str = "/repo/.git"
     KNOWLEDGE_TOKEN: Optional[str] = None
+    # Outbound sales prospecting (Upgrade 6). Every message says who sends it and from where (UK PECR, US CAN-SPAM),
+    # so nothing is sent until SALES_SENDER_NAME and SALES_SENDER_ADDRESS are set; every batch waits for Richard's
+    # approval; at most SALES_DAILY_SEND_LIMIT a day, on weekdays 8am to 5pm in SALES_SEND_TIMEZONE.
+    SALES_SENDER_NAME: str = ""
+    SALES_SENDER_COMPANY: str = ""
+    SALES_SENDER_ADDRESS: str = ""
+    SALES_DAILY_SEND_LIMIT: int = Field(default=20, ge=0, le=500)
+    SALES_SEND_TIMEZONE: str = "Europe/London"
+    SALES_OUTBOX_INTERVAL_MINUTES: float = 15.0
+    SALES_NOMINATIM_URL: str = "https://nominatim.openstreetmap.org/search"
+    SALES_OVERPASS_URL: str = "https://overpass-api.de/api/interpreter"
+    # Third-party skill packs (Superpowers, UI/UX Pro Max, Marketing Skills, No AI Slop, BRAG), each pinned to one
+    # commit and cloned by scripts/skill-packs.sh into skill-packs/ (mounted read-only here and in the sandbox).
+    SKILL_PACKS_DIR: str = "/data/skill-packs"
+    SKILL_PACKS_ENABLED: bool = True
     # JAI's engineering sandbox (the "engineer" profile): the OpenHands Software Agent SDK runs each specialist's
     # work package with a full shell and file editor, every action checked by JAI first (POST /api/agent-gate/check)
     # and its model calls going through JAI's gateway. Empty URL or no token: specialists use JAI's own tool loop.
@@ -348,6 +363,12 @@ class Settings(BaseSettings):
     ELEVENLABS_VOICE_ID: Optional[str] = None
     ELEVENLABS_MODEL_ID: str = "eleven_multilingual_v2"
     OPENAI_STT_MODEL: str = "whisper-1"
+    # Fish Audio (Upgrade 7): a selectable British voice for the Pipecat conversation and spoken replies. The key
+    # stays on the backend (the voice service reads it from this .env, read-only). FISH_VOICE_ID is the published
+    # JARVIS-style voice; check its usage rights before using it in anything sold.
+    FISH_API_KEY: Optional[str] = None
+    FISH_VOICE_ID: str = "612b878b113047d9a770c069c8b4fdfe"
+    FISH_MODEL: str = "s2.1-pro"
     OPENAI_TTS_MODEL: str = "tts-1"
     OPENAI_TTS_VOICE: str = "onyx"
     # Live conversation (OpenAI Realtime, speech to speech over WebRTC from the browser).
@@ -364,6 +385,7 @@ class Settings(BaseSettings):
     # bf_alice, bf_lily (women). openai = OpenAI text-to-speech (paid) with VOICE_PIPELINE_TTS_VOICE.
     # chatterbox = Chatterbox Turbo (open source, natural speech, on the GPU) in the voice of a reference clip in the
     # jai_voice_refs volume (george: made from Kokoro's British bm_george); Kokoro is its fallback.
+    # fish = Fish Audio (paid, streamed, Upgrade 7) in the voice FISH_VOICE_ID; without FISH_API_KEY it is Kokoro.
     # How hard the brain voice thinks before answering (none, low, medium): low follows JAI's rules reliably and
     # still answers in about a second. The transcriber: gpt-transcribe is OpenAI's most accurate.
     # No reasoning pass before a spoken reply: it is the largest wait before JAI starts talking.

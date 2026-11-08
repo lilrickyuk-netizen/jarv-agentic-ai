@@ -146,6 +146,63 @@ async def moderate(workspace_id: UUID, item_id: str, user_id: CurrentUserId,
     return result
 
 
+@router.get("/{workspace_id}/outreach")
+async def outreach(workspace_id: UUID, user_id: CurrentUserId, status: Optional[str] = None,
+                   db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """The Sales agent's outreach (Upgrade 6): the campaign report and the outbox."""
+    from app.core.business.prospecting import compliance_footer, prospecting_service
+
+    await _owned(db, user_id, workspace_id)
+    _footer, missing = compliance_footer()
+    return {"report": await prospecting_service.report(db, workspace_id),
+            "messages": await prospecting_service.outbox(db, workspace_id, status, 100),
+            "needs_before_sending": missing}
+
+
+class OutreachApproval(BaseModel):
+    message_ids: List[str] = Field(..., min_length=1, max_length=100)
+
+
+@router.post("/{workspace_id}/outreach/approve")
+async def approve_outreach(workspace_id: UUID, body: OutreachApproval, user_id: CurrentUserId,
+                           db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """Richard approves a batch himself, here in the dashboard; due messages are sent within the limits."""
+    from app.core.audit import AuditLogger
+    from app.core.business.prospecting import prospecting_service
+
+    owner = await _owned(db, user_id, workspace_id)
+    try:
+        result = await prospecting_service.approve(db, workspace_id, body.message_ids, approved=True,
+                                                   by="Richard (dashboard)")
+    except (LookupError, ValueError, PermissionError) as exc:
+        raise _http(exc)
+    await AuditLogger.log_system_event(db, action="sales.outreach.approve", result="ok", resource_type="outreach",
+                                       user_id=owner, details={"workspace_id": str(workspace_id),
+                                                               "approved": result["approved"],
+                                                               "sent_now": len(result["sent_now"])})
+    await db.commit()
+    return result
+
+
+class OutreachSuppress(BaseModel):
+    value: str = Field(..., min_length=3, max_length=320)
+    reason: str = Field("asked not to be contacted", max_length=200)
+
+
+@router.post("/{workspace_id}/outreach/suppress")
+async def suppress_outreach(workspace_id: UUID, body: OutreachSuppress, user_id: CurrentUserId,
+                            db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    from app.core.business.prospecting import prospecting_service
+
+    await _owned(db, user_id, workspace_id)
+    try:
+        row = await prospecting_service.suppress(db, workspace_id, body.value, body.reason)
+    except ValueError as exc:
+        raise _http(exc)
+    await db.commit()
+    return row
+
+
 @router.get("/{workspace_id}/pipeline")
 async def pipeline(workspace_id: UUID, user_id: CurrentUserId, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     await _owned(db, user_id, workspace_id)

@@ -349,8 +349,12 @@ async def _model_text(kind: DraftKind, facts: Facts, inputs: Dict[str, Any], ext
               + (f"Records: {json.dumps(extra, default=str)[:3000]}\n" if extra else "")
               + f"\nFACTS (use only these; never invent numbers, customers, quotes or features; write "
                 f"[confirm: what is needed] where a fact is missing):\n{facts.summary()}")
-    reply = await helpers.llm_complete(model or "claude-sonnet-4-6", prompt,
-                                       system="You are JAI's writer. Accurate, specific, no hype, no invented facts.",
+    from app.core.business import editorial
+
+    system = "You are JAI's writer. Accurate, specific, no hype, no invented facts."
+    if editorial.available():  # Upgrade 4: written to pass the No AI Slop editor in the first place
+        system += "\n\n" + editorial.rules()
+    reply = await helpers.llm_complete(model or "claude-sonnet-4-6", prompt, system=system,
                                        temperature=0.4, max_tokens=2500)
     return reply
 
@@ -389,10 +393,23 @@ async def draft(db: AsyncSession, workspace_id: UUID, tool: str, inputs: Dict[st
     else:
         body, generated_by = render_template(kind, facts, inputs, extra), "workspace facts"
     body = redact_text(body)
+    # The final editorial pass (Upgrade 4): checked against No AI Slop with no model call; only a flagged model
+    # draft is revised once on the light model, and the revision is kept only if every fact survives.
+    from app.core.business import editorial
+
+    if generated_by.startswith("model:"):
+        edit = await editorial.revise(body, audience=str(inputs.get("audience") or ""))
+        body = redact_text(edit["text"]) if edit["revised"] else body
+    else:
+        found = editorial.findings(body)
+        edit = {"revised": False, "findings_before": len(found), "findings_after": len(found),
+                "patterns": [f["pattern"] for f in found], "reason": "written from the workspace facts"}
     title = inputs.get("title") or f"{facts.product} {kind.label}" + (f": {inputs['topic']}" if inputs.get("topic") else "")
     title = title[:480]
     gaps = re.findall(r"\[confirm: ([^\]]+)\]", body)
+    editorial_note = {k: edit[k] for k in ("revised", "findings_before", "findings_after", "patterns", "reason")}
     meta = {"tool": tool, "generated_by": generated_by, "facts_used": facts.known(), "needs_confirmation": gaps,
+            "editorial": editorial_note,
             "inputs": {k: v for k, v in inputs.items() if k != "save_to_workspace"}, "version": 1}
     file_path = None
     if inputs.get("save_to_workspace"):
@@ -401,7 +418,7 @@ async def draft(db: AsyncSession, workspace_id: UUID, tool: str, inputs: Dict[st
     record_id, record_type = await _store(db, workspace_id, kind, title, body, inputs, meta, owner)
     return {"id": str(record_id), "record_type": record_type, "kind": tool, "title": title, "body": body,
             "generated_by": generated_by, "needs_confirmation": gaps, "facts_used": facts.known(), "file": file_path,
-            "status": "draft"}
+            "status": "draft", "editorial": editorial_note}
 
 
 async def _store(db: AsyncSession, workspace_id: UUID, kind: DraftKind, title: str, body: str,

@@ -89,6 +89,36 @@ describe('Sales', () => {
   });
 });
 
+describe('Sales outreach (Upgrade 6)', () => {
+  it('shows the drafts waiting for Richard and sends the batch he approves', async () => {
+    mockResponses[`/api/business/${WS}/pipeline`] = { deals_by_stage: {}, open_pipeline_value: 0, won_value: 0, win_rate: null,
+      partners_by_status: {}, partners: [], deals: [] };
+    mockResponses['/api/business/kinds'] = [];
+    mockResponses[`/api/business/${WS}/drafts`] = { drafts: [] };
+    mockResponses[`/api/business/${WS}/outreach`] = {
+      report: { prospects: 3, contacted: 1, reply_rate: 1, positive_rate: 1, opted_out: 0, by_stage: { interested: 1 },
+        advice: ["'no online booking' brings the most interest: find more companies with that signal."] },
+      messages: [
+        { id: 'm1', prospect_id: 'p1', step: 1, send_after_days: 0, subject: 'Online booking for Harbor Dental', body: 'Hi Elena',
+          status: 'draft', sent_at: null, error: null },
+        { id: 'm0', prospect_id: 'p0', step: 1, send_after_days: 0, subject: 'Bookings for Bright Smile', body: 'Hi Tom',
+          status: 'sent', sent_at: '2026-11-10T10:00:00Z', error: null }],
+      needs_before_sending: [],
+    };
+    mockResponses[`POST /api/business/${WS}/outreach/approve`] = { approved: 1, refused: [], sent_now: ['m1'], waiting: 0, reason_waiting: null };
+    const Page = (await import('@/app/dashboard/sales/page')).default;
+    render(<Page />);
+    expect(await screen.findByText('Online booking for Harbor Dental')).toBeInTheDocument();
+    expect(screen.getByText('Bookings for Bright Smile')).toBeInTheDocument();
+    expect(screen.getByText(/brings the most interest/)).toBeInTheDocument();
+    const approve = screen.getByRole('button', { name: /Approve and send/ });
+    expect(approve).toBeDisabled();
+    fireEvent.click(screen.getByLabelText('Approve Online booking for Harbor Dental'));
+    fireEvent.click(screen.getByRole('button', { name: /Approve and send 1/ }));
+    await waitFor(() => expect(mockPosts).toContainEqual({ path: `/api/business/${WS}/outreach/approve`, body: { message_ids: ['m1'] } }));
+  });
+});
+
 describe('Permissions', () => {
   it('renders the live authority model', async () => {
     mockResponses['/api/permissions/overview'] = {

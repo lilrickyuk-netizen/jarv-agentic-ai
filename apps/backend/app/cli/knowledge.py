@@ -46,6 +46,33 @@ async def ingest(agents) -> int:
     return 0 if not counts.get("error") else 1
 
 
+async def skills() -> int:
+    """The skill packs' skills only: read from skill-packs/ and stored as passages for their agents."""
+    from app.core.database import AsyncSessionLocal
+    from app.core.knowledge.ingest import knowledge_ingestor
+    from app.core.knowledge.skill_packs import catalogue_entries, installed
+
+    packs = installed()
+    for name, ok in packs.items():
+        print(f"{'pinned' if ok else 'MISSING':>8}  {name}")
+    async with AsyncSessionLocal() as db:
+        results = []
+        for entry in catalogue_entries():
+            source = await knowledge_ingestor.register(db, entry)
+            results.append(await knowledge_ingestor.ingest_local(db, source, entry["local_path"]))
+            await db.commit()
+        counts = Counter(r["status"] for r in results)
+        for r in results:
+            if r["status"] == "error":
+                print(f"   error  {r['url']}  ({r.get('reason')})")
+        passages = sum(int(r.get("passages") or 0) for r in results)
+        print(f"{len(results)} skills: " + ", ".join(f"{n} {k}" for k, n in sorted(counts.items()))
+              + f"; {passages} passages stored")
+        await _audit(db, "knowledge.skills", f"Skill packs stored: {dict(counts)}",
+                     {"packs": packs, "counts": dict(counts), "passages": passages})
+    return 0 if not counts.get("error") else 1
+
+
 async def status() -> int:
     from app.core.database import AsyncSessionLocal
     from app.models.knowledge_library import KnowledgeChunk, KnowledgeSource
@@ -90,11 +117,14 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     run = sub.add_parser("ingest", help="register and fetch the catalogue's sources")
     run.add_argument("--agent", action="append", default=[], help="only this agent's sources (repeatable)")
+    sub.add_parser("skills", help="store the skill packs' skills (local, pinned clones; no web fetch)")
     sub.add_parser("status", help="list sources and their passages")
     sub.add_parser("reembed-memories", help="re-embed memories with the current embedding model")
     args = parser.parse_args()
     if args.command == "ingest":
         return asyncio.run(ingest(args.agent))
+    if args.command == "skills":
+        return asyncio.run(skills())
     if args.command == "status":
         return asyncio.run(status())
     return asyncio.run(reembed_memories())

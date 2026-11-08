@@ -22,7 +22,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field, SecretStr
@@ -36,6 +36,7 @@ MAX_RUNS = int(os.environ.get("OPENHANDS_MAX_RUNS", "4"))
 KEEP_SECONDS = 3600
 
 from app import gate as gates  # noqa: E402 - after the environment is cleaned
+from app import skills as skill_packs  # noqa: E402
 
 logger = logging.getLogger("jai.openhands")
 logging.basicConfig(level=logging.INFO)
@@ -55,6 +56,8 @@ class RunRequest(BaseModel):
     input_cost_per_token: Optional[float] = Field(default=None, ge=0)
     output_cost_per_token: Optional[float] = Field(default=None, ge=0)
     jai_tools: bool = True  # JAI's own capabilities, from its MCP server
+    # The skill packs' skills for this specialist ("pack/root/skill" folders under /jai/skills), loaded on demand.
+    skills: List[str] = Field(default_factory=list, max_length=80)
 
 
 class Run:
@@ -151,6 +154,13 @@ ENGINEERING_RULES = (
     "current documentation and fixes, read_document for PDFs and Office files, use_browser to click through a "
     "site, the code_* tools to understand code, read_mission_report for earlier missions. Use them before "
     "guessing, and record decisions and lessons with memory_add. "
+    "Skills: the skills listed for you are professional procedures (test-driven development, systematic debugging, "
+    "verification, design systems, marketing, editing, launch videos); when one fits the task, call invoke_skill "
+    "with its name and follow it, adapted to this mission: you work on your own, so where a skill says to ask your "
+    "human partner, decide sensibly yourself and say what you decided in your report. Skip skills for trivial "
+    "changes. A skill's own files are read-only under /jai/skills; run its scripts from there. "
+    "Video and browser work: ffmpeg and ffprobe are installed, and Chromium is at /usr/bin/chromium (headless, "
+    "launch it with --no-sandbox; with Playwright use playwright-core and executablePath /usr/bin/chromium). "
     "Evidence: a requirement is done only when a command in this conversation shows it; report failures exactly. "
     "Only Richard can approve pushing, publishing, deploying, spending money and anything outside this workspace.")
 
@@ -191,7 +201,7 @@ def build_conversation(run: Run, with_jai_tools: bool = True):
         mcp_config=jai_tools(request.run_id) if with_jai_tools else {},
         system_prompt_kwargs={"cli_mode": True},
         condenser=default_condenser(llm.model_copy(update={"usage_id": "condenser"})),
-        agent_context=AgentContext(system_message_suffix="\n\n".join(
+        agent_context=AgentContext(skills=skill_packs.load(request.skills), system_message_suffix="\n\n".join(
             part for part in (request.standard, ENGINEERING_RULES) if part)))
     # LocalConversation itself: the Conversation shortcut does not take the per-run spending limit.
     return LocalConversation(

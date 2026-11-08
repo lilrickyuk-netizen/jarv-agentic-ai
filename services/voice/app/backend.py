@@ -11,18 +11,33 @@ BACKEND_URL = os.environ.get("BACKEND_URL", "http://backend:8000").rstrip("/")
 BACKEND_ENV_FILE = os.environ.get("BACKEND_ENV_FILE", "/run/jai/backend.env")
 
 
-def openai_key() -> Optional[str]:
-    """The OpenAI key, from the environment or the backend's .env (mounted read-only). Only this key is read."""
-    if os.environ.get("OPENAI_API_KEY"):
-        return os.environ["OPENAI_API_KEY"]
+# The only keys this service reads: OpenAI (speech in, the conversation's model, OpenAI speech) and Fish Audio
+# (the selectable British voice, Upgrade 7).
+READABLE_KEYS = ("OPENAI_API_KEY", "FISH_API_KEY")
+
+
+def backend_key(name: str) -> Optional[str]:
+    """One of READABLE_KEYS, from the environment or the backend's .env (mounted read-only)."""
+    if name not in READABLE_KEYS:
+        raise ValueError(f"The voice service does not read {name}")
+    if os.environ.get(name):
+        return os.environ[name]
     try:
         for line in Path(BACKEND_ENV_FILE).read_text(encoding="utf-8").splitlines():
-            name, sep, value = line.strip().partition("=")
-            if sep and name.strip() == "OPENAI_API_KEY":
+            key, sep, value = line.strip().partition("=")
+            if sep and key.strip() == name:
                 return value.strip().strip('"').strip("'") or None
     except OSError:
         return None
     return None
+
+
+def openai_key() -> Optional[str]:
+    return backend_key("OPENAI_API_KEY")
+
+
+def fish_key() -> Optional[str]:
+    return backend_key("FISH_API_KEY")
 
 
 class Backend:

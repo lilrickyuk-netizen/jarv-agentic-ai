@@ -534,6 +534,21 @@ def engine_choice() -> Dict[str, Any]:
             "setup": setup_hint()}
 
 
+PIPELINE_VOICES = ("chatterbox", "kokoro", "openai", "fish")
+
+
+def pipeline_voice() -> tuple[str, str]:
+    """(engine, voice) for the Pipecat conversation. Fish Audio (Upgrade 7) needs FISH_API_KEY; without it the
+    conversation speaks with Kokoro, the local British voice, so a missing key never silences JAI."""
+    choice = (settings.VOICE_PIPELINE_TTS or "chatterbox").strip().lower()
+    engine = choice if choice in PIPELINE_VOICES else "chatterbox"
+    if engine == "fish" and not settings.FISH_API_KEY:
+        engine = "kokoro"
+    voice = {"chatterbox": settings.VOICE_PIPELINE_CHATTERBOX_VOICE, "kokoro": settings.VOICE_PIPELINE_KOKORO_VOICE,
+             "openai": settings.VOICE_PIPELINE_TTS_VOICE, "fish": settings.FISH_VOICE_ID}[engine]
+    return engine, voice
+
+
 async def pipeline_brief(db: AsyncSession, user_id: UUID) -> Dict[str, Any]:
     """Everything the Pipecat voice needs for one conversation: JAI's instructions with the current picture and
     the recent conversation, the voice tools, the model and voice. Refused when today's limit is reached."""
@@ -553,17 +568,15 @@ async def pipeline_brief(db: AsyncSession, user_id: UUID) -> Dict[str, Any]:
                                        user_id=user_id, details={"engine": "pipecat",
                                                                  "model": settings.VOICE_PIPELINE_MODEL})
     await db.commit()
-    choice = (settings.VOICE_PIPELINE_TTS or "chatterbox").strip().lower()
-    engine = choice if choice in ("chatterbox", "kokoro", "openai") else "chatterbox"
-    voice = {"chatterbox": settings.VOICE_PIPELINE_CHATTERBOX_VOICE, "kokoro": settings.VOICE_PIPELINE_KOKORO_VOICE,
-             "openai": settings.VOICE_PIPELINE_TTS_VOICE}[engine]
+    engine, voice = pipeline_voice()
     return {"engine": "pipecat", "instructions": text, "model": settings.VOICE_PIPELINE_MODEL,
             # The voice is the brain: it has JAI's tools, and no ask_jarv (it is given what ask_jarv knows).
             "tools": [t for t in VOICE_TOOLS if t["name"] != "ask_jarv"],
             "reasoning": settings.VOICE_PIPELINE_REASONING or None,
             "stt_model": settings.VOICE_PIPELINE_STT_MODEL, "stt_prompt": STT_VOCABULARY,
             "tts_engine": engine, "tts_voice": voice, "fallback_voice": settings.VOICE_PIPELINE_KOKORO_VOICE,
-            "tts_speed": settings.VOICE_PIPELINE_SPEED, "tts_model": settings.VOICE_PIPELINE_TTS_MODEL,
+            "tts_speed": settings.VOICE_PIPELINE_SPEED,
+            "tts_model": settings.FISH_MODEL if engine == "fish" else settings.VOICE_PIPELINE_TTS_MODEL,
             "tts_instructions": "Accent: Received Pronunciation, an educated southern English British accent, "
                                 "never American. Tone: calm, warm and assured, like a trusted chief of staff "
                                 "reporting. Pace: natural, unhurried.",

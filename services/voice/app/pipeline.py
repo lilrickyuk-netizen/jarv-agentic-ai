@@ -41,6 +41,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.services.openai.responses.llm import OpenAIResponsesLLMService, OpenAIResponsesReasoningConfig
 from pipecat.services.openai.stt import OpenAIRealtimeSTTService
+from pipecat.services.fish.tts import FishAudioTTSService
 from pipecat.services.kokoro.tts import KokoroTTSService
 from pipecat.services.settings import TTSSettings
 from pipecat.services.tts_service import TTSService
@@ -52,7 +53,7 @@ from pipecat.utils.text.markdown_text_filter import MarkdownTextFilter
 
 import os
 
-from app.backend import Backend
+from app.backend import Backend, fish_key
 from app.serializer import IN_RATE, OUT_RATE, JaiFrameSerializer
 
 # Tools that start, resume or stop work: only ever on Richard's own request, never after an activity update.
@@ -467,9 +468,18 @@ def chatterbox_ready(timeout: float = 1.5) -> bool:
 
 def speech(brief: Dict[str, Any], api_key: str):
     """JAI's voice for this conversation, and whether it runs on this computer (free): Chatterbox (natural speech,
-    on the GPU), Kokoro speaking British English (in the image; also the fallback when Chatterbox is not up), or
-    OpenAI text-to-speech."""
+    on the GPU), Kokoro speaking British English (in the image; also the fallback when Chatterbox is not up or Fish
+    Audio has no key), Fish Audio's British voice (streamed), or OpenAI text-to-speech."""
     engine = brief.get("tts_engine") or "kokoro"
+    if engine == "fish":
+        key = fish_key()
+        if key:  # Fish Audio's streamed voice (Upgrade 7): paid, so its characters are counted by SpendMeter
+            return FishAudioTTSService(api_key=key, sample_rate=OUT_RATE, text_filters=spoken_filters(),
+                                       settings=FishAudioTTSService.Settings(
+                voice=brief.get("tts_voice") or None, model=brief.get("tts_model") or "s2.1-pro",
+                latency="balanced", prosody_speed=float(brief.get("tts_speed") or 1.0))), False
+        brief = {**brief, "tts_voice": brief.get("fallback_voice") or "bm_george"}
+        engine = "kokoro"
     if engine == "chatterbox" and chatterbox_ready():
         return ChatterboxTTSService(base_url=CHATTERBOX_URL, voice=brief.get("tts_voice") or "george",
                                     text_filters=spoken_filters()), True

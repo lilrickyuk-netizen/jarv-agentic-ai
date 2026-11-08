@@ -4,6 +4,7 @@ import { FormEvent, useState } from 'react';
 import { DraftsPanel } from '@/components/ops/drafts';
 import { DEAL_STAGES, Deal, Pipeline } from '@/components/ops/pipeline';
 import { Button, Empty, Field, inputClass, Loading, money, Note, Panel, percent, Pill, Stat, useAction, useLoad } from '@/components/ops/ui';
+import { OutreachPanel } from '@/components/ops/outreach';
 import { WorkspacePage } from '@/components/ops/workspace';
 
 function DealsPanel({ workspaceId }: { workspaceId: string }) {
@@ -88,10 +89,11 @@ function DealsPanel({ workspaceId }: { workspaceId: string }) {
 
 export default function SalesPage() {
   return (
-    <WorkspacePage title="Sales" subtitle="The deal pipeline and sales material grounded in the product's real facts">
+    <WorkspacePage title="Sales" subtitle="The deal pipeline, outreach waiting for your approval, and sales material grounded in the product's real facts">
       {(workspaceId) => (
         <div className="space-y-6" key={workspaceId}>
           <DealsPanel workspaceId={workspaceId} />
+          <OutreachPanel workspaceId={workspaceId} />
           <DraftsPanel workspaceId={workspaceId} group="sales" title="Sales drafts"
             hint="Prospect briefs, scripts, follow-up sequences and summaries. Binding commercial commitments stay with you." />
         </div>

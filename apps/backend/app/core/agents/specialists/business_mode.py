@@ -210,7 +210,13 @@ MODES: Dict[str, BusinessMode] = {
                                  _partnerships),
     "sales": BusinessMode(("sales",), (),
                           "Run the sales pipeline: keep deals current with update_sales_pipeline and draft scripts, "
-                          "sequences and briefs from the real product facts. " + _GROUND,
+                          "sequences and briefs from the real product facts. To find new customers: "
+                          "discover_prospect_companies for the customer type and area, read_buying_signals with the "
+                          "signals Richard confirmed, find_decision_makers for the companies that fit, "
+                          "verify_prospect_email, draft_outreach_sequence, then approve_and_send_outreach (each batch "
+                          "waits for Richard). Read replies with process_sales_replies and report with "
+                          "sales_campaign_report. Only verified addresses are emailed; opt-outs are never contacted "
+                          "again. " + _GROUND,
                           lambda d: _lines([("Operation", d.get("operation")), ("Contact", d.get("contact_info")),
                                             ("Deal value", d.get("deal_value")), ("Stage", d.get("stage"))]),
                           _sales),

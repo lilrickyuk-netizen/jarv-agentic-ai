@@ -406,3 +406,33 @@ def test_the_openai_key_is_read_from_the_backends_env_file_only(tmp_path, monkey
     assert backend_module.openai_key() == "sk-from-file"
     monkeypatch.setattr(backend_module, "BACKEND_ENV_FILE", str(tmp_path / "missing.env"))
     assert backend_module.openai_key() is None
+
+
+def test_fish_audio_speaks_in_the_british_voice_with_its_key_and_kokoro_without(monkeypatch):
+    """Upgrade 7: Fish Audio is a selectable voice; its key is read from the backend's .env, its characters are
+    charged, and with no key the conversation still speaks, in Kokoro's British voice."""
+    from app import backend
+
+    monkeypatch.setattr(pipeline, "fish_key", lambda: "fish-test-key-not-real")
+    tts, local = pipeline.speech({"tts_engine": "fish", "tts_voice": "612b878b113047d9a770c069c8b4fdfe",
+                                  "tts_model": "s2.1-pro", "fallback_voice": "bm_george"}, "sk-test-not-real")
+    assert local is False and type(tts).__name__ == "FishAudioTTSService"
+    assert tts._settings.voice == "612b878b113047d9a770c069c8b4fdfe" and tts._settings.model == "s2.1-pro"
+
+    monkeypatch.setattr(pipeline, "fish_key", lambda: None)
+    fallback, local = pipeline.speech({"tts_engine": "fish", "fallback_voice": "bm_george"}, "sk-test-not-real")
+    assert local is True and type(fallback).__name__ == "KokoroTTSService"
+
+    with pytest.raises(ValueError):
+        backend.backend_key("ANTHROPIC_API_KEY")  # the voice service reads only its own two keys
+
+
+def test_the_fish_key_is_read_from_the_backends_env_file(tmp_path, monkeypatch):
+    from app import backend
+
+    env = tmp_path / "backend.env"
+    env.write_text("OPENAI_API_KEY=sk-a\nFISH_API_KEY='fish-b'\nANTHROPIC_API_KEY=never-read\n")
+    monkeypatch.setattr(backend, "BACKEND_ENV_FILE", str(env))
+    monkeypatch.delenv("FISH_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    assert backend.fish_key() == "fish-b" and backend.openai_key() == "sk-a"

@@ -105,3 +105,6 @@ apps/backend/data/
 
 # Postiz social network app keys (Wave 4d)
 services/postiz/social.env
+
+# Third-party skill packs, cloned at pinned commits by scripts/skill-packs.sh (never committed)
+/skill-packs/
