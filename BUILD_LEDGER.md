@@ -14452,3 +14452,16 @@ TESTS RUN: dashboard type check and Jest suite
 RESULT: At Richard's request the Command Center's orb panel has a black background and the "JAI CORE / Intelligence field / CORE 01" heading is removed; the panel keeps an accessible name.
 BLOCKERS: None
 NEXT TASK: MYCO Phase 0
+
+---
+
+TASK ID: BLACK-PAGE
+TASK NAME: The Command Center is black from the top of the page down
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/dashboard/src/app/globals.css
+COMMANDS RUN: dashboard type check and tests; dashboard rebuilt
+TESTS RUN: dashboard type check and Jest suite
+RESULT: At Richard's request the navy glow across the top of the page (a radial gradient behind the header) and the header's translucent fill are now plain black, matching the orb's panel.
+BLOCKERS: None
+NEXT TASK: MYCO Phase 0
