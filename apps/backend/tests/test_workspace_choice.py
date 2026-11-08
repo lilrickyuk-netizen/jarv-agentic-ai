@@ -71,16 +71,18 @@ def test_an_unreachable_workspace_is_moved_to_the_folder_the_brief_names(monkeyp
             again = await workspace_choice.choose(db, BRIEF, centre.id, owner)
             outside = await workspace_choice.choose(db, r"Plexecute video in D:\Other\place", centre.id, owner)
             plain = await workspace_choice.choose(db, "How is everything going?", centre.id, owner)
+            # Read everything while the session is open (the audit log commits, and rows expire with it).
+            seen = {"plexecute": plexecute.id, "root": plexecute.config["root_path"], "centre": centre.id}
             await db.rollback()
-            return plexecute, moved, logged, again, outside, plain, centre.id
+            return seen, moved, logged, again, outside, plain
 
-    plexecute, moved, logged, again, outside, plain, centre = asyncio.run(run())
-    assert moved.workspace_id == plexecute.id and "Moved the Plexecute workspace" in moved.note
-    assert plexecute.config["root_path"] == r"C:\Users\lilri\Projects\PLEXECUTE_IMAGES" and len(logged) == 1
-    assert again.workspace_id == plexecute.id and "holds" in again.note  # now it simply holds the folder
+    seen, moved, logged, again, outside, plain = asyncio.run(run())
+    assert moved.workspace_id == seen["plexecute"] and "Moved the Plexecute workspace" in moved.note
+    assert seen["root"] == r"C:\Users\lilri\Projects\PLEXECUTE_IMAGES" and len(logged) == 1
+    assert again.workspace_id == seen["plexecute"] and "holds" in again.note  # now it simply holds the folder
     # A folder outside the approved root is never registered: the brief's name still picks the workspace.
-    assert outside.workspace_id == plexecute.id and "Moved" not in outside.note
-    assert plain.workspace_id == centre and plain.note == ""
+    assert outside.workspace_id == seen["plexecute"] and "Moved" not in outside.note
+    assert plain.workspace_id == seen["centre"] and plain.note == ""
 
 
 def test_a_mission_carries_on_from_the_same_project_in_another_workspace():
