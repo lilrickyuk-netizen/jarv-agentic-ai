@@ -6,6 +6,7 @@ jest.mock('three', () => ({
   WebGLRenderer: function WebGLRenderer() { throw new Error('WebGL is not available'); },
 }));
 import { CoreField } from '@/components/core-field';
+import { JarvisOrb, ORB_FOR_STATE } from '@/components/jarvis-orb';
 import { FIELD_LOOKS, FIELD_STATES, IntelligenceField, buildNetwork, nodeCount } from '@/components/intelligence-field';
 
 describe('Upgrade 8: the intelligence field', () => {
@@ -52,9 +53,11 @@ describe('Upgrade 8: the intelligence field', () => {
     expect(field).toHaveAttribute('data-state', 'approval');
   });
 
-  it('switches between the network and the earlier swarm and remembers the choice', () => {
+  it('shows the JARVIS orb first, and switches to the network or the swarm and remembers the choice', () => {
     window.localStorage.clear();
     const { unmount } = render(<CoreField state="executing" />);
+    expect(screen.getByRole('img', { name: /JARVIS orb/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Network' }));
     expect(screen.getByRole('img', { name: /network of linked nodes/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Swarm' }));
     expect(screen.getByRole('button', { name: 'Swarm' })).toHaveAttribute('aria-pressed', 'true');
@@ -63,5 +66,14 @@ describe('Upgrade 8: the intelligence field', () => {
     unmount();
     render(<CoreField state="executing" />);
     expect(screen.getByRole('img', { name: /swarm of 90,000 lights/i })).toBeInTheDocument();
+  });
+
+  it('puts every one of JAI\'s states on the JARVIS orb, amber when waiting on Richard and red on a failure', () => {
+    expect(Object.keys(ORB_FOR_STATE).sort()).toEqual([...FIELD_STATES].sort());
+    expect(ORB_FOR_STATE.executing.mode).toBe('thinking');  // electrons travel while JAI works
+    expect(ORB_FOR_STATE.approval.color).toBe(0xfbbf24);
+    expect(ORB_FOR_STATE.failed).toEqual({ mode: 'compacting', color: 0xfb7185 });
+    render(<JarvisOrb state="speaking" />);
+    expect(screen.getByRole('img', { name: /JARVIS orb.*speaking/i })).toHaveAttribute('data-render-state', 'unavailable');
   });
 });

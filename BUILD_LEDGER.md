@@ -14322,3 +14322,16 @@ TESTS RUN: ECC's chosen skills reach the right agents and sandbox roles with one
 RESULT: ECC (affaan-m/ECC, MIT): 60 of its 314 skills chosen for JAI's stack and goals (FastAPI, Next.js, React, Postgres, Docker, migrations, deployment, security review, production audit, end-to-end and browser QA, SEO, campaigns, investor materials and outreach, lead intelligence, Remotion and Manim video), each given to the agents whose work it is and loaded only when used; ECC's own 71 agents, hooks and orchestration are not installed, so JAI's 31 agents and orchestrator stay in charge. AgentShield (affaan-m/agentshield, MIT) scans every pack after it is fetched; a skill with a critical injection, secrets, hook, MCP or agent finding (documentation examples aside) is blocked everywhere. ICM (rtk-ai/icm, Apache-2.0) was not added as a second memory, which would split JAI's knowledge and its workspace separation; its three recall ideas (period-aware recall, importance-weighted decay, near-duplicate merging) now work inside JAI's own memory.
 BLOCKERS: None
 NEXT TASK: MYCO Phase 0; the Plexecute 2 launch video
+
+---
+
+TASK ID: JARVIS-ORB
+TASK NAME: The JARVIS orb (Ethan Rogers' ethanplusai/jarvis particle visualisation) as the Command Center's intelligence field
+STATUS: COMPLETE
+FILES CREATED: apps/dashboard/src/components/jarvis-orb.tsx
+FILES MODIFIED: apps/dashboard/src/components/core-field.tsx, apps/dashboard/__tests__/intelligence-field.test.tsx
+COMMANDS RUN: dashboard type check and tests; dashboard rebuilt
+TESTS RUN: every one of JAI's ten states is placed on the orb (working states think with travelling electrons, approval amber, failure withdrawn in red); the orb says it cannot draw where WebGL is missing; it is shown first and the network field and swarm stay selectable, the choice remembered
+RESULT: Richard wanted the field to look and react like the JARVIS project's orb. JAI is his personal, non-commercial system, which the JARVIS licence allows with its notice kept, so the orb is ported directly: 2,000 drifting particles held in a breathing sphere, connection lines that fade in by state, electrons travelling along connections while JAI thinks or works, the tumble on every change of state, depth breathing, and bass and mid of Jay's live voice pushing the particles. Adapted to the panel's size, a transparent background, reduced motion and cleanup. Not for use in anything sold without Ethan Rogers' commercial licence.
+BLOCKERS: None
+NEXT TASK: MYCO Phase 0; the Plexecute 2 launch video
