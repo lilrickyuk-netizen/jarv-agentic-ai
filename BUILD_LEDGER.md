@@ -14439,3 +14439,16 @@ TESTS RUN: a brief that names one skill just before the word "skill" ("with your
 RESULT: On 8 November the Plexecute launch video ("with your BRAG Slim skill") went through the full mission team: requirements, a nine-package plan, the environment engineer, parallel waves, integration and the Verifier, taking over twenty minutes for what BRAG does alone in a few. A brief that names one skill now has that skill as its plan: one specialist runs it end to end, setting up what it needs, and the independent Verifier still checks every requirement. Builds such as MYCO keep the full team.
 BLOCKERS: None
 NEXT TASK: MYCO Phase 0
+
+---
+
+TASK ID: ORB-ON-BLACK
+TASK NAME: The intelligence field sits on black, with no heading above it
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/dashboard/src/app/dashboard/page.tsx, apps/dashboard/src/app/globals.css
+COMMANDS RUN: dashboard type check and tests; dashboard rebuilt
+TESTS RUN: dashboard type check and Jest suite
+RESULT: At Richard's request the Command Center's orb panel has a black background and the "JAI CORE / Intelligence field / CORE 01" heading is removed; the panel keeps an accessible name.
+BLOCKERS: None
+NEXT TASK: MYCO Phase 0
