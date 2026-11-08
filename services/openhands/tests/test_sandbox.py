@@ -334,3 +334,40 @@ def test_the_budget_counts_cached_input_at_its_real_price(folder):
         assert 0.05 < cost < 0.2, cost
     finally:
         conversation.close()
+
+
+def test_jai_check_shows_only_failures_and_never_pays_twice_for_an_unchanged_pass(tmp_path, monkeypatch):
+    """8 November: specialists re-read full logs and re-ran passing checks; jai-check prints what failed and
+    reuses a pass while nothing it depends on has changed."""
+    import subprocess
+
+    from app import jai_check
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "-c", "user.email=j@j", "-c", "user.name=j", "commit", "-q", "--allow-empty", "-m", "i"],
+                   cwd=repo, check=True)
+    monkeypatch.setattr(jai_check, "ROOT", tmp_path / "cache")
+    code, first = jai_check.run("echo hello", str(repo))
+    again_code, again = jai_check.run("echo hello", str(repo))
+    assert code == 0 and first.startswith("PASS (") and again_code == 0 and again.startswith("PASS (cached")
+    (repo / "new.txt").write_text("changed")
+    assert not jai_check.run("echo hello", str(repo))[1].startswith("PASS (cached")
+    assert not jai_check.run("echo hello", str(repo), fresh=True)[1].startswith("PASS (cached")
+    lines = "; ".join(f"echo line{i}" for i in range(200))
+    code, failed = jai_check.run(f"{lines}; echo 'Error: boom'; exit 3", str(repo))
+    assert code == 3 and failed.startswith("FAIL (exit 3") and "Error: boom" in failed
+    assert "line5" not in failed and "full log:" in failed  # the noise stays in the log
+    assert jai_check.run(f"echo 'Error: boom'; exit 3", str(repo))[1].startswith("FAIL")  # failures never cached
+
+
+def test_the_model_sees_the_images_it_opens():
+    request = server.RunRequest(run_id="run-vision-1", workspace="/tmp", brief="b", model="claude-opus-5-5",
+                                provider="anthropic", input_cost_per_token=4e-6, output_cost_per_token=2e-5,
+                                cache_read_cost_per_token=2e-7)
+    assert request.vision is True and server.register_prices("anthropic", request)
+    import litellm
+
+    assert litellm.model_cost["anthropic/claude-opus-5-5"]["supports_vision"] is True
+    assert "jai-check" in server.ENGINEERING_RULES

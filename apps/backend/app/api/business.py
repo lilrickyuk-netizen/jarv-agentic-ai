@@ -288,3 +288,30 @@ async def friction(workspace_id: UUID, user_id: CurrentUserId, days: int = Query
                    db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
     await _owned(db, user_id, workspace_id)
     return await analyse_activation_friction(db, workspace_id, days)
+
+
+class OutreachConsent(BaseModel):
+    company_id: str = Field(..., min_length=8, max_length=64)
+    evidence: str = Field(..., min_length=5, max_length=500,
+                          description="Where and when the business consented (a form, an email, a call)")
+
+
+@router.post("/{workspace_id}/outreach/consent")
+async def record_outreach_consent(workspace_id: UUID, body: OutreachConsent, user_id: CurrentUserId,
+                                  db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    """Richard records a business's consent to marketing email (UK PECR: needed for a sole trader or partnership).
+    Only Richard can: an agent never records consent."""
+    from app.core.audit import AuditLogger
+    from app.core.business.prospecting import prospecting_service
+
+    owner = await _owned(db, user_id, workspace_id)
+    try:
+        company = await prospecting_service.record_consent(db, workspace_id, body.company_id, body.evidence)
+    except (LookupError, ValueError) as exc:
+        raise _http(exc)
+    await AuditLogger.log_system_event(db, action="sales.outreach.consent", result="ok", resource_type="outreach",
+                                       user_id=owner, details={"workspace_id": str(workspace_id),
+                                                               "company_id": body.company_id,
+                                                               "evidence": body.evidence[:200]})
+    await db.commit()
+    return company

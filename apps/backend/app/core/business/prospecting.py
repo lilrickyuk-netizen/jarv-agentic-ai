@@ -190,6 +190,23 @@ def in_office_hours(moment: Optional[datetime] = None) -> bool:
     return local.weekday() < 5 and 8 <= local.hour < 17
 
 
+# UK PECR: a limited company or LLP (a corporate subscriber) may be emailed without prior consent, with the sender's
+# identity and an opt-out; a sole trader or a partnership is an individual subscriber and needs consent (or the soft
+# opt-in). Fines since February 2026 reach £17.5m or 4% of turnover, so a business is treated as corporate only when
+# its own site says so.
+CORPORATE = re.compile(r"\b(ltd|limited|plc|llp|limited liability partnership|company (no|number|reg(istration)?)|"
+                       r"registered in (england|scotland|wales|northern ireland)|companies house)\b", re.I)
+
+
+def pecr_status(text: str, url: str) -> Dict[str, Any]:
+    """Whether a business's own site shows it is a corporate subscriber (it is never a buying signal)."""
+    match = CORPORATE.search(text or "")
+    if match:
+        return {"matched": False, "subscriber": "corporate", "evidence": f'"{match.group(0)}" on {url}'}
+    return {"matched": False, "subscriber": "individual or unknown",
+            "evidence": f"no company registration (Ltd, LLP, company number) on {url}"}
+
+
 def compliance_footer() -> Tuple[str, List[str]]:
     """The sender's identity, postal address and opt-out line JAI adds to every message, and what is missing."""
     name = (getattr(settings, "SALES_SENDER_NAME", "") or "").strip()
@@ -274,8 +291,11 @@ class ProspectingService:
                     "matched": hit, "evidence": (f"none of {words} on {page['url']}" if want_absent and hit
                                                  else f"found {present} on {page['url']}" if present
                                                  else f"none of {words} on {page['url']}")}
-            company.signals = results
             company.fit_score = round(matched / len(signals), 3)
+            results["_pecr"] = {**pecr_status(text, page["url"]),
+                                **({"consent": (company.signals or {}).get("_pecr", {}).get("consent")}
+                                   if (company.signals or {}).get("_pecr", {}).get("consent") else {})}
+            company.signals = results
             company.published_emails = sorted(set(company.published_emails or []) | set(
                 emails_on(page["html"], company.domain)))
             company.status = "qualified" if company.fit_score >= 0.5 else "not_a_fit"
@@ -515,6 +535,12 @@ class ProspectingService:
             return f"{prospect.name}'s address is {prospect.email_status}; only verified addresses are emailed"
         if await self.suppressed(db, workspace_id, prospect.email):
             return "the address or its domain opted out"
+        company = await db.get(ProspectCompany, prospect.company_id)
+        pecr = ((company.signals or {}).get("_pecr") or {}) if company is not None else {}
+        if pecr.get("subscriber") != "corporate" and not pecr.get("consent"):
+            return ("UK PECR: its site does not show it is a limited company or LLP, so it may be a sole trader or "
+                    "partnership (an individual subscriber) and needs their consent before marketing email; record "
+                    "the consent first")
         if prospect.stage in CLOSING_STAGES or prospect.stage in ("replied", "interested", "objection"):
             return f"{prospect.name} has {prospect.stage.replace('_', ' ')}; the sequence stopped"
         if row.step > 1:
@@ -676,6 +702,19 @@ class ProspectingService:
                     prospect.stage = "opted_out"
         await db.flush()
         return {"value": value, "kind": kind, "reason": row.reason}
+
+    async def record_consent(self, db: AsyncSession, workspace_id: UUID, company_id: str, evidence: str) -> Dict:
+        """Record that a business (an individual subscriber under PECR) consented to marketing email, with where
+        and when; without it JAI never emails a business that is not shown to be a company or LLP."""
+        if not str(evidence or "").strip():
+            raise ValueError("Say where the consent came from (a form, an email, a call) and when.")
+        company = (await self._companies(db, workspace_id, [company_id]))[0]
+        signals = dict(company.signals or {})
+        signals["_pecr"] = {**(signals.get("_pecr") or {"matched": False}), "consent": str(evidence)[:500],
+                            "consent_recorded_at": _now().isoformat(timespec="seconds")}
+        company.signals = signals
+        await db.flush()
+        return company_view(company)
 
     async def suppressed(self, db: AsyncSession, workspace_id: UUID, email: str) -> bool:
         email = (email or "").lower()

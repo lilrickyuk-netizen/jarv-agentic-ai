@@ -39,7 +39,7 @@ def test_a_question_about_jai_itself_is_answered_from_its_design_document_not_a_
                  "How is the mission going?", "Make the Plexecute launch video with your BRAG Slim skill. " * 10):
         assert not identity.asks_about_me(work), work
     whole = identity.capabilities()
-    assert "134 skills" in whole and "Six pinned" in whole and "## Honest limits" in whole
+    assert "135 skills" in whole and "Six pinned" in whole and "## Honest limits" in whole
     spoken = live.spoken_instructions([], brain=True)
     assert "what_i_am" in spoken and "A question is never a mission" in spoken
     start = next(t for t in live.TOOLS if t["name"] == "start_mission")
@@ -62,7 +62,7 @@ def test_a_written_question_about_jai_gets_the_whole_document(monkeypatch):
     monkeypatch.setattr("app.core.command.service.get_router", lambda: Router())
     service = CommandService()
     asyncio.run(service._run_answer("What capabilities have you got?", {}, [], []))
-    assert "HE IS ASKING ABOUT YOU" in seen["system"] and "134 skills" in seen["system"]
+    assert "HE IS ASKING ABOUT YOU" in seen["system"] and "135 skills" in seen["system"]
     asyncio.run(service._run_answer("How is MYCO going?", {}, [], []))
     assert "HE IS ASKING ABOUT YOU" not in seen["system"]
 
@@ -85,7 +85,7 @@ def test_jais_design_is_stored_and_found_by_search():
             if db.get_bind().dialect.name != "postgresql":
                 return None
             results = await KnowledgeIngestor().install(db, identity.catalogue_entries(), agents=["sales"])
-            hits = await search_passages(db, "parallel waves specialists integration engineer Verifier",
+            hits = await search_passages(db, "Lead Builder acceptance ledger effort tiers independent Verifier",
                                          agents=["sales"])
             return results, hits
 

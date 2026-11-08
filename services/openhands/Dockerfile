@@ -91,6 +91,9 @@ RUN pip install "openhands-sdk==1.58.2" "openhands-tools==1.58.2" "fastapi>=0.11
 WORKDIR /jai
 COPY app ./app
 COPY tests ./tests
+# jai-check: checks the way an agent should see them (failures only, passing runs cached while nothing changed).
+RUN printf '#!/bin/sh\nexec python3 /jai/app/jai_check.py "$@"\n' > /usr/local/bin/jai-check \
+    && chmod 755 /usr/local/bin/jai-check && chmod -R a+rX /jai/app
 EXPOSE 8010
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8010/health || exit 1

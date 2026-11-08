@@ -329,3 +329,33 @@ def knowledge_refresh(self: Task) -> dict[str, Any]:
                 "errors": [{"url": r["url"], "reason": r.get("reason")} for r in results if r["status"] == "error"]}
 
     return run_async(run())
+
+
+async def _home_workspace(db):
+    """The workspace JAI's own notices go to: the Command Center, or the oldest active workspace."""
+    from sqlalchemy import select
+
+    from app.models.workspace import Workspace
+
+    rows = (await db.execute(select(Workspace).where(Workspace.is_active.is_(True), Workspace.is_archived.is_(False))
+                             .order_by(Workspace.created_at))).scalars().all()
+    home = next((w for w in rows if (w.name or "").lower() == "command center"), rows[0] if rows else None)
+    return home
+
+
+@celery_app.task(name="approvals_digest_daily", bind=True)
+def approvals_digest_daily(self: Task) -> dict[str, Any]:
+    """One morning digest of everything waiting for Richard, grouped by kind of action (Celery beat)."""
+    from app.core import approvals_digest
+    from app.core.database import AsyncSessionLocal
+
+    async def run() -> dict[str, Any]:
+        async with AsyncSessionLocal() as db:
+            home = await _home_workspace(db)
+            if home is None:
+                return {"total": 0}
+            result = await approvals_digest.post(db, home.id, home.owner_id)
+            await db.commit()
+        return {"total": result["total"], "by_class": result["by_class"]}
+
+    return run_async(run())

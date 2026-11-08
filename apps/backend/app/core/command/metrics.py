@@ -14,13 +14,15 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, Dict, Optional
 
-# US dollars per million tokens: (uncached input, output, cached input, cache write). Read from the model page on
-# 2 November 2026; a model not listed here is measured in tokens only.
+# US dollars per million tokens: (uncached input, output, cached input, cache write). Read from the model pages; the
+# Claude prices from Anthropic's pricing page on 8 November 2026 (cache hits are 0.05x input, 5-minute cache writes
+# 1.25x). A model not listed here is measured in tokens only.
 PRICES: Dict[str, tuple] = {
     # US dollars per million tokens: input, output, cached input read, cache write.
     "gpt-6-luna": (0.10, 0.50, 0.01, 0.125),
     "gpt-6-sol": (2.00, 10.00, 0.20, 2.50),
-    "claude-opus-5-5": (4.00, 20.00, 0.40, 5.00),
+    "claude-opus-5-5": (4.00, 20.00, 0.20, 5.00),
+    "claude-sonnet-5-5": (2.00, 10.00, 0.10, 2.50),
 }
 
 ROLES = ("mission", "requirements", "verifier", "report")

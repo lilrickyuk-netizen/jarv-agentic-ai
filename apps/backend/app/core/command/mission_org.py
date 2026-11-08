@@ -59,6 +59,18 @@ INTEGRATION_ID = "INT"
 # And it begins with the environment engineer and ends with the independent Verifier, both in the sandbox.
 ENVIRONMENT_ID = "ENV"
 VERIFIER_ID = "VER"
+# The default since 8 November: one builder works through the frozen acceptance ledger (see _builder_package).
+BUILDER_ID = "B1"
+# Parallel writers only when the brief asks for them (tier 3).
+PARALLEL_ASKED = re.compile(r"\b(in parallel|parallel (agents|writers|team|specialists)|swarm|split (it|the work) "
+                            r"(up|across)|several agents|many agents)\b", re.I)
+# Skills that need the strong model, more steps and a larger allowance to reach their quality. BRAG Slim is written
+# for Opus 5.5 alone (its own README routes every other model away from it), and its quality comes from the agent
+# re-rendering and looking at its own frames, which takes steps.
+SKILL_RUNS: Dict[str, Dict[str, Any]] = {
+    "brag-slim": {"model": "lead", "effort": "high", "max_steps": 200, "max_cost": 10.0},
+    "brag": {"model": "lead", "effort": "high", "max_steps": 200, "max_cost": 10.0},
+}
 
 # The specialists a mission can call on, with each role's working standard. A sub-agent is briefed with its role's
 # standard, so it works the way a senior person in that role works.
@@ -227,6 +239,16 @@ SPECIALISTS: Dict[str, Dict[str, str]] = {
             "run the project's bootstrap and its quickest checks, and fix what the environment breaks. Report each "
             "tool with the version you confirmed."),
     },
+    "builder": {
+        "title": "Lead Builder",
+        "standard": (
+            "You build the whole mission yourself, in one working session, the way a senior engineer who owns the "
+            "project would: get your bearings, get the environment green, then work through the acceptance ledger "
+            "one item at a time, testing each item end to end and committing it before the next. When an item is "
+            "documentation, security, infrastructure, design or content work, work to that specialist's standard "
+            "(the roles are listed in your brief). You never claim an item passes unless its check passed in this "
+            "session."),
+    },
     "verifier": {
         "title": "Independent Verifier",
         "standard": (
@@ -255,7 +277,7 @@ PLAN_TOOL = {
             "packages": {"type": "array", "items": {"type": "object", "properties": {
                 "id": {"type": "string", "description": "P1, P2, ..."},
                 "title": {"type": "string"},
-                "specialist": {"type": "string", "enum": sorted(set(SPECIALISTS) - {"environment", "verifier"})},
+                "specialist": {"type": "string", "enum": sorted(set(SPECIALISTS) - {"environment", "verifier", "builder"})},
                 "goal": {"type": "string", "description": "What this package delivers, concretely"},
                 "owns": {"type": "array", "items": {"type": "string"},
                          "description": "The files and folders only this package writes, relative to the "
@@ -307,6 +329,12 @@ class Package:
     sub_task_id: Optional[UUID] = None
     started_at: Optional[datetime] = None
     tools: List[str] = field(default_factory=list)
+    # How the package is run in the sandbox: "lead" (Opus), "specialist" (Sonnet) or a model name; its reasoning
+    # effort, step limit and spending allowance. None: the sandbox's defaults for its role.
+    model: Optional[str] = None
+    effort: Optional[str] = None
+    max_steps: Optional[int] = None
+    max_cost: Optional[float] = None
 
     @property
     def role(self) -> str:
@@ -314,7 +342,8 @@ class Package:
 
     def card(self) -> Dict[str, Any]:
         return {"id": self.id, "title": self.title, "specialist": self.specialist, "role": self.role,
-                "status": self.status, "step": self.step, "steps": self.steps, "owns": self.owns,
+                "goal": self.goal[:1500], "done_when": self.done_when[:500], "status": self.status,
+                "model": self.model, "effort": self.effort, "max_steps": self.max_steps, "max_cost": self.max_cost, "step": self.step, "steps": self.steps, "owns": self.owns,
                 "depends_on": self.depends_on, "requirements": self.requirements,
                 "doing_now": self.doing, "summary": self.summary[:400], "success": self.success,
                 "tool_calls": self.calls, "cost_usd": round(self.cost_usd, 4)}
@@ -571,6 +600,10 @@ class MissionTeam:
         self.sandbox = False  # specialists work in JAI's OpenHands sandbox (when it is switched on and answers)
         self.verdict: Optional[Dict[str, Any]] = None  # the sandbox Verifier's result
         self._session_factory = session_factory
+        self.running_now = 1        # packages running in the current wave (they share what the mission has left)
+        self.capped = False         # the mission's spending allowance ran out this round
+        self.restored = False       # finished packages were taken over from an interrupted run of this round
+        self._booked = 0.0          # this round's spend already added to the mission's total
         self._machine = asyncio.Lock()
         self._services = asyncio.Lock()
         self._started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -590,6 +623,22 @@ class MissionTeam:
         if name in MACHINE_TOOLS or name.startswith(MACHINE_TOOLS_PREFIXES):
             return self._machine
         return None
+
+    async def book_spend(self) -> None:
+        """Add what this round has spent since the last booking to the mission's total (command/mission_budget)."""
+        from app.core.command import mission_budget
+
+        total = float(self.lead.usage.cost_usd or 0)
+        if total > self._booked:
+            await mission_budget.add(self.runtime.task_id, total - self._booked)
+            self._booked = total
+
+    async def budget_left(self) -> Optional[float]:
+        """What the mission may still spend, or None when it has no allowance."""
+        from app.core.command import mission_budget
+
+        await self.book_spend()
+        return await mission_budget.left(self.runtime.task_id)
 
     async def adopt(self, calls: List[Dict[str, Any]]) -> None:
         self.runtime.calls.extend(calls)
@@ -954,13 +1003,28 @@ class MissionTeam:
                 mine["evidence"] = f"[{p.id} {p.role}] {r.get('evidence') or ''}"[:500]
 
     async def _run_team(self, mission: str, known: Optional[str]) -> None:
-        pending = list(self.packages)
-        finished: Dict[str, Package] = {}
+        # Packages finished by an interrupted run of this round are kept, not run again.
+        finished: Dict[str, Package] = {p.id: p for p in self.packages if p.status == "finished"}
+        pending = [p for p in self.packages if p.id not in finished]
         while pending:
+            left = await self.budget_left()
+            if left is not None and left <= 0.01:
+                # The mission's allowance is used: nothing more starts, the progress is kept and Richard is told.
+                from app.core.command import mission_budget
+
+                self.capped = True
+                for p in pending:
+                    p.status, p.success = "stopped", False
+                    p.summary = (f"Not started: the mission reached its spending allowance "
+                                 f"(${mission_budget.cap():.2f}).")
+                await self.save_progress()
+                break
             wave = next_wave(pending, finished, self.parallel)
             for p in wave:
                 pending.remove(p)
+            self.running_now = len(wave)
             await asyncio.gather(*(self._run_package(p, mission, known) for p in wave))
+            await self.book_spend()
             for p in wave:
                 finished[p.id] = p
 
@@ -975,6 +1039,11 @@ class MissionTeam:
         if self.verdict is None or not self.verdict.get("success"):
             unmet.insert(0, "The independent Verifier did not finish: "
                             + str((self.verdict or {}).get("answer") or "it did not run")[:300])
+        if self.capped:
+            from app.core.command import mission_budget
+
+            unmet.insert(0, f"The mission stopped at its spending allowance (${mission_budget.cap():.2f}). Its "
+                            "progress is kept: say \"carry on\" to continue with a new allowance.")
         standing = await self.lead.hard_checks()
         if standing and standing.get("findings") and self.lead._conformance(mission, standing):
             unmet += [f"Hard check: {Finding(**f).text()}"[:300]
@@ -986,6 +1055,11 @@ class MissionTeam:
                 r["status"], r["evidence"] = "done", f"[Verifier] {check['evidence']}"[:500]
             elif r.get("status") == "done":
                 r["status"] = "open"  # the team said done; the Verifier did not see it
+        from app.core.command import failures, ledger
+
+        unmet = failures.label(unmet)
+        if unmet:  # what the builder recorded as blocked, and why, for Richard's report
+            unmet += [f"[ledger] {line}" for line in ledger.blocked(self.workspace_root)]
         verified = not unmet
         integration = (next((p for p in self.packages if p.id == INTEGRATION_ID), None)
                        or next((p for p in self.packages if p.id != VERIFIER_ID), None))  # a one-skill job's P1
@@ -999,7 +1073,8 @@ class MissionTeam:
         usage = self.lead.usage.summary()
         return {
             "answer": answer, "agent_summary": summary, "report": None, "iterations": team_steps,
-            "success": verified, "finished": True, "needs_continuation": not verified, "step_limit_reached": False,
+            "success": verified, "finished": True, "needs_continuation": not verified and not self.capped,
+            "step_limit_reached": False,
             "verification": {"verified": verified, "unmet": unmet, "checks": judged["checks"],
                              "steps": next((p.step for p in self.packages if p.id == VERIFIER_ID), 0)},
             "continuation_count": start_continuation, "resume_from_step": team_steps, "remaining_steps": 0,
@@ -1013,6 +1088,98 @@ class MissionTeam:
             "team": {"approach": self.approach, "parallel": self.parallel, "packages": team,
                      "swarm_run_id": str(self.swarm_run_id) if self.swarm_run_id else None},
         }
+
+    async def _restore(self, requirements: Optional[List[Dict[str, Any]]]) -> None:
+        """Take over this round's plan when its run was interrupted (the worker was lost and the mission re-queued):
+        packages that finished keep their result and are not run again; the rest run. On 8 November a re-queue ran
+        the whole video team a second time for $4.92."""
+        from app.core.command import progress
+
+        try:
+            saved = await progress.load(self.runtime.task_id) or {}
+        except Exception as exc:  # noqa: BLE001 - nothing to take over: the round starts as usual
+            logger.info(f"no interrupted run to take over: {exc}")
+            return
+        cards = ((saved.get("team") or {}).get("packages")) or []
+        if int(saved.get("round") or 0) != self.round_no or not any(c.get("success") for c in cards):
+            return
+        packages = []
+        for c in cards:
+            if c.get("specialist") not in SPECIALISTS or not c.get("id"):
+                return
+            p = Package(id=str(c["id"]), title=str(c.get("title") or ""), specialist=c["specialist"],
+                        goal=str(c.get("goal") or c.get("title") or ""), owns=list(c.get("owns") or []),
+                        depends_on=list(c.get("depends_on") or []), requirements=list(c.get("requirements") or []),
+                        done_when=str(c.get("done_when") or ""), model=c.get("model"), effort=c.get("effort"),
+                        max_steps=c.get("max_steps"), max_cost=c.get("max_cost"))
+            if c.get("success"):
+                p.status, p.success, p.summary = "finished", True, str(c.get("summary") or "")
+                p.step, p.calls, p.cost_usd = int(c.get("step") or 0), int(c.get("tool_calls") or 0), 0.0
+            packages.append(p)
+        items = ((saved.get("requirements") or {}).get("items")) or []
+        if not requirements and items:
+            self.lead.requirements = [{**i, "source": i.get("source") or "mission"} for i in items if i.get("id")]
+        if not self.lead.requirements:
+            return
+        self.packages, self.approach = packages, str((saved.get("team") or {}).get("approach") or "")
+        self.restored = True
+        logger.info(f"mission {self.runtime.task_id}: taking over round {self.round_no}, "
+                    f"{sum(1 for p in packages if p.success)} of {len(packages)} packages already finished")
+
+    def _builder_package(self, open_ids: List[str], skeleton: bool = False) -> Package:
+        """Tier 2: the one builder. With writers after it (tier 3) it only gets the environment and skeleton green."""
+        if skeleton:
+            return Package(id=BUILDER_ID, title="Environment and skeleton green, ledger written", specialist="builder",
+                           goal=("Get your bearings, write the acceptance ledger, get the environment and the "
+                                 "project's skeleton green (bootstrap and smoke test passing) and commit. Build "
+                                 "nothing the writers after you own."),
+                           owns=[], depends_on=[], requirements=[],
+                           done_when=".jai/init.sh and the smoke test pass and the ledger is committed",
+                           model="lead", max_steps=int(settings.OPENHANDS_BUILDER_MAX_ITERATIONS))
+        return Package(id=BUILDER_ID, title="Build the mission, ledger item by ledger item", specialist="builder",
+                       goal=("Get your bearings, then work through the acceptance ledger one item at a time until "
+                             "every item passes its check or is honestly blocked, committing each item."),
+                       owns=[], depends_on=[], requirements=open_ids,
+                       done_when="every ledger item passes its check through jai-check, or is recorded as blocked",
+                       model="lead", max_steps=int(settings.OPENHANDS_BUILDER_MAX_ITERATIONS))
+
+    def _skill_package(self, skill: Dict[str, Any], open_ids: List[str]) -> Package:
+        """Tier 1: one specialist runs the named skill end to end."""
+        run = SKILL_RUNS.get(skill["skill"]) or {}
+        return Package(
+            id="P1", title=f"The {skill['skill']} skill, end to end", specialist=skill["sandbox"][0],
+            goal=(f"Invoke the {skill['skill']} skill and follow it yourself from start to finish for this mission: "
+                  "every step it describes is yours, none is handed to anyone else. Keep to everything the brief "
+                  "says (what to read first, what may be claimed, the format and the deliverables). Work from the "
+                  "real material the skill asks for (for a website: its real pages, styles, fonts and assets, saved "
+                  "into your working folder), never from a summary of it. Install what the skill needs yourself. "
+                  "Where the skill says to look at your own output (stills, contact sheets), open the images and "
+                  "look, then fix what you see before you finish. Run the brief's own acceptance checks last."),
+            owns=[], depends_on=[], requirements=open_ids,
+            done_when="every deliverable the brief names exists, passes the brief's checks and meets the skill's own "
+                      "quality rules", **run)
+
+    @staticmethod
+    def _creative_check(skill: Dict[str, Any]) -> str:
+        return (f"Check every requirement yourself. This is {skill['skill']} creative work, so judge how it looks, "
+                "not only its format: make contact sheets of stills from every scene and from mid-transition "
+                "(ffmpeg), open and look at them, and judge them against the skill's own quality rules (read its "
+                "SKILL.md under /jai/skills: a hook in the first seconds, the real product shown in use, constant "
+                "motion, readable text, every frame postable). A format check (ffprobe) is necessary, never enough.")
+
+    def _capped_result(self, requirements: Optional[List[Dict[str, Any]]], start_continuation: int) -> Dict[str, Any]:
+        """The round's result when the mission's allowance was already used before it began: nothing is spent."""
+        from app.core.command import mission_budget
+
+        note = (f"The mission has used its spending allowance (${mission_budget.cap():.2f}), so this round did not "
+                "start. Its progress is kept: say \"carry on\" to continue with a new allowance.")
+        return {"answer": note, "agent_summary": note, "report": None, "iterations": 0, "success": False,
+                "finished": True, "needs_continuation": False, "step_limit_reached": False,
+                "verification": {"verified": False, "unmet": [note], "checks": [], "steps": 0},
+                "continuation_count": start_continuation, "resume_from_step": 0, "remaining_steps": 0,
+                "last_tool_call_id": None, "tokens": 0, "tools": [], "requirements": list(requirements or []),
+                "context_trimmed_chars": 0, "stuck_loops": 0, "metrics": {"usage": self.lead.usage.summary()},
+                "capped": True}
 
     def _integration_mission(self, mission: str) -> str:
         lines = [mission, "", "THE TEAM'S WORK THIS ROUND (each specialist's own report: check it against the files "
@@ -1051,15 +1218,28 @@ class MissionTeam:
         if not settings.MISSION_TEAM_ENABLED or not self.workspace_root or prior_messages:
             return await self.lead.run(mission, steps_per_round, max_continuations, prior_messages,
                                        start_continuation, known, verify, requirements, prior_calls)
+        from app.core.command import mission_budget
+
+        left = await mission_budget.left(self.runtime.task_id)
+        if left is not None and left <= 0.01:
+            return self._capped_result(requirements, start_continuation)
         router = MeteredRouter(get_router(), self.lead.usage, "planning", self.lead._cache_key())
         await self.lead._prepare_tools()
         if requirements:
             self.lead.requirements = [dict(r) for r in requirements]
+        await self._restore(requirements)
+        if not self.restored:
+            # The phase's frozen acceptance ledger, when the project has one: the plan is never made again.
+            from app.core.command import ledger
+
+            frozen = ledger.requirements(self.workspace_root, mission)
+            if frozen:
+                self.lead.requirements, requirements = frozen, frozen
         standing = await self.lead.hard_checks()
         if standing is not None:
             self.lead.hard_baseline = {f["check"] + "|" + f["file"] + "|" + f["detail"]
                                        for f in standing["findings"]}
-        if not requirements:
+        if not requirements and not self.restored:
             from app.core.command.requirements import derive
             from app.core.verification.checks import Finding
 
@@ -1083,60 +1263,45 @@ class MissionTeam:
         open_ids = [str(r["id"]).upper() for r in self.lead.requirements if r.get("status") != "done"]
         from app.core.knowledge.skill_packs import named_skill
 
-        skill = named_skill(mission) if self.sandbox and open_ids else None
-        if skill is not None:
-            # A one-skill job ("make the video with your BRAG Slim skill"): the skill is the plan. One specialist runs
-            # it end to end, setting up what it needs itself, and the independent Verifier checks the result. No
-            # planning, environment or integration stage: on 8 November the Plexecute video took the full team's
-            # nine packages for what the skill does alone in minutes.
-            self.approach = (f"One {SPECIALISTS[skill['sandbox'][0]]['title']} runs the {skill['skill']} skill end "
-                             "to end; the independent Verifier checks the result against the brief.")
-            self.packages = [Package(
-                id="P1", title=f"The {skill['skill']} skill, end to end", specialist=skill["sandbox"][0],
-                goal=(f"Invoke the {skill['skill']} skill and follow it from start to finish for this mission, "
-                      "keeping to everything the brief says (what to read first, what may be claimed, the format "
-                      "and the deliverables). Install or set up whatever the skill needs yourself as you go, and "
-                      "run the brief's own acceptance checks before you finish."),
-                owns=[], depends_on=[], requirements=open_ids,
-                done_when="every deliverable the brief names exists and passes the brief's acceptance checks"),
-                Package(id=VERIFIER_ID, title="Independent check of every requirement", specialist="verifier",
-                        goal="Check every requirement of the mission yourself, with the brief's acceptance checks.",
-                        owns=[], depends_on=["P1"], requirements=[],
-                        done_when="each requirement judged met or unmet with evidence seen in this run")]
-        elif open_ids:
-            await self._plan(router, mission, known)
-        if self.sandbox and open_ids and skill is None:
-            # In the sandbox every mission is done by specialists, however small: the environment engineer makes the
-            # machine match the project first, the team builds, the integration engineer builds and tests the whole,
-            # and the independent Verifier runs the acceptance checks. Without a plan the build is one Senior
-            # Software Engineer's package.
-            if not self.packages:
-                self.packages = [Package(id="P1", title="The mission", specialist="coding_agent", goal=mission[:1500],
-                                         owns=[], depends_on=[], requirements=open_ids,
-                                         done_when="every requirement has evidence")]
-            for p in self.packages:
-                p.depends_on = list(dict.fromkeys([ENVIRONMENT_ID, *p.depends_on]))
-            built = [p.id for p in self.packages]
-            self.packages.insert(0, Package(
-                id=ENVIRONMENT_ID, title="Environment: every pinned tool at its version, bootstrap passing",
-                specialist="environment",
-                goal=("Read every version the project and its specification pin, install whatever is missing at "
-                      "exactly that version, run the project's bootstrap and quickest checks, and fix what the "
-                      "environment breaks, so no package fails for a missing or wrong tool."),
-                owns=[], depends_on=[], requirements=[],
-                done_when="every pinned tool reports its pinned version and the project's bootstrap passes"))
-            self.packages.append(Package(
-                id=INTEGRATION_ID, title="Integration: build, test and fix the whole", specialist="devops",
-                goal=("Install, build, lint, type-check and test the whole project with its own commands, fix "
-                      "whatever breaks where the team's packages meet, finish what any package left open, and run "
-                      "the specification's acceptance commands (in a fresh clone in /tmp when it asks for one)."),
-                owns=[], depends_on=built, requirements=[],
-                done_when="the project's whole install, build, lint, type-check, test and acceptance commands pass"))
+        skill = named_skill(mission) if self.sandbox and open_ids and not self.restored else None
+        if self.restored:
+            pass  # the interrupted run's plan, its finished packages kept
+        elif self.sandbox and open_ids:
+            # Effort tiers (8 November research): systems that reliably ship software run one persistent builder
+            # with one memory; teams of fresh specialists fail more and cost more. So:
+            #   tier 1  a brief that names one skill: one specialist runs the skill end to end, then the Verifier;
+            #   tier 2  the default: one builder works through the frozen acceptance ledger, then the Verifier;
+            #   tier 3  only when the brief asks for parallel work: the builder gets the skeleton green first, then
+            #           writers on separate paths, each integrating and testing its own change, then the Verifier.
+            # There is no separate integration stage; the Verifier is the one independent judge.
+            if skill is not None:
+                self.packages = [self._skill_package(skill, open_ids)]
+            elif PARALLEL_ASKED.search(mission or ""):
+                await self._plan(router, mission, known)
+                writers = [p for p in self.packages if p.specialist not in ("environment", "verifier", "builder")]
+                for p in writers:
+                    p.depends_on = list(dict.fromkeys([BUILDER_ID, *p.depends_on]))
+                    p.model = p.model or "specialist"
+                self.packages = [self._builder_package(open_ids, skeleton=bool(writers))] + writers
+                if writers:
+                    self.approach = ((self.approach + " ") if self.approach else "") + (
+                        "The builder gets the environment and skeleton green first; the writers then work on "
+                        "separate paths, each integrating and testing its own change.")
+            else:
+                self.packages = [self._builder_package(open_ids)]
+            if not self.approach:
+                self.approach = ("One specialist runs the skill end to end" if skill is not None else
+                                 "One builder works through the acceptance ledger item by item")
+                self.approach += "; the independent Verifier checks every requirement at the end."
             self.packages.append(Package(
                 id=VERIFIER_ID, title="Independent check of every requirement", specialist="verifier",
-                goal="Check every requirement of the mission yourself, with the project's real acceptance commands.",
-                owns=[], depends_on=[INTEGRATION_ID], requirements=[],
-                done_when="each requirement judged met or unmet with evidence seen in this run"))
+                goal=(self._creative_check(skill) if skill is not None else
+                      "Check every requirement yourself with the project's real acceptance commands, run through "
+                      "jai-check so a check whose inputs have not changed is not paid for twice."),
+                owns=[], depends_on=[p.id for p in self.packages], requirements=[],
+                done_when="each requirement judged met or unmet with evidence seen in this run", model="lead"))
+        elif open_ids:
+            await self._plan(router, mission, known)
         if len(self.packages) < 2:
             # One small change (or no plan): the lead does it alone, as one agent.
             self.packages = []
@@ -1151,6 +1316,10 @@ class MissionTeam:
             logger.warning(f"mission records not committed before the team started: {exc}")
             await self.runtime.db.rollback()
         await self._open_swarm(mission)
+        for p in self.packages:
+            if p.status == "finished":  # done before the interruption: dissolved with its result at once
+                await self._mark(p, starting=False)
+        await self.book_spend()
         await self.save_progress()
         await self._run_team(mission, known)
         team_steps = sum(p.step for p in self.packages)

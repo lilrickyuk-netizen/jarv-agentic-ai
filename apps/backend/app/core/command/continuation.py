@@ -115,13 +115,26 @@ def round_changed_workspace(calls) -> bool:
     return False
 
 
+def _done(requirements) -> int:
+    return sum(1 for r in requirements or [] if isinstance(r, dict) and r.get("status") == "done")
+
+
+def round_progressed(before, after, calls) -> bool:
+    """Whether a round moved the mission on. With a requirement list, only a requirement newly done counts: on
+    8 November MYCO rounds kept changing files, completed nothing and kept paying. Without one, a change to the
+    workspace counts."""
+    if after:
+        return _done(after) > _done(before)
+    return round_changed_workspace(calls)
+
+
 def after_round(outcome: str, reason, changed: bool, idle_before: int):
     """The outcome of a round once idle rounds are counted: (outcome, reason, idle rounds so far)."""
     idle = 0 if changed else int(idle_before or 0) + 1
     if outcome == lifecycle.NEEDS_CONTINUATION and idle >= IDLE_ROUNDS_LIMIT:
         return (lifecycle.PARTIAL,
-                f"Stopped for Richard's review: {idle} rounds in a row changed nothing in the workspace and the "
-                f"independent check still did not pass, so another round would only repeat the same checks. "
+                f"Stopped for Richard's review: {idle} rounds in a row completed no new requirement and the "
+                f"independent check still did not pass, so another round would only pay to repeat them. "
                 f"The report shows what is evidenced and what the check still disputes.", idle)
     return outcome, reason, idle
 
@@ -131,7 +144,7 @@ async def queue_resume(db: AsyncSession, task: Task, *, operator: str, reason: s
 
     The next round runs in JAI's worker, never inside a web request, so closing or leaving the
     dashboard cannot stop it. A resume Richard asks for gives the mission a fresh allowance of
-    automatic rounds.
+    automatic rounds and a new spending allowance.
     """
     from app.core.runtime.dispatcher import dispatch_mission
 
@@ -155,6 +168,9 @@ async def queue_resume(db: AsyncSession, task: Task, *, operator: str, reason: s
         task.error_message = None
     task.result = {**result, "auto_rounds": 0}
     task.meta_data = {**(task.meta_data or {}), "resume_mode": "continuation", "operator": operator}
+    from app.core.command import mission_budget
+
+    await mission_budget.reset(task.id)  # a resume he asks for comes with a new spending allowance
     await db.commit()
     dispatched = await dispatch_mission(task.id, reason=reason)
     return {"task_id": str(task.id), "status": lifecycle.QUEUED, "resumed": True,
@@ -256,7 +272,9 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
     else:
         outcome, reason = lifecycle.FAILED, "Continuation produced no verifiable output."
 
-    outcome, reason, idle = after_round(outcome, reason, round_changed_workspace(runtime.calls),
+    outcome, reason, idle = after_round(outcome, reason, round_progressed(res.get("requirements"),
+                                                                          result.get("requirements"),
+                                                                          runtime.calls),
                                         int(res.get("idle_rounds") or 0))
     checkpoint_id = str(uuid4()) if outcome == lifecycle.NEEDS_CONTINUATION else res.get("checkpoint_id")
     updated = dict(res)

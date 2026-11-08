@@ -72,6 +72,11 @@ class ClaudeProvider(BaseLLMProvider):
             "output_cost": 20.00,
             "context_window": 1000000,
         },
+        "claude-sonnet-5-5": {
+            "input_cost": 2.00,
+            "output_cost": 10.00,
+            "context_window": 1000000,
+        },
         "claude-opus-4-8": {
             "input_cost": 5.00,
             "output_cost": 25.00,

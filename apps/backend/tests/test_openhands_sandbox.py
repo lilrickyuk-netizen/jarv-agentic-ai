@@ -270,7 +270,8 @@ def test_a_work_package_is_done_in_the_sandbox_and_followed_to_its_end(monkeypat
     assert "YOUR WORK PACKAGE P1" in fake.started["brief"] and "- R1 [open] sub exists" in fake.started["brief"]
     assert "MYCO uses pytest." in fake.started["brief"] and "`R3: done" in fake.started["brief"]
     assert "Senior Software Engineer" in fake.started["standard"]
-    assert fake.started["model"] == "claude-opus-5-5" and fake.started["provider"] == "anthropic"
+    # 8 November: the hands-on specialists work with Sonnet 5.5 (half Opus's price); Opus checks and takes over.
+    assert fake.started["model"] == "claude-sonnet-5-5" and fake.started["provider"] == "anthropic"
     assert fake.started["max_cost_usd"] > 0
     # Upgrades 1-5: the engineer's skills go with the package (listed in the sandbox, loaded only when invoked).
     assert "superpowers/skills/test-driven-development" in fake.started["skills"]
@@ -283,80 +284,26 @@ def test_a_work_package_is_done_in_the_sandbox_and_followed_to_its_end(monkeypat
     assert package.calls == 2 and progress and left is None  # the run's scope is forgotten once it ends
 
 
-@pytest.mark.integration
-@pytest.mark.skipif(_SQLITE, reason="the team's records are written from several sessions at once")
-def test_with_the_sandbox_every_mission_is_done_by_specialists_and_an_integration_engineer(monkeypatch):
+def _sandbox_team(monkeypatch, mission, *, cost=0.001, plan=None, cap=None, before=None):
+    """Run one round of a mission team with the sandbox answering every package (recorded: id, specialist, model
+    choice, goal); returns (result, done, planned calls)."""
     from app.core.command import agent_executor, mission_org
     from app.core.command.mission_org import MissionTeam
     from tests.test_mission_team import TWO_PACKAGES, TeamRouter
     from tests.test_workspace_toolchain import _mission_folder, _mission_workspace
 
     host, folder = _mission_folder()
-    router = TeamRouter(TWO_PACKAGES, {"lead": [[("finish", {"summary": "Confirmed.", "success": True})]]})
+    router = TeamRouter(plan or TWO_PACKAGES, {"lead": [[("finish", {"summary": "Confirmed.", "success": True})]]})
     monkeypatch.setattr(settings, "MISSION_TEAM_ENABLED", True)
+    if cap is not None:
+        monkeypatch.setattr(settings, "MISSION_MAX_COST_USD", cap)
     monkeypatch.setattr(agent_executor, "get_router", lambda: router)
     monkeypatch.setattr(mission_org, "get_router", lambda: router)
-
-    async def up():
-        return True
-
-    done = []
-
-    async def in_sandbox(self, requirements):
-        done.append((self.package.id, self.package.specialist, [r["id"] for r in requirements]))
-        return {"success": True, "answer": "\n".join(f"{r['id']}: done — checked" for r in requirements),
-                "requirements": [{**r, "status": "done", "evidence": "checked"} for r in requirements],
-                "steps": 5, "tokens": 100, "token_detail": {"input": 80, "output": 20}, "cost_usd": 0.001}
-
-    monkeypatch.setattr(sandbox_engine, "available", up)
-    monkeypatch.setattr(sandbox_engine.SandboxSpecialist, "run", in_sandbox)
-
-    async def run():
-        async with AsyncTestingSessionLocal() as session:
-            rt = await _mission_workspace(session, host)
-            result = await MissionTeam(rt, "test-model", host, session_factory=AsyncTestingSessionLocal).run(
-                "Add sub(a, b) to the project and document it.", max_continuations=2)
-            await session.commit()
-            return result
-
-    try:
-        result = asyncio.run(run())
-    finally:
-        shutil.rmtree(folder, ignore_errors=True)
-    order = [d[0] for d in done]
-    assert order[0] == "ENV" and sorted(order[1:3]) == ["P1", "P2"] and order[3:] == ["INT", "VER"]
-    assert done[0][1] == "environment" and done[-1][1] == "verifier" and done[-1][2] == ["R1", "R2"]
-    assert result["success"] is True and result["verification"]["verified"] is True
-    assert "in JAI's OpenHands sandbox" in result["answer"] and "Independent check: verified." in result["answer"]
-    assert [p["id"] for p in result["team"]["packages"]] == ["ENV", "P1", "P2", "INT", "VER"]
-    assert router.offered == {}  # every step of the mission ran in the sandbox, none in JAI's old tool loop
-
-
-def test_a_one_skill_job_is_one_specialist_running_the_skill_then_the_verifier(monkeypatch):
-    """8 November: "make the Plexecute launch video with your BRAG Slim skill" went through the full team (nine
-    packages, environment, integration) for what the skill does alone in minutes."""
-    from app.core.command import agent_executor, mission_org
-    from app.core.command.mission_org import MissionTeam
-    from app.core.knowledge.skill_packs import named_skill
-    from tests.test_mission_team import TWO_PACKAGES, TeamRouter
-    from tests.test_workspace_toolchain import _mission_folder, _mission_workspace
-
-    assert named_skill("Make the Plexecute launch video with your BRAG Slim skill.")["skill"] == "brag-slim"
-    assert named_skill("make a marketing video using its brag skill")["skill"] == "brag-slim"
-    for planned in ("Carry on building MYCO Phase 0", "Use all your marketing skills",
-                    "Use your test-driven-development skill and your systematic-debugging skill"):
-        assert named_skill(planned) is None, planned
-
-    host, folder = _mission_folder()
-    router = TeamRouter(TWO_PACKAGES, {"lead": [[("finish", {"summary": "Confirmed.", "success": True})]]})
-    monkeypatch.setattr(settings, "MISSION_TEAM_ENABLED", True)
-    monkeypatch.setattr(agent_executor, "get_router", lambda: router)
-    monkeypatch.setattr(mission_org, "get_router", lambda: router)
-    planned_calls = []
+    planned = []
     original_plan = MissionTeam._plan
 
-    async def plan(self, *args, **kwargs):
-        planned_calls.append(1)
+    async def plan_calls(self, *args, **kwargs):
+        planned.append(1)
         return await original_plan(self, *args, **kwargs)
 
     async def up():
@@ -365,32 +312,121 @@ def test_a_one_skill_job_is_one_specialist_running_the_skill_then_the_verifier(m
     done = []
 
     async def in_sandbox(self, requirements):
-        done.append((self.package.id, self.package.specialist, self.package.goal))
+        done.append((self.package.id, self.package.specialist, self.package.model, self.package.goal,
+                     list(self.package.depends_on)))
         return {"success": True, "answer": "\n".join(f"{r['id']}: done — checked" for r in requirements),
                 "requirements": [{**r, "status": "done", "evidence": "checked"} for r in requirements],
-                "steps": 5, "tokens": 100, "token_detail": {"input": 80, "output": 20}, "cost_usd": 0.001}
+                "steps": 5, "tokens": 100, "token_detail": {"input": 80, "output": 20}, "cost_usd": cost}
 
-    monkeypatch.setattr(MissionTeam, "_plan", plan)
+    monkeypatch.setattr(MissionTeam, "_plan", plan_calls)
     monkeypatch.setattr(sandbox_engine, "available", up)
     monkeypatch.setattr(sandbox_engine.SandboxSpecialist, "run", in_sandbox)
 
     async def run():
         async with AsyncTestingSessionLocal() as session:
             rt = await _mission_workspace(session, host)
+            if before is not None:
+                await before(rt)
             result = await MissionTeam(rt, "test-model", host, session_factory=AsyncTestingSessionLocal).run(
-                "Make the Plexecute launch video with your BRAG Slim skill.", max_continuations=2)
+                mission, max_continuations=2)
             await session.commit()
             return result
 
     try:
-        result = asyncio.run(run())
+        return asyncio.run(run()), done, planned
     finally:
         shutil.rmtree(folder, ignore_errors=True)
-    assert [(d[0], d[1]) for d in done] == [("P1", "creation"), ("VER", "verifier")]
-    assert "Invoke the brag-slim skill" in done[0][2] and planned_calls == []
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(_SQLITE, reason="the team's records are written from several sessions at once")
+def test_by_default_one_builder_works_through_the_ledger_and_the_verifier_judges(monkeypatch):
+    """8 November research: systems that reliably ship software run one persistent builder; JAI's teams of fresh
+    specialists (environment, waves, integration) failed more and cost more."""
+    result, done, planned = _sandbox_team(monkeypatch, "Add sub(a, b) to the project and document it.")
+    assert [(d[0], d[1], d[2]) for d in done] == [("B1", "builder", "lead"), ("VER", "verifier", "lead")]
+    assert done[1][4] == ["B1"] and planned == []  # no planner, no environment or integration stage
+    assert result["success"] is True and result["verification"]["verified"] is True
+    assert [p["id"] for p in result["team"]["packages"]] == ["B1", "VER"]
+    assert "One builder works through the acceptance ledger" in result["team"]["approach"]
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(_SQLITE, reason="the team's records are written from several sessions at once")
+def test_parallel_writers_only_when_asked_after_the_skeleton_is_green(monkeypatch):
+    result, done, planned = _sandbox_team(monkeypatch, "Add sub(a, b) and document it, in parallel.")
+    order = [d[0] for d in done]
+    assert order[0] == "B1" and sorted(order[1:3]) == ["P1", "P2"] and order[3] == "VER" and planned == [1]
+    assert all("B1" in d[4] for d in done if d[0] in ("P1", "P2"))
+    assert {d[2] for d in done if d[0] in ("P1", "P2")} == {"specialist"}
+    assert "INT" not in order and "ENV" not in order
+    assert result["success"] is True
+
+
+def test_a_one_skill_job_is_one_specialist_running_the_skill_then_the_verifier(monkeypatch):
+    """8 November: "make the Plexecute launch video with your BRAG Slim skill" went through the full team (nine
+    packages, environment, integration) for what the skill does alone in minutes."""
+    from app.core.knowledge.skill_packs import named_skill
+
+    assert named_skill("Make the Plexecute launch video with your BRAG Slim skill.")["skill"] == "brag-slim"
+    assert named_skill("make a marketing video using its brag skill")["skill"] == "brag"
+    for planned in ("Carry on building MYCO Phase 0", "Use all your marketing skills",
+                    "Use your test-driven-development skill and your systematic-debugging skill"):
+        assert named_skill(planned) is None, planned
+
+    result, done, planned = _sandbox_team(monkeypatch, "Make the Plexecute launch video with your BRAG Slim skill.")
+    assert [(d[0], d[1]) for d in done] == [("P1", "creation"), ("VER", "verifier")] and planned == []
+    assert "Invoke the brag-slim skill" in done[0][3] and "open the images and look" in done[0][3]
+    assert done[0][2] == "lead"  # BRAG Slim is written for Opus 5.5 alone
+    assert "contact sheets" in done[1][3]  # the Verifier judges how it looks, not only its format
     assert result["success"] is True and result["verification"]["verified"] is True
     assert [p["id"] for p in result["team"]["packages"]] == ["P1", "VER"]
-    assert "runs the brag-slim skill end to end" in result["team"]["approach"]
+    card = result["team"]["packages"][0]
+    assert card["effort"] == "high" and card["max_steps"] >= 200 and card["max_cost"] >= 10
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(_SQLITE, reason="the team's records are written from several sessions at once")
+def test_a_mission_stops_at_its_spending_allowance_and_keeps_its_progress(monkeypatch):
+    """8 November: one MYCO mission could use the whole day's limit. Each mission now has its own allowance."""
+    result, done, _ = _sandbox_team(monkeypatch, "Add sub(a, b) and document it, in parallel.", cost=4.0, cap=6.0)
+    order = [d[0] for d in done]
+    assert order[0] == "B1" and "VER" not in order  # the allowance ran out before the Verifier could start
+    assert result["success"] is False and result["needs_continuation"] is False
+    assert any("spending allowance" in u for u in result["verification"]["unmet"])
+
+    async def spent(rt):
+        from app.core.command import mission_budget
+
+        await mission_budget.add(rt.task_id, 7.0)
+
+    result, done, _ = _sandbox_team(monkeypatch, "Add sub(a, b).", cap=6.0, before=spent)
+    assert done == [] and result["capped"] is True and "allowance" in result["answer"]
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(_SQLITE, reason="the team's records are written from several sessions at once")
+def test_an_interrupted_round_keeps_its_finished_packages(monkeypatch):
+    """8 November: a re-queue ran the whole video team a second time for $4.92."""
+    from app.core.command import progress
+
+    async def interrupted(rt):
+        await progress.save(rt.task_id, {
+            "round": 1, "updated_at": "2026-11-08T16:40:00+00:00",
+            "requirements": {"items": [{"id": "R1", "text": "sub", "status": "done", "evidence": "pytest"},
+                                       {"id": "R2", "text": "docs", "status": "open", "evidence": ""}]},
+            "team": {"approach": "Builder then writers.", "packages": [
+                {"id": "B1", "title": "Skeleton", "specialist": "builder", "goal": "skeleton", "status": "finished",
+                 "success": True, "summary": "green", "owns": [], "depends_on": [], "requirements": []},
+                {"id": "P2", "title": "Docs", "specialist": "documentation", "goal": "docs", "status": "working",
+                 "success": False, "owns": ["docs/"], "depends_on": ["B1"], "requirements": ["R2"]},
+                {"id": "VER", "title": "Check", "specialist": "verifier", "goal": "check", "status": "planned",
+                 "success": False, "owns": [], "depends_on": ["B1", "P2"], "requirements": [], "model": "lead"}]}})
+
+    result, done, planned = _sandbox_team(monkeypatch, "Add sub(a, b) and document it, in parallel.",
+                                          before=interrupted)
+    assert [d[0] for d in done] == ["P2", "VER"] and planned == []
+    assert [p["id"] for p in result["team"]["packages"]] == ["B1", "P2", "VER"]
 
 
 def test_a_run_lost_to_a_sandbox_restart_is_reported_at_once(sandbox_token):
@@ -571,6 +607,8 @@ def test_the_sandbox_is_told_what_cached_input_really_costs(monkeypatch, sandbox
             await specialist.run([{"id": "R1", "text": "sub", "source": "mission", "status": "open", "evidence": ""}])
 
     asyncio.run(run())
-    assert fake.started["input_cost_per_token"] == pytest.approx(4e-6)
-    assert fake.started["cache_read_cost_per_token"] == pytest.approx(4e-7)
-    assert fake.started["cache_write_cost_per_token"] == pytest.approx(5e-6)
+    # Sonnet 5.5 at Anthropic's prices (8 November 2026): $2 in, $10 out, cache hits $0.10, 5-minute writes $2.50.
+    assert fake.started["input_cost_per_token"] == pytest.approx(2e-6)
+    assert fake.started["output_cost_per_token"] == pytest.approx(1e-5)
+    assert fake.started["cache_read_cost_per_token"] == pytest.approx(1e-7)
+    assert fake.started["cache_write_cost_per_token"] == pytest.approx(2.5e-6)

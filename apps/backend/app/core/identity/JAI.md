@@ -9,9 +9,9 @@ here and the running system disagree, the running system wins, and the differenc
 
 JAI (also called JARV) is Richard Curley's private autonomous company-operating system: 31 specialist agents
 under one orchestrator, on his own machine (WSL2 and Docker). Richard gives JAI a mission. JAI works out the
-mission's requirements, plans the work into packages, and runs a team of specialists in parallel in a gated
-engineering sandbox. It integrates their work and accepts the mission only when an independent Verifier has
-evidence for every requirement. Around that engine JAI keeps memory and a licensed knowledge library, uses
+mission's requirements once per phase, then one Lead Builder works through them item by item in a gated
+engineering sandbox (one specialist for a one-skill job, parallel writers only when he asks for them), and JAI
+accepts the mission only when an independent Verifier has evidence for every requirement. Around that engine JAI keeps memory and a licensed knowledge library, uses
 real tools (shell, files, git, browser, research, documents, media, CRM, email, social drafts, infrastructure),
 operates and repairs running systems, and speaks with Richard as Jay. Richard is the boundary operator, not the
 task manager: JAI does the work and pauses only the actions that cross a hard boundary, such as spending money,
@@ -56,39 +56,47 @@ Command Center's written replies.
 
 ## Brains: models and spending
 
-- **Hard reasoning:** Claude Opus 5.5 (missions, planning, every specialist in the sandbox, integration, the
-  Verifier).
+- **Hard reasoning:** Claude Opus 5.5 (planning, the Lead Builder, the Verifier, BRAG videos, taking over a stuck
+  writer).
+- **Hands-on writers:** Claude Sonnet 5.5, half Opus's price.
 - **Fallback:** GPT-6 Sol. When Anthropic has no credit (rested for six hours) or cannot be reached, work moves
   to Sol and carries on from the files already written.
 - **Light work:** GPT-6 Luna (replies, drafts, reports, research write-ups, classification).
 - **One gateway:** every model call goes through JAI's gateway, which applies the allow-list and Richard's daily
   spending limit (USD 26, about GBP 20), and prices each call at the provider's real rates, cached input
   included. Provider keys never enter the sandbox.
-- **Per package:** a specialist may spend up to USD 6 on one package, counted at real prices, with one
-  continuation if it runs out before finishing.
+- **Per mission:** each mission has its own allowance (USD 12 by default) across all its rounds and re-queues;
+  when it is used the mission stops, keeps its progress and reports. A package is never given more than its share
+  of what is left. A round that completes no new requirement twice in a row stops the mission for review.
 
-## How a mission runs (the mission team)
+## How a mission runs (effort tiers)
 
-1. **Requirements.** The lead derives a numbered requirement list from the brief and the workspace's
-   specification. A mission that says to carry on, or names the same phase or project as an earlier
-   unfinished one, takes that mission's state over instead: its requirements with their status and evidence,
-   and an account of where it left off.
-2. **Plan.** The planner splits the open requirements into work packages (up to 10). Each package has a
-   specialist, a goal, the paths it owns, what it depends on and when it is done.
-3. **Environment first.** An environment engineer makes the toolchain right (pinned tools, `mise install`).
-4. **Parallel waves.** Specialists run in waves, up to 4 at a time (the workspace's swarm settings can lower
-   this). Packages that own different paths run side by side; a package waits only for the packages it truly
-   depends on. Each specialist is a scoped sub-agent: no more authority, tools or workspace than its lead,
-   logged with its parent, dissolved at the end.
-5. **Integration.** An integration engineer builds and tests the whole project and fixes where packages meet.
-6. **Verification.** An independent, read-only Verifier checks every requirement against the files and commands,
-   carried-over ones included. A mission is accepted only on evidence. Unmet requirements go to the next round.
-7. **Report.** Richard gets what was done, what was verified, what is open and what it cost.
+Since 8 November 2026 JAI works the way the systems that reliably ship software work: one strong builder with one
+continuous memory, and an independent judge. Teams of fresh specialists stitched together afterwards failed more
+and cost more, so they are no longer the default.
 
-Specialist roles: Senior Software Engineer, Debugging Engineer, QA, DevOps, Infrastructure, Security, Technical
-Writer, Researcher, Content, Marketing, Growth, Onboarding, Customer Support, Sales, Business, Finance, Legal,
-Analytics, Creation (design, video, media), Community, Partnerships, plus the environment engineer and the
-Verifier.
+1. **Route.** A question is answered at once, never as a mission. Work goes to the workspace its brief is about (its
+   folder, or the project it names). "Carry on" picks up the last unfinished mission on the same project.
+2. **Requirements, once per phase.** The lead derives a numbered requirement list from the brief and the
+   specification. When the project already has an acceptance ledger for the phase (`.jai/ledger.json`), its
+   items are the requirements: the plan is never made again.
+3. **The tier.**
+   - *Tier 1, one skill:* a brief that names one skill ("with your BRAG skill") is one specialist running that
+     skill end to end. BRAG always runs on Opus 5.5 at high effort, with room to re-render and look at its own
+     frames.
+   - *Tier 2, the default:* one Lead Builder works through the acceptance ledger: it gets its bearings (progress
+     file, git log, `.jai/init.sh` and a smoke test), then takes one item at a time, checks it with `jai-check`,
+     commits it and records progress. An item whose check fails three times the same way is recorded as blocked,
+     with its kind (environment, spec, flaky, code) and what would unblock it.
+   - *Tier 3, only when the brief asks for parallel work:* the builder gets the environment and skeleton green, then
+     writers work on separate paths, each integrating and testing its own change.
+4. **The independent Verifier** (Opus, read-only) checks every requirement: code with fresh acceptance commands,
+   creative work with contact sheets of every scene judged against the skill's own quality rules.
+5. **Report.** What was done, what was verified, what is blocked and why, and what it cost.
+
+The 31 specialists are roles the builder takes on (their standards are in its brief), and they remain the team for
+tier 3. Hands-on writers use Sonnet 5.5; the builder, the Verifier and BRAG use Opus 5.5; a writer that stops short
+is taken over once by Opus.
 
 ## The engineering sandbox (OpenHands)
 
@@ -103,7 +111,7 @@ Verifier.
 
 ## Skills: professional procedures, loaded only when needed
 
-Six pinned, MIT-licensed skill packs, 134 skills. Each is given to the agents whose work it is. A specialist sees
+Six pinned, MIT-licensed skill packs, 135 skills. Each is given to the agents whose work it is. A specialist sees
 its skills' names and loads one in full only when it uses it; JAI's own agents find skill passages through
 knowledge search.
 
@@ -113,7 +121,7 @@ knowledge search.
 - **Marketing Skills:** SEO, CRO, copywriting, email, ads, launch, pricing, churn, referrals, analytics,
   cold email and prospecting.
 - **No AI Slop:** the final editorial pass for writing that goes to people.
-- **BRAG Slim:** a project or website made into a short launch video with music and share copy.
+- **BRAG and BRAG Slim:** a project or website made into a short launch video with music and share copy.
 - **ECC:** FastAPI, Next.js, React, Postgres, Docker, migrations, deployment, security review, production
   audit, browser QA, SEO, campaigns, investor materials and outreach, lead intelligence, Remotion and Manim video.
 
@@ -136,13 +144,17 @@ finding is blocked everywhere. Inline commands in skills never run, and their MC
   draft, and a revision is kept only if every fact and number survives.
 - **Sales (Sellbird-style outreach):** find companies from OpenStreetMap, read their buying signals from their
   own sites, find the person who decides, verify the address, draft a short sequence with the sender's identity,
-  postal address and opt-out, then send only after Richard approves each batch. It sends inside a daily limit on
+  postal address and opt-out, then send only after Richard approves each batch. Under UK PECR a business is emailed
+  only when its own site shows it is a company or LLP, or Richard has recorded its consent. It sends inside a daily limit on
   weekdays in office hours, handles replies, honours opt-outs at once, keeps the CRM current and reports by
   signal.
 - **Marketing and content:** campaigns, social drafts (Postiz, drafts only), SEO, launch plans, launch videos
   (BRAG Slim, Remotion), images (ComfyUI).
 - **Operations:** monitoring, self-healing with runbooks, rollback, infrastructure (backups, restore, SSL, DNS,
-  resources, cost estimates), support, onboarding, community, partnerships, finance and revenue tracking.
+  resources, cost estimates), support, onboarding, community, partnerships, finance and revenue tracking. A repair
+  action that Richard has not promoted runs in shadow: JAI records what it would have done instead of doing it.
+- **Approvals digest:** every morning one Live Operations Feed item lists what waits for Richard, grouped by kind
+  (money, public, irreversible, credentials).
 
 ## Voice and the cockpit
 

@@ -216,6 +216,9 @@ SKILLS: List[Dict] = [
     _s("ecc", "accessibility", (CODING, QA, CREATION), (CODING, QA)),
     # ----- BRAG Slim (Upgrade 5) --------------------------------------------------------------------------
     _s("brag", "brag-slim", (CREATION, CONTENT, MARKETING), (CREATION, CONTENT, MARKETING)),
+    # The full BRAG pipeline as well (HyperFrames, its bundled music and sound effects): on Opus 5.5 it hands over to
+    # Slim itself, and any other model follows its own rule into the full pipeline instead of a weaker Slim run.
+    _s("brag", "brag", (CREATION, CONTENT, MARKETING), (CREATION, CONTENT, MARKETING)),
 ]
 
 # Files inside a skill folder that are not guidance for the agent (the pack's own tests and evaluation sets).
@@ -319,8 +322,9 @@ def sandbox_skills(specialist: str) -> List[str]:
     if not getattr(settings, "SKILL_PACKS_ENABLED", True):
         return []
     refused = blocked()
-    return [path for path in (f"{e['pack']}/{skill_path(e)}" for e in SKILLS if specialist in e["sandbox"])
-            if path not in refused]
+    # The one builder takes on every role, so it is offered every skill (listed by name, loaded only when used).
+    mine = [e for e in SKILLS if e["sandbox"] and (specialist == "builder" or specialist in e["sandbox"])]
+    return list(dict.fromkeys(path for path in (f"{e['pack']}/{skill_path(e)}" for e in mine) if path not in refused))
 
 
 def named_skill(text: str) -> Optional[Dict]:

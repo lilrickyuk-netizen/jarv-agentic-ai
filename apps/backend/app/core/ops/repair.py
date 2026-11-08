@@ -49,7 +49,11 @@ async def service_state(service: str) -> Dict[str, Any]:
 
 async def restart_and_wait(service: str, reason: str, timeout_seconds: int = 120) -> Dict[str, Any]:
     from app.core.ops.docker_ops import get_docker_ops
+    from app.core.self_healing import shadow
 
+    if not await shadow.is_live(f"restart:{service}"):
+        # Not promoted yet (or never automatic): record what would have happened instead of doing it.
+        return await shadow.would_have(f"restart:{service}", reason)
     result = await get_docker_ops().restart(service)
     deadline = time.monotonic() + timeout_seconds
     state: Dict[str, Any] = {}

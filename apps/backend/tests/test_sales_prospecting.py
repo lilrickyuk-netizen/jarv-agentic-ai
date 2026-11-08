@@ -29,7 +29,8 @@ SATURDAY = datetime(2026, 11, 14, 10, 0, tzinfo=timezone.utc)
 SITES = {
     "https://harbordental.test/": ('<html><body><h1>Harbor Dental Studio</h1><p>Call us to make an appointment.</p>'
                                    '<a href="/about-us">About</a> <a href="mailto:elena.park@harbordental.test">Email</a>'
-                                   '</body></html>'),
+                                   '<footer>Harbor Dental Studio Ltd, registered in England, company no 01234567'
+                                   '</footer></body></html>'),
     "https://harbordental.test/about-us": ("<html><body><p>Elena Park, Practice Manager, has run the studio since "
                                            "2019.</p></body></html>"),
     "https://brightsmile.test/": ('<html><body><h1>Bright Smile</h1><a href="/book">Book online</a> in seconds. '

@@ -43,7 +43,12 @@ def token() -> str:
 
 def allowed_models() -> Tuple[str, ...]:
     raw = str(getattr(settings, "GATEWAY_MODELS", "") or "")
-    return tuple(m.strip() for m in raw.split(",") if m.strip())
+    models = [m.strip() for m in raw.split(",") if m.strip()]
+    # The sandbox's own models are always allowed, even when an older .env lists the gateway's models itself.
+    for own in (getattr(settings, "OPENHANDS_MODEL", ""), getattr(settings, "OPENHANDS_SPECIALIST_MODEL", "")):
+        if own and own not in models:
+            models.append(str(own))
+    return tuple(models)
 
 
 def authorised(header: Optional[str]) -> bool:

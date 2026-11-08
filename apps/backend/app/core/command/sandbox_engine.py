@@ -150,6 +150,42 @@ def as_call(action: Dict[str, Any], container_root: str, host_root: str, special
             "engine": "openhands"}
 
 
+PHASE_WORD = re.compile(r"\bphase\s*(\d+)\b", re.I)
+
+
+def builder_method(mission: str) -> str:
+    """How the one builder works (tier 2), after Anthropic's harness for long-running agents: get bearings, a
+    frozen ledger of checkable items, one item at a time, a commit per item, a progress file for the next session."""
+    from app.core.command.mission_org import SPECIALISTS
+
+    phase = PHASE_WORD.search(mission or "")
+    label = f"Phase {phase.group(1)}" if phase else "this mission"
+    roles = "; ".join(f"{s['title']}: {s['standard'][:160]}" for k, s in SPECIALISTS.items()
+                      if k not in ("builder", "verifier", "environment"))
+    return (
+        "\n\nHOW YOU WORK (you are the one builder for this mission):\n"
+        "1. Get your bearings first: read .jai/progress.md and `git log --oneline -20` if they exist, and the "
+        "ledger .jai/ledger.json. Run .jai/init.sh (write it if it is missing: install the pinned toolchain, "
+        "bootstrap the project and run its quickest smoke check). If the smoke check fails, fixing it comes before "
+        "anything else.\n"
+        f"2. The acceptance ledger .jai/ledger.json is the plan for {label}. If it is missing or is for another "
+        f"phase, write it once from YOUR REQUIREMENTS: {{\"phase\": \"{label}\", \"items\": [{{\"id\": \"R1\", "
+        "\"text\": ..., \"depends_on\": [...], \"files\": [...], \"check\": \"<the exact command that proves it>\", "
+        "\"passes\": false, \"blocked\": null}, ...]}, using exactly the requirement ids above. After that the "
+        "ledger is frozen: never delete or reword an item; only set passes or blocked.\n"
+        "3. Work through the items in dependency order, one at a time. For each: make the change, run its check "
+        "with jai-check, and only when it passes set passes to true, commit (`git add -A && git commit -m \"R<n>: "
+        "<what>\"`; committing is yours, pushing is Richard's) and update .jai/progress.md with what passed, what is "
+        "next and any blocker.\n"
+        "4. If the same check fails three times with the same error, stop on that item: set blocked to "
+        "{\"class\": \"environment|spec|flaky|code\", \"error\": \"<the error>\", \"needs\": \"<what would unblock it>\"} "
+        "and move on to the next item that does not depend on it. A missing or wrong tool is an environment item "
+        "you fix yourself; it is never a reason to stop.\n"
+        "5. Before you finish, run the full acceptance suite once from a fresh clone in /tmp when the "
+        "specification asks for one.\n"
+        f"6. When an item is another discipline's work, do it to that role's standard: {roles}\n")
+
+
 class SandboxSpecialist:
     """Runs one work package in the sandbox and follows it to the end."""
 
@@ -170,12 +206,16 @@ class SandboxSpecialist:
                       + self.known[:6000])
         if requirements:
             brief += "\n\nYOUR REQUIREMENTS:\n" + render(requirements)
+        if self.package.specialist == "builder":
+            brief += builder_method(self.mission)
         return brief + (
             "\n\nHOW TO WORK: you have a full shell (chaining, pipes and redirection work) and a file editor, in "
             "the mission's workspace. Use the project's own commands to install, build, lint, type-check and test, "
             "and fix what fails before you finish. A tool or version the project pins that is missing (Syft, a CLI, "
             "a language) you install yourself at that exact version (`mise install <tool>@<version>`); that is never "
-            "a blocker and never an action for Richard. Fresh-clone checks go in a new folder under /tmp, never "
+            "a blocker and never an action for Richard. Run every build, test, lint and acceptance check through "
+            "`jai-check -- <command>`: it shows only what failed, keeps the full log, and does not pay for a check "
+            "again when nothing it depends on has changed. Fresh-clone checks go in a new folder under /tmp, never "
             "inside the repository. Run a check once rather than starting a server or a watcher that never ends. "
             "JAI checks every action: pushing, publishing, deploying and anything outside this workspace are "
             "refused; when one is needed, leave it and name it in your report."
@@ -203,12 +243,23 @@ class SandboxSpecialist:
             "sub_agent_id": str(self.package.sub_agent_id) if self.package.sub_agent_id else None,
             "parent_agent_id": str(self.team.lead_agent_id) if self.team.lead_agent_id else None})
 
-    async def model(self) -> str:
-        """Opus 5.5 for the specialists while Anthropic can serve it; GPT-6 Sol when JAI has no Anthropic key or
-        the account has run out of credit."""
+    def lead_model(self) -> str:
+        """Opus 5.5: the independent Verifier, and a specialist taking over a package that stopped."""
+        return str(settings.OPENHANDS_MODEL or settings.OPENAI_MODEL)
+
+    async def model(self, lead: bool = False) -> str:
+        """Sonnet 5.5 for the hands-on specialists, Opus 5.5 for the Verifier (or with lead=True), while Anthropic can
+        serve them; GPT-6 Sol when JAI has no Anthropic key or the account has run out of credit."""
         from app.core.providers.router import has_no_credit
 
-        chosen = str(settings.OPENHANDS_MODEL or settings.OPENAI_MODEL)
+        wanted = getattr(self.package, "model", None)
+        if lead or wanted == "lead" or (wanted is None and (self.package.id == "VER"
+                                                             or self.package.specialist == "builder")):
+            chosen = self.lead_model()
+        elif wanted and wanted != "specialist":
+            chosen = str(wanted)
+        else:
+            chosen = str(getattr(settings, "OPENHANDS_SPECIALIST_MODEL", "") or self.lead_model())
         if chosen.startswith("claude"):
             if not (settings.CLAUDE_API_KEY or settings.ANTHROPIC_API_KEY) or await has_no_credit("claude"):
                 return str(settings.OPENHANDS_FALLBACK_MODEL or settings.OPENAI_MODEL)
@@ -250,7 +301,34 @@ class SandboxSpecialist:
             for key in ("steps", "tokens", "cost_usd"):
                 again[key] = (again.get(key) or 0) + (result.get(key) or 0)
             return again
+        lead = self.lead_model()
+        if (not result.get("success") and self.package.id != "VER" and model != lead and lead.startswith("claude")
+                and not _no_credit(result) and await self._allowance(lead) > 0):
+            # The specialist stopped short: Opus takes the package over once, from the files already on disk.
+            stopped = str(result.get("answer") or "")[:600]
+            result = self._merge(result, await self._again(requirements, container_root, lead))
+            result["answer"] = (f"({model} stopped short, so {lead} took the package over. It had reported: "
+                                f"{stopped})\n" + str(result.get("answer") or ""))
         return result
+
+    async def _allowance(self, model: str) -> float:
+        """What this package may spend on its next run: its own limit, and no more than its share of what the
+        mission has left (the packages running beside it share the rest)."""
+        own = getattr(self.package, "max_cost", None)
+        if own:
+            limit = float(own)
+        elif self.package.specialist == "builder":
+            limit = float(getattr(settings, "MISSION_MAX_COST_USD", 0) or 0) or 50.0  # the builder is the mission
+        else:
+            limit = float(settings.OPENHANDS_MAX_COST_PER_PACKAGE_USD)
+        left = getattr(self.team, "budget_left", None)
+        if left is None:
+            return limit
+        remaining = await left()
+        if remaining is None:
+            return limit
+        share = remaining / max(1, int(getattr(self.team, "running_now", 1) or 1))
+        return max(0.0, min(limit, share))
 
     async def _again(self, requirements: List[Dict[str, Any]], container_root: str, model: str) -> Dict[str, Any]:
         """Another run of the same package under a new run id, continuing from what is on disk."""
@@ -266,6 +344,10 @@ class SandboxSpecialist:
     async def _attempt(self, requirements: List[Dict[str, Any]], container_root: str, model: str) -> Dict[str, Any]:
         from app.core.command.metrics import PRICES
 
+        allowance = await self._allowance(model)
+        if allowance <= 0:
+            return {"success": False, "answer": "Not run: the mission's spending allowance is used up.",
+                    "status": "budget"}
         await self._register(container_root)
         from app.core.knowledge.skill_packs import sandbox_skills
 
@@ -273,9 +355,10 @@ class SandboxSpecialist:
         body = {"run_id": self.run_id, "workspace": container_root, "brief": self._brief(requirements),
                 "standard": self._standard(), "model": model,
                 "provider": "anthropic" if model.startswith("claude") else "openai",
-                "reasoning_effort": settings.OPENHANDS_REASONING_EFFORT,
-                "max_iterations": int(settings.OPENHANDS_MAX_ITERATIONS),
-                "max_cost_usd": float(settings.OPENHANDS_MAX_COST_PER_PACKAGE_USD),
+                "reasoning_effort": getattr(self.package, "effort", None) or settings.OPENHANDS_REASONING_EFFORT,
+                "max_iterations": int(getattr(self.package, "max_steps", None) or settings.OPENHANDS_MAX_ITERATIONS),
+                "vision": True,  # the agent sees the stills and screenshots it opens
+                "max_cost_usd": round(max(0.05, allowance), 4),
                 "input_cost_per_token": price[0] / 1e6 if price else None,
                 "output_cost_per_token": price[1] / 1e6 if price else None,
                 "cache_read_cost_per_token": price[2] / 1e6 if price else None,

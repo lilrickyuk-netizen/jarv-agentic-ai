@@ -57,6 +57,20 @@ MISSION_TASK_TYPE = "command"
 SessionFactory = Callable[[], Any]
 
 
+async def _progress_live(task_id: UUID) -> bool:
+    """Whether the mission saved progress within the stale window (so its worker is still working on it)."""
+    try:
+        from app.core.command import progress
+
+        record = await progress.load(task_id) or {}
+        moment = datetime.fromisoformat(str(record.get("updated_at") or ""))
+    except Exception:  # noqa: BLE001 - no record: the heartbeat alone decides
+        return False
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return (_now() - moment).total_seconds() < STALE_AFTER_SECONDS
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -294,6 +308,12 @@ class MissionRunner:
             if _dialect(db) == "postgresql":
                 query = query.with_for_update(skip_locked=True)
             for task in (await db.execute(query)).scalars().all():
+                if await _progress_live(task.id):
+                    # Its heartbeat is late but its work is still moving (a team's sandbox runs save progress every
+                    # few seconds): the worker is alive. Re-queuing it would run a second copy beside the first, as
+                    # the 8 November video mission did.
+                    logger.warning(f"mission {task.id}: heartbeat late, progress live; not re-queued")
+                    continue
                 if task.heartbeat_at is None:
                     if _aware(task.updated_at) < legacy_cutoff:
                         lifecycle.transition(task, lifecycle.FAILED, actor="recovery",

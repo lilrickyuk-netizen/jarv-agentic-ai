@@ -57,11 +57,13 @@ class RunRequest(BaseModel):
     output_cost_per_token: Optional[float] = Field(default=None, ge=0)
     jai_tools: bool = True  # JAI's own capabilities, from its MCP server
     # The skill packs' skills for this specialist ("pack/root/skill" folders under /jai/skills), loaded on demand.
-    skills: List[str] = Field(default_factory=list, max_length=80)
+    skills: List[str] = Field(default_factory=list, max_length=200)
     # What cached input costs (US dollars per token): Anthropic and OpenAI charge a tenth for a cache read, so the
     # per-run budget must count it at that price, not at the full input price.
     cache_read_cost_per_token: Optional[float] = Field(default=None, ge=0)
     cache_write_cost_per_token: Optional[float] = Field(default=None, ge=0)
+    # The model sees the images it opens (stills, contact sheets, screenshots): creative work is judged by eye.
+    vision: bool = True
 
 
 class Run:
@@ -165,6 +167,10 @@ ENGINEERING_RULES = (
     "changes. A skill's own files are read-only under /jai/skills; run its scripts from there. "
     "Video and browser work: ffmpeg and ffprobe are installed, and Chromium is at /usr/bin/chromium (headless, "
     "launch it with --no-sandbox; with Playwright use playwright-core and executablePath /usr/bin/chromium). "
+    "Checks: run builds, tests, linters and acceptance commands through `jai-check -- <command>`. It prints only "
+    "what failed (with the path of the full log), and a check that passed is not run again while nothing it depends "
+    "on (the commit, the changed and new files, the command) has changed; `jai-check --fresh -- <command>` forces a "
+    "run. "
     "Evidence: a requirement is done only when a command in this conversation shows it; report failures exactly. "
     "Only Richard can approve pushing, publishing, deploying, spending money and anything outside this workspace.")
 
@@ -190,7 +196,7 @@ def register_prices(provider: str, request: "RunRequest") -> bool:
              "output_cost_per_token": request.output_cost_per_token,
              "cache_read_input_token_cost": request.cache_read_cost_per_token,
              "cache_creation_input_token_cost": request.cache_write_cost_per_token or request.input_cost_per_token,
-             "litellm_provider": provider, "mode": "chat"}
+             "litellm_provider": provider, "mode": "chat", "supports_vision": bool(request.vision)}
     try:
         litellm.register_model({f"{provider}/{request.model}": dict(entry), request.model: dict(entry)})
     except Exception as exc:  # noqa: BLE001 - the budget falls back to the plain per-token price

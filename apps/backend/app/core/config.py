@@ -311,7 +311,7 @@ class Settings(BaseSettings):
     # Wave 6. JAI's model gateway: the services below call OpenAI only through it, with this token, inside the daily
     # spending limit and only for these models. No token turns the gateway off.
     JAI_GATEWAY_TOKEN: Optional[str] = None
-    GATEWAY_MODELS: str = "gpt-6-luna,gpt-6-sol,claude-opus-5-5,text-embedding-3-small"
+    GATEWAY_MODELS: str = "gpt-6-luna,gpt-6-sol,claude-opus-5-5,claude-sonnet-5-5,text-embedding-3-small"
     GATEWAY_UPSTREAM: str = "https://api.openai.com/v1"
     # Docling (the "docs" profile) turns PDFs, Word, PowerPoint, Excel and scanned pages into text.
     DOCLING_URL: str = "http://docling:5001"
@@ -348,10 +348,19 @@ class Settings(BaseSettings):
     OPENHANDS_TOKEN: Optional[str] = None
     OPENHANDS_MAX_ITERATIONS: int = Field(default=80, ge=5, le=400)
     OPENHANDS_REASONING_EFFORT: str = "medium"
-    # The sandbox's specialists think with Opus 5.5 (through JAI's gateway), and with Sol when Anthropic cannot.
+    # The sandbox's hands-on specialists (environment, builders, integration) work with Sonnet 5.5, half Opus's price;
+    # the independent Verifier, and a specialist taking over a package that stopped, think with Opus 5.5 (OPENHANDS_MODEL).
+    # Both go through JAI's gateway, and Sol takes over when Anthropic cannot serve them.
     OPENHANDS_MODEL: str = "claude-opus-5-5"
+    OPENHANDS_SPECIALIST_MODEL: str = "claude-sonnet-5-5"
+    # What one mission may spend on AI across all its rounds, re-queues included (US dollars). When it is reached the
+    # mission stops, keeps its progress and reports; "carry on" starts a new allowance. 0 turns the cap off.
+    MISSION_MAX_COST_USD: float = Field(default=12.0, ge=0, le=500)
     OPENHANDS_FALLBACK_MODEL: str = "gpt-6-sol"
     OPENHANDS_MAX_COST_PER_PACKAGE_USD: float = Field(default=6.0, gt=0, le=100)
+    # The one builder (tier 2) works through a whole ledger in one session, so it gets more steps than a specialist;
+    # the mission's own allowance (MISSION_MAX_COST_USD) still caps what it spends.
+    OPENHANDS_BUILDER_MAX_ITERATIONS: int = Field(default=250, ge=20, le=400)
 
     # Voice
     VOICE_ENABLED: bool = False

@@ -238,6 +238,14 @@ class ApprovalStats(BaseModel):
     average_response_time_minutes: float
 
 
+@router.get("/digest")
+async def approvals_digest(operator: CurrentUserId, db: Session = Depends(get_db)):
+    """Everything waiting for Richard, grouped by kind of action (money, public, irreversible, credentials)."""
+    from app.core.approvals_digest import digest, waiting
+
+    return digest(await waiting(db, UUID(str(operator))))
+
+
 @router.get("/list", response_model=List[ApprovalInfo])
 async def list_approvals(
     operator: CurrentUserId,

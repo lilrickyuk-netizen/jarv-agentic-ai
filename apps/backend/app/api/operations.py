@@ -167,3 +167,38 @@ async def create_backup(body: BackupRequest, user: CurrentUserId,
     await AuditLogger.log_system_event(db, action="database_backup", result="success", resource_type="backup",
                                        resource_id=record.id, details={"operator": user, "file": record.backup_name})
     return {**_backup_info(record), "verification": verification}
+
+
+# ----- self-healing in shadow (app/core/self_healing/shadow.py) -------------------------------------------------
+
+@router.get("/healing")
+async def healing(user: CurrentUserId) -> Dict[str, Any]:
+    """Which repair actions JAI may take itself, and what it would have done with the ones still in shadow."""
+    from app.core.self_healing import shadow
+
+    return {"live_from_the_start": sorted(shadow.LIVE_FROM_THE_START), "promoted": await shadow.promoted(),
+            "never_automatic": sorted(shadow.NEVER), "shadow_log": await shadow.log()}
+
+
+@router.post("/healing/actions/{action}/promote")
+async def promote_healing(action: str, user: CurrentUserId, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    from app.core.self_healing import shadow
+
+    try:
+        result = await shadow.promote(action)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    await AuditLogger.log_system_event(db, action="self_healing.promote", result="ok", resource_type="runbook_action",
+                                       user_id=UUID(str(user)), details={"action": action})
+    return result
+
+
+@router.post("/healing/actions/{action}/demote")
+async def demote_healing(action: str, user: CurrentUserId, db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
+    from app.core.self_healing import shadow
+
+    result = await shadow.demote(action)
+    await AuditLogger.log_system_event(db, action="self_healing.demote", result="ok", resource_type="runbook_action",
+                                       user_id=UUID(str(user)), details={"action": action})
+    return result
+

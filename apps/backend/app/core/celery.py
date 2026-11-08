@@ -80,6 +80,11 @@ celery_app.conf.update(
             "schedule": float(getattr(settings, "SALES_OUTBOX_INTERVAL_MINUTES", 15)) * 60,
             "options": {"expires": 600},
         },
+        "approvals-digest": {
+            "task": "approvals_digest_daily",
+            "schedule": 24 * 3600.0,
+            "options": {"expires": 3600},
+        },
         "knowledge-refresh": {
             "task": "knowledge_refresh",
             "schedule": float(getattr(settings, "KNOWLEDGE_REFRESH_INTERVAL_HOURS", 168)) * 3600,
