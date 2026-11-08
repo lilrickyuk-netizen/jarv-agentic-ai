@@ -143,7 +143,14 @@ class Settings(BaseSettings):
     WORKSPACE_CONTAINER_ROOT: str = Field(default="/host/workspaces")
 
     # Default LLM model used by the command pipeline (Claude is the primary provider).
-    DEFAULT_MODEL: str = Field(default="claude-sonnet-4-6")
+    DEFAULT_MODEL: str = Field(default="claude-opus-5-5")
+    # JAI's model tiers (Richard's choice). Hard thinking (missions, planning, the specialists, the Verifier) asks
+    # for DEFAULT_MODEL, Claude Opus 5.5; if Anthropic cannot serve it (no credit, outage) the router moves to
+    # OPENAI_REASONING_MODEL, GPT-6 Sol. Everything else (answers, summaries, reports, research write-ups,
+    # scripts, the agents' routine analyses) runs on LIGHT_MODEL, GPT-6 Luna.
+    MODEL_TIERS_ENABLED: bool = True
+    LIGHT_MODEL: str = "gpt-6-luna"
+    OPENAI_REASONING_MODEL: str = "gpt-6-sol"
 
     # Voicebox is an optional local service; the API remains disabled until
     # both its URL and a configured speech profile are provided.
@@ -304,7 +311,7 @@ class Settings(BaseSettings):
     # Wave 6. JAI's model gateway: the services below call OpenAI only through it, with this token, inside the daily
     # spending limit and only for these models. No token turns the gateway off.
     JAI_GATEWAY_TOKEN: Optional[str] = None
-    GATEWAY_MODELS: str = "gpt-6-luna,text-embedding-3-small"
+    GATEWAY_MODELS: str = "gpt-6-luna,gpt-6-sol,claude-opus-5-5,text-embedding-3-small"
     GATEWAY_UPSTREAM: str = "https://api.openai.com/v1"
     # Docling (the "docs" profile) turns PDFs, Word, PowerPoint, Excel and scanned pages into text.
     DOCLING_URL: str = "http://docling:5001"
@@ -326,7 +333,10 @@ class Settings(BaseSettings):
     OPENHANDS_TOKEN: Optional[str] = None
     OPENHANDS_MAX_ITERATIONS: int = Field(default=80, ge=5, le=400)
     OPENHANDS_REASONING_EFFORT: str = "medium"
-    OPENHANDS_MAX_COST_PER_PACKAGE_USD: float = Field(default=2.0, gt=0, le=100)
+    # The sandbox's specialists think with Opus 5.5 (through JAI's gateway), and with Sol when Anthropic cannot.
+    OPENHANDS_MODEL: str = "claude-opus-5-5"
+    OPENHANDS_FALLBACK_MODEL: str = "gpt-6-sol"
+    OPENHANDS_MAX_COST_PER_PACKAGE_USD: float = Field(default=6.0, gt=0, le=100)
 
     # Voice
     VOICE_ENABLED: bool = False

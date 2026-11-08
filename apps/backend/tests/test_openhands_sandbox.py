@@ -229,6 +229,11 @@ class FakeSandbox:
 def test_a_work_package_is_done_in_the_sandbox_and_followed_to_its_end(monkeypatch, sandbox_token):
     from app.core.command.mission_org import Package
 
+    monkeypatch.setattr(settings, "CLAUDE_API_KEY", "anthropic-key-for-tests")
+    from tests.test_model_tiers import _forget_no_credit
+
+    asyncio.run(_forget_no_credit())
+
     fake = FakeSandbox()
     adopted, progress = [], []
 
@@ -258,7 +263,8 @@ def test_a_work_package_is_done_in_the_sandbox_and_followed_to_its_end(monkeypat
     assert "YOUR WORK PACKAGE P1" in fake.started["brief"] and "- R1 [open] sub exists" in fake.started["brief"]
     assert "MYCO uses pytest." in fake.started["brief"] and "`R3: done" in fake.started["brief"]
     assert "Senior Software Engineer" in fake.started["standard"]
-    assert fake.started["model"] == settings.OPENAI_MODEL and fake.started["max_cost_usd"] > 0
+    assert fake.started["model"] == "claude-opus-5-5" and fake.started["provider"] == "anthropic"
+    assert fake.started["max_cost_usd"] > 0
     assert result["success"] is True and result["steps"] == 7 and result["tokens"] == 10200
     assert {r["id"]: r["status"] for r in result["requirements"]} == {"R1": "done", "R2": "open"}
     assert [c["tool"] for c in adopted] == ["write_file", "run_command"]

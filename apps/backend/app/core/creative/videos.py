@@ -61,7 +61,7 @@ async def plan_video(topic: str, seconds: int, audience: str, images: int) -> Di
 
     words = max(25, int(seconds * 2.4))
     response = await get_router().complete(CompletionRequest(
-        model=CommandService().model, max_tokens=1200, temperature=0.6, reasoning_effort="low",
+        model=CommandService()._light_model(), max_tokens=1200, temperature=0.6, reasoning_effort="low",
         system=("You write short-form video narration for JAI, Richard Curley's AI operating system. Spoken, "
                 "British English, a strong hook in the first sentence, one idea, a clear call to action at the end. "
                 "Only claims the brief supports; no made-up statistics. Return only JSON."),

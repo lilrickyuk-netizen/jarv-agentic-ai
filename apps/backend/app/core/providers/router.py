@@ -31,10 +31,14 @@ logger = logging.getLogger(__name__)
 
 # Model tiers per provider, used when a request has to move to another provider.
 TIER_MODELS: Dict[str, Dict[str, str]] = {
-    ModelProvider.CLAUDE: {"top": "claude-opus-4-8", "standard": "claude-sonnet-4-6", "fast": "claude-haiku-4-5"},
+    # Opus 5.5 for hard work; light work that has to leave OpenAI goes to the quick, cheap Haiku.
+    ModelProvider.CLAUDE: {"top": "claude-opus-5-5", "standard": "claude-haiku-4-5", "fast": "claude-haiku-4-5"},
     ModelProvider.GEMINI: {"top": "gemini-1.5-pro", "standard": "gemini-1.5-pro", "fast": "gemini-1.5-flash"},
 }
 PROVIDER_REST_SECONDS = 600
+# A provider out of credit stays at the back of the queue for hours, not minutes: topping up takes a person.
+NO_CREDIT_REST_SECONDS = 6 * 3600
+NO_CREDIT_KEY = "provider:{}:no_credit"
 _ACCOUNT_PROBLEMS = ("credit balance", "billing", "quota", "insufficient", "payment", "exceeded your current")
 
 
@@ -62,10 +66,46 @@ def _tier(model: str) -> str:
 
 def _tier_model(provider_key: str, tier: str) -> str:
     if provider_key == ModelProvider.OPENAI:
+        if tier == "top":  # Opus's stand-in on OpenAI: Sol
+            return getattr(settings, "OPENAI_REASONING_MODEL", "gpt-6-sol") or "gpt-6-sol"
         return getattr(settings, "OPENAI_MODEL", "gpt-6-luna") or "gpt-6-luna"
     if provider_key == ModelProvider.OLLAMA:
         return getattr(settings, "OLLAMA_MODEL", "llama3.1") or "llama3.1"
     return TIER_MODELS[provider_key][tier]
+
+
+def tiered(model: str) -> str:
+    """The model JAI's tiers choose for a request: hard thinking (the default model, Sol, any top-tier model)
+    stays as asked; everything else is light work for LIGHT_MODEL."""
+    if not getattr(settings, "MODEL_TIERS_ENABLED", False):
+        return model
+    heavy = {str(getattr(settings, "DEFAULT_MODEL", "") or ""), str(getattr(settings, "OPENAI_REASONING_MODEL", ""))}
+    if model in heavy or _tier(model) == "top":
+        return model
+    return str(getattr(settings, "LIGHT_MODEL", "") or model)
+
+
+def _out_of_credit(exc: ProviderError) -> bool:
+    return any(word in str(exc).lower() for word in _NO_CREDIT)
+
+
+async def mark_no_credit(provider_key: str) -> None:
+    """Tell the rest of JAI (the sandbox among them) that this provider has no credit, for a few hours."""
+    try:
+        from app.core.redis import get_redis
+
+        await (await get_redis()).set(NO_CREDIT_KEY.format(provider_key), "1", ex=NO_CREDIT_REST_SECONDS)
+    except Exception as exc:  # noqa: BLE001 - the router itself already knows
+        logger.info(f"no-credit mark not shared: {exc}")
+
+
+async def has_no_credit(provider_key: str) -> bool:
+    try:
+        from app.core.redis import get_redis
+
+        return bool(await (await get_redis()).get(NO_CREDIT_KEY.format(provider_key)))
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _provider_order() -> List[str]:
@@ -246,6 +286,9 @@ class ModelRouter:
         from app.core import spend
 
         await spend.check()
+        model = tiered(request.model)
+        if model != request.model:
+            request = replace(request, model=model)
         candidates = self.plan(request.model)
         if not candidates:
             raise ProviderError(
@@ -263,7 +306,11 @@ class ModelRouter:
                 if not _fails_over(exc):
                     raise
                 failures.append(f"{provider_key.value if hasattr(provider_key, 'value') else provider_key}: {exc}")
-                self._resting_until[provider_key] = time.monotonic() + PROVIDER_REST_SECONDS
+                if _out_of_credit(exc):
+                    self._resting_until[provider_key] = time.monotonic() + NO_CREDIT_REST_SECONDS
+                    await mark_no_credit(str(getattr(provider_key, "value", provider_key)))
+                else:
+                    self._resting_until[provider_key] = time.monotonic() + PROVIDER_REST_SECONDS
                 logger.warning(f"Provider {provider_key} unavailable for {model}; trying the next one. ({exc})")
                 continue
             self._resting_until.pop(provider_key, None)

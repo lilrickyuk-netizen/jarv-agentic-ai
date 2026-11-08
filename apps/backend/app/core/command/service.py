@@ -406,6 +406,12 @@ class CommandService:
             execution_time=time.time() - start,
         )
 
+    def _light_model(self) -> str:
+        """The model for light work (answers, drafts): LIGHT_MODEL when JAI's tiers are on."""
+        if getattr(settings, "MODEL_TIERS_ENABLED", False):
+            return str(getattr(settings, "LIGHT_MODEL", "") or self.model)
+        return self.model
+
     async def run_task(self, db: AsyncSession, task: Task, *,
                        pause_on_provider_error: bool = False) -> CommandResult:
         """Execute a mission that has already been claimed (status ``running``).
@@ -1819,8 +1825,8 @@ class CommandService:
             f"This is a draft for operator approval; do not claim it has been sent or published."
         )
         try:
-            response = await router.complete(CompletionRequest(
-                model=self.model, messages=[Message(role="user", content=command_text)],
+            response = await router.complete(CompletionRequest(  # a draft is light work: Luna
+                model=self._light_model(), messages=[Message(role="user", content=command_text)],
                 system=system, max_tokens=900))
             draft = response.content.strip()
             tokens = (response.usage or {}).get("total_tokens", 0)
@@ -2658,8 +2664,8 @@ class CommandService:
                if outcome and outcome.get("task_results") else "")
             + "\n\nProvide the response now."
         )
-        request = CompletionRequest(
-            model=self.model,
+        request = CompletionRequest(  # an answer from what the agents found is light work: Luna
+            model=self._light_model(),
             messages=[Message(role="user", content=user_prompt)],
             system=system_prompt,
             max_tokens=3000,

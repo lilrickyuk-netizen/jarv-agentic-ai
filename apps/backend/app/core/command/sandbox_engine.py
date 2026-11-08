@@ -34,6 +34,14 @@ RUN_TIMEOUT_SECONDS = 3 * 3600
 _REQUIREMENT_LINE = re.compile(r"\b(R\d+|P\d+\.\d+)\s*[:\-–—]\s*(done|open|waiting)\b\s*[-–—:,]?\s*(.*)", re.I)
 
 
+def _no_credit(result: Dict[str, Any]) -> bool:
+    """A run that stopped because the model's account has no credit left."""
+    if result.get("success"):
+        return False
+    text = f"{result.get('error') or ''} {result.get('answer') or ''}".lower()
+    return any(word in text for word in ("credit balance", "insufficient_quota", "billing", "out of credit"))
+
+
 def sandbox_url() -> str:
     return str(getattr(settings, "OPENHANDS_URL", "") or "").rstrip("/")
 
@@ -174,18 +182,49 @@ class SandboxSpecialist:
             "sub_agent_id": str(self.package.sub_agent_id) if self.package.sub_agent_id else None,
             "parent_agent_id": str(self.team.lead_agent_id) if self.team.lead_agent_id else None})
 
+    async def model(self) -> str:
+        """Opus 5.5 for the specialists while Anthropic can serve it; GPT-6 Sol when JAI has no Anthropic key or
+        the account has run out of credit."""
+        from app.core.providers.router import has_no_credit
+
+        chosen = str(settings.OPENHANDS_MODEL or settings.OPENAI_MODEL)
+        if chosen.startswith("claude"):
+            if not (settings.CLAUDE_API_KEY or settings.ANTHROPIC_API_KEY) or await has_no_credit("claude"):
+                return str(settings.OPENHANDS_FALLBACK_MODEL or settings.OPENAI_MODEL)
+        return chosen
+
     async def run(self, requirements: List[Dict[str, Any]]) -> Dict[str, Any]:
-        from app.core.command.metrics import PRICES
+        from app.core.providers.router import mark_no_credit
         from app.core.workspaces import fs_inspector
 
         container = fs_inspector.host_to_container(self.team.workspace_root or "")
         if container is None:
             return {"success": False, "answer": "The workspace folder is outside JAI's approved root."}
         container_root = str(container)
+        model = await self.model()
+        result = await self._attempt(requirements, container_root, model)
+        if model.startswith("claude") and _no_credit(result):
+            # Anthropic ran out of credit mid-package: the rest of JAI is told, and the package carries on with
+            # GPT-6 Sol from the files already on disk.
+            await mark_no_credit("claude")
+            self.run_id = f"{self.run_id.rsplit('-', 1)[0]}-{uuid4().hex[:8]}"
+            fallback = str(settings.OPENHANDS_FALLBACK_MODEL or settings.OPENAI_MODEL)
+            again = await self._attempt(requirements, container_root, fallback)
+            again["answer"] = (f"(Anthropic had no credit, so this package finished on {fallback}.)\n"
+                               + str(again.get("answer") or ""))
+            for key in ("steps", "tokens", "cost_usd"):
+                again[key] = (again.get(key) or 0) + (result.get(key) or 0)
+            return again
+        return result
+
+    async def _attempt(self, requirements: List[Dict[str, Any]], container_root: str, model: str) -> Dict[str, Any]:
+        from app.core.command.metrics import PRICES
+
         await self._register(container_root)
-        price = PRICES.get(settings.OPENAI_MODEL)
+        price = PRICES.get(model)
         body = {"run_id": self.run_id, "workspace": container_root, "brief": self._brief(requirements),
-                "standard": self._standard(), "model": settings.OPENAI_MODEL,
+                "standard": self._standard(), "model": model,
+                "provider": "anthropic" if model.startswith("claude") else "openai",
                 "reasoning_effort": settings.OPENHANDS_REASONING_EFFORT,
                 "max_iterations": int(settings.OPENHANDS_MAX_ITERATIONS),
                 "max_cost_usd": float(settings.OPENHANDS_MAX_COST_PER_PACKAGE_USD),
@@ -213,7 +252,8 @@ class SandboxSpecialist:
             theirs.append({**r, **said} if said else dict(r))
         tokens = view.get("tokens") or {}
         return {"success": view.get("status") == "finished", "answer": report, "requirements": theirs,
-                "status": view.get("status"), "steps": int(view.get("steps") or 0),
+                "status": view.get("status"), "steps": int(view.get("steps") or 0), "model": model,
+                "error": str(view.get("error") or ""),
                 "tokens": int(tokens.get("input") or 0) + int(tokens.get("output") or 0),
                 "token_detail": tokens, "cost_usd": float(view.get("cost_usd") or 0)}
 

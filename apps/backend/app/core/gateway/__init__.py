@@ -146,3 +146,59 @@ async def forward(path: str, body: Dict[str, Any], caller: str = "service",
     else:
         logger.warning("gateway: %s %s for %s answered %s", path, request.get("model"), caller, response.status_code)
     return response.status_code, answer
+
+
+ANTHROPIC_UPSTREAM = "https://api.anthropic.com/v1"
+ANTHROPIC_VERSION = "2023-06-01"
+
+
+async def forward_anthropic(body: Dict[str, Any], version: Optional[str] = None, beta: Optional[str] = None,
+                            caller: str = "service",
+                            client: Optional[httpx.AsyncClient] = None) -> Tuple[int, Dict[str, Any]]:
+    """Anthropic's Messages API for JAI's sandbox: the same limit, allow-list and pricing as the OpenAI side. A
+    "no credit" answer is shared with the rest of JAI, so its work moves to GPT-6 Sol until the account is topped
+    up."""
+    from app.core import spend
+    from app.core.providers.router import mark_no_credit
+
+    model = str(body.get("model") or "")
+    if model not in allowed_models():
+        raise GatewayRefused(400, f"{model or 'That model'} is not one JAI's gateway allows.", "model_not_allowed")
+    if body.get("stream"):
+        raise GatewayRefused(400, "JAI's gateway does not stream.", "stream_not_supported")
+    key = getattr(settings, "CLAUDE_API_KEY", None) or getattr(settings, "ANTHROPIC_API_KEY", None)
+    if not key:
+        raise GatewayRefused(503, "JAI has no Anthropic key (ANTHROPIC_API_KEY in apps/backend/.env).",
+                             "not_configured")
+    try:
+        await spend.check()
+    except spend.SpendLimitReached as exc:
+        raise GatewayRefused(429, str(exc), "spend_limit_reached") from exc
+    headers = {"x-api-key": key, "anthropic-version": version or ANTHROPIC_VERSION,
+               "content-type": "application/json"}
+    if beta:
+        headers["anthropic-beta"] = beta
+    owned = client is None
+    client = client or httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=10.0))
+    try:
+        response = await client.post(f"{ANTHROPIC_UPSTREAM}/messages", json=body, headers=headers)
+    except httpx.HTTPError as exc:
+        raise GatewayRefused(502, f"Anthropic could not be reached ({type(exc).__name__}).",
+                             "upstream_unreachable") from exc
+    finally:
+        if owned:
+            await client.aclose()
+    try:
+        answer = response.json()
+    except ValueError:
+        answer = {"type": "error", "error": {"type": "api_error", "message": response.text[:500]}}
+    if response.status_code < 400:
+        spent = spend.text_cost(model, answer.get("usage")) or 0.0
+        await spend.record("text", spent)
+        logger.info("gateway: anthropic %s for %s, $%.5f", model, caller, spent)
+    else:
+        message = str((answer.get("error") or {}).get("message") or "").lower()
+        if any(word in message for word in ("credit balance", "billing", "insufficient", "quota")):
+            await mark_no_credit("claude")
+        logger.warning("gateway: anthropic %s for %s answered %s", model, caller, response.status_code)
+    return response.status_code, answer

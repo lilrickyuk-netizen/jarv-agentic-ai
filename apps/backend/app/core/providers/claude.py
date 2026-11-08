@@ -67,6 +67,11 @@ class ClaudeProvider(BaseLLMProvider):
     # Available Claude models with their pricing (per million tokens)
     MODELS = {
         # Current models
+        "claude-opus-5-5": {
+            "input_cost": 4.00,
+            "output_cost": 20.00,
+            "context_window": 1000000,
+        },
         "claude-opus-4-8": {
             "input_cost": 5.00,
             "output_cost": 25.00,
@@ -287,7 +292,7 @@ class ClaudeProvider(BaseLLMProvider):
         # most one, and none for models that don't accept them.
         no_sampling = any(
             request.model.startswith(prefix)
-            for prefix in ("claude-opus-4-8", "claude-opus-4-7")
+            for prefix in ("claude-opus-5", "claude-opus-4-8", "claude-opus-4-7")
         )
         if not no_sampling:
             if request.temperature is not None:

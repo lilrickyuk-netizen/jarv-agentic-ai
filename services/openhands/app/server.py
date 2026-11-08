@@ -48,6 +48,7 @@ class RunRequest(BaseModel):
     brief: str = Field(min_length=1)
     standard: str = ""
     model: str = "gpt-6-luna"
+    provider: str = Field(default="openai", pattern="^(openai|anthropic)$")
     reasoning_effort: str = "medium"
     max_iterations: int = Field(default=80, ge=5, le=400)
     max_cost_usd: Optional[float] = Field(default=None, gt=0)
@@ -172,11 +173,16 @@ def build_conversation(run: Run, with_jai_tools: bool = True):
     from openhands.tools.task_tracker import TaskTrackerTool
 
     request = run.request
-    llm = LLM(
-        usage_id="agent", model=f"openai/{request.model}", base_url=f"{BACKEND_URL}/api/gateway/v1",
-        api_key=SecretStr(SECRETS["JAI_GATEWAY_TOKEN"] or "unset"), api_mode="responses",
-        reasoning_effort=request.reasoning_effort, timeout=600, num_retries=4,
-        input_cost_per_token=request.input_cost_per_token, output_cost_per_token=request.output_cost_per_token)
+    key = SecretStr(SECRETS["JAI_GATEWAY_TOKEN"] or "unset")
+    common = dict(usage_id="agent", api_key=key, reasoning_effort=request.reasoning_effort, timeout=600,
+                  num_retries=4, input_cost_per_token=request.input_cost_per_token,
+                  output_cost_per_token=request.output_cost_per_token)
+    if request.provider == "anthropic":  # Claude through JAI's gateway, which passes Anthropic's Messages API on
+        llm = LLM(model=f"anthropic/{request.model}", base_url=f"{BACKEND_URL}/api/gateway/anthropic/v1/messages",
+                  **common)
+    else:
+        llm = LLM(model=f"openai/{request.model}", base_url=f"{BACKEND_URL}/api/gateway/v1", api_mode="responses",
+                  **common)
     agent = Agent(
         llm=llm,
         tools=[Tool(name=gates.TerminalTool.name, params={"jai_run": request.run_id}),

@@ -36,7 +36,7 @@ READ_AT_ONCE = 5
 def _model() -> str:
     from app.core.command import CommandService
 
-    return CommandService().model
+    return CommandService()._light_model()  # writing up research is light work: Luna
 
 
 async def _complete(system: str, user: str, max_tokens: int) -> str:

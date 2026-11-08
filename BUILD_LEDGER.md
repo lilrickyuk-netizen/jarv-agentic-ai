@@ -14270,3 +14270,16 @@ TESTS RUN: backend suite with a new test that both voice engines are told who Ja
 RESULT: Richard wanted a real-time conversation in a JARVIS-style voice and personality. The voice now runs on OpenAI's Realtime model (speech to speech, interruptible, replies in about a second) instead of the slower transcribe, think and speak pipeline, which stays as the fallback. Both engines get the same instructions: JAI's facts and tools, how to talk (short first sentence, never recite), and who Jay is: an unflappable, refined British aide with a dry wit who is a step ahead, candid about problems and calls him boss now and then. The live voice's cost counts against the daily spending limit.
 BLOCKERS: None
 NEXT TASK: MYCO Phase 0
+
+---
+
+TASK ID: MODEL-TIERS-OPUS
+TASK NAME: JAI thinks with Claude Opus 5.5, moves to GPT-6 Sol when Anthropic has no credit, and does light work on GPT-6 Luna
+STATUS: COMPLETE
+FILES CREATED: apps/backend/tests/test_model_tiers.py
+FILES MODIFIED: apps/backend/app/core/config.py, apps/backend/app/core/providers/router.py, apps/backend/app/core/providers/claude.py, apps/backend/app/core/command/metrics.py, apps/backend/app/core/command/service.py, apps/backend/app/core/command/sandbox_engine.py, apps/backend/app/core/creative/videos.py, apps/backend/app/core/internet/research.py, apps/backend/app/core/gateway/__init__.py, apps/backend/app/api/v1/gateway.py, apps/backend/app/main.py, apps/backend/tests/conftest.py, apps/backend/tests/test_openhands_sandbox.py, services/openhands/app/server.py, services/openhands/tests/test_sandbox.py
+COMMANDS RUN: sandbox image build and its tests (no network); backend test suite; DAILY_SPEND_LIMIT_USD=26 set; sandbox, backend and worker recreated; one live call each to Opus 5.5 and Sol through JAI's router
+TESTS RUN: hard work stays on Opus 5.5 and light work (answers, drafts, reports, research write-ups, the agents' routine analyses) goes to Luna; Opus without credit moves to Sol and every part of JAI is told for six hours; the mission's report is written on Luna; Opus 5.5 and Sol are priced; the gateway passes Anthropic's Messages API on with JAI's key (never the sandbox's), inside the spending limit and the model allow-list, and shares a credit failure; the sandbox thinks with Opus while Anthropic can serve it and with Sol otherwise, and a package cut short by a credit failure finishes on Sol; the sandbox builds a Claude conversation through JAI's gateway
+RESULT: Richard added his Anthropic key and chose the tiers: Claude Opus 5.5 for hard thinking (missions, planning, every specialist in the sandbox, integration, the Verifier), GPT-6 Sol when Anthropic cannot serve it (no credit, outage), and GPT-6 Luna for work that needs no deep reasoning. The router applies the tiers to every call in JAI; a credit failure rests Anthropic for six hours and is shared through Redis so the sandbox switches too; the sandbox reaches Anthropic only through JAI's gateway (spending limit, allow-list, pricing, no provider key in the sandbox). The daily spending limit is $26 (about £20) and each sandbox package may spend up to $6.
+BLOCKERS: None
+NEXT TASK: MYCO Phase 0

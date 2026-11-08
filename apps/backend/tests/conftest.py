@@ -183,6 +183,9 @@ def _no_spend_limit_unless_a_test_sets_one(monkeypatch):
     # one agent.
     monkeypatch.setattr(settings, "MISSION_TEAM_ENABLED", False)
     monkeypatch.setattr(settings, "OPENHANDS_URL", "")
+    # The model tiers (Opus 5.5 for hard work, Luna for light) are tested on their own; elsewhere a request
+    # goes to the model it names.
+    monkeypatch.setattr(settings, "MODEL_TIERS_ENABLED", False)
     monkeypatch.setattr(settings, "OPENHANDS_TOKEN", None)
 
 

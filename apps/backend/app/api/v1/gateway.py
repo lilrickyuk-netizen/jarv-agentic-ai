@@ -34,3 +34,32 @@ async def forward(path: str, request: Request, authorization: str | None = Heade
     except gateway.GatewayRefused as refused:
         return JSONResponse(refused.body(), status_code=refused.status)
     return JSONResponse(answer, status_code=status)
+
+
+# Anthropic's Messages API, for JAI's engineering sandbox (OpenHands thinking with Claude Opus 5.5). LiteLLM sends
+# JAI's gateway token as x-api-key, the way it sends an Anthropic key.
+anthropic_router = APIRouter(prefix="/gateway/anthropic/v1", tags=["gateway"])
+
+
+@anthropic_router.post("/messages")
+async def anthropic_messages(request: Request, x_api_key: str | None = Header(default=None),
+                             authorization: str | None = Header(default=None),
+                             anthropic_version: str | None = Header(default=None),
+                             anthropic_beta: str | None = Header(default=None),
+                             x_jai_caller: str | None = Header(default=None)) -> JSONResponse:
+    if not gateway.token():
+        return JSONResponse(gateway.GatewayRefused(401, "JAI's gateway is turned off (no JAI_GATEWAY_TOKEN).",
+                                                   "not_configured").body(), status_code=401)
+    if not (gateway.authorised(x_api_key) or gateway.authorised(authorization)):
+        return JSONResponse(gateway.GatewayRefused(401, "Not JAI's gateway token.", "authentication_error").body(),
+                            status_code=401)
+    try:
+        body = await request.json()
+    except ValueError:
+        return JSONResponse(gateway.GatewayRefused(400, "The request body must be JSON.").body(), status_code=400)
+    try:
+        status, answer = await gateway.forward_anthropic(body, anthropic_version, anthropic_beta,
+                                                         caller=(x_jai_caller or "sandbox")[:40])
+    except gateway.GatewayRefused as refused:
+        return JSONResponse(refused.body(), status_code=refused.status)
+    return JSONResponse(answer, status_code=status)

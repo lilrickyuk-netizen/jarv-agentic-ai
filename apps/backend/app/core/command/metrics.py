@@ -17,10 +17,15 @@ from typing import Any, Dict, Optional
 # US dollars per million tokens: (uncached input, output, cached input, cache write). Read from the model page on
 # 2 November 2026; a model not listed here is measured in tokens only.
 PRICES: Dict[str, tuple] = {
+    # US dollars per million tokens: input, output, cached input read, cache write.
     "gpt-6-luna": (0.10, 0.50, 0.01, 0.125),
+    "gpt-6-sol": (2.00, 10.00, 0.20, 2.50),
+    "claude-opus-5-5": (4.00, 20.00, 0.40, 5.00),
 }
 
 ROLES = ("mission", "requirements", "verifier", "report")
+# Roles that are light work whatever the mission's model: the report is written from evidence already gathered.
+LIGHT_ROLES = ("report",)
 
 
 def _normalise(usage: Dict[str, Any]) -> Dict[str, int]:
@@ -110,6 +115,10 @@ class MeteredRouter:
         return MeteredRouter(self._router, self.usage, role, self.cache_key)
 
     async def complete(self, request):
+        from app.core.config import settings
+
+        if self.role in LIGHT_ROLES and getattr(settings, "MODEL_TIERS_ENABLED", False):
+            request = replace(request, model=settings.LIGHT_MODEL)  # writing up is light work: Luna
         if self.cache_key and getattr(request, "prompt_cache_key", None) is None:
             request = replace(request, prompt_cache_key=self.cache_key)
         response = await self._router.complete(request)

@@ -182,3 +182,19 @@ def test_the_sandbox_has_jais_toolchain_at_its_pinned_versions(tool, version):
             "trivy": ["--version"], "gitleaks": ["version"]}[tool]
     out = subprocess.run([tool, *flag], capture_output=True, text=True, timeout=30)
     assert version in out.stdout + out.stderr
+
+
+def test_a_run_can_think_with_claude_through_jais_gateway(folder):
+    """Opus 5.5 for the specialists: Anthropic's API through JAI's gateway, never a provider key in the sandbox."""
+    run_id = "run-claude-0001"
+    gate = _gate(Backend(), run_id)
+    request = server.RunRequest(run_id=run_id, workspace=str(folder), brief="Do it.", model="claude-opus-5-5",
+                                provider="anthropic", reasoning_effort="high")
+    conversation = server.build_conversation(server.Run(request, gate), False)
+    try:
+        llm = conversation.agent.llm
+        assert llm.model == "anthropic/claude-opus-5-5"
+        assert llm.base_url == "http://backend:8000/api/gateway/anthropic/v1/messages"
+        assert llm.api_key.get_secret_value() == "gateway-token-must-never-reach-the-shell"
+    finally:
+        conversation.close()
