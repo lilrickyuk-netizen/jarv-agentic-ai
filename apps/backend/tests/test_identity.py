@@ -30,6 +30,43 @@ def test_jay_is_dry_witted_in_the_voice_and_in_writing():
     assert "bone-dry" in spoken and "WHAT YOU ARE" in spoken and "31 specialist agents" in spoken
 
 
+def test_a_question_about_jai_itself_is_answered_from_its_design_document_not_a_mission():
+    # Richard's own words by voice on 8 November, which started a mission instead of an answer.
+    for question in ("Do you know what upgrades you've had in the last 72 hours?", "What capabilities you've got.",
+                     "What are you?", "What skill packs do you have?", "How do you work?"):
+        assert identity.asks_about_me(question), question
+    for work in ("Carry on building MYCO Phase 0", "Use your BRAG Slim skill to make a Plexecute video",
+                 "How is the mission going?", "Make the Plexecute launch video with your BRAG Slim skill. " * 10):
+        assert not identity.asks_about_me(work), work
+    whole = identity.capabilities()
+    assert "134 skills" in whole and "Six pinned" in whole and "## Honest limits" in whole
+    spoken = live.spoken_instructions([], brain=True)
+    assert "what_i_am" in spoken and "A question is never a mission" in spoken
+    start = next(t for t in live.TOOLS if t["name"] == "start_mission")
+    assert "never for a question about JAI itself" in start["description"]
+
+
+def test_a_written_question_about_jai_gets_the_whole_document(monkeypatch):
+    from app.core.command.service import CommandService
+
+    seen = {}
+
+    class Router:
+        async def complete(self, request):
+            seen["system"] = request.system
+
+            class Response:
+                content, usage = "Six skill packs, boss.", {"total_tokens": 1}
+            return Response()
+
+    monkeypatch.setattr("app.core.command.service.get_router", lambda: Router())
+    service = CommandService()
+    asyncio.run(service._run_answer("What capabilities have you got?", {}, [], []))
+    assert "HE IS ASKING ABOUT YOU" in seen["system"] and "134 skills" in seen["system"]
+    asyncio.run(service._run_answer("How is MYCO going?", {}, [], []))
+    assert "HE IS ASKING ABOUT YOU" not in seen["system"]
+
+
 def test_every_agent_can_find_jais_design_in_the_knowledge_library():
     from app.core.knowledge.documentation import ALL_AGENTS, catalogue
 

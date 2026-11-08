@@ -41,7 +41,8 @@ TOOLS: List[Dict[str, Any]] = [
     {"type": "function", "name": "start_mission",
      "description": "Start real work: hands Richard's request to JAI's agents as a Command Center mission. Use it "
                     "when Richard asks for something to be done (built, fixed, researched, written, checked, "
-                    "deployed), not for a question you can answer in conversation. Only once he has said what the "
+                    "deployed), not for a question you can answer in conversation, and never for a question about JAI itself "
+                    "(what it is, its capabilities, skills, models or upgrades): ask_jarv answers those. Only once he has said what the "
                     "work is: if he just says 'new mission' or 'start a mission', ask him what it should do. Name "
                     "the workspace it is for; ask him if it is not clear.",
      "parameters": {"type": "object", "properties": {
@@ -196,7 +197,12 @@ BRAIN_ROUTING = (
     "he wants things done: follow it without making him repeat it) and what_my_work_has_established (facts from "
     "your own finished work; one marked no_longer_true is history, not the present). "
     "my_recent_upgrades lists what has been installed into you lately, newest first, with when (UTC): when he asks "
-    "what has changed or what upgrades you have had, tell him from it what each one lets you do now. ")
+    "what has changed or what upgrades you have had, tell him from it what each one lets you do now. "
+    "When he asks about you (what you are, what you can do, how you work, your skills, models or upgrades), the "
+    "state gives what_i_am, your own design document: answer him straight away from it and from my_recent_upgrades, "
+    "with its exact numbers and names, never a count or a feature it does not give. The upgrade entries are short "
+    "commit titles: what_i_am says what they amount to. A question is never a mission: never start one to answer "
+    "him, look into your own records or check your upgrades. ")
 
 
 def instructions(spaces: List[Any], brain: bool = False) -> str:
@@ -921,6 +927,11 @@ async def brain_facts(db: AsyncSession, user_id: UUID, question: str,
     from app.core import upgrades
 
     facts["my_recent_upgrades"] = await upgrades.recent(3, 15)
+    # A question about JAI itself is answered from its own design document, in full, not a mission.
+    from app.core.identity import asks_about_me, capabilities
+
+    if asks_about_me(question):
+        facts["what_i_am"] = capabilities()
     try:
         from app.core import spend
 
@@ -974,7 +985,8 @@ async def _ask_jarv(db: AsyncSession, user_id: UUID, question: str, workspace_id
         model=service.model, max_tokens=1400, temperature=0.2, reasoning_effort="low",
         system=("You are JAI's reasoning core answering Richard Curley's spoken question; your answer is spoken "
                 "aloud by JAI's voice, so speak as JAI, in the first person ('I am on step 7 of the check'). Answer "
-                "only from the facts given (working_now with each mission's live progress, the status line, "
+                "only from the facts given (what_i_am, your own design document, for any question about you, your "
+                "capabilities or your upgrades, with its exact numbers and names; working_now with each mission's live progress, the status line, "
                 "recent missions, approvals, JAI's memory, verified lessons, the knowledge library and your recent "
                 "conversation with him); when they do not contain the answer, say so plainly and say what JAI would "
                 "need to find out. Be specific: requirement ids, file names, commands, exit codes, numbers, minutes. "

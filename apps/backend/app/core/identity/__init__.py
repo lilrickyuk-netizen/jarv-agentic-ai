@@ -47,6 +47,27 @@ def summary() -> str:
     return " ".join(match.group(1).split()) if match else ""
 
 
+# A question about JAI itself: what it is, what it can do, how it works, what it has had installed.
+ABOUT_ME = re.compile(
+    r"\b(capabilit\w*|abilities|upgrade[sd]?|upgrading|(your|what|which) skills|skill packs|your features|"
+    r"what are you|who are you|what can you do|what else can you|are you able|how do you work|"
+    r"how are you (built|made|set up)|your (design|architecture|models?|tools|agents|limits|brains?)|"
+    r"what have you got|what you've got|what's new with you|installed (in|into) you)\b", re.I)
+
+
+def asks_about_me(text: str) -> bool:
+    """A short question about JAI itself (a long brief that happens to say 'your skill' is work, not a question)."""
+    return len(text or "") <= 400 and bool(ABOUT_ME.search(text or ""))
+
+
+def capabilities() -> str:
+    """JAI.md from its first section on, compacted, for a question about JAI itself (about 11,000 characters)."""
+    text = _text()
+    start = text.find("## In one paragraph")
+    body = text[start:] if start != -1 else text
+    return re.sub(r"[ \t]+", " ", re.sub(r"\n{2,}", "\n", body)).strip()
+
+
 def written_system() -> str:
     """The Command Center's character and self-knowledge, ahead of its rules for answering."""
     about = summary()

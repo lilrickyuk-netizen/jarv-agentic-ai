@@ -14374,3 +14374,16 @@ TESTS RUN: JAI.md has every section and a one-paragraph summary; the voice (both
 RESULT: JAI.md describes JAI as installed: the boundary-operator model, every service, the models and spending limits, how a mission runs in parallel waves, the sandbox, the six skill packs, memory and knowledge, business capabilities, voice and the orb, authority and safety, what needs Richard and its honest limits. Its summary goes into every reply and voice conversation and the whole document is searchable by every agent. Jay's personality, now shared by voice and writing, is a JARVIS-style British aide with bone-dry, understated humour that never replaces the facts. PLEXECUTE.md, the product and brand brief, is placed in the Plexecute-Marketing workspace for the launch video.
 BLOCKERS: None
 NEXT TASK: Restart MYCO Phase 0, then the Plexecute 2 launch video (BRAG Slim), reading PLEXECUTE.md first
+
+---
+
+TASK ID: SELF-QUESTIONS
+TASK NAME: A question about JAI itself is answered at once from its design document, never as a mission
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/identity/__init__.py, apps/backend/app/core/voice/live.py, apps/backend/app/core/command/service.py, apps/backend/tests/test_identity.py
+COMMANDS RUN: backend test suite; backend and worker recreated
+TESTS RUN: Richard's own spoken questions ("what upgrades have you had in the last 72 hours", "what capabilities you've got") are recognised as questions about JAI, while mission briefs that mention a skill are not; the voice is told a question is never a mission and start_mission refuses questions about JAI; the voice's live state and the Command Center's written answer carry the whole of JAI.md for such a question
+RESULT: By voice on 8 November, "what capabilities have you got" started a mission to look into JAI's own records, and the answer that followed (after Richard cancelled it) miscounted the skill packs (eight instead of six), because the voice had only JAI.md's one-paragraph summary and terse commit titles. A question about JAI now gives the voice and the written replies the whole design document, and they answer straight away with its exact numbers and names.
+BLOCKERS: None
+NEXT TASK: Restart MYCO Phase 0, then the Plexecute launch video

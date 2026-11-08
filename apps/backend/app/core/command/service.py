@@ -2652,10 +2652,13 @@ class CommandService:
         outcome: Optional[Dict[str, Any]] = None,
     ) -> tuple[str, int]:
         """Produce the final user-facing answer with Claude over real context and real results."""
-        from app.core.identity import written_system
+        from app.core.identity import asks_about_me, capabilities, written_system
 
         router = get_router()
         system_prompt = written_system() + (
+            ("\nHE IS ASKING ABOUT YOU. Answer straight from your own design document, with its exact numbers and "
+             "names, never a count or feature it does not give:\n" + capabilities() + "\n")
+            if asks_about_me(command_text) else "") + (
             "\nYou are JAI, a private autonomous multi-agent AI operations system. "
             "Answer the operator's command directly and concretely using the REAL "
             "system context and the execution plan provided. "
