@@ -42,6 +42,27 @@ def _no_credit(result: Dict[str, Any]) -> bool:
     return any(word in text for word in ("credit balance", "insufficient_quota", "billing", "out of credit"))
 
 
+def _unreachable(result: Dict[str, Any]) -> bool:
+    """A run that stopped because the model's provider could not be reached for a moment (not a fault of the work)."""
+    if result.get("success"):
+        return False
+    text = f"{result.get('error') or ''} {result.get('answer') or ''}".lower()
+    return any(word in text for word in ("could not be reached", "upstream_unreachable", "badgateway",
+                                         "bad gateway", "connecterror", "overloaded", "serviceunavailable",
+                                         "service unavailable", "apiconnectionerror"))
+
+
+def _budget_out(result: Dict[str, Any]) -> bool:
+    """A run that stopped at its spending limit before it finished."""
+    if result.get("success"):
+        return False
+    text = f"{result.get('error') or ''} {result.get('answer') or ''}".lower()
+    return "budget limit" in text or "maximum budget" in text
+
+
+UNREACHABLE_WAIT_SECONDS = 45.0
+
+
 def sandbox_url() -> str:
     return str(getattr(settings, "OPENHANDS_URL", "") or "").rstrip("/")
 
@@ -203,6 +224,20 @@ class SandboxSpecialist:
         container_root = str(container)
         model = await self.model()
         result = await self._attempt(requirements, container_root, model)
+        if _unreachable(result):
+            # The provider dropped out for a moment: wait, then carry on from the files on disk; if it is still
+            # unreachable, the other provider finishes the package.
+            await asyncio.sleep(UNREACHABLE_WAIT_SECONDS)
+            result = self._merge(result, await self._again(requirements, container_root, model))
+            if _unreachable(result) and model.startswith("claude"):
+                fallback = str(settings.OPENHANDS_FALLBACK_MODEL or settings.OPENAI_MODEL)
+                result = self._merge(result, await self._again(requirements, container_root, fallback))
+                result["answer"] = (f"(Anthropic could not be reached, so this package finished on {fallback}.)\n"
+                                    + str(result.get("answer") or ""))
+        if _budget_out(result):
+            # Its spending limit ran out mid-task: one more run picks up from the files already written, so a
+            # large package is finished instead of abandoned (the daily limit still caps all spending).
+            result = self._merge(result, await self._again(requirements, container_root, model))
         if model.startswith("claude") and _no_credit(result):
             # Anthropic ran out of credit mid-package: the rest of JAI is told, and the package carries on with
             # GPT-6 Sol from the files already on disk.
@@ -216,6 +251,17 @@ class SandboxSpecialist:
                 again[key] = (again.get(key) or 0) + (result.get(key) or 0)
             return again
         return result
+
+    async def _again(self, requirements: List[Dict[str, Any]], container_root: str, model: str) -> Dict[str, Any]:
+        """Another run of the same package under a new run id, continuing from what is on disk."""
+        self.run_id = f"{self.run_id.rsplit('-', 1)[0]}-{uuid4().hex[:8]}"
+        return await self._attempt(requirements, container_root, model)
+
+    @staticmethod
+    def _merge(earlier: Dict[str, Any], later: Dict[str, Any]) -> Dict[str, Any]:
+        for key in ("steps", "tokens", "cost_usd"):
+            later[key] = (later.get(key) or 0) + (earlier.get(key) or 0)
+        return later
 
     async def _attempt(self, requirements: List[Dict[str, Any]], container_root: str, model: str) -> Dict[str, Any]:
         from app.core.command.metrics import PRICES
@@ -232,6 +278,8 @@ class SandboxSpecialist:
                 "max_cost_usd": float(settings.OPENHANDS_MAX_COST_PER_PACKAGE_USD),
                 "input_cost_per_token": price[0] / 1e6 if price else None,
                 "output_cost_per_token": price[1] / 1e6 if price else None,
+                "cache_read_cost_per_token": price[2] / 1e6 if price else None,
+                "cache_write_cost_per_token": price[3] / 1e6 if price else None,
                 "skills": sandbox_skills(self.package.specialist)}
         owned = self.client is None
         client = self.client or httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=5.0))

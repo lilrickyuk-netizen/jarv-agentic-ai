@@ -107,7 +107,9 @@ async def derive(router, model: str, mission: str, *, spec: str = "",
 def render(requirements: List[Dict[str, Any]]) -> str:
     lines = []
     for r in requirements:
-        line = f"- {r['id']} [{r['status']}] {r['text']} ({r['source']})"
+        # A requirement carried over from an earlier mission may lack a field: shown, never a crash.
+        line = (f"- {r.get('id', '?')} [{r.get('status', 'open')}] {r.get('text', '')} "
+                f"({r.get('source') or 'mission'})")
         if r.get("evidence"):
             line += f" — evidence: {r['evidence'][:200]}"
         lines.append(line)

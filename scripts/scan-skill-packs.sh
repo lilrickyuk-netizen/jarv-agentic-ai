@@ -13,10 +13,15 @@ for dir in skill-packs/*/; do
   name=$(basename "$dir")
   [ -f "$dir/.jai-commit" ] || continue
   report="$dir/.agentshield.json"
-  if ! docker run --rm --network bridge -v "$PWD/$dir":/scan:ro node:20 \
-        sh -c "npx --yes ecc-agentshield@$VERSION scan --path /scan --format json 2>/dev/null" > "$report.tmp"; then
+  # The report is written to a file inside the container: piped out, a large one (ECC's) was cut off at 64 KB.
+  out=$(mktemp -d)
+  chmod 777 "$out"
+  if ! docker run --rm --network bridge -v "$PWD/$dir":/scan:ro -v "$out":/out node:20 \
+        sh -c "npx --yes ecc-agentshield@$VERSION scan --path /scan --format json > /out/report.json 2>/dev/null"; then
     : # AgentShield exits non-zero when it finds something; the JSON below is what counts
   fi
+  cp "$out/report.json" "$report.tmp" 2>/dev/null || : > "$report.tmp"
+  rm -rf "$out"
   if verdict=$(python3 - "$report.tmp" "$dir" <<'PY'
 import json, sys
 from pathlib import Path, PurePosixPath

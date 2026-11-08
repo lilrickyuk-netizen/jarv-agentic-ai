@@ -303,3 +303,34 @@ def test_a_skill_agentshield_flagged_is_not_loaded(tmp_path):
     (tmp_path / "pack" / ".jai-blocked").write_text("skills/risky\n")
     loaded = skills.load(["pack/skills/tidy-code", "pack/skills/risky"], root=tmp_path)
     assert [s.name for s in loaded] == ["tidy-code"]
+
+
+def test_the_budget_counts_cached_input_at_its_real_price(folder):
+    """A specialist's $6 limit stopped them at about $1.20 of real spend: every cached token was counted at the full
+    input price. With the cache prices registered, LiteLLM prices a call the way Anthropic bills it."""
+    import litellm
+    from litellm import ModelResponse, Usage
+    from litellm.types.utils import PromptTokensDetailsWrapper
+
+    run_id = "run-price-0001"
+    gate = _gate(Backend(), run_id)
+    request = server.RunRequest(run_id=run_id, workspace=str(folder), brief="Do it.", model="claude-opus-5-5",
+                                provider="anthropic", max_cost_usd=6.0, input_cost_per_token=4e-6,
+                                output_cost_per_token=2e-5, cache_read_cost_per_token=4e-7,
+                                cache_write_cost_per_token=5e-6)
+    conversation = server.build_conversation(server.Run(request, gate), False)
+    try:
+        llm = conversation.agent.llm
+        assert llm.input_cost_per_token is None  # no flat price that would bill cached tokens in full
+        # LiteLLM files the price list under its own key; what counts is the price it then charges for a call.
+        assert any(v.get("cache_read_input_token_cost") == 4e-7 for k, v in litellm.model_cost.items()
+                   if "claude-opus-5-5" in k), [k for k in litellm.model_cost if "opus-5" in k]
+        call = ModelResponse(model="claude-opus-5-5", usage=Usage(
+            prompt_tokens=100_000, completion_tokens=1_000, total_tokens=101_000,
+            prompt_tokens_details=PromptTokensDetailsWrapper(cached_tokens=90_000), cache_read_input_tokens=90_000))
+        cost = litellm.completion_cost(completion_response=call, model="anthropic/claude-opus-5-5",
+                                       custom_llm_provider="anthropic")
+        # 10,000 fresh at $4/M + 90,000 cached at $0.40/M + 1,000 out at $20/M = $0.096 (a flat price: $0.42)
+        assert 0.05 < cost < 0.2, cost
+    finally:
+        conversation.close()

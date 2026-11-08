@@ -58,6 +58,10 @@ class RunRequest(BaseModel):
     jai_tools: bool = True  # JAI's own capabilities, from its MCP server
     # The skill packs' skills for this specialist ("pack/root/skill" folders under /jai/skills), loaded on demand.
     skills: List[str] = Field(default_factory=list, max_length=80)
+    # What cached input costs (US dollars per token): Anthropic and OpenAI charge a tenth for a cache read, so the
+    # per-run budget must count it at that price, not at the full input price.
+    cache_read_cost_per_token: Optional[float] = Field(default=None, ge=0)
+    cache_write_cost_per_token: Optional[float] = Field(default=None, ge=0)
 
 
 class Run:
@@ -174,6 +178,27 @@ def jai_tools(run_id: str) -> Dict[str, Any]:
                                       "X-JAI-Run": SecretStr(run_id)})}
 
 
+def register_prices(provider: str, request: "RunRequest") -> bool:
+    """Teach LiteLLM the model's full price list, cache reads and writes included, so the run's spending limit
+    counts what the provider really charges. A custom per-token price would bill every cached token at the full
+    input price (about five times the real cost of an agent loop) and stop specialists long before their limit."""
+    if None in (request.input_cost_per_token, request.output_cost_per_token, request.cache_read_cost_per_token):
+        return False
+    import litellm
+
+    entry = {"input_cost_per_token": request.input_cost_per_token,
+             "output_cost_per_token": request.output_cost_per_token,
+             "cache_read_input_token_cost": request.cache_read_cost_per_token,
+             "cache_creation_input_token_cost": request.cache_write_cost_per_token or request.input_cost_per_token,
+             "litellm_provider": provider, "mode": "chat"}
+    try:
+        litellm.register_model({f"{provider}/{request.model}": dict(entry), request.model: dict(entry)})
+    except Exception as exc:  # noqa: BLE001 - the budget falls back to the plain per-token price
+        logger.warning("could not register prices for %s: %s", request.model, exc)
+        return False
+    return True
+
+
 def build_conversation(run: Run, with_jai_tools: bool = True):
     """The OpenHands conversation for one run: JAI's model through JAI's gateway, JAI's gated terminal and file
     editor, OpenHands' task tracker and context condenser, the specialist's standard in the system prompt."""
@@ -185,8 +210,12 @@ def build_conversation(run: Run, with_jai_tools: bool = True):
     request = run.request
     key = SecretStr(SECRETS["JAI_GATEWAY_TOKEN"] or "unset")
     common = dict(usage_id="agent", api_key=key, reasoning_effort=request.reasoning_effort, timeout=600,
-                  num_retries=4, input_cost_per_token=request.input_cost_per_token,
-                  output_cost_per_token=request.output_cost_per_token)
+                  num_retries=4)
+    provider = "anthropic" if request.provider == "anthropic" else "openai"
+    if not register_prices(provider, request):
+        # Without cache prices the budget is counted at the full input price, as before.
+        common.update(input_cost_per_token=request.input_cost_per_token,
+                      output_cost_per_token=request.output_cost_per_token)
     if request.provider == "anthropic":  # Claude through JAI's gateway, which passes Anthropic's Messages API on
         llm = LLM(model=f"anthropic/{request.model}", base_url=f"{BACKEND_URL}/api/gateway/anthropic/v1/messages",
                   **common)

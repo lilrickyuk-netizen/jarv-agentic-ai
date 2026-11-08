@@ -2023,13 +2023,27 @@ class CommandService:
             "Integration lead: install, build and test the whole project and fix where the packages meet.",
             "Verifier: accept the mission only on evidence for every requirement.",
         ]
+        from app.core.command.resume import last_state
+
         root = await self._resolve_ws_root(db, command_text)
         max_cont = 4
+        known = _known_for_mission(system_context)
+        carried = None
+        try:  # carry on from the last unfinished mission in this workspace instead of starting again
+            carried = await last_state(db, runtime.workspace_id, runtime.task_id, command_text)
+        except Exception as exc:  # noqa: BLE001 - the mission starts fresh rather than not at all
+            logger.warning(f"could not read the last mission's state: {exc}")
+        if carried:
+            known = (f"{known}\n\n" if known else "") + carried["known"]
+            steps.insert(0, f"Resume: carry on from mission {carried['task_id'][:8]} "
+                            f"({sum(1 for r in carried['requirements'] if r.get('status') == 'done')} of "
+                            f"{len(carried['requirements'])} requirements already done).")
         executor = mission_executor(runtime, self.model, root)
-        result = await executor.run(command_text, steps_per_round=8, max_continuations=max_cont,
-                                    known=_known_for_mission(system_context))
+        result = await executor.run(command_text, steps_per_round=8, max_continuations=max_cont, known=known,
+                                    requirements=carried["requirements"] if carried else None)
         extra: Dict[str, Any] = {
             "agent_tools": result.get("tools", []),
+            "carried_on_from": carried["task_id"] if carried else None,
             "verification": result.get("verification"),
             "requirements": result.get("requirements"),
             "report": result.get("report"),

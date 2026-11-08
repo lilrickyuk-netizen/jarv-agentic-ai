@@ -796,7 +796,7 @@ class AgentExecutor:
         """True when the requirement list is a real breakdown, not just the mission repeated (the requirements step
         had nothing to add): then the Verifier's own checks are the breakdown."""
         return bool(self.requirements) and not (len(self.requirements) == 1
-                                                and self.requirements[0]["source"] == "mission")
+                                                and self.requirements[0].get("source") == "mission")
 
     @staticmethod
     def _conformance(mission: str, hard: Dict[str, Any]) -> bool:

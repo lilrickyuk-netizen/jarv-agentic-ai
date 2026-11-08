@@ -424,3 +424,85 @@ def test_jais_own_capabilities_are_offered_to_the_sandbox_through_mcp(client, sa
         assert any("web_search" in (a.action or "") or "web_search" in (a.description or "") for a in asyncio.run(audit()))
     finally:
         shutil.rmtree(folder, ignore_errors=True)
+
+
+def _specialist_with(results, monkeypatch, model="claude-opus-5-5"):
+    """A sandbox specialist whose runs answer with ``results`` in turn (recorded: model and run id per run)."""
+    from app.core.command.mission_org import Package
+
+    team = SimpleNamespace(
+        runtime=SimpleNamespace(task_id=uuid4(), workspace_id=uuid4(), user_id=None, authority_level=4),
+        workspace_root="/test_workspaces/myco-sandbox", lead_agent_id=None)
+    package = Package("P1", "sub()", "coding_agent", "Add sub", ["apps/api/"], [], ["R1"], "pytest passes")
+    specialist = sandbox_engine.SandboxSpecialist(team, package, "Add sub(a, b).", "", poll_seconds=0.01)
+    runs = []
+
+    async def attempt(self, requirements, root, used):
+        runs.append((used, self.run_id))
+        return dict(results[len(runs) - 1])
+
+    async def chosen(self):
+        return model
+
+    monkeypatch.setattr(sandbox_engine.SandboxSpecialist, "_attempt", attempt)
+    monkeypatch.setattr(sandbox_engine.SandboxSpecialist, "model", chosen)
+    monkeypatch.setattr(sandbox_engine, "UNREACHABLE_WAIT_SECONDS", 0.0)
+    return specialist, runs
+
+
+def test_a_moment_without_anthropic_is_waited_out_and_then_handed_to_sol(monkeypatch):
+    """The log on 8 November: "Anthropic could not be reached (ConnectError)" ended whole packages."""
+    lost = {"success": False, "error": 'BadGatewayError: {"error":{"message":"Anthropic could not be reached '
+                                       '(ConnectError).","type":"upstream_unreachable"}}', "steps": 4, "cost_usd": 0.2}
+    done = {"success": True, "answer": "R1: done — pytest passed", "steps": 9, "cost_usd": 0.5}
+    specialist, runs = _specialist_with([lost, done], monkeypatch)
+    result = asyncio.run(specialist.run([{"id": "R1", "text": "sub", "status": "open"}]))
+    assert result["success"] is True and [m for m, _ in runs] == ["claude-opus-5-5", "claude-opus-5-5"]
+    assert result["steps"] == 13 and abs(result["cost_usd"] - 0.7) < 1e-9 and runs[0][1] != runs[1][1]
+
+    specialist, runs = _specialist_with([lost, lost, done], monkeypatch)
+    result = asyncio.run(specialist.run([{"id": "R1", "text": "sub", "status": "open"}]))
+    assert [m for m, _ in runs] == ["claude-opus-5-5", "claude-opus-5-5", "gpt-6-sol"]
+    assert result["success"] is True and "could not be reached" in result["answer"]
+
+
+def test_a_package_that_hits_its_spending_limit_is_finished_not_abandoned(monkeypatch):
+    """Six packages stopped at "Agent reached maximum budget limit ($6.0000)" and were left unfinished."""
+    spent = {"success": False, "error": "Agent reached maximum budget limit ($6.0000)", "steps": 40, "cost_usd": 6.0}
+    done = {"success": True, "answer": "R1: done — build passed", "steps": 12, "cost_usd": 1.5}
+    specialist, runs = _specialist_with([spent, done], monkeypatch)
+    result = asyncio.run(specialist.run([{"id": "R1", "text": "sub", "status": "open"}]))
+    assert result["success"] is True and len(runs) == 2 and result["steps"] == 52
+
+    specialist, runs = _specialist_with([spent, spent], monkeypatch)
+    result = asyncio.run(specialist.run([{"id": "R1", "text": "sub", "status": "open"}]))
+    assert result["success"] is False and len(runs) == 2  # one more run, never an endless loop
+
+
+def test_the_sandbox_is_told_what_cached_input_really_costs(monkeypatch, sandbox_token):
+    fake = FakeSandbox()
+    monkeypatch.setattr(settings, "CLAUDE_API_KEY", "anthropic-key-for-tests")
+    from tests.test_model_tiers import _forget_no_credit
+    from app.core.command.mission_org import Package
+
+    asyncio.run(_forget_no_credit())
+
+    async def nothing(*_):
+        return None
+
+    team = SimpleNamespace(
+        runtime=SimpleNamespace(task_id=uuid4(), workspace_id=uuid4(), user_id=None, authority_level=4),
+        workspace_root="/test_workspaces/myco-sandbox", lead_agent_id=None, adopt=nothing, save_progress=nothing,
+        _brief=lambda p, m: f"YOUR WORK PACKAGE {p.id}: {p.title}")
+    package = Package("P1", "sub()", "coding_agent", "Add sub", ["apps/api/"], [], ["R1"], "pytest passes")
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(fake), base_url="http://openhands:8010") as client:
+            specialist = sandbox_engine.SandboxSpecialist(team, package, "Add sub(a, b).", "", client=client,
+                                                          poll_seconds=0.01)
+            await specialist.run([{"id": "R1", "text": "sub", "source": "mission", "status": "open", "evidence": ""}])
+
+    asyncio.run(run())
+    assert fake.started["input_cost_per_token"] == pytest.approx(4e-6)
+    assert fake.started["cache_read_cost_per_token"] == pytest.approx(4e-7)
+    assert fake.started["cache_write_cost_per_token"] == pytest.approx(5e-6)
