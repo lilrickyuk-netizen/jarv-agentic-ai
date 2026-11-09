@@ -735,7 +735,7 @@ def _risky_words(argv: List[str]) -> bool:
             return True
         if sub == "remote" and rest and rest[0] not in ("-v", "--verbose", "show", "get-url"):
             return True
-        if sub == "tag" and rest and rest[0] not in ("-l", "--list"):
+        if sub == "tag" and rest and rest[0] not in ("-l", "--list") and not _git_tag_create(argv):
             return True
         if sub == "stash" and rest and rest[0] not in ("list", "show"):
             return True
@@ -759,6 +759,42 @@ def _git_commit(argv: List[str]) -> bool:
     if rest[:1] and rest[0].lower() in ("-a", "--all"):
         rest = rest[1:]
     return len(rest) == 2 and rest[0] in ("-m", "--message") and 0 < len(rest[1]) <= 500
+
+
+_TAG_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$")
+
+
+def _git_tag_create(argv: List[str]) -> bool:
+    """git tag [-a] <name> [-m <message>] [<commit>]: a new local tag, which `git tag -d` undoes, so it is ordinary
+    workspace work like a commit. Replacing (-f) or deleting (-d) a tag still needs approval, and pushing one is
+    pushing. On 9 November Richard approved the MYCO Phase 0 tag and JAI still held `git tag -a` at a gate."""
+    if [a.lower() for a in argv[:2]] != ["git", "tag"]:
+        return False
+    rest, name, message, commit = argv[2:], None, None, None
+    i = 0
+    while i < len(rest):
+        arg = rest[i]
+        if arg in ("-a", "--annotate"):
+            i += 1
+            continue
+        if arg in ("-m", "--message") and i + 1 < len(rest):
+            message = rest[i + 1]
+            i += 2
+            continue
+        if arg.startswith("-"):
+            return False  # -d, -f, -s and anything else: not a plain new tag
+        if name is None:
+            name = arg
+        elif commit is None:
+            commit = arg
+        else:
+            return False
+        i += 1
+    if not name or not _TAG_NAME.match(name) or ".." in name:
+        return False
+    if message is not None and not 0 < len(message) <= 500:
+        return False
+    return commit is None or bool(re.match(r"^[0-9a-fA-F]{7,40}$|^HEAD$", commit))
 
 
 def classify_command(command: str) -> str:
@@ -790,7 +826,7 @@ def classify_command(command: str) -> str:
         return "dangerous"
     if _risky_words(argv):
         return "risky"
-    if _git_commit(argv) or _git_add(argv):
+    if _git_commit(argv) or _git_add(argv) or _git_tag_create(argv):
         return "build"
     words = [_program(argv[0])] + [a.lower() for a in argv[1:]]
     c = " ".join(words)

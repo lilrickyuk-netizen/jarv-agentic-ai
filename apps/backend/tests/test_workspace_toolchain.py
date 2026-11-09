@@ -390,6 +390,17 @@ def test_read_only_git_commands_never_need_approval():
         assert classify_command(command) == "safe", command
 
 
+def test_a_new_local_tag_is_workspace_work_like_a_commit():
+    """On 9 November Richard approved the MYCO Phase 0 tag and JAI held `git tag -a` at a gate: a new local tag is
+    undone with `git tag -d`, so it is ordinary work. Replacing or deleting one still needs approval; pushing is
+    always refused."""
+    assert classify_command('git tag -a v3.2-phase-00-truth-baseline -m "MYCO Phase 0 accepted by Richard"') == "build"
+    assert classify_command("git tag v1.0 a891116") == "build"
+    assert classify_command("git tag -d v1.0") == "risky"
+    assert classify_command("git tag -f v1.0") == "risky"
+    assert classify_command("git push origin v1.0") == "dangerous"
+
+
 @pytest.mark.integration
 def test_env_templates_are_project_files_and_real_env_files_stay_protected():
     """Phase 0 asks for .env.example (setting names only); JAI refused to write it as a secret file."""
