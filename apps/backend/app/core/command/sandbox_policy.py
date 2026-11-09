@@ -133,11 +133,27 @@ def _commands_in(text: str, depth: int = 0) -> List[str]:
     return parts
 
 
+def _working_folder(cwd: str, scope: Scope) -> bool:
+    """Where the terminal may be: the workspace, scratch space and the read-only skill packs (a skill's own scripts
+    are run from its folder). Never another project, the folder above it, or anywhere else."""
+    return _inside(cwd, scope.root) or _inside(cwd, SCRATCH) or _inside(cwd, SKILLS)
+
+
+def _way_back(command: str, cwd: str, scope: Scope) -> bool:
+    """`cd <workspace or /tmp>` is always allowed, wherever the terminal is: on 9 November a BRAG run's terminal
+    ended up outside the workspace and thirteen commands in a row were refused, the `cd` back among them."""
+    words = list(_words(command))
+    if len(words) < 2 or words[0] != "cd":
+        return False
+    target = _resolve(words[1], cwd or scope.root, scope.home) or _norm(str(PurePosixPath(scope.root) / words[1]))
+    return _inside(target, scope.root) or _inside(target, SCRATCH)
+
+
 def check_command(command: str, cwd: str, scope: Scope) -> Optional[str]:
     """Why ``command`` may not run in the sandbox, or None."""
     if scope.authority < 3:
         return f"Not run: running commands needs authority 3; this specialist has {scope.authority}."
-    if not (_inside(cwd or scope.root, scope.root) or _inside(cwd, SCRATCH)):
+    if not _working_folder(cwd or scope.root, scope) and not _way_back(command, cwd, scope):
         return (f"Not run: the terminal is in {cwd}, outside this mission's workspace ({scope.root}) and the "
                 f"scratch space (/tmp). Run cd {scope.root} first.")
     text = " ".join(command.split())
