@@ -298,7 +298,8 @@ def test_voice_carries_on_with_the_paused_mission_instead_of_starting_a_new_one(
     assert output["resumed"] is True and output["task_id"] == str(paused)
     assert after == before  # no new mission
     assert _run(_get(paused)).status == "queued"
-    assert "no paused mission" in nothing["error"]
+    # Asked again, the mission it just queued is the one carrying on: nothing else is resumed.
+    assert "still being worked on" in nothing["error"] and nothing["task_id"] == str(paused)
 
 
 # ----- command API ------------------------------------------------------------------

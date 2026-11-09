@@ -8,7 +8,7 @@ no provider is called.
 """
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import httpx
@@ -171,7 +171,11 @@ def test_live_conversation_needs_the_openai_key_and_never_hands_it_to_the_browse
 
 @pytest.mark.api
 @pytest.mark.integration
-def test_live_conversation_tools_act_as_the_operator_under_the_approval_gate(client, voice):  # noqa: F811
+def test_live_conversation_tools_act_as_the_operator_under_the_approval_gate(client, voice, monkeypatch):  # noqa: F811
+    async def he_said_cancel(user_id):
+        return True
+
+    monkeypatch.setattr(live, "richard_asked_to_cancel", he_said_cancel)
     async def seed():
         async with AsyncTestingSessionLocal() as db:
             owner, ws_id = await _seed(db)
@@ -587,3 +591,41 @@ def test_a_running_mission_is_described_from_its_own_activity(monkeypatch):
     running = next(m for m in facts["recent_missions"] if m["status"] == "running")
     assert running["in_progress"] is True and any("wrote Taskfile.yml" in a for a in running["latest_activity"])
     assert "never from another mission's last_report" in seen["system"]
+
+
+
+def test_voice_never_cancels_unasked_and_carry_on_never_picks_another_mission(monkeypatch):
+    """9 November: "continue" while the Plexecute BRAG run was working resumed a finished MYCO mission, and the voice
+    then cancelled the Plexecute run although Richard never asked it to."""
+    said = []
+
+    async def turns(user_id, limit=16):
+        return said
+
+    monkeypatch.setattr(live, "recent_turns", turns)
+    said[:] = [{"who": "you", "text": "How's the mission going? Continue it."}, {"who": "jarv", "text": "Stop."}]
+    assert _run(live.richard_asked_to_cancel(uuid4())) is False  # JAI's own words never count
+    said[:] = [{"who": "you", "text": "Cancel that, it's the wrong one"}]
+    assert _run(live.richard_asked_to_cancel(uuid4())) is True
+
+    async def seed():
+        async with AsyncTestingSessionLocal() as db:
+            owner, ws_id = await _seed(db)
+            now = datetime.now(timezone.utc)
+            db.add(Task(id=uuid4(), workspace_id=ws_id, title="Finish MYCO Phase 0", task_type="command",
+                        status="partial", priority=5, meta_data={}, result={"workspace_path": "C:/x/MYCO"},
+                        created_at=now - timedelta(hours=3)))
+            db.add(Task(id=uuid4(), workspace_id=ws_id, title="Using BRAG, make a fresh video ad", task_type="command",
+                        status="running", priority=5, meta_data={}, result={"workspace_path": "C:/x/P"},
+                        created_at=now))
+            await db.commit()
+            return owner
+
+    owner = _run(seed())
+
+    async def resume():
+        async with AsyncTestingSessionLocal() as db:
+            return await live._resume(db, owner, None)
+
+    out = _run(resume())
+    assert "still being worked on" in out["error"] and "BRAG" in out["title"]

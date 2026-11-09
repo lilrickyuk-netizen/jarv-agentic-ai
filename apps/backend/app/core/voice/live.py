@@ -1297,6 +1297,18 @@ def _spoken_report(report: Any) -> Optional[Dict[str, Any]]:
             "waiting_on_richard": report.get("waiting") or []}
 
 
+_IN_FLIGHT = ("running", "queued", "recovering")
+_CANCEL_WORDS = re.compile(r"\b(cancel|stop|kill|abort|halt|scrap|end)\b", re.I)
+
+
+async def richard_asked_to_cancel(user_id: UUID) -> bool:
+    """Whether the last thing Richard said asks to stop something. On 9 November the voice cancelled the running
+    Plexecute mission on its own, right after resuming the wrong one."""
+    turns = await recent_turns(user_id, 6)
+    said = next((t for t in reversed(turns) if t.get("who") == "you"), None)
+    return bool(said and _CANCEL_WORDS.search(str(said.get("text") or "")))
+
+
 def _best_to_resume(candidates: List[Any]) -> Optional[Any]:
     """The mission "carry on" means: the newest mission that works in a folder and is not archived, whether it
     paused at its step limit or stopped part-way. Status never outranks age: preferring step-limit pauses made
@@ -1321,6 +1333,15 @@ async def _resume(db: AsyncSession, user_id: UUID, task_id: Optional[str]) -> Di
             return {"error": "That is not a mission id."}
         task = (await db.execute(query)).scalar_one_or_none()
     else:
+        # A mission still being worked on is what "carry on" means, and it carries on by itself: nothing else is
+        # resumed. On 9 November "continue" while the Plexecute BRAG run was working resumed a finished MYCO
+        # mission instead.
+        working = (await db.execute(query.where(Task.status.in_(_IN_FLIGHT)).order_by(Task.created_at.desc())
+                                    .limit(1))).scalars().first()
+        if working is not None:
+            return {"error": f"\"{working.title[:120]}\" is still being worked on and carries on by itself between "
+                             "rounds, so nothing was resumed. Tell Richard that.", "task_id": str(working.id),
+                    "title": working.title}
         task = _best_to_resume((await db.execute(
             query.where(Task.status.in_(RESUMABLE)).order_by(Task.created_at.desc()).limit(50))).scalars().all())
     if task is None:
@@ -1426,7 +1447,12 @@ async def run_tool(db: AsyncSession, user_id: UUID, name: str, arguments: Dict[s
         elif name == "get_status":
             output = await engine._status_reply(db, user_id, workspace_id)
         elif name == "cancel_mission":
-            output = await engine.route(db, "cancel the current mission", user_id=user_id, workspace_id=workspace_id)
+            if not await richard_asked_to_cancel(user_id):
+                output = {"error": "Richard did not ask to cancel anything, so nothing was cancelled. Only cancel a "
+                                   "mission when he says to stop or cancel it."}
+            else:
+                output = await engine.route(db, "cancel the current mission", user_id=user_id,
+                                            workspace_id=workspace_id)
         else:
             instruction = str(args.get("instruction") or "").strip()
             if not mission_brief_is_real(instruction):
