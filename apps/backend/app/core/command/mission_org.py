@@ -67,6 +67,7 @@ PARALLEL_ASKED = re.compile(r"\b(in parallel|parallel (agents|writers|team|speci
 # Skills that need the strong model, more steps and a larger allowance to reach their quality. BRAG Slim is written
 # for Opus 5.5 alone (its own README routes every other model away from it), and its quality comes from the agent
 # re-rendering and looking at its own frames, which takes steps.
+SKILL_PACKAGE_ID, SKILL_TITLE_END = "P1", " skill, end to end"
 SKILL_RUNS: Dict[str, Dict[str, Any]] = {
     "brag-slim": {"model": "lead", "effort": "high", "max_steps": 200, "max_cost": 10.0},
     "brag": {"model": "lead", "effort": "high", "max_steps": 200, "max_cost": 10.0},
@@ -1023,8 +1024,8 @@ class MissionTeam:
         self.lead.usage.calls += p.step
         self.lead.usage.cost_usd += p.cost_usd
         self.lead.tokens += p.tokens
-        if p.id == VERIFIER_ID:
-            self.verdict = result
+        if p.id == VERIFIER_ID or (p.id == SKILL_PACKAGE_ID and self._skill_run()):
+            self.verdict = result  # a skill run is judged by the skill's own report (and then by Richard)
         else:
             self._merge_requirements(p, result.get("requirements") or mine)
         await self.log(p, "info" if p.success else "warning", "execution_result",
@@ -1077,7 +1078,8 @@ class MissionTeam:
         judged = _judged(self.verdict, self.lead.requirements)
         unmet = list(judged["unmet"])
         if self.verdict is None or not self.verdict.get("success"):
-            unmet.insert(0, "The independent Verifier did not finish: "
+            unmet.insert(0, ("The skill run did not finish: " if self._skill_run() else
+                             "The independent Verifier did not finish: ")
                             + str((self.verdict or {}).get("answer") or "it did not run")[:300])
         if self.capped:
             from app.core.command import mission_budget
@@ -1112,7 +1114,9 @@ class MissionTeam:
                        or next((p for p in self.packages if p.id != VERIFIER_ID), None))  # a one-skill job's P1
         summary = (integration.summary if integration else "") or "The team's work is in the workspace."
         answer = (self._team_report() + summary[:6000] + "\n\n"
-                  + (("**Independent check: verified.** Every requirement was met with evidence the Verifier saw."
+                  + (("**Done by the skill, checked by its own rules. Watch it: whether it is good enough to "
+                       "publish is your call.**" if self._skill_run() and not waiting else
+                       "**Independent check: verified.** Every requirement was met with evidence the Verifier saw."
                       if not waiting else
                       "**Independent check: everything JAI can do is done and verified. Waiting for you:**\n"
                       + "\n".join(f"- {item}" for item in waiting[:20]))
@@ -1200,7 +1204,7 @@ class MissionTeam:
         """Tier 1: one specialist runs the named skill end to end."""
         run = SKILL_RUNS.get(skill["skill"]) or {}
         return Package(
-            id="P1", title=f"The {skill['skill']} skill, end to end", specialist=skill["sandbox"][0],
+            id=SKILL_PACKAGE_ID, title=f"The {skill['skill']}{SKILL_TITLE_END}", specialist=skill["sandbox"][0],
             goal=(f"Invoke the {skill['skill']} skill and follow it yourself from start to finish for this mission: "
                   "every step it describes is yours, none is handed to anyone else. Keep to everything the brief "
                   "says (what to read first, what may be claimed, the format and the deliverables). Work from the "
@@ -1211,6 +1215,11 @@ class MissionTeam:
             owns=[], depends_on=[], requirements=open_ids,
             done_when="every deliverable the brief names exists, passes the brief's checks and meets the skill's own "
                       "quality rules", **run)
+
+    def _skill_run(self) -> bool:
+        """A one-skill job: the skill's specialist alone, with no Verifier after it."""
+        return (len(self.packages) == 1 and self.packages[0].id == SKILL_PACKAGE_ID
+                and self.packages[0].title.endswith(SKILL_TITLE_END))
 
     @staticmethod
     def _creative_check(skill: Dict[str, Any]) -> str:
@@ -1355,20 +1364,24 @@ class MissionTeam:
                         "separate paths, each integrating and testing its own change.")
             else:
                 self.packages = [self._builder_package(open_ids)]
-            if not self.approach:
-                self.approach = ("One specialist runs the skill end to end" if skill is not None else
-                                 "One builder works through the acceptance ledger item by item")
-                self.approach += "; the independent Verifier checks every requirement at the end."
-            self.packages.append(Package(
-                id=VERIFIER_ID, title="Independent check of every requirement", specialist="verifier",
-                goal=(self._creative_check(skill) if skill is not None else
-                      "Check every requirement yourself with the project's real acceptance commands, run through "
-                      "jai-check so a check whose inputs have not changed is not paid for twice."),
-                owns=[], depends_on=[p.id for p in self.packages], requirements=[],
-                done_when="each requirement judged met or unmet with evidence seen in this run", model="lead"))
+            if skill is not None:
+                # The skill checks its own work (BRAG looks at its stills and runs its own gate) and Richard judges
+                # the result: a generic Verifier has neither the skill's knowledge nor his taste, and on 9 November
+                # it added minutes and cost to every BRAG run. The specialist's own report decides.
+                self.approach = self.approach or ("One specialist runs the skill end to end and checks its own "
+                                                  "work by the skill's rules; Richard judges the result.")
+            else:
+                self.approach = self.approach or ("One builder works through the acceptance ledger item by item; "
+                                                  "the independent Verifier checks every requirement at the end.")
+                self.packages.append(Package(
+                    id=VERIFIER_ID, title="Independent check of every requirement", specialist="verifier",
+                    goal=("Check every requirement yourself with the project's real acceptance commands, run "
+                          "through jai-check so a check whose inputs have not changed is not paid for twice."),
+                    owns=[], depends_on=[p.id for p in self.packages], requirements=[],
+                    done_when="each requirement judged met or unmet with evidence seen in this run", model="lead"))
         elif open_ids:
             await self._plan(router, mission, known)
-        if len(self.packages) < 2:
+        if len(self.packages) < 2 and not self._skill_run():
             # One small change (or no plan): the lead does it alone, as one agent.
             self.packages = []
             return await self.lead.run(mission, steps_per_round, max_continuations, None, start_continuation,

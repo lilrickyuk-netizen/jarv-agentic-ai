@@ -82,16 +82,16 @@ and cost more, so they are no longer the default.
    items are the requirements: the plan is never made again.
 3. **The tier.**
    - *Tier 1, one skill:* a brief that names one skill ("with your BRAG skill") is one specialist running that
-     skill end to end. BRAG always runs on Opus 5.5 at high effort, with room to re-render and look at its own
-     frames.
+     skill end to end and checking its own work by the skill's rules; no Verifier follows it, and Richard judges
+     the result. BRAG always runs on Opus 5.5 at high effort, with room to re-render and look at its own frames.
    - *Tier 2, the default:* one Lead Builder works through the acceptance ledger: it gets its bearings (progress
      file, git log, `.jai/init.sh` and a smoke test), then takes one item at a time, checks it with `jai-check`,
      commits it and records progress. An item whose check fails three times the same way is recorded as blocked,
      with its kind (environment, spec, flaky, code) and what would unblock it.
    - *Tier 3, only when the brief asks for parallel work:* the builder gets the environment and skeleton green, then
      writers work on separate paths, each integrating and testing its own change.
-4. **The independent Verifier** (Opus, read-only) checks every requirement: code with fresh acceptance commands,
-   creative work with contact sheets of every scene judged against the skill's own quality rules.
+4. **The independent Verifier** (Opus, read-only) checks every requirement of a build with fresh acceptance
+   commands. A one-skill job has none: the skill checks itself and Richard judges it.
 5. **Report.** What was done, what was verified, what is blocked and why, and what it cost.
 
 The 31 specialists are roles the builder takes on (their standards are in its brief), and they remain the team for
