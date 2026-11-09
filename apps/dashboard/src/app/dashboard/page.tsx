@@ -234,15 +234,14 @@ export default function CommandCenterPage() {
           <a className="ov-link" href="/dashboard/infrastructure">Infrastructure</a>
         </nav>
         <ServiceSwitches compact />
+        {model && <div className="ov-model"><span className="ov-dot is-live" />{model.replace('claude-', '').replace(/-/g, ' ')}</div>}
         <div className="ov-health"><span className={`ov-dot${healthOk ? ' is-live' : ''}`} />{healthOk ? 'All systems online' : loading ? 'Connecting' : 'Backend degraded'}<small>{health?.version ? `v${health.version}` : ''}</small></div>
       </aside>
 
       <section className="ov-main">
         <header className="ov-top">
-          <div className="ov-crumbs">Command / <b>Overview</b></div>
           <div className="ov-actions">
             {waiting > 0 && <a className="ov-chip is-warn" href="/dashboard/approvals">{waiting} waiting for you</a>}
-            {model && <span className="ov-chip"><span className="ov-dot is-live" />{model.replace('claude-', '').replace(/-/g, ' ')}</span>}
             <span className="ov-chip ov-mono">{clock}</span>
             <button className="ov-btn" onClick={() => void refresh()} aria-label="Refresh dashboard data">Refresh</button>
             <button className="ov-btn" onClick={handleLogout}>Sign out</button>

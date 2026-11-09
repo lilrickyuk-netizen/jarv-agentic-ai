@@ -553,9 +553,9 @@ html body.jai-theme .border-rose-100, html body.jai-theme .border-rose-200, html
 .ov-health small { margin-left: auto; color: var(--ov-fa); font: 11px "JetBrains Mono", monospace; }
 .ov-dot { width: 7px; height: 7px; border-radius: 50%; background: #64748b; flex: none; }
 .ov-dot.is-live { background: #34d399; box-shadow: 0 0 8px #34d399; }
-.ov-main { display: grid; grid-template-rows: 60px minmax(0, 1fr) auto; min-height: 0;
-  background: radial-gradient(700px 520px at 50% 44%, rgba(14, 165, 233, .10), transparent 70%), #000; }
-.ov-top { display: flex; align-items: center; justify-content: space-between; padding: 0 28px; border-bottom: 1px solid var(--ov-line); }
+.ov-main { display: grid; grid-template-rows: 60px minmax(0, 1fr) auto; min-height: 0; background: #000; }
+.ov-top { display: flex; align-items: center; justify-content: flex-end; padding: 0 28px; background: transparent; }
+.ov-model { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 6px 12px; color: var(--ov-mu); font-size: 12.5px; text-transform: capitalize; }
 .ov-crumbs { color: var(--ov-mu); font-size: 13px; } .ov-crumbs b { color: var(--ov-tx); font-weight: 500; }
 .ov-actions { display: flex; align-items: center; gap: 10px; }
 .ov-chip { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border: 1px solid var(--ov-line2); border-radius: 8px; background: var(--ov-s1); color: var(--ov-mu); font-size: 12.5px; text-transform: capitalize; }
