@@ -89,6 +89,8 @@ services:
       LOG_LEVEL: warning
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # The proxy's rules with restarts checked before the general refusal of POSTs (see the file).
+      - ./infra/docker-proxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg.template:ro
     networks:
       - jarv-ops
     restart: always

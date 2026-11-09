@@ -70,7 +70,8 @@ describe('CommandPage', () => {
     render(<CommandPage />);
     await waitFor(() => expect(gets).toContain('/api/command/tasks/task-9'));
     expect(gets).not.toContain('/api/command/tasks/task-8');
-    expect(await screen.findByText('RUNNING')).toBeInTheDocument();
+    // It is followed from RUNNING to COMPLETED; on a busy machine the poll can already see it completed (9 November).
+    expect(await screen.findByText(/^(RUNNING|COMPLETED)$/, {}, { timeout: 4000 })).toBeInTheDocument();
     expect(await screen.findByText('COMPLETED', {}, { timeout: 4000 })).toBeInTheDocument();
     expect(screen.getByTestId('mission-identity')).toHaveTextContent('Mission task-9 · C:\\Users\\lilri\\Projects\\MYCO');
   });

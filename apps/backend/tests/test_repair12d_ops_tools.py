@@ -394,7 +394,10 @@ def test_docker_proxy_is_restricted_and_internal(compose):
     assert proxy["image"].startswith("tecnativa/docker-socket-proxy:") and not proxy["image"].endswith(":latest")
     assert env["POST"] == "0" and env["CONTAINERS"] == "1" and env["ALLOW_RESTARTS"] == "1"
     assert "EXEC" not in env and "IMAGES" not in env and "VOLUMES" not in env
-    assert proxy["volumes"] == ["/var/run/docker.sock:/var/run/docker.sock:ro"]
+    # The socket read-only, and JAI's own copy of the proxy's rules (start and stop checked before POSTs are
+    # refused: test_docker_proxy_rules), read-only. Nothing else.
+    assert proxy["volumes"] == ["/var/run/docker.sock:/var/run/docker.sock:ro",
+                                "./infra/docker-proxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg.template:ro"]
     assert proxy["networks"] == ["jarv-ops"] and "ports" not in proxy
     assert data["networks"]["jarv-ops"]["internal"] is True
     for service in ("backend", "worker"):
