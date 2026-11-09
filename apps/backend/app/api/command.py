@@ -285,6 +285,51 @@ async def command_history(
     return items
 
 
+class WorkingAgent(BaseModel):
+    id: str
+    role: str
+    status: str
+    doing: Optional[str] = None
+
+
+class WorkingMission(BaseModel):
+    task_id: str
+    title: str
+    status: str
+    agents: List[WorkingAgent] = []
+
+
+_WORKING_STATES = ("running", "queued", "recovering", "needs_continuation", "waiting_on_approval")
+
+
+@router.get("/working", response_model=List[WorkingMission])
+async def working_now(operator: CurrentUserId, db: AsyncSession = Depends(get_db)) -> List[WorkingMission]:
+    """The caller's missions in progress and, for each, the agents on it with what each is doing now, from the
+    mission's live progress record: the Command Center shows them around the orb."""
+    from app.core.command import progress
+
+    tasks = (await db.execute(
+        select(Task).join(Workspace, Workspace.id == Task.workspace_id)
+        .where(Task.task_type == "command", Workspace.owner_id == UUID(str(operator)),
+               Task.status.in_(_WORKING_STATES))
+        .order_by(Task.created_at.desc()).limit(3)
+    )).scalars().all()
+    out: List[WorkingMission] = []
+    for task in tasks:
+        record = await progress.load(task.id) or {}
+        packages = ((record.get("team") or {}).get("packages")) or []
+        agents = [WorkingAgent(id=str(p.get("id") or ""), role=str(p.get("role") or p.get("title") or "Agent")[:60],
+                               status=str(p.get("status") or "planned"),
+                               doing=(str(p.get("doing_now"))[:140] if p.get("doing_now") else None))
+                  for p in packages if isinstance(p, dict) and p.get("status") in ("working", "planned")]
+        if not agents and lifecycle.normalise(task.status) == "running":
+            said = record.get("agent_said") or record.get("phase")
+            agents = [WorkingAgent(id="JAI", role="JAI", status="working", doing=str(said)[:140] if said else None)]
+        out.append(WorkingMission(task_id=str(task.id), title=task.title[:160], status=lifecycle.normalise(task.status),
+                                  agents=agents[:6]))
+    return out
+
+
 @router.get("/info", dependencies=[Depends(get_current_user_id)])
 async def command_info() -> dict:
     """Active provider and model for the command UI (no secrets). Authenticated."""

@@ -561,3 +561,38 @@ def test_a_mission_carried_on_after_a_provider_pause_is_not_reported_as_paused(t
     assert row.error_message is None and "provider_unavailable" not in row.result
     assert row.result["response"] == "Edited the Taskfile."
     assert report["in_progress"] is True and "result" not in report and "error" not in report
+
+
+@pytest.mark.integration
+def test_the_command_center_sees_which_agents_are_working_and_on_what(client, test_user, test_workspace, monkeypatch):
+    """9 November: Richard wanted to see the agents working, around the orb, without a big block. /working gives
+    each mission in progress with the agents on it and what each is doing, from the live progress record."""
+    from app.core.command import progress
+
+    async def seed():
+        async with AsyncTestingSessionLocal() as db:
+            team = await _mission(db, test_workspace.id, "running")
+            alone = await _mission(db, test_workspace.id, "running")
+            await _mission(db, test_workspace.id, "completed")
+            return team, alone
+
+    team, alone = _run(seed())
+    records = {str(team): {"team": {"packages": [
+        {"id": "B1", "role": "Lead Builder", "status": "working", "doing_now": "writing slides/market.md"},
+        {"id": "VER", "role": "Independent Verifier", "status": "planned"},
+        {"id": "P0", "role": "Researcher", "status": "finished"}]}},
+        str(alone): {"agent_said": "reading the spec"}}
+
+    async def load(task_id):
+        return records.get(str(task_id))
+
+    monkeypatch.setattr(progress, "load", load)
+    app.dependency_overrides[get_current_user_id] = lambda: str(test_user.id)
+    try:
+        working = {m["task_id"]: m for m in client.get("/api/command/working").json()}
+    finally:
+        app.dependency_overrides.pop(get_current_user_id, None)
+    assert set(working) == {str(team), str(alone)}  # the completed mission is not working
+    assert [(a["role"], a["status"], a["doing"]) for a in working[str(team)]["agents"]] == [
+        ("Lead Builder", "working", "writing slides/market.md"), ("Independent Verifier", "planned", None)]
+    assert working[str(alone)]["agents"] == [{"id": "JAI", "role": "JAI", "status": "working", "doing": "reading the spec"}]

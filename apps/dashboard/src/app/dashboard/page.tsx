@@ -2,34 +2,19 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { CoreField } from '@/components/core-field';
+import { JarvisOrb } from '@/components/jarvis-orb';
 import { JarvMark } from '@/components/jarv-mark';
 import { JaiDisplay } from '@/components/jai-display';
 import { ServiceSwitches } from '@/components/service-switches';
 import { apiClient, HealthResponse } from '@/lib/api';
 import { followMission, runMission } from '@/lib/missions';
 import { VOICE_SLOT_ID } from '@/components/persistent-voice';
+import { WorkingAgents, type WorkingMission } from '@/components/working-agents';
 import { clearTokens, getAccessToken } from '@/lib/auth';
-import { useVoiceState } from '@/lib/voice-signal';
+import { toggleVoice, useVoicePhase, useVoiceReady, useVoiceState } from '@/lib/voice-signal';
 
 type CockpitState = 'idle' | 'listening' | 'thinking' | 'planning' | 'executing' | 'speaking' | 'approval' | 'completed' | 'failed' | 'recovery';
 type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking';
-
-interface Agent {
-  name: string;
-  role: string;
-  category: string;
-  required_authority_level: number;
-  is_implemented: boolean;
-}
-
-interface AgentStats {
-  total_required: number;
-  total_registered: number;
-  implemented: number;
-  unimplemented: number;
-  completion_percentage: number;
-}
 
 interface FeedItem {
   id: string;
@@ -53,20 +38,6 @@ interface Task {
 interface ApprovalStats {
   pending_approvals: number;
   total_approvals: number;
-}
-
-interface MemoryStats {
-  total_memories: number;
-  permanent_memories: number;
-  temporary_memories: number;
-}
-
-interface SwarmRun {
-  id: string;
-  status: string;
-  total_cost_usd: number;
-  total_tokens_used: number;
-  active_sub_agents: number;
 }
 
 interface CommandResult {
@@ -112,63 +83,68 @@ const IN_FLIGHT = new Set(['running', 'queued', 'recovering', 'needs_continuatio
 export default function CommandCenterPage() {
   const router = useRouter();
   const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [, setAgentStats] = useState<AgentStats | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [approvalStats, setApprovalStats] = useState<ApprovalStats | null>(null);
-  const [memoryStats, setMemoryStats] = useState<MemoryStats | null>(null);
-  const [swarmRuns, setSwarmRuns] = useState<SwarmRun[]>([]);
+  const [working, setWorking] = useState<WorkingMission[]>([]);
+  const [model, setModel] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [command, setCommand] = useState('');
+  const [sent, setSent] = useState<string | null>(null);
   const [commandResult, setCommandResult] = useState<CommandResult | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [commandLoading, setCommandLoading] = useState(false);
-  // Talk with JAI is kept connected by the dashboard frame (PersistentVoice) and shown in this panel's slot;
-  // its state reaches the intelligence field here, so the field listens and speaks with JAI.
+  const [clock, setClock] = useState('');
+  // Talk with JAI is kept connected by the dashboard frame (PersistentVoice) and shown in the chat dock's slot; the
+  // microphone in the chat bar starts and ends it, and its state reaches the orb.
   const voiceState: VoiceState = useVoiceState();
+  const voicePhase = useVoicePhase();
+  const voiceReady = useVoiceReady();
 
   const refresh = useCallback(async () => {
-    const [healthResponse, agentsResponse, statsResponse, tasksResponse, feedResponse, approvalsResponse, memoryResponse, swarmResponse] = await Promise.all([
+    const [healthResponse, tasksResponse, feedResponse, approvalsResponse, workingResponse] = await Promise.all([
       apiClient.checkHealth(),
-      apiClient.get<Agent[]>('/api/agents/list'),
-      apiClient.get<AgentStats>('/api/agents/stats'),
       apiClient.get<Task[]>('/api/tasks/list'),
       apiClient.get<FeedItem[]>('/api/operations-feed/list?limit=12'),
       apiClient.get<ApprovalStats>('/api/approvals/stats'),
-      apiClient.get<MemoryStats>('/api/memory/stats'),
-      apiClient.get<SwarmRun[]>('/api/swarm/runs'),
+      apiClient.get<WorkingMission[]>('/api/command/working'),
     ]);
     if (healthResponse.data) setHealth(healthResponse.data);
-    if (agentsResponse.data) setAgents(agentsResponse.data);
-    if (statsResponse.data) setAgentStats(statsResponse.data);
     if (tasksResponse.data) setTasks(tasksResponse.data);
     if (feedResponse.data) setFeed(feedResponse.data);
     if (approvalsResponse.data) setApprovalStats(approvalsResponse.data);
-    if (memoryResponse.data) setMemoryStats(memoryResponse.data);
-    if (swarmResponse.data) setSwarmRuns(swarmResponse.data);
-    const errors = [healthResponse, agentsResponse, statsResponse, tasksResponse, feedResponse, approvalsResponse, memoryResponse, swarmResponse].filter((response) => response.error);
+    if (workingResponse.data) setWorking(workingResponse.data);
+    const errors = [healthResponse, tasksResponse, feedResponse, approvalsResponse].filter((response) => response.error);
     setRefreshError(errors.length ? errors.map((response) => response.error).join(' · ') : null);
     setLoading(false);
   }, []);
 
   useEffect(() => {
     void refresh();
-    const interval = window.setInterval(() => void refresh(), 15000);
+    const interval = window.setInterval(() => void refresh(), 8000);
     return () => window.clearInterval(interval);
   }, [refresh]);
 
-  // Coming back to this page (or reloading it) picks up the mission JAI is working on, so the panel shows it
-  // instead of being blank: missions run in JAI's worker, not in this page.
+  useEffect(() => {
+    void apiClient.get<{ model?: string }>('/api/command/info').then((info) => setModel(info.data?.model ?? null));
+    const tick = () => setClock(new Date().toLocaleTimeString('en-GB'));
+    tick();
+    const interval = window.setInterval(tick, 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  // Coming back to this page (or reloading it) picks up the mission JAI is working on: missions run in JAI's
+  // worker, not in this page.
   useEffect(() => {
     const stop = new AbortController();
     void (async () => {
-      const history = await apiClient.get<{ task_id: string; status: string }[]>('/api/command/history?limit=10');
-      const working = history.data?.find((item) => IN_FLIGHT.has(item.status));
-      if (!working || stop.signal.aborted) return;
+      const history = await apiClient.get<{ task_id: string; status: string; command: string }[]>('/api/command/history?limit=10');
+      const current = history.data?.find((item) => IN_FLIGHT.has(item.status));
+      if (!current || stop.signal.aborted) return;
+      setSent(current.command);
       try {
-        const mission = await followMission(working.task_id, { onUpdate: setCommandResult, signal: stop.signal });
+        const mission = await followMission(current.task_id, { onUpdate: setCommandResult, signal: stop.signal });
         setCommandResult(mission);
       } catch {
         // Stopped following (left the page); the mission carries on in JAI.
@@ -183,6 +159,8 @@ export default function CommandCenterPage() {
     setCommandLoading(true);
     setCommandError(null);
     setCommandResult(null);
+    setSent(trimmed);
+    setCommand('');
     try {
       const mission = await runMission(trimmed, { onUpdate: setCommandResult });
       setCommandResult(mission);
@@ -207,115 +185,84 @@ export default function CommandCenterPage() {
   };
 
   const state = deriveState({ loadingCommand: commandLoading, listening: voiceState === 'listening', result: commandResult, tasks, feed, pendingApprovals: approvalStats?.pending_approvals ?? null, voiceState });
-  const activeTasks = tasks.filter((task) => ['running', 'queued', 'recovering', 'needs_continuation', 'pending'].includes(task.status));
-  const activeSwarmRuns = swarmRuns.filter((run) => run.status === 'running');
-  const swarmSpend = swarmRuns.reduce((total, run) => total + (Number.isFinite(run.total_cost_usd) ? run.total_cost_usd : 0), 0);
-  const activeSubAgents = swarmRuns.reduce((total, run) => total + (Number.isFinite(run.active_sub_agents) ? run.active_sub_agents : 0), 0);
   const healthOk = health?.status === 'healthy';
+  const current = working[0];
+  const waiting = approvalStats?.pending_approvals ?? 0;
+  const reply = commandError || commandResult?.response_text || commandResult?.error || (commandResult ? 'Mission accepted.' : null);
+  const statusLine = current ? `${state.toUpperCase()} · ${current.title}` : state === 'idle' ? null : state.toUpperCase();
 
   return (
-    <main className="cockpit min-h-screen text-[#E5E7EB]">
-      <div className="cockpit-grid" aria-hidden="true" />
-      <header className="cockpit-header">
-        <a href="/dashboard" className="cockpit-brand" aria-label="JAI command center">
-          <span className="brand-mark"><JarvMark size={38} /></span><span><strong>JAI</strong><small>INTELLIGENCE SYSTEM</small></span>
+    <main className="jai-overview">
+      <aside className="ov-side" aria-label="Main navigation">
+        <a href="/dashboard" className="ov-brand" aria-label="JAI command center">
+          <JarvMark size={30} /><span><strong>JAI</strong><small>INTELLIGENCE SYSTEM</small></span>
         </a>
-        <div className="header-center"><span className={`status-dot ${healthOk ? 'is-live' : ''}`} />{healthOk ? 'SYSTEM ONLINE' : loading ? 'CONNECTING' : 'BACKEND DEGRADED'}</div>
-        <div className="header-actions">
-          <span className="header-clock">{health?.timestamp ? new Date(health.timestamp).toLocaleTimeString() : 'LOCAL SESSION'}</span>
-          <button className="quiet-button" onClick={() => void refresh()} aria-label="Refresh dashboard data" title="Refresh data">↻</button>
-          <button className="quiet-button" onClick={handleLogout}>Sign out</button>
-        </div>
-      </header>
-
-      <div className="cockpit-layout">
-        <nav className="cockpit-nav" aria-label="Main navigation">
-          <span className="nav-label">COMMAND</span>
-          <a className="nav-link active" href="/dashboard">Overview</a>
-          <a className="nav-link" href="/dashboard/command">Missions</a>
-          <a className="nav-link" href="/dashboard/agents">Agents</a>
-          <a className="nav-link" href="/dashboard/swarm">Swarm</a>
-          <a className="nav-link" href="/dashboard/tasks">Tasks</a>
-          <span className="nav-label nav-label-spaced">OPERATIONS</span>
-          <a className="nav-link" href="/dashboard/live-operations">Live operations</a>
-          <a className="nav-link" href="/dashboard/approvals">Approvals</a>
-          <a className="nav-link" href="/dashboard/workspaces">Workspaces</a>
-          <span className="nav-label nav-label-spaced">COMPANY</span>
-          <a className="nav-link" href="/dashboard/company-operations">Company</a>
-          <a className="nav-link" href="/dashboard/business">Business</a>
-          <a className="nav-link" href="/dashboard/revenue-operations">Revenue</a>
-          <a className="nav-link" href="/dashboard/support">Support</a>
-          <a className="nav-link" href="/dashboard/marketing">Growth</a>
-          <a className="nav-link" href="/dashboard/infrastructure">Infrastructure</a>
-          <div className="nav-footer"><span className={`status-dot ${healthOk ? 'is-live' : ''}`} /><span>{health?.service ?? 'API'}<small>{health?.version ? `v${health.version}` : 'STATUS UNKNOWN'}</small></span></div>
+        <nav>
+          <span className="side-label">COMMAND</span>
+          <a className="ov-link is-active" href="/dashboard">Overview</a>
+          <a className="ov-link" href="/dashboard/command">Missions</a>
+          <a className="ov-link" href="/dashboard/agents">Agents</a>
+          <a className="ov-link" href="/dashboard/swarm">Swarm</a>
+          <a className="ov-link" href="/dashboard/tasks">Tasks</a>
+          <span className="side-label">OPERATIONS</span>
+          <a className="ov-link" href="/dashboard/live-operations">Live operations</a>
+          <a className="ov-link" href="/dashboard/approvals">Approvals{waiting > 0 && <b className="ov-count">{waiting}</b>}</a>
+          <a className="ov-link" href="/dashboard/workspaces">Workspaces</a>
+          <span className="side-label">COMPANY</span>
+          <a className="ov-link" href="/dashboard/company-operations">Company</a>
+          <a className="ov-link" href="/dashboard/business">Business</a>
+          <a className="ov-link" href="/dashboard/revenue-operations">Revenue</a>
+          <a className="ov-link" href="/dashboard/support">Support</a>
+          <a className="ov-link" href="/dashboard/marketing">Growth</a>
+          <a className="ov-link" href="/dashboard/infrastructure">Infrastructure</a>
         </nav>
+        <ServiceSwitches compact />
+        <div className="ov-health"><span className={`ov-dot${healthOk ? ' is-live' : ''}`} />{healthOk ? 'All systems online' : loading ? 'Connecting' : 'Backend degraded'}<small>{health?.version ? `v${health.version}` : ''}</small></div>
+      </aside>
 
-        <div className="cockpit-main">
-          <section className="cockpit-title-row">
-            <div className="state-readout"><span className={`state-indicator state-${state}`} /><span>{state.toUpperCase()}</span><small>{health?.timestamp ? `Updated ${new Date(health.timestamp).toLocaleTimeString()}` : 'Waiting for system data'}</small></div>
-          </section>
+      <section className="ov-main">
+        <header className="ov-top">
+          <div className="ov-crumbs">Command / <b>Overview</b></div>
+          <div className="ov-actions">
+            {waiting > 0 && <a className="ov-chip is-warn" href="/dashboard/approvals">{waiting} waiting for you</a>}
+            {model && <span className="ov-chip"><span className="ov-dot is-live" />{model.replace('claude-', '').replace(/-/g, ' ')}</span>}
+            <span className="ov-chip ov-mono">{clock}</span>
+            <button className="ov-btn" onClick={() => void refresh()} aria-label="Refresh dashboard data">Refresh</button>
+            <button className="ov-btn" onClick={handleLogout}>Sign out</button>
+          </div>
+        </header>
 
-          {refreshError && <div className="cockpit-alert" role="status"><strong>Some live data is unavailable.</strong><span>{refreshError}</span></div>}
-
-          <section className="cockpit-grid-main" aria-label="Live system cockpit">
-            <article className="cockpit-panel core-panel" aria-label="JAI's intelligence field">
-              <div className="core-visual"><CoreField state={state} /></div><div className="core-readout"><span>OPERATIONAL STATE</span><strong>{state.toUpperCase()}</strong><small>{activeTasks.length ? `${activeTasks.length} active task${activeTasks.length === 1 ? '' : 's'}` : 'No active tasks'}</small></div>
-              <div className="core-legend"><span><i className="legend-dot cyan" />LIVE SIGNAL</span><span><i className="legend-dot silver" />SYSTEM STATUS</span><span>{loading ? 'SYNCING' : 'SYNC · 15 SEC'}</span></div>
-              <JaiDisplay />
-            </article>
-
-            <article className="cockpit-panel mission-panel">
-              <div className="panel-heading"><div><p className="eyebrow">MISSION CONTROL</p><h2>Send an instruction</h2></div><a className="text-link" href="/dashboard/command">Mission log ↗</a></div>
-              <form className="mission-form" onSubmit={(event) => { event.preventDefault(); void sendCommand(command); }}>
-                <label htmlFor="mission-command">What should JAI work on?</label>
-                <textarea id="mission-command" value={command} onChange={(event) => setCommand(event.target.value)} placeholder="Describe a task or ask for an operational update" disabled={commandLoading} rows={3} />
-                <div className="mission-actions">
-                  <button type="submit" className="primary-button" disabled={commandLoading || !command.trim()}>{commandLoading ? 'Working…' : 'Send instruction ↗'}</button>
-                </div>
-              </form>
-              <div id={VOICE_SLOT_ID} />
-              {commandError && <p className="inline-error" role="alert">{commandError}</p>}
-              {commandResult && <div className={`mission-result result-${commandResult.status}`}>
-                <div className="result-heading"><span>{commandResult.status.toUpperCase()}</span>{commandResult.requires_approval && <b>APPROVAL REQUIRED</b>}</div>
-                {commandResult.requires_approval && <p className="approval-reason">{commandResult.approval_reason}</p>}
-                <p>{commandResult.response_text || commandResult.error || 'Mission accepted.'}</p>
-                {!!commandResult.selected_agents?.length && <small>Assigned: {commandResult.selected_agents.join(' · ')}</small>}
-              </div>}
-            </article>
-
-            <article className="cockpit-panel activity-panel">
-              <div className="panel-heading"><div><p className="eyebrow">OPERATIONS STREAM</p><h2>Recent activity</h2></div><a className="text-link" href="/dashboard/live-operations">Full feed ↗</a></div>
-              {feed.length ? <ol className="activity-list">{feed.slice(0, 6).map((item) => <li key={item.id} className="activity-item"><span className={`activity-marker severity-${item.severity}`} /><div><div className="activity-top"><strong>{item.title}</strong><time dateTime={item.created_at}>{new Date(item.created_at).toLocaleTimeString()}</time></div><p>{item.message}</p><small>{item.item_type.replace(/_/g, ' ').toUpperCase()}</small></div></li>)}</ol> : <div className="empty-state">{loading ? 'Loading persisted activity…' : 'No persisted activity is available.'}</div>}
-            </article>
-          </section>
-
-          <section className="signal-grid" aria-label="Execution, approvals, and memory">
-            <article className="cockpit-panel signal-panel">
-              <div className="panel-heading"><div><p className="eyebrow">SWARM OPERATIONS</p><h2>Distributed execution</h2></div><a className="text-link" href="/dashboard/swarm">Swarm ↗</a></div>
-              <div className="signal-numbers"><strong>{activeSwarmRuns.length.toString().padStart(2, '0')}<small> active runs</small></strong><strong>{activeSubAgents.toString().padStart(2, '0')}<small> active sub-agents</small></strong></div>
-              <div className="signal-foot">Listed-run spend <b>${swarmSpend.toFixed(4)}</b></div>
-            </article>
-            <article className="cockpit-panel signal-panel boundary-panel">
-              <div className="panel-heading"><div><p className="eyebrow">RICHARD BOUNDARY</p><h2>Approval queue</h2></div><a className="text-link" href="/dashboard/approvals">Review ↗</a></div>
-              <div className="signal-numbers"><strong className={approvalStats?.pending_approvals ? 'signal-warning' : ''}>{approvalStats?.pending_approvals ?? '—'}<small> awaiting decision</small></strong></div>
-              <div className="signal-foot">{approvalStats ? `${approvalStats.total_approvals} recorded approvals` : 'Approval data unavailable'}</div>
-            </article>
-            <article className="cockpit-panel signal-panel">
-              <div className="panel-heading"><div><p className="eyebrow">PERSISTENT CONTEXT</p><h2>Memory & knowledge</h2></div><a className="text-link" href="/dashboard/memory">Memory ↗</a></div>
-              <div className="signal-numbers"><strong>{memoryStats?.total_memories ?? '—'}<small> memory records</small></strong><strong>{memoryStats?.permanent_memories ?? '—'}<small> permanent</small></strong></div>
-              <div className="signal-foot"><a href="/dashboard/agents">Versioned agent knowledge is retrieved per agent ↗</a></div>
-            </article>
-          </section>
-
-          <section className="switch-rail"><ServiceSwitches /></section>
-
-          <section className="bottom-rail">
-            <div><span className="eyebrow">ACTIVE MISSIONS</span><a href="/dashboard/tasks">Open task board ↗</a></div>
-            <div className="mission-chips">{tasks.filter((task) => task.status !== 'completed').slice(0, 3).map((task) => <a className="task-chip" href={`/dashboard/tasks/${task.id}`} key={task.id}><span className={`state-indicator state-${task.status === 'blocked' ? 'approval' : task.status === 'failed' ? 'failed' : 'executing'}`} /><span>{task.title}</span><small>{task.status.toUpperCase()}</small></a>)}{!tasks.some((task) => task.status !== 'completed') && <span className="quiet-empty">No open tasks in the live task list.</span>}</div>
-          </section>
+        <div className="ov-stage">
+          <div className="ov-orb" aria-label="JAI's intelligence field">
+            <JarvisOrb state={state} />
+            <WorkingAgents missions={working} />
+          </div>
+          {statusLine && <p className="ov-status">{statusLine}</p>}
+          {refreshError && <p className="ov-alert" role="status">Some live data is unavailable: {refreshError}</p>}
+          <div className="ov-screen"><JaiDisplay /></div>
         </div>
-      </div>
-      <footer className="cockpit-footer"><span>JAI / PRIVATE OPERATIONS</span><span>LIVE SOURCES · HEALTH · AGENTS · TASKS · OPERATIONS FEED</span><span>{loading ? 'SYNCING' : 'SESSION ACTIVE'}</span></footer>
+
+        <footer className="ov-dock">
+          <div className="ov-lines" aria-live="polite">
+            {sent && <p><span>›</span>{sent}</p>}
+            {reply && <p className={`is-jai${commandResult?.requires_approval ? ' is-warn' : ''}`}><span>›</span>{commandResult?.requires_approval ? `${commandResult.approval_reason ?? 'Approval needed'} ` : ''}{reply}</p>}
+            <div id={VOICE_SLOT_ID} className="ov-voice" />
+          </div>
+          <form className="ov-composer" onSubmit={(event) => { event.preventDefault(); void sendCommand(command); }}>
+            <textarea aria-label="Message JAI" value={command} rows={1} disabled={commandLoading}
+              onChange={(event) => setCommand(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void sendCommand(command); } }} />
+            <button type="button" className={`ov-icon ov-mic${voicePhase !== 'off' ? ' is-live' : ''}`} onClick={toggleVoice}
+              disabled={!voiceReady && voicePhase === 'off'} aria-pressed={voicePhase !== 'off'}
+              aria-label={voicePhase === 'off' ? 'Talk with JAI' : 'End conversation'}>
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>
+            </button>
+            <button type="submit" className="ov-icon ov-send" disabled={commandLoading || !command.trim()} aria-label="Send">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
+            </button>
+          </form>
+        </footer>
+      </section>
     </main>
   );
 }

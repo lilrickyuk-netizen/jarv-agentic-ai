@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiClient } from '@/lib/api';
 import type { MissionReport } from '@/components/voice-operator';
-import { setVoiceStream } from '@/lib/voice-signal';
+import { setVoicePhase, setVoiceStream, setVoiceToggle } from '@/lib/voice-signal';
 import { showCard, type ScreenCard } from '@/lib/screen-signal';
 import { PipecatVoice, voiceUrl, type PipecatMessage } from '@/lib/pipecat-voice';
 
@@ -420,6 +420,23 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
       setProblem(error instanceof Error ? error.message : 'The conversation could not start.');
     }
   };
+
+  // The Command Center's microphone (in its chat bar) starts and ends this conversation, and shows when it is live.
+  const toggleRef = useRef<() => void>(() => undefined);
+  toggleRef.current = () => {
+    if (phase === 'off') {
+      if (ready) void start();
+    } else {
+      stop();
+    }
+  };
+  useEffect(() => {
+    setVoiceToggle(() => toggleRef.current());
+    return () => setVoiceToggle(null);
+  }, []);
+  useEffect(() => {
+    setVoicePhase(phase, Boolean(ready));
+  }, [phase, ready]);
 
   return (
     <div className="voice-live">

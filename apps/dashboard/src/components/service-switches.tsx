@@ -26,7 +26,7 @@ interface Switches {
   memory_total_gb?: number;
 }
 
-export function ServiceSwitches() {
+export function ServiceSwitches({ compact = false }: { compact?: boolean } = {}) {
   const [data, setData] = useState<Switches | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +51,29 @@ export function ServiceSwitches() {
     await load();
     setBusy(null);
   };
+
+  if (compact) {
+    // The side menu's version (Command Center, 9 November): a name and a switch per service, nothing more.
+    return (
+      <section className="side-services" aria-label="JAI's services">
+        <div className="side-label"><span>SERVICES</span>
+          {data?.memory_total_gb ? <em>{data.memory_available_gb} / {data.memory_total_gb} GB</em> : null}</div>
+        {error && <p className="side-error" role="alert">{error}</p>}
+        {data && !data.available && <p className="side-error">{data.reason}</p>}
+        <ul>
+          {data?.switches.map((item) => (
+            <li key={item.service} title={item.installed ? item.about : 'Not installed on this computer'}>
+              <span className={item.installed ? '' : 'is-missing'}>{item.label}</span>
+              <button type="button" role="switch" aria-checked={item.on}
+                aria-label={`${item.label} ${item.on ? 'on' : 'off'}`}
+                className={`mini-switch${item.on ? ' is-on' : ''}${busy === item.service ? ' is-busy' : ''}`}
+                disabled={!item.installed || busy !== null} onClick={() => flip(item)} />
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
+  }
 
   return (
     <article className="cockpit-panel switch-panel" aria-label="JAI's services">
