@@ -1,6 +1,6 @@
 """
-JAI uses the skill made for the job. On 9 November "make a high-quality video ad for Plexecute" was built by the
-general builder with no skill loaded ("What JAI used: no skills loaded"), although BRAG is JAI's video-ad skill.
+A skill runs a mission only when Richard asks for it. On 9 November the builder made a good video ad in minutes for
+about four pounds; routing video ads to BRAG unasked then cost many times that for a video no better.
 """
 from __future__ import annotations
 
@@ -8,11 +8,11 @@ from app.core.command.sandbox_engine import builder_method
 from app.core.knowledge.skill_packs import named_skill
 
 
-def test_a_video_ad_goes_to_brag_without_being_told():
+def test_a_video_ad_goes_to_the_builder_unless_brag_is_asked_for():
+    """9 November: BRAG took over an hour and many times the cost for an ad no better than the builder's."""
     for brief in ("Make a high-quality video ad for Plexecute in C:\\Users\\lilri\\Projects\\PLEXECUTE_IMAGES.",
                   "Make a fresh launch video for Plexecute", "Make a promo video for MYCO"):
-        found = named_skill(brief)
-        assert found is not None and found["pack"] == "brag", brief
+        assert named_skill(brief) is None, brief
 
 
 def test_brag_named_on_its_own_is_brag():
@@ -26,8 +26,8 @@ def test_other_work_and_edits_are_planned_as_usual():
         assert named_skill(brief) is None, brief
 
 
-def test_the_builder_is_told_to_use_a_skill_made_for_its_work():
-    assert "invoke it and follow it" in builder_method("Make the onboarding flow")
+def test_the_builder_uses_skills_as_references_not_as_a_pipeline():
+    assert "do not hand the mission to a whole pipeline" in builder_method("Make the onboarding flow")
 
 
 def test_a_skill_brief_in_a_workspace_is_a_mission_whatever_words_it_uses():
