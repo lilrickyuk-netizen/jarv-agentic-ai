@@ -67,10 +67,26 @@ _KINDS: List[Tuple[str, Pattern[str], Tuple[str, ...]]] = [
 ]
 
 
+# What JAI adds to Richard's brief on a later round: its own progress (the commands it ran, such as `python ...`)
+# and Richard's sign-off. On 9 November a Sales Lead mission's second round read "python" in that progress and went
+# back to the Lead Builder; only Richard's own words decide whose work it is.
+_JAI_NOTES = ("PROGRESS FROM EARLIER ROUNDS", "RICHARD HAS APPROVED THE SIGN-OFF")
+
+
+def richard_brief(text: str) -> str:
+    """The brief as Richard wrote it, without what JAI appended to it for a later round."""
+    cut = len(text or "")
+    for marker in _JAI_NOTES:
+        at = (text or "").find(marker)
+        if at != -1:
+            cut = min(cut, at)
+    return (text or "")[:cut]
+
+
 def specialist_for(brief: str) -> Optional[Dict[str, object]]:
     """The specialist whose work the brief is, with the skills to start from, or None for the Lead Builder:
     {"specialist": "sales", "skills": ("prospecting", ...), "matched": "investor"}."""
-    text = brief or ""
+    text = richard_brief(brief)
     if _ENGINEERING.search(text) or _BUILDER_KEEPS.search(text):
         return None
     for specialist, pattern, skills in _KINDS:

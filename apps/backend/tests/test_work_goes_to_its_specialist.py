@@ -75,3 +75,19 @@ def test_the_sandbox_gives_the_specialist_its_skills_and_standard():
     runner.package = package
     runner.team = SimpleNamespace()
     assert runner._standard().startswith("You are JAI's Sales Lead")
+
+
+def test_a_later_round_keeps_the_specialist_whatever_jai_ran():
+    """9 November: round 2 of the Sales Lead's prospects mission read `python` in JAI's own progress note and went
+    back to the Lead Builder."""
+    from app.core.command.continuation import progress_note
+
+    brief = "In C:\\Users\\lilri\\Projects\\PLEXECUTE_IMAGES, improve outreach/Plexecute-Prospects.xlsx."
+    note = progress_note({"tool_calls": [
+        {"tool": "run_command", "inputs": {"command": "python3 build_prospects.py"}, "success": True,
+         "output": {"exit_code": 0}},
+        {"tool": "write_file", "inputs": {"path": "outreach/build.py"}, "success": True}],
+        "verification": {"unmet": ["R3 deploy the code to the repo"]}})
+    assert "PROGRESS FROM EARLIER ROUNDS" in note
+    assert _kind(f"{brief}\n\n{note}") == "sales"
+    assert _kind("RICHARD HAS APPROVED THE SIGN-OFF") is None
