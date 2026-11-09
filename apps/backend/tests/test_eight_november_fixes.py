@@ -333,3 +333,16 @@ def test_what_a_package_used_adds_up_across_its_runs():
         {"steps": 2, "tools_used": {"terminal": 1, "search_knowledge": 2}, "skills_used": ["a", "b"]})
     assert merged["tools_used"] == {"terminal": 5, "search_knowledge": 2} and merged["skills_used"] == ["a", "b"]
     assert merged["steps"] == 5
+
+
+def test_voicebox_is_no_longer_part_of_jai():
+    """9 November: Richard's voice runs on Fish (Kokoro inside the voice service as the fallback); the separate
+    Voicebox service only took memory. With no address set, the voice tools use Fish and OpenAI instead."""
+    import yaml
+
+    from tests.repo_paths import repo_path
+
+    compose = yaml.safe_load(repo_path("docker-compose.yml").read_text())
+    assert "voicebox" not in compose["services"]
+    assert not any(name.startswith("voicebox") for name in compose.get("volumes") or {})
+    assert compose["services"]["backend"]["environment"]["VOICEBOX_BASE_URL"] == "${VOICEBOX_BASE_URL:-}"

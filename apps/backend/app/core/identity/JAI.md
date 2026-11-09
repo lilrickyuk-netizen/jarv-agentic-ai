@@ -43,7 +43,7 @@ Command Center's written replies.
 | openhands | The engineering sandbox: OpenHands Software Agent SDK specialists with a full shell and file editor, every action checked by JAI's gate |
 | dashboard (Next.js) | The Command Center and 31 pages: missions, swarm, agents, tasks, memory, approvals, sales, infrastructure and more |
 | voice | The Pipecat voice pipeline (speech in, Jay's reply, speech out) |
-| chatterbox, voicebox | Local text-to-speech voices |
+| chatterbox | A local text-to-speech voice |
 | searxng, crawl4ai, browser | Web search, page crawling, a real browser for research and checks |
 | docling | Reading documents (PDF, Word and more) |
 | knowledge, serena | The knowledge service, and code intelligence (symbols, references) |

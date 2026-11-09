@@ -104,7 +104,7 @@ services:
       # path below. JARV only inspects approved workspaces inside this root.
       WORKSPACE_HOST_ROOT: ${WORKSPACE_HOST_ROOT:-C:\\Users\\lilri\\OneDrive\\Desktop}
       WORKSPACE_CONTAINER_ROOT: /host/workspaces
-      VOICEBOX_BASE_URL: ${VOICEBOX_BASE_URL:-http://voicebox:17493}
+      VOICEBOX_BASE_URL: ${VOICEBOX_BASE_URL:-}
       CRAWL4AI_TOKEN: ${CRAWL4AI_API_TOKEN:-}
       # Wave 6: the tokens of JAI's model gateway and of its document, browser, knowledge and prompt-check services.
       JAI_GATEWAY_TOKEN: ${JAI_GATEWAY_TOKEN:-}
@@ -506,40 +506,6 @@ services:
     mem_limit: 1g
     restart: unless-stopped
 
-  # Voicebox is reachable only on the private Compose network. Its API has no
-  # authentication, so the dashboard talks to it exclusively through JARV.
-  voicebox:
-    profiles: ["voice"]
-    build:
-      context: ./services/voicebox
-      dockerfile: Dockerfile
-      args:
-        VOICEBOX_REF: 8af7efe62fab8d33e2a5dfbedabaa45f68a5184f
-    container_name: jarv-voicebox
-    restart: unless-stopped
-    expose:
-      - "17493"
-    volumes:
-      - voicebox_data:/app/data
-      - voicebox_models:/home/voicebox/.cache/huggingface
-    environment:
-      LOG_LEVEL: info
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:17493/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 90s
-    networks:
-      - jarv-network
-
   # Celery Worker
   worker:
     build:
@@ -669,10 +635,6 @@ volumes:
   redis_data:
     driver: local
   voice_models:
-    driver: local
-  voicebox_data:
-    driver: local
-  voicebox_models:
     driver: local
   backups:
     driver: local

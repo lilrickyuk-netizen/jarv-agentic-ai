@@ -14530,3 +14530,16 @@ TESTS RUN: the report lists the skills loaded, JAI's own tools with how often, a
 RESULT: Richard had asked for days whether JAI's missions use its skills, knowledge and tools, and no report could say. The sandbox now counts every tool each specialist calls and the skills it loads, and each mission report ends its team section with "What JAI used". The on-demand switching of heavy services was drafted and withdrawn at Richard's request: every service stays part of JAI, which is headed for a cloud server running several projects at once.
 BLOCKERS: None
 NEXT TASK: Package with the next installer after MYCO Phase 0 finishes
+
+---
+
+TASK ID: REMOVE-VOICEBOX
+TASK NAME: The Voicebox service is removed from JAI
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: docker-compose.yml, apps/backend/app/core/identity/JAI.md, .env.example, apps/backend/tests/test_eight_november_fixes.py
+COMMANDS RUN: backend test suite (run by the installer)
+TESTS RUN: the compose file has no Voicebox service or volumes, and the backend's Voicebox address is unset by default
+RESULT: At Richard's request. His voice runs on Fish, with Kokoro inside the voice service as the fallback; the separate Voicebox container had been stopped for nine days and only took memory when started. Its service and volumes are gone from the compose file and its address is no longer set by default, so the voice tools speak with Fish and transcribe with OpenAI. The adapter stays in the code, disabled while no address is set.
+BLOCKERS: None
+NEXT TASK: Package with the next installer after MYCO Phase 0 finishes
