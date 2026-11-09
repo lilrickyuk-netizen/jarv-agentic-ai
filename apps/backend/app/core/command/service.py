@@ -2155,7 +2155,10 @@ class CommandService:
                     f"{len(runtime.calls)} tool calls).**\n\n"
                     + (f"_Workspace:_ `{root}`\n\n" if root else
                        "_No approved workspace resolved — register one, or include its path._\n\n"))
-        return head + result["answer"] + _metrics_line(result.get("metrics")), steps, agents, extra
+        from app.core.command import mission_budget
+
+        cost = await mission_budget.line(runtime.task_id)
+        return head + result["answer"] + _metrics_line(result.get("metrics")) + cost, steps, agents, extra
 
     async def _resolve_ws_root(self, db: AsyncSession, command_text: str) -> Optional[str]:
         """The folder a mission works in.

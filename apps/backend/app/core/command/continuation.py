@@ -233,6 +233,12 @@ async def recall_for_mission(db: AsyncSession, workspace_id, text: str) -> str:
     return _known_for_mission(context)
 
 
+async def _cost_line(task_id) -> str:
+    from app.core.command import mission_budget
+
+    return await mission_budget.line(task_id)
+
+
 async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Dict[str, Any]:
     """Run the next continuation round. The task must already be ``running``."""
     now = datetime.now(timezone.utc)
@@ -290,7 +296,7 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
     checkpoint_id = str(uuid4()) if outcome == lifecycle.NEEDS_CONTINUATION else res.get("checkpoint_id")
     updated = dict(res)
     updated.update({
-        "response": result["answer"], "task_status": outcome,
+        "response": (result["answer"] or "") + await _cost_line(task.id), "task_status": outcome,
         "agent_needs_continuation": result["needs_continuation"],
         "step_limit_reached": result["step_limit_reached"],
         "continuation_required": result["needs_continuation"],

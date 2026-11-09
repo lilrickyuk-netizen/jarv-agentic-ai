@@ -24,6 +24,19 @@ KEY = "mission:spend:{}"
 TTL_SECONDS = 7 * 24 * 3600
 
 
+# For Richard's reports in pounds; approximate, so the report says "about".
+GBP_PER_USD = 0.78
+
+
+async def line(task_id: Any) -> str:
+    """What the mission has spent so far, for the bottom of its report (Richard, 9 November: the cost was not
+    shown). Empty when nothing is recorded."""
+    used = await spent(task_id)
+    if used <= 0:
+        return ""
+    return f"\n\n**Cost of this mission so far: ${used:.2f} (about £{used * GBP_PER_USD:.2f}).**"
+
+
 def cap() -> float:
     """The allowance per mission in US dollars; 0 means no allowance (only the daily limit)."""
     return float(getattr(settings, "MISSION_MAX_COST_USD", 0) or 0)

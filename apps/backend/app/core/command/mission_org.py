@@ -68,6 +68,16 @@ PARALLEL_ASKED = re.compile(r"\b(in parallel|parallel (agents|writers|team|speci
 # for Opus 5.5 alone (its own README routes every other model away from it), and its quality comes from the agent
 # re-rendering and looking at its own frames, which takes steps.
 SKILL_PACKAGE_ID, SKILL_TITLE_END = "P1", " skill, end to end"
+# The Verifier of a specialist's (non-software) mission: this mission's checks only, and a small budget. On 9 November
+# it re-ran the tests earlier prospects missions had left in the folder, which contradicted the new work, for an hour.
+SPECIALIST_CHECK = (" Judge only this mission's requirements, each by its own check and by reading the deliverable "
+                    "itself. Tests, checklists and scripts that earlier missions left in this folder (.jai/earlier, "
+                    "and test files no requirement of this mission names) are not this mission's acceptance: do "
+                    "not run or fix them. Be brief: open the deliverable, check each requirement once, and report.")
+SPECIALIST_CHECK_STEPS, SPECIALIST_CHECK_COST = 40, 2.5
+SPECIALIST_WORK_RULE = (" Tests and checklists that earlier missions left in this folder are not yours to keep "
+                        "passing: write this mission's checks in a new file named for this work, and leave the old "
+                        "ones alone.")
 SKILL_RUNS: Dict[str, Dict[str, Any]] = {
     "brag-slim": {"model": "lead", "effort": "high", "max_steps": 200, "max_cost": 10.0},
     "brag": {"model": "lead", "effort": "high", "max_steps": 200, "max_cost": 10.0},
@@ -1224,7 +1234,7 @@ class MissionTeam:
                            specialist="builder", acting_as=kind["specialist"],
                            goal=("Get your bearings, then work through the acceptance ledger one item at a time "
                                  "until every item passes its check or is honestly blocked, committing each item."
-                                 + start),
+                                 + start + SPECIALIST_WORK_RULE),
                            owns=[], depends_on=[], requirements=open_ids,
                            done_when="every ledger item passes its check through jai-check, or is recorded as "
                                      "blocked",
@@ -1416,12 +1426,18 @@ class MissionTeam:
             else:
                 self.approach = self.approach or ("One builder works through the acceptance ledger item by item; "
                                                   "the independent Verifier checks every requirement at the end.")
+                specialist_work = bool(self.packages and self.packages[0].acting_as)
                 self.packages.append(Package(
                     id=VERIFIER_ID, title="Independent check of every requirement", specialist="verifier",
                     goal=("Check every requirement yourself with the project's real acceptance commands, run "
-                          "through jai-check so a check whose inputs have not changed is not paid for twice."),
+                          "through jai-check so a check whose inputs have not changed is not paid for twice."
+                          + (SPECIALIST_CHECK if specialist_work else "")),
                     owns=[], depends_on=[p.id for p in self.packages], requirements=[],
-                    done_when="each requirement judged met or unmet with evidence seen in this run", model="lead"))
+                    done_when="each requirement judged met or unmet with evidence seen in this run", model="lead",
+                    # Research, sales and writing are checked by reading the deliverable, not by a build: on 9
+                    # November the Verifier of a 25-row spreadsheet update ran for most of an hour.
+                    **({"max_steps": SPECIALIST_CHECK_STEPS, "max_cost": SPECIALIST_CHECK_COST}
+                       if specialist_work else {})))
         elif open_ids:
             await self._plan(router, mission, known)
         if len(self.packages) < 2 and not self._skill_run():

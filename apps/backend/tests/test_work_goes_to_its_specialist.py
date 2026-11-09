@@ -108,3 +108,29 @@ def test_work_in_richards_folder_is_a_mission_whatever_words_it_uses():
     assert CommandService._detect_intent("npm install in C:\\Users\\lilri\\Projects\\MYCO") == "package_install"
     assert CommandService._detect_intent("research the npm package left-pad") == "research"
     assert CommandService._detect_intent("Draft a marketing email for the Plexecute launch") == "company_workflow"
+
+
+def test_a_specialist_leaves_earlier_missions_tests_alone_and_its_check_is_brief():
+    """9 November: the Verifier of a 25-row spreadsheet update re-ran the tests earlier prospects missions had left
+    in the folder, which contradicted the new work, for most of an hour."""
+    from app.core.command import mission_org
+
+    team = MissionTeam.__new__(MissionTeam)
+    package = team._builder_package(["R1"], kind=specialist_for("Build an investor database for Plexecute"))
+    assert "leave the old ones alone" in package.goal
+    assert "not yours to keep" not in team._builder_package(["R1"]).goal  # software keeps its whole test suite
+    assert "earlier missions left in this folder" in mission_org.SPECIALIST_CHECK
+    assert mission_org.SPECIALIST_CHECK_STEPS <= 40 and mission_org.SPECIALIST_CHECK_COST <= 2.5
+
+
+def test_the_report_shows_what_the_mission_cost(monkeypatch):
+    import asyncio
+
+    from app.core.command import mission_budget
+
+    async def spent(task_id):
+        return 4.0 if task_id == "t1" else 0.0
+
+    monkeypatch.setattr(mission_budget, "spent", spent)
+    assert asyncio.run(mission_budget.line("t1")) == "\n\n**Cost of this mission so far: $4.00 (about £3.12).**"
+    assert asyncio.run(mission_budget.line("t2")) == ""
