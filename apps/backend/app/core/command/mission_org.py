@@ -335,6 +335,9 @@ class Package:
     effort: Optional[str] = None
     max_steps: Optional[int] = None
     max_cost: Optional[float] = None
+    # What the specialist actually used in the sandbox: each tool with how often, and the skills it loaded.
+    tools_used: Dict[str, int] = field(default_factory=dict)
+    skills_used: List[str] = field(default_factory=list)
 
     @property
     def role(self) -> str:
@@ -343,7 +346,8 @@ class Package:
     def card(self) -> Dict[str, Any]:
         return {"id": self.id, "title": self.title, "specialist": self.specialist, "role": self.role,
                 "goal": self.goal[:1500], "done_when": self.done_when[:500], "status": self.status,
-                "model": self.model, "effort": self.effort, "max_steps": self.max_steps, "max_cost": self.max_cost, "step": self.step, "steps": self.steps, "owns": self.owns,
+                "model": self.model, "effort": self.effort, "max_steps": self.max_steps, "max_cost": self.max_cost,
+                "tools_used": dict(self.tools_used), "skills_used": list(self.skills_used), "step": self.step, "steps": self.steps, "owns": self.owns,
                 "depends_on": self.depends_on, "requirements": self.requirements,
                 "doing_now": self.doing, "summary": self.summary[:400], "success": self.success,
                 "tool_calls": self.calls, "cost_usd": round(self.cost_usd, 4)}
@@ -404,6 +408,38 @@ def _overlaps(a: List[str], b: List[str]) -> bool:
             if xs == ys or xs.startswith(ys + "/") or ys.startswith(xs + "/"):
                 return True
     return False
+
+
+# The sandbox's own working tools; anything else a specialist calls is a skill or one of JAI's tools (MCP).
+WORKING_TOOLS = {"terminal": "shell", "execute_bash": "shell", "bash": "shell", "file_editor": "file editor",
+                 "str_replace_editor": "file editor", "task_tracker": "task list", "think": None, "finish": None}
+
+
+def used_summary(packages: List["Package"]) -> str:
+    """What the team actually used, for Richard's report: the skills it loaded, JAI's tools (knowledge, memory,
+    research, documents, the browser, media) with how often, and its shell and file work. Said plainly when it
+    used no skill and none of JAI's tools."""
+    if not any(p.tools_used or p.skills_used for p in packages):
+        return ""
+    skills = list(dict.fromkeys(s for p in packages for s in p.skills_used))
+    jai: Dict[str, int] = {}
+    working: Dict[str, int] = {}
+    for p in packages:
+        for tool, count in p.tools_used.items():
+            if "skill" in tool.lower():
+                continue
+            if tool in WORKING_TOOLS:
+                label = WORKING_TOOLS[tool]
+                if label:
+                    working[label] = working.get(label, 0) + count
+            else:
+                jai[tool] = jai.get(tool, 0) + count
+    parts = [("skills loaded: " + ", ".join(skills)) if skills else "no skills loaded",
+             ("JAI's tools: " + ", ".join(f"{t} ×{n}" for t, n in sorted(jai.items(), key=lambda x: -x[1])))
+             if jai else "none of JAI's own tools (knowledge, memory, research, documents, browser, media)"]
+    if working:
+        parts.append(", ".join(f"{label} ×{n}" for label, n in working.items()))
+    return "**What JAI used:** " + "; ".join(parts) + "."
 
 
 def next_wave(pending: List[Package], finished: Dict[str, Package], parallel: int) -> List[Package]:
@@ -975,6 +1011,8 @@ class MissionTeam:
         p.status = "finished" if p.success else "stopped"
         p.tokens = int(result.get("tokens") or 0)
         p.cost_usd = float(result.get("cost_usd") or 0)
+        p.tools_used = dict(result.get("tools_used") or {})
+        p.skills_used = list(result.get("skills_used") or [])
         p.step = int(result.get("steps") or p.step)
         detail = result.get("token_detail") or {}
         self.lead.usage.totals["input"] += int(detail.get("input") or 0) - int(detail.get("cached") or 0)
@@ -1208,7 +1246,8 @@ class MissionTeam:
         for p in self.packages:
             lines.append(f"- {p.id} {p.role} — {p.title}: {'finished' if p.success else 'stopped'} "
                          f"({p.step} steps, {p.calls} tool calls)")
-        return "\n".join(lines) + "\n\n"
+        used = used_summary(self.packages)
+        return "\n".join(lines) + (f"\n\n{used}" if used else "") + "\n\n"
 
     async def run(self, mission: str, steps_per_round: int = 8, max_continuations: int = 4,
                   prior_messages=None, start_continuation: int = 0, known: Optional[str] = None,

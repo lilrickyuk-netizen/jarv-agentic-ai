@@ -14517,3 +14517,16 @@ TESTS RUN: a reply whose opening sentence comes twice (run together, as on 8 Nov
 RESULT: Richard often heard Jay's opening sentence twice ("MYCO has restarted under your expanded brief. MYCO has restarted under your expanded brief."), when a reply restarted after a tool call or a revised transcript. A guard between the model and the voice now passes the reply on sentence by sentence and drops a sentence of four or more words said in the last 45 seconds.
 BLOCKERS: None
 NEXT TASK: MYCO Phase 0 review
+
+---
+
+TASK ID: WHAT-JAI-USED
+TASK NAME: Every mission report says which skills and JAI tools the team actually used
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: services/openhands/app/server.py, apps/backend/app/core/command/sandbox_engine.py, apps/backend/app/core/command/mission_org.py, apps/backend/tests/test_eight_november_fixes.py
+COMMANDS RUN: backend and sandbox test suites (run by the installer)
+TESTS RUN: the report lists the skills loaded, JAI's own tools with how often, and the shell and file work; it says plainly when no skill and none of JAI's tools was used; what a package used adds up across its runs
+RESULT: Richard had asked for days whether JAI's missions use its skills, knowledge and tools, and no report could say. The sandbox now counts every tool each specialist calls and the skills it loads, and each mission report ends its team section with "What JAI used". The on-demand switching of heavy services was drafted and withdrawn at Richard's request: every service stays part of JAI, which is headed for a cloud server running several projects at once.
+BLOCKERS: None
+NEXT TASK: Package with the next installer after MYCO Phase 0 finishes

@@ -80,12 +80,23 @@ class Run:
         self.ended_at: Optional[float] = None
         self.conversation: Any = None
         self.notes = ""
+        self.tools_used: Dict[str, int] = {}   # every tool the agent called, with how often
+        self.skills_used: List[str] = []       # the skills it loaded in full
 
     def on_event(self, event: Any) -> None:
         from openhands.sdk.event import ActionEvent, AgentErrorEvent, MessageEvent
 
         if isinstance(event, ActionEvent):
             self.steps += 1
+            tool = str(getattr(event, "tool_name", "") or "")
+            if tool:
+                self.tools_used[tool] = self.tools_used.get(tool, 0) + 1
+            if "skill" in tool.lower():
+                action = getattr(event, "action", None)
+                name = next((str(getattr(action, f)) for f in ("name", "skill", "skill_name")
+                             if getattr(action, f, None)), "")
+                if name and name not in self.skills_used:
+                    self.skills_used.append(name)
             said = " ".join(getattr(t, "text", "") for t in (event.thought or [])).strip()
             if said:
                 self.thought = said[-600:]
@@ -117,6 +128,7 @@ class Run:
                 "max_iterations": self.request.max_iterations, "doing_now": self.thought,
                 "final_message": self.final_message, "error": self.error, "notes": self.notes, "tokens": self.tokens,
                 "cost_usd": round(self.cost_usd, 6), "actions": self.gate.actions[since:],
+                "tools_used": dict(self.tools_used), "skills_used": list(self.skills_used),
                 "action_count": len(self.gate.actions),
                 "started_at": datetime.fromtimestamp(self.started_at, timezone.utc).isoformat(timespec="seconds"),
                 "seconds": int((self.ended_at or time.time()) - self.started_at)}

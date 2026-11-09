@@ -339,6 +339,12 @@ class SandboxSpecialist:
     def _merge(earlier: Dict[str, Any], later: Dict[str, Any]) -> Dict[str, Any]:
         for key in ("steps", "tokens", "cost_usd"):
             later[key] = (later.get(key) or 0) + (earlier.get(key) or 0)
+        used = dict(earlier.get("tools_used") or {})
+        for tool, count in (later.get("tools_used") or {}).items():
+            used[tool] = used.get(tool, 0) + count
+        later["tools_used"] = used
+        later["skills_used"] = list(dict.fromkeys([*(earlier.get("skills_used") or []),
+                                                   *(later.get("skills_used") or [])]))
         return later
 
     async def _attempt(self, requirements: List[Dict[str, Any]], container_root: str, model: str) -> Dict[str, Any]:
@@ -389,7 +395,8 @@ class SandboxSpecialist:
                 "status": view.get("status"), "steps": int(view.get("steps") or 0), "model": model,
                 "error": str(view.get("error") or ""),
                 "tokens": int(tokens.get("input") or 0) + int(tokens.get("output") or 0),
-                "token_detail": tokens, "cost_usd": float(view.get("cost_usd") or 0)}
+                "token_detail": tokens, "cost_usd": float(view.get("cost_usd") or 0),
+                "tools_used": dict(view.get("tools_used") or {}), "skills_used": list(view.get("skills_used") or [])}
 
     async def _follow(self, client: httpx.AsyncClient, container_root: str) -> Dict[str, Any]:
         seen = 0

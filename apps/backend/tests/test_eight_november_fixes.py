@@ -304,3 +304,32 @@ def test_new_instructions_in_a_carry_on_brief_become_requirements_of_their_own()
             raise RuntimeError("provider down")
 
     assert asyncio.run(additions(Down(), "m", "Carry on.", tracked))["requirements"] == []  # the list stands
+
+
+# ----- every report says what JAI actually used ------------------------------------------------------------------------
+
+def test_the_report_says_which_skills_and_jai_tools_the_team_used():
+    """Richard asked for days whether JAI uses its skills, knowledge and tools; no report could say."""
+    from app.core.command.mission_org import used_summary
+
+    builder = Package("B1", "build", "builder", "g", [], [], [], "d",
+                      tools_used={"terminal": 40, "file_editor": 12, "invoke_skill": 2, "search_knowledge": 3,
+                                  "think": 5, "finish": 1},
+                      skills_used=["superpowers/verification-before-completion"])
+    checker = Package("VER", "check", "verifier", "g", [], [], [], "d",
+                      tools_used={"terminal": 9, "recall_memory": 1})
+    line = used_summary([builder, checker])
+    assert line.startswith("**What JAI used:** skills loaded: superpowers/verification-before-completion")
+    assert "search_knowledge ×3" in line and "recall_memory ×1" in line and "shell ×49" in line
+    assert "think" not in line and "invoke_skill" not in line
+    bare = used_summary([Package("B1", "b", "builder", "g", [], [], [], "d", tools_used={"terminal": 7})])
+    assert "no skills loaded" in bare and "none of JAI's own tools" in bare
+    assert used_summary([Package("B1", "b", "builder", "g", [], [], [], "d")]) == ""  # nothing recorded
+
+
+def test_what_a_package_used_adds_up_across_its_runs():
+    merged = sandbox_engine.SandboxSpecialist._merge(
+        {"steps": 3, "tools_used": {"terminal": 4}, "skills_used": ["a"]},
+        {"steps": 2, "tools_used": {"terminal": 1, "search_knowledge": 2}, "skills_used": ["a", "b"]})
+    assert merged["tools_used"] == {"terminal": 5, "search_knowledge": 2} and merged["skills_used"] == ["a", "b"]
+    assert merged["steps"] == 5
