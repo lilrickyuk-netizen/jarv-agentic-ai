@@ -888,6 +888,14 @@ class CommandService:
                 or re.match(r"\s*(please\s+)?(carry on|continue|resume)\s+(building|developing|working on|"
                             r"with the build|the build)\b", text)):
             return "agent_task"
+        # Work a skill is made for, in a named workspace, is the skill's mission: on 9 November "Using BRAG, make a
+        # fresh video ad ... write the web address as ... don't post it" went to a marketing draft because of the
+        # words "write" and "post".
+        if has_path:
+            from app.core.knowledge.skill_packs import named_skill
+
+            if named_skill(command_text) is not None:
+                return "agent_task"
         # Self-completion: map Design.md to code and report gaps honestly.
         if re.search(r"\b(self[- ]complet|finish your own|map design to code|"
                      r"audit your (own )?implementation|design to code|gap map|complete your build)\b", text):

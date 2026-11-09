@@ -28,3 +28,12 @@ def test_other_work_and_edits_are_planned_as_usual():
 
 def test_the_builder_is_told_to_use_a_skill_made_for_its_work():
     assert "invoke it and follow it" in builder_method("Make the onboarding flow")
+
+
+def test_a_skill_brief_in_a_workspace_is_a_mission_whatever_words_it_uses():
+    from app.core.command.service import CommandService
+
+    brief = ("Using BRAG, make a fresh video ad for Plexecute in C:\\Users\\lilri\\Projects\\PLEXECUTE_IMAGES. In the "
+             "narration, write the web address as plexecute dot co dot U K. Don't post it anywhere.")
+    assert CommandService._detect_intent(brief) == "agent_task"
+    assert CommandService._detect_intent("Draft a marketing email for the Plexecute launch") == "company_workflow"
