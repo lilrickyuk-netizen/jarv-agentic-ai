@@ -28,6 +28,7 @@ manager, which already do this in JAI). Removing a pack's folder removes it ever
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -331,7 +332,8 @@ def named_skill(text: str) -> Optional[Dict]:
     """The one skill a brief asks JAI to use, named just before the word "skill" ("with your BRAG Slim skill",
     "using its brag skill", "the test-driven-development skill"), or None. Letters only, so "BRAG Slim" and
     "brag-slim" are the same; a pack's name stands for its skill when the pack has only one. A brief that names
-    several skills, or none, is planned as usual."""
+    several skills is planned as usual. Without the word "skill": a distinctive pack named on its own ("using BRAG"),
+    or work a skill is made for (a video ad, a launch video: BRAG), unless the brief is editing existing work."""
     import re
 
     def letters(value: str) -> str:
@@ -353,7 +355,36 @@ def named_skill(text: str) -> Optional[Dict]:
             if entry is not None:
                 found[entry["skill"]] = entry
                 break
-    return next(iter(found.values())) if len(found) == 1 else None
+    if found or re.search(r"\bskills?\b", text or "", re.I):
+        return next(iter(found.values())) if len(found) == 1 else None
+    # "Using BRAG, make ...", without the word "skill".
+    for match in re.finditer(r"\b(?:using|with|use|via)\s+(?:your\s+|its\s+|the\s+)?([\w-]+(?:\s+[\w-]+)?)", text or "",
+                             re.I):
+        words = match.group(1).split()
+        for n in (len(words), 1):
+            entry = names.get(letters("".join(words[:n])))
+            if entry is not None and entry["pack"] in _NAMED_ALONE:
+                return entry
+    # The kind of work, when a skill is made for it: a promotional video is BRAG's job whether or not the brief names
+    # it (9 November: "make a high-quality video ad for Plexecute" was built without BRAG). Editing an existing video
+    # is planned as usual.
+    for pattern, skill in _FOR_THE_WORK:
+        if pattern.search(text or "") and not _EDITING.search(text or ""):
+            entry = next((e for e in usable if e["skill"] == skill), None)
+            if entry is not None:
+                return entry
+    return None
+
+
+# Packs whose name is distinctive enough to stand alone ("using BRAG"); an everyday skill name ("with
+# accessibility in mind") is not taken as a request to run that skill.
+_NAMED_ALONE = frozenset({"brag"})
+_FOR_THE_WORK = (
+    (re.compile(r"\b(video|film)\s+(ad|advert|advertisement|commercial|trailer|teaser)\b|"
+                r"\b(promo|promotional|launch|marketing|explainer|teaser|ad|advert|product)\s+(video|film|reel)\b",
+                re.I), "brag"),
+)
+_EDITING = re.compile(r"\b(edit|re-?edit|trim|re-?cut|cut down|shorten|speed up|slow down)\b", re.I)
 
 
 def installed() -> Dict[str, bool]:
