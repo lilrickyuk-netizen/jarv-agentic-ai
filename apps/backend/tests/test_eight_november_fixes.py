@@ -159,6 +159,12 @@ def test_the_phase_ledger_is_the_plan_and_names_what_is_blocked():
         assert ledger.requirements(root, "Start MYCO Phase 1") is None  # another phase: planned afresh
         assert ledger.blocked(root) == ["R2 [environment] syft: command not found — needs: Syft 1.55.0"]
         assert ledger.requirements("/test_workspaces/none-here", "Phase 0") is None
+        # 9 November: a ledger without a phase belongs to the work it was written for. A new brief in the same
+        # folder (the Plexecute pitch deck after the ad) is planned afresh; "carry on" takes the ledger over.
+        (folder / ".jai" / "ledger.json").write_text(json.dumps({"phase": "this mission", "items": [
+            {"id": "R1", "text": "Ad renders", "check": "pytest ad", "passes": True, "blocked": None}]}))
+        assert ledger.requirements(root, "Make me an investor pitch deck for Plexecute") is None
+        assert [r["id"] for r in ledger.requirements(root, "Carry on with the Plexecute video ad")] == ["R1"]
     finally:
         shutil.rmtree(folder, ignore_errors=True)
 

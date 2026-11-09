@@ -37,3 +37,10 @@ def test_a_skill_brief_in_a_workspace_is_a_mission_whatever_words_it_uses():
              "narration, write the web address as plexecute dot co dot U K. Don't post it anywhere.")
     assert CommandService._detect_intent(brief) == "agent_task"
     assert CommandService._detect_intent("Draft a marketing email for the Plexecute launch") == "company_workflow"
+
+
+def test_new_work_in_a_folder_with_an_old_ledger_starts_its_own():
+    """9 November: the Plexecute pitch deck was handed the ad mission's ledger."""
+    assert "This is new work" in builder_method("Make me an investor pitch deck for Plexecute")
+    assert "This is new work" not in builder_method("Carry on with the Plexecute video ad")
+    assert "This is new work" not in builder_method("Carry on building MYCO Phase 0")

@@ -158,12 +158,20 @@ def builder_method(mission: str) -> str:
     frozen ledger of checkable items, one item at a time, a commit per item, a progress file for the next session."""
     from app.core.command.mission_org import SPECIALISTS
 
+    from app.core.command.resume import CARRY_ON
+
     phase = PHASE_WORD.search(mission or "")
     label = f"Phase {phase.group(1)}" if phase else "this mission"
+    # New work in a folder that already has a ledger (one written for earlier work, with no phase) starts its own:
+    # on 9 November the Plexecute pitch deck was handed the ad's ledger and its builder set off re-editing the ad.
+    fresh = (not phase and not CARRY_ON.search(mission or "")) and (
+        "\nThis is new work: if .jai/ledger.json or .jai/progress.md already exist, they are for earlier work. Move "
+        "them to .jai/earlier/ (keep them, never delete them) and write a new ledger and progress file for this "
+        "mission; do not redo or re-check the earlier work.") or ""
     roles = "; ".join(f"{s['title']}: {s['standard'][:160]}" for k, s in SPECIALISTS.items()
                       if k not in ("builder", "verifier", "environment"))
     return (
-        "\n\nHOW YOU WORK (you are the one builder for this mission):\n"
+        "\n\nHOW YOU WORK (you are the one builder for this mission):" + fresh + "\n"
         "1. Get your bearings first: read .jai/progress.md and `git log --oneline -20` if they exist, and the "
         "ledger .jai/ledger.json. Run .jai/init.sh (write it if it is missing: install the pinned toolchain, "
         "bootstrap the project and run its quickest smoke check). If the smoke check fails, fixing it comes before "

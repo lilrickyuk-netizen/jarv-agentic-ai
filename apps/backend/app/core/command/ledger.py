@@ -51,13 +51,22 @@ def load(workspace_root: Optional[str]) -> Optional[Dict[str, Any]]:
 
 
 def requirements(workspace_root: Optional[str], mission: str) -> Optional[List[Dict[str, Any]]]:
-    """The frozen ledger as this mission's requirements, when it is for the same phase as the mission (or neither
-    names one): passed items are done (the Verifier still checks them), the rest are open."""
+    """The frozen ledger as this mission's requirements, when it is for the same phase as the mission, or, when
+    neither names a phase, when the mission says to carry on: passed items are done (the Verifier still checks
+    them), the rest are open. A new piece of work in the same folder is planned afresh: on 9 November the Plexecute
+    pitch deck brief took over the earlier ad mission's ledger and its builder set off re-editing the ad."""
     data = load(workspace_root)
     if data is None:
         return None
-    if phase_of(str(data.get("phase") or "")) != phase_of(mission):
-        return None
+    theirs, mine = phase_of(str(data.get("phase") or "")), phase_of(mission)
+    if theirs is not None or mine is not None:
+        if theirs != mine:
+            return None
+    else:
+        from app.core.command.resume import CARRY_ON
+
+        if not CARRY_ON.search(mission or ""):
+            return None
     out = []
     for item in data["items"]:
         if not isinstance(item, dict) or not ID.match(str(item.get("id") or "")):
