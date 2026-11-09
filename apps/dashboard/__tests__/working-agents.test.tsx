@@ -40,3 +40,15 @@ it('lists the services in the side menu as switches that work', async () => {
   fireEvent.click(screen.getByRole('switch', { name: 'Image generator on' }));
   await waitFor(() => expect(screen.getByRole('switch', { name: 'Image generator off' })).toBeInTheDocument());
 });
+
+it('clearing the chat also clears what was said in the conversation', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { clearVoiceLines, setVoiceClear } = jest.requireActual('@/lib/voice-signal');
+  const cleared = jest.fn();
+  setVoiceClear(cleared);
+  clearVoiceLines();
+  expect(cleared).toHaveBeenCalledTimes(1);
+  setVoiceClear(null);
+  clearVoiceLines();
+  expect(cleared).toHaveBeenCalledTimes(1);
+});

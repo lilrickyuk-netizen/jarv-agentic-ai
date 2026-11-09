@@ -585,7 +585,20 @@ html body.jai-theme .border-rose-100, html body.jai-theme .border-rose-200, html
 .ov-agent.is-waiting .ov-agent-dot::after { display: none; }
 .ov-agent.is-waiting .ov-agent-tag { opacity: .6; }
 .ov-dock { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 0 28px 24px; }
-.ov-lines { width: 100%; max-width: 760px; display: flex; flex-direction: column; gap: 4px; font-size: 13.5px; }
+.ov-chat { width: 100%; max-width: 760px; padding: 10px 16px 14px; border: 1px solid var(--ov-line2); border-radius: 18px;
+  background: rgba(10, 15, 23, .9); backdrop-filter: blur(12px); animation: ov-in .25s ease-out; }
+.ov-chat[hidden] { display: none; }
+.ov-chat-head { display: flex; justify-content: flex-end; gap: 4px; margin-bottom: 6px; }
+.ov-text-btn { height: 26px; padding: 0 10px; border: 1px solid var(--ov-line); border-radius: 999px; background: transparent; color: var(--ov-mu); font: 500 12px Inter, sans-serif; cursor: pointer; }
+.ov-text-btn:hover { border-color: var(--ov-line2); color: var(--ov-tx); }
+.ov-lines { width: 100%; max-height: 32vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
+.ov-lines p { -webkit-line-clamp: unset !important; }
+.ov-lines:not(:has(p, li)) { min-height: 20px; }
+.ov-chat-btn { color: var(--ov-mu); border: 1px solid var(--ov-line2); }
+.ov-chat-btn:hover { color: var(--ov-tx); background: rgba(148, 163, 184, .08); }
+.ov-chat-btn.is-open { color: var(--ov-c); border-color: rgba(56, 189, 248, .45); }
+.ov-chat-btn.has-new { position: relative; }
+.ov-chat-btn.has-new::after { content: ""; position: absolute; top: 7px; right: 7px; width: 8px; height: 8px; border-radius: 50%; background: var(--ov-c); box-shadow: 0 0 8px var(--ov-c); }
 .ov-lines p { display: -webkit-box; margin: 0; overflow: hidden; color: var(--ov-mu); -webkit-box-orient: vertical; -webkit-line-clamp: 3; white-space: pre-wrap; }
 .ov-lines p span { display: inline-block; width: 16px; color: var(--ov-fa); }
 .ov-lines p.is-jai { color: #cfe3f1; } .ov-lines p.is-jai span { color: var(--ov-c); }
@@ -595,7 +608,7 @@ html body.jai-theme .border-rose-100, html body.jai-theme .border-rose-200, html
 .ov-voice .voice-live { margin: 0; padding: 0; border: 0; }
 .ov-voice .voice-live-head, .ov-voice .voice-operator-details { display: none; }
 .ov-voice .voice-message { margin: 2px 0 0; color: #fcd34d; font-size: 12px; }
-.ov-voice .voice-live-lines { max-height: 96px; margin: 0; gap: 3px; font-size: 13.5px; }
+.ov-voice .voice-live-lines { max-height: none; margin: 0; gap: 6px; font-size: 13.5px; }
 .ov-voice .voice-live-lines strong { display: none; }
 .ov-voice .voice-live-lines li::before { content: "›"; display: inline-block; width: 16px; color: var(--ov-fa); }
 .ov-voice .voice-live-jarv { color: #cfe3f1; } .ov-voice .voice-live-jarv::before { color: var(--ov-c) !important; }

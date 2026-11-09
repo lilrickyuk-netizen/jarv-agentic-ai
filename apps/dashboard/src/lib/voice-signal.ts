@@ -88,3 +88,14 @@ export function useVoicePhase(): VoicePhase {
 export function useVoiceReady(): boolean {
   return useSyncExternalStore(subscribeVoice, voiceReady, () => false);
 }
+
+/** Clearing the chat from the Command Center also clears what was said in the conversation. */
+let clearer: (() => void) | null = null;
+
+export function setVoiceClear(next: (() => void) | null) {
+  clearer = next;
+}
+
+export function clearVoiceLines() {
+  clearer?.();
+}

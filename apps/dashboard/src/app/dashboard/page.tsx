@@ -11,7 +11,7 @@ import { followMission, runMission } from '@/lib/missions';
 import { VOICE_SLOT_ID } from '@/components/persistent-voice';
 import { WorkingAgents, type WorkingMission } from '@/components/working-agents';
 import { clearTokens, getAccessToken } from '@/lib/auth';
-import { toggleVoice, useVoicePhase, useVoiceReady, useVoiceState } from '@/lib/voice-signal';
+import { clearVoiceLines, toggleVoice, useVoicePhase, useVoiceReady, useVoiceState } from '@/lib/voice-signal';
 
 type CockpitState = 'idle' | 'listening' | 'thinking' | 'planning' | 'executing' | 'speaking' | 'approval' | 'completed' | 'failed' | 'recovery';
 type VoiceState = 'idle' | 'listening' | 'thinking' | 'speaking';
@@ -96,6 +96,9 @@ export default function CommandCenterPage() {
   const [commandError, setCommandError] = useState<string | null>(null);
   const [commandLoading, setCommandLoading] = useState(false);
   const [clock, setClock] = useState('');
+  // The chat is hidden unless Richard opens it (9 November); a reply while it is closed lights the chat button.
+  const [chatOpen, setChatOpen] = useState(false);
+  const [unseen, setUnseen] = useState(false);
   // Talk with JAI is kept connected by the dashboard frame (PersistentVoice) and shown in the chat dock's slot; the
   // microphone in the chat bar starts and ends it, and its state reaches the orb.
   const voiceState: VoiceState = useVoiceState();
@@ -189,6 +192,20 @@ export default function CommandCenterPage() {
   const current = working[0];
   const waiting = approvalStats?.pending_approvals ?? 0;
   const reply = commandError || commandResult?.response_text || commandResult?.error || (commandResult ? 'Mission accepted.' : null);
+  useEffect(() => {
+    if (reply && !chatOpen) setUnseen(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reply]);
+  const openChat = (open: boolean) => {
+    setChatOpen(open);
+    if (open) setUnseen(false);
+  };
+  const clearChat = () => {
+    setSent(null);
+    setCommandResult(null);
+    setCommandError(null);
+    clearVoiceLines();
+  };
   const statusLine = current ? `${state.toUpperCase()} · ${current.title}` : state === 'idle' ? null : state.toUpperCase();
 
   return (
@@ -243,15 +260,26 @@ export default function CommandCenterPage() {
         </div>
 
         <footer className="ov-dock">
-          <div className="ov-lines" aria-live="polite">
-            {sent && <p><span>›</span>{sent}</p>}
-            {reply && <p className={`is-jai${commandResult?.requires_approval ? ' is-warn' : ''}`}><span>›</span>{commandResult?.requires_approval ? `${commandResult.approval_reason ?? 'Approval needed'} ` : ''}{reply}</p>}
-            <div id={VOICE_SLOT_ID} className="ov-voice" />
+          {/* Kept mounted while closed, so a live conversation carries on unseen. */}
+          <div className="ov-chat" hidden={!chatOpen} aria-label="Chat with JAI">
+            <div className="ov-chat-head">
+              <button type="button" className="ov-text-btn" onClick={clearChat}>Clear</button>
+              <button type="button" className="ov-text-btn" onClick={() => openChat(false)} aria-label="Close the chat">×</button>
+            </div>
+            <div className="ov-lines" aria-live="polite">
+              {sent && <p><span>›</span>{sent}</p>}
+              {reply && <p className={`is-jai${commandResult?.requires_approval ? ' is-warn' : ''}`}><span>›</span>{commandResult?.requires_approval ? `${commandResult.approval_reason ?? 'Approval needed'} ` : ''}{reply}</p>}
+              <div id={VOICE_SLOT_ID} className="ov-voice" />
+            </div>
           </div>
           <form className="ov-composer" onSubmit={(event) => { event.preventDefault(); void sendCommand(command); }}>
             <textarea aria-label="Message JAI" value={command} rows={1} disabled={commandLoading}
               onChange={(event) => setCommand(event.target.value)}
               onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void sendCommand(command); } }} />
+            <button type="button" className={`ov-icon ov-chat-btn${chatOpen ? ' is-open' : ''}${unseen ? ' has-new' : ''}`}
+              onClick={() => openChat(!chatOpen)} aria-pressed={chatOpen} aria-label={chatOpen ? 'Hide the chat' : 'Show the chat'}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z" /></svg>
+            </button>
             <button type="button" className={`ov-icon ov-mic${voicePhase !== 'off' ? ' is-live' : ''}`} onClick={toggleVoice}
               disabled={!voiceReady && voicePhase === 'off'} aria-pressed={voicePhase !== 'off'}
               aria-label={voicePhase === 'off' ? 'Talk with JAI' : 'End conversation'}>

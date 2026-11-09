@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiClient } from '@/lib/api';
 import type { MissionReport } from '@/components/voice-operator';
-import { setVoicePhase, setVoiceStream, setVoiceToggle } from '@/lib/voice-signal';
+import { setVoiceClear, setVoicePhase, setVoiceStream, setVoiceToggle } from '@/lib/voice-signal';
 import { showCard, type ScreenCard } from '@/lib/screen-signal';
 import { PipecatVoice, voiceUrl, type PipecatMessage } from '@/lib/pipecat-voice';
 
@@ -432,7 +432,11 @@ export function VoiceConversation({ ready, setup, beforeStart, onMission, onStat
   };
   useEffect(() => {
     setVoiceToggle(() => toggleRef.current());
-    return () => setVoiceToggle(null);
+    setVoiceClear(() => setLines([]));
+    return () => {
+      setVoiceToggle(null);
+      setVoiceClear(null);
+    };
   }, []);
   useEffect(() => {
     setVoicePhase(phase, Boolean(ready));
