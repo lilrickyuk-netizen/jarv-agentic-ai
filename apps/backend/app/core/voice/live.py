@@ -1094,7 +1094,7 @@ async def show_on_screen(db: AsyncSession, user_id: UUID, args: Dict[str, Any]) 
         card = {"kind": "approvals", "title": f"Waiting for your approval ({len(waiting)})",
                 "subtitle": "Approve or reject on the Approvals page", "link": "/dashboard/approvals",
                 "sections": [{"heading": "", "items": [w["action"] for w in waiting] or ["Nothing is waiting."]}]}
-    elif what == "file" and (str(args.get("path") or "").lower().endswith(IMAGE_TYPES + VIDEO_TYPES)
+    elif what == "file" and (str(args.get("path") or "").lower().endswith(IMAGE_TYPES + VIDEO_TYPES + DOCUMENT_TYPES)
                              or await _is_folder(db, user_id, args)):
         media = await _media_card(db, user_id, args)
         if media.get("error"):
@@ -1118,9 +1118,11 @@ async def show_on_screen(db: AsyncSession, user_id: UUID, args: Dict[str, Any]) 
 IMAGE_LINK_SECONDS = 24 * 3600
 IMAGE_TYPES = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 VIDEO_TYPES = (".mp4", ".webm", ".mov", ".m4v")
+# A PDF is shown as the document itself, never as its bytes (9 November: the pitch deck came up as PDF source).
+DOCUMENT_TYPES = (".pdf",)
 MEDIA_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
                ".gif": "image/gif", ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
-               ".m4v": "video/mp4"}
+               ".m4v": "video/mp4", ".pdf": "application/pdf"}
 GALLERY_LIMIT = 12
 
 
@@ -1168,7 +1170,7 @@ def _media_in(folder, depth: int = 3, limit: int = 3000):
             if entry.is_dir():
                 if level < depth and entry.name not in _SKIP_FOLDERS and not entry.name.startswith("."):
                     stack.append((entry, level + 1))
-            elif entry.suffix.lower() in MEDIA_TYPES:
+            elif entry.suffix.lower() in IMAGE_TYPES + VIDEO_TYPES:
                 found.append(entry)
     return found
 
@@ -1194,7 +1196,8 @@ async def _media_card(db: AsyncSession, user_id: UUID, args: Dict[str, Any]) -> 
     if not path.is_file():
         return {"error": f"No file at {where}."}
     link = await image_link(str(path))
-    kind = "video" if path.suffix.lower() in VIDEO_TYPES else "image"
+    suffix = path.suffix.lower()
+    kind = "video" if suffix in VIDEO_TYPES else "pdf" if suffix in DOCUMENT_TYPES else "image"
     return {"kind": kind, "title": path.name,
             "subtitle": f"{found['workspace']} · {where} · {round(path.stat().st_size / 1e6, 1)} MB",
             "sections": [{"heading": "", kind: link}]}

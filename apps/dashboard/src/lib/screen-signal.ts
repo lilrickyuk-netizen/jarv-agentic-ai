@@ -8,6 +8,7 @@ export interface ScreenSection {
   heading?: string;
   image?: string;
   video?: string;
+  pdf?: string;
   columns?: string[];
   rows?: (string | number | null)[][];
   items?: string[];

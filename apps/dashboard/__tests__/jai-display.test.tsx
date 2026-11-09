@@ -53,6 +53,15 @@ describe('JaiDisplay', () => {
     expect(screen.queryByRole('img')).toBeNull();
   });
 
+  it('shows a PDF as the document, only from JAI\'s own backend', () => {
+    render(<JaiDisplay />);
+    act(() => showCard({ kind: 'pdf', title: 'Plexecute-Pitch-Deck.pdf',
+      sections: [{ heading: '', pdf: '/api/backend/api/voice/image/p1' }] }));
+    expect(screen.getByTitle('Plexecute-Pitch-Deck.pdf')).toHaveAttribute('src', '/api/backend/api/voice/image/p1');
+    act(() => showCard({ kind: 'pdf', title: 'Elsewhere', sections: [{ pdf: 'https://tracker.example/x.pdf' }] }));
+    expect(screen.queryByTitle('Elsewhere')).toBeNull();
+  });
+
   it('plays a video and shows a folder as a gallery, only from JAI\'s own backend', () => {
     render(<JaiDisplay />);
     act(() => showCard({ kind: 'gallery', title: 'images', subtitle: 'Plexecute · 2 image(s) and video(s)',

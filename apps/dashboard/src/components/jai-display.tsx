@@ -38,6 +38,9 @@ export function JaiDisplay() {
             // eslint-disable-next-line @next/next/no-img-element
             <img className="jai-display-image" src={section.image} alt={section.heading || card.title} />
           )}
+          {section.pdf?.startsWith('/api/backend/') && (
+            <iframe className="jai-display-pdf" src={section.pdf} title={section.heading || card.title} />
+          )}
           {section.video?.startsWith('/api/backend/') && (
             <video className="jai-display-image" src={section.video} controls preload="metadata"
               aria-label={section.heading || card.title} />

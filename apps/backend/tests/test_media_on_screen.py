@@ -53,3 +53,28 @@ def test_an_image_a_video_and_a_folder_go_on_screen_as_media(project, client):
     text = _run(show("src/app.py"))["card"]                         # a text file is still shown as text
     assert text["kind"] == "file" and "def add" in text["sections"][0]["code"]
     assert "error" in _run(show("../outside.png"))
+
+
+PDF = b"%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n" + b"\x00" * 200 + b"\n%%EOF\n"
+
+
+def test_a_pdf_goes_on_screen_as_the_document_and_stays_out_of_galleries(project, client):
+    """9 November: the pitch deck PDF came up on screen as its source bytes."""
+    root_host, root, _ = project
+    (root / "pitch-deck").mkdir()
+    (root / "pitch-deck" / "deck.pdf").write_bytes(PDF)
+    (root / "pitch-deck" / "cover.png").write_bytes(PNG)
+
+    async def show(path):
+        async with AsyncTestingSessionLocal() as db:
+            user_id, _ = await _seed(db, root_host)
+            return await live.run_tool(db, user_id, "show_on_screen", {"what": "file", "workspace": "R12c",
+                                                                        "path": path})
+
+    deck = _run(show("pitch-deck/deck.pdf"))["card"]
+    assert deck["kind"] == "pdf" and deck["sections"][0]["pdf"].startswith("/api/backend/api/voice/image/")
+    assert "code" not in deck["sections"][0]
+    served = client.get(deck["sections"][0]["pdf"].replace("/api/backend", ""))
+    assert served.status_code == 200 and served.headers["content-type"] == "application/pdf" and served.content == PDF
+    gallery = _run(show("pitch-deck"))["card"]
+    assert [s["heading"] for s in gallery["sections"]] == ["cover.png"]
