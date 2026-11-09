@@ -229,6 +229,7 @@ export default function CommandCenterPage() {
           <a className="ov-link" href="/dashboard/company-operations">Company</a>
           <a className="ov-link" href="/dashboard/business">Business</a>
           <a className="ov-link" href="/dashboard/revenue-operations">Revenue</a>
+          <a className="ov-link" href="/dashboard/sales">Sales & outreach</a>
           <a className="ov-link" href="/dashboard/support">Support</a>
           <a className="ov-link" href="/dashboard/marketing">Growth</a>
           <a className="ov-link" href="/dashboard/infrastructure">Infrastructure</a>
