@@ -1,7 +1,7 @@
 """
 JAI Backend - Third-party skill packs (Upgrades 1-5)
 
-Five MIT-licensed skill libraries, each pinned to one commit and cloned by scripts/skill-packs.sh into the
+Seven skill libraries (MIT, and Hyperframes under Apache 2.0), each pinned to one commit and cloned by scripts/skill-packs.sh into the
 git-ignored folder skill-packs/ (mounted read-only into the backend, the worker and the engineering sandbox):
 
 - Superpowers (obra/superpowers): planning, test-driven development, systematic debugging, code review and
@@ -12,6 +12,8 @@ git-ignored folder skill-packs/ (mounted read-only into the backend, the worker 
   each skill given to the agents whose work it is.
 - No AI Slop (petergyang/no-ai-slop): the final editorial pass for writing that goes to people.
 - BRAG Slim (latent-spaces/brag): a project or website made into a short launch video with music and share copy.
+- Hyperframes (heygen-com/hyperframes): the composition, CLI, registry and media skills the full BRAG workflow
+  hands its brief to. Without them full BRAG (the one used for a voice-over) improvised the video itself.
 
 Two ways in, both selective so no task pays for knowledge it does not need:
 
@@ -53,6 +55,10 @@ PACKS: Dict[str, Dict[str, str]] = {
     "brag": {"repo": "latent-spaces/brag", "commit": "669ab9286aa28b6c3ee30e75f181ee74319d012a", "root": "skills",
              "title": "BRAG", "publisher": "Shunit Haviv Hakimi (latent-spaces/brag)",
              "copyright": "Copyright (c) 2026 Shunit Haviv Hakimi"},
+    # BRAG's full workflow loads these four by name (step 3: "Hand off to Hyperframes"). Apache 2.0.
+    "hyperframes": {"repo": "heygen-com/hyperframes", "commit": "ad6f7858f649f44e16f21128a88992ea3c01dd74",
+                    "root": "skills", "title": "Hyperframes", "publisher": "HeyGen (heygen-com/hyperframes)",
+                    "copyright": "Copyright 2026 HeyGen, Inc.", "licence": "Apache-2.0"},
 }
 
 CODING, DEBUG, DEVOPS, QA, VERIFY = "coding_agent", "debugging_agent", "devops", "qa", "verifier"
@@ -219,6 +225,11 @@ SKILLS: List[Dict] = [
     # The full BRAG pipeline as well (HyperFrames, its bundled music and sound effects): on Opus 5.5 it hands over to
     # Slim itself, and any other model follows its own rule into the full pipeline instead of a weaker Slim run.
     _s("brag", "brag", (CREATION, CONTENT, MARKETING), (CREATION, CONTENT, MARKETING)),
+    # ----- Hyperframes: what full BRAG hands its composition brief to ----------------------------------------
+    _s("hyperframes", "hyperframes", (CREATION,), (CREATION, CONTENT, MARKETING)),
+    _s("hyperframes", "hyperframes-cli", (CREATION,), (CREATION, CONTENT, MARKETING)),
+    _s("hyperframes", "hyperframes-registry", (CREATION,), (CREATION, CONTENT, MARKETING)),
+    _s("hyperframes", "media-use", (CREATION,), (CREATION, CONTENT, MARKETING)),
 ]
 
 # Files inside a skill folder that are not guidance for the agent (the pack's own tests and evaluation sets).
@@ -246,16 +257,20 @@ def skill_url(entry: Dict) -> str:
     return f"https://github.com/{pack['repo']}/tree/{pack['commit']}/{skill_path(entry)}"
 
 
+_LICENCE_NAMES = {"MIT": "MIT License", "Apache-2.0": "Apache License 2.0"}
+
+
 def catalogue_entries() -> List[Dict]:
-    """The skills as knowledge-library sources: stored text (MIT), read from the local pinned clone."""
+    """The skills as knowledge-library sources: stored text (MIT or Apache 2.0, both allow it), read from the local
+    pinned clone."""
     out = []
     for entry in SKILLS:
         pack = PACKS[entry["pack"]]
         out.append({
             "url": skill_url(entry), "title": f"{pack['title']}: {entry['skill']}", "publisher": pack["publisher"],
-            "agents": list(entry["agents"]), "licence": "MIT",
+            "agents": list(entry["agents"]), "licence": pack.get("licence", "MIT"),
             "licence_evidence": (f"https://github.com/{pack['repo']}/blob/{pack['commit']}/LICENSE "
-                                 f"(MIT License, {pack['copyright']})"),
+                                 f"({_LICENCE_NAMES[pack.get('licence', 'MIT')]}, {pack['copyright']})"),
             "licence_class": LICENCE_STORE, "local_path": f"{entry['pack']}/{skill_path(entry)}"})
     return out
 

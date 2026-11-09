@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Clones JAI's third-party skill packs (Superpowers, UI/UX Pro Max, Marketing Skills, No AI Slop, BRAG) into
-# skill-packs/<name>, each at the exact commit pinned in apps/backend/app/core/knowledge/skill_packs.py, and checks
-# each one's licence is still MIT. skill-packs/ is git-ignored and mounted read-only into the backend, the worker and
+# Clones JAI's third-party skill packs (Superpowers, UI/UX Pro Max, Marketing Skills, No AI Slop, ECC, BRAG,
+# Hyperframes) into skill-packs/<name>, each at the exact commit pinned in apps/backend/app/core/knowledge/skill_packs.py
+# (only its skills folder, for a large repository), and checks each one's licence is still the one pinned (MIT, or
+# Apache 2.0 for Hyperframes). skill-packs/ is git-ignored and mounted read-only into the backend, the worker and
 # the engineering sandbox. Run again after a pin changes; delete skill-packs/<name> to remove one pack.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -13,10 +14,10 @@ tree = ast.parse(open("apps/backend/app/core/knowledge/skill_packs.py", encoding
 for node in tree.body:
     if isinstance(node, ast.AnnAssign) and getattr(node.target, "id", "") == "PACKS":
         for name, pack in ast.literal_eval(node.value).items():
-            print(name, pack["repo"], pack["commit"])
+            print(name, pack["repo"], pack["commit"], pack["root"], pack.get("licence", "MIT"))
 PY
 fail=0
-while read -r name repo commit; do
+while read -r name repo commit root licence; do
   dir="$DEST/$name"
   if [ -f "$dir/.jai-commit" ] && [ "$(cat "$dir/.jai-commit")" = "$commit" ]; then
     echo "   $name: pinned at ${commit:0:7}"
@@ -24,11 +25,16 @@ while read -r name repo commit; do
   fi
   rm -rf "$dir.tmp"
   if ! git clone -q --filter=blob:none --no-checkout "https://github.com/$repo.git" "$dir.tmp" \
+     || ! git -C "$dir.tmp" sparse-checkout set "$root" \
      || ! git -C "$dir.tmp" checkout -q "$commit"; then
     echo "   $name: could not fetch $repo at $commit"; rm -rf "$dir.tmp"; fail=1; continue
   fi
-  if ! head -3 "$dir.tmp/LICENSE" | grep -q "MIT License"; then
-    echo "   $name: its licence is no longer MIT at this commit, so it was not installed"; rm -rf "$dir.tmp"; fail=1; continue
+  case "$licence" in
+    Apache-2.0) expected="Apache License" ;;
+    *) expected="MIT License" ;;
+  esac
+  if ! head -3 "$dir.tmp/LICENSE" | grep -q "$expected"; then
+    echo "   $name: its licence is no longer $licence at this commit, so it was not installed"; rm -rf "$dir.tmp"; fail=1; continue
   fi
   rm -rf "$dir.tmp/.git"
   echo "$commit" > "$dir.tmp/.jai-commit"

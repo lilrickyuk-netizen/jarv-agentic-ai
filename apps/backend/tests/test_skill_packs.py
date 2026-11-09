@@ -23,7 +23,8 @@ def test_every_pack_is_mit_and_pinned_to_a_full_commit():
     assert len({e["url"] for e in entries}) == len(entries) == len(skill_packs.SKILLS)
     for entry in entries:
         assert entry["url"].startswith("https://github.com/") and "/tree/" in entry["url"]
-        assert entry["licence"] == "MIT" and "MIT License" in entry["licence_evidence"]
+        assert (entry["licence"], entry["licence_evidence"].count("MIT License")) == ("MIT", 1) or \
+            (entry["licence"], entry["licence_evidence"].count("Apache License 2.0")) == ("Apache-2.0", 1)
         assert entry["licence_class"] == "store" and entry["agents"]
 
 
@@ -34,6 +35,8 @@ def test_the_right_agents_get_the_right_skills():
     assert by_skill["cold-email"] == {"sales"}
     assert {"content", "marketing", "sales"} <= by_skill["no-ai-slop"]
     assert {"creation", "marketing"} <= by_skill["brag-slim"]
+    # Full BRAG hands its composition brief to Hyperframes' own skills: without them it improvised (9 November).
+    assert {"hyperframes", "hyperframes-cli", "hyperframes-registry", "media-use"} <= set(by_skill)
     names = {e["skill"] for e in skill_packs.SKILLS}
     # Left out: asking Richard questions mid-task, and Superpowers' own meta skills.
     assert not names & {"brainstorming", "using-superpowers", "diagnosing-superpowers"}
