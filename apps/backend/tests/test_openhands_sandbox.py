@@ -58,6 +58,9 @@ def test_the_terminal_stays_in_the_workspace_and_authority_is_never_exceeded():
     assert check_command("cd /tmp/render", "/host/workspaces", SCOPE) is None
     assert "outside this mission's workspace" in check_command("cd /host/workspaces/Other", "/home/openhands", SCOPE)
     assert check_command("ls references", "/jai/skills/brag/skills/brag", SCOPE) is None
+    # The sandbox's own tool caches are a place to work (unpacking LibreOffice for a PDF); the rest of home is not.
+    assert check_command("tar xf lo.tar.gz", "/home/openhands/.cache/lo", SCOPE) is None
+    assert "outside this mission's workspace" in check_command("ls", "/home/openhands", SCOPE)
     # A fresh-clone check works in scratch space: clone the workspace into /tmp and build it there.
     assert check_command(f"git clone {ROOT} /tmp/clone-myco", ROOT, SCOPE) is None
     assert check_command("task bootstrap && task verify", "/tmp/clone-myco", SCOPE) is None

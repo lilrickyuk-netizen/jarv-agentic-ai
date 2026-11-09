@@ -134,9 +134,14 @@ def _commands_in(text: str, depth: int = 0) -> List[str]:
 
 
 def _working_folder(cwd: str, scope: Scope) -> bool:
-    """Where the terminal may be: the workspace, scratch space and the read-only skill packs (a skill's own scripts
-    are run from its folder). Never another project, the folder above it, or anywhere else."""
-    return _inside(cwd, scope.root) or _inside(cwd, SCRATCH) or _inside(cwd, SKILLS)
+    """Where the terminal may be: the workspace, scratch space, the read-only skill packs (a skill's own scripts
+    are run from its folder) and the sandbox's own tool caches under its home (~/.cache, ~/.local: on 9 November a
+    builder unpacking LibreOffice into ~/.cache/lo to make the pitch deck's PDF was refused every command there).
+    Never another project, the folder above it, the rest of home, or anywhere else."""
+    if _inside(cwd, scope.root) or _inside(cwd, SCRATCH) or _inside(cwd, SKILLS):
+        return True
+    caches = (str(PurePosixPath(scope.home) / ".cache"), str(PurePosixPath(scope.home) / ".local"))
+    return any(_inside(cwd, c) for c in caches) and not _SECRET_STORES.search(cwd)
 
 
 def _way_back(command: str, cwd: str, scope: Scope) -> bool:
