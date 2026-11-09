@@ -503,6 +503,7 @@ SAFE_COMMAND_PREFIXES = (
     "uv tree", "uv tool list", "git --version", "git show", "git rev-parse",
     "git ls-files", "git ls-tree", "git describe", "git check-ignore", "git cat-file",
     "git shortlog", "git blame", "git grep", "git stash list", "git tag -l", "git tag --list",
+    "git for-each-ref", "git show-ref", "git verify-tag", "git merge-base", "git name-rev",
     "yarn --version", "jq --version", "rg --version", "gcc --version", "make --version",
     "task --version", "task --list", "task --list-all", "terraform version", "terraform -version",
     "helm version", "syft version", "trivy version", "trivy --version", "gitleaks version",

@@ -386,7 +386,8 @@ def test_a_failed_approved_command_does_not_overwrite_a_running_mission():
 
 def test_read_only_git_commands_never_need_approval():
     for command in ("git ls-files", "git ls-tree HEAD", "git describe --tags", "git check-ignore dist",
-                    "git show HEAD", "git grep SERVICE_NAME", "git blame README.md", "git tag -l"):
+                    "git show HEAD", "git grep SERVICE_NAME", "git blame README.md", "git tag -l",
+                    "git for-each-ref refs/tags", "git show-ref --tags", "git verify-tag v1.0"):
         assert classify_command(command) == "safe", command
 
 
