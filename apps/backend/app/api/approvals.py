@@ -142,7 +142,9 @@ async def approve_command_block(
                  "approval_grant": {"task_id": str(task.id), "granted_by": operator,
                                     "boundary_type": meta.get("boundary_type"),
                                     "single_mission": True}})
-    task.meta_data = meta
+    from app.core.command import sign_off
+
+    task.meta_data = sign_off.on_approve(meta)
 
     await _write_audit(
         db, task.workspace_id, "approval_granted",

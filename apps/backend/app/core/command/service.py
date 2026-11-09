@@ -590,6 +590,10 @@ class CommandService:
             #    step-limit / missing report downgrade the status accordingly.
             status, failure = self._derive_status(intent, result_extra, runtime.calls, answer)
             status = await self._finish(db, task, status, (failure or {}).get("reason"))
+            if status == "blocked" and result_extra.get("waiting_on_richard"):
+                from app.core.command import sign_off
+
+                sign_off.mark(task, result_extra["waiting_on_richard"])
             now = datetime.now(timezone.utc)
             if task.started_at:
                 # A worker's claim reloads started_at from the database; SQLite returns
@@ -1073,6 +1077,12 @@ class CommandService:
         # 5) Agent loop: step/continuation limit reached -> NEEDS_CONTINUATION (a
         #    checkpoint exists; resume continues the same task). Not 'partial',
         #    not 'completed'.
+        if intent == "agent_task" and extra.get("waiting_on_richard"):
+            # Done and verified; the last step is Richard's sign-off: one approval on his page, not another round.
+            from app.core.command import sign_off
+
+            return ("blocked", {"reason": sign_off.reason(extra["waiting_on_richard"]),
+                                "next": "Approve or reject it on the Approvals page."})
         if extra.get("agent_needs_continuation"):
             return ("needs_continuation", {
                 "reason": extra.get("final_status_reason",
@@ -2081,6 +2091,10 @@ class CommandService:
             "mission": command_text,
             "team": result.get("team"),
         }
+        from app.core.command import sign_off
+
+        if sign_off.waiting(result):
+            extra["waiting_on_richard"] = sign_off.waiting(result)
         if result["needs_continuation"]:
             # Save a checkpoint + resume action; the work so far persists on disk in
             # the same workspace. Auto-continuation already ran up to the cap.

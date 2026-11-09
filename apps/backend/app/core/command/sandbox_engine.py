@@ -181,6 +181,10 @@ def builder_method(mission: str) -> str:
         "{\"class\": \"environment|spec|flaky|code\", \"error\": \"<the error>\", \"needs\": \"<what would unblock it>\"} "
         "and move on to the next item that does not depend on it. A missing or wrong tool is an environment item "
         "you fix yourself; it is never a reason to stop.\n"
+        "An item whose last step only Richard can do (his manual review, an approval, creating the acceptance tag, a "
+        "push, a sign-in, a spend): do everything up to that step, then set blocked to {\"class\": \"richard\", "
+        "\"error\": \"\", \"needs\": \"<exactly what Richard must do>\"} and report it as waiting. Never re-run or "
+        "re-record finished work to fill the time: when every other item passes, you are done.\n"
         "5. Before you finish, run the full acceptance suite once from a fresh clone in /tmp when the "
         "specification asks for one.\n"
         f"6. When an item is another discipline's work, do it to that role's standard: {roles}\n")
@@ -221,7 +225,8 @@ class SandboxSpecialist:
             "refused; when one is needed, leave it and name it in your report."
             "\n\nYOUR FINAL MESSAGE (call finish with it): what you changed (files), the commands you ran and "
             "their results, and one line per requirement, exactly like `R3: done — <the file or command that "
-            "proves it>` or `R3: open — <what is still missing>`.")
+            "proves it>`, `R3: open — <what is still missing>`, or `R3: waiting — <what only Richard can do: his review, "
+            "an approval, the tag>` when everything else in it is done.")
 
     def _standard(self) -> str:
         from app.core.command.mission_org import SPECIALISTS

@@ -64,10 +64,34 @@ def requirements(workspace_root: Optional[str], mission: str) -> Optional[List[D
             continue
         check = str(item.get("check") or "").strip()
         text = str(item.get("text") or "").strip()
+        status, evidence = "open", ""
+        if item.get("passes") is True:
+            status, evidence = "done", "the ledger records its check passing"
+        elif waits_on_richard(item):
+            status, evidence = "waiting", f"the ledger records it waiting on Richard: {_blocked_text(item)[:300]}"
         out.append({"id": str(item["id"]).upper(), "text": (f"{text} (check: `{check}`)" if check else text)[:1000],
-                    "source": "acceptance ledger", "status": "done" if item.get("passes") is True else "open",
-                    "evidence": "the ledger records its check passing" if item.get("passes") is True else ""})
+                    "source": "acceptance ledger", "status": status, "evidence": evidence})
     return out or None
+
+
+def _blocked_text(item: Dict[str, Any]) -> str:
+    info = item.get("blocked")
+    if isinstance(info, dict):
+        return " ".join(str(info.get(k) or "") for k in ("class", "error", "needs")).strip()
+    return str(info or "")
+
+
+def waits_on_richard(item: Dict[str, Any]) -> bool:
+    """A blocked item whose blocker only Richard can clear (his review, an approval, the tag): no round of work can
+    finish it, so it is waiting on him rather than open."""
+    from app.core.command import failures
+
+    if item.get("passes") is True or not item.get("blocked"):
+        return False
+    info = item.get("blocked")
+    if isinstance(info, dict) and str(info.get("class") or "").lower() == "richard":
+        return True
+    return failures.classify(_blocked_text(item)) == "richard"
 
 
 def blocked(workspace_root: Optional[str]) -> List[str]:

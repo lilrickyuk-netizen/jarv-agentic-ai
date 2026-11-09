@@ -255,16 +255,27 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
     model = res.get("model") or getattr(settings, "DEFAULT_MODEL", "claude-sonnet-4-6")
     executor = mission_executor(runtime, model, root)
     note = progress_note(res)
+    from app.core.command import sign_off
+
+    requirements = res.get("requirements") or None
+    meta = dict(task.meta_data or {})
+    if sign_off.granted(meta):  # Richard approved the sign-off the mission stopped for
+        approved, requirements = sign_off.resume(requirements, meta)
+        note = f"{note}\n\n{approved}" if note else approved
+        meta["sign_off_used_at"] = now.isoformat(timespec="seconds")
+        task.meta_data = meta
     result = await executor.run(f"{mission}\n\n{note}" if note else mission, steps_per_round=8,
                                 max_continuations=max_cont, start_continuation=prior,
                                 known=await recall_for_mission(db, task.workspace_id, str(mission)),
-                                requirements=res.get("requirements") or None,
+                                requirements=requirements,
                                 prior_calls=res.get("tool_calls") or None)
 
     if result["needs_continuation"] and result.get("finished"):
         outcome, reason = lifecycle.NEEDS_CONTINUATION, "The independent check found work still to do."
     elif result["needs_continuation"]:
         outcome, reason = lifecycle.NEEDS_CONTINUATION, "Reached the step limit again; checkpoint saved."
+    elif result["success"] and sign_off.waiting(result):
+        outcome, reason = lifecycle.BLOCKED, sign_off.reason(sign_off.waiting(result))
     elif result["success"]:
         outcome, reason = lifecycle.COMPLETED, None
     elif result.get("answer"):
@@ -306,6 +317,8 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
         lifecycle.transition(task, outcome, reason=reason or "", actor="orchestrator")
         if outcome == lifecycle.FAILED:
             task.error_message = reason
+        if outcome == lifecycle.BLOCKED:
+            sign_off.mark(task, sign_off.waiting(result))
 
     finished = datetime.now(timezone.utc)
     db.add(LiveOperationsFeedItem(

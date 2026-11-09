@@ -238,7 +238,7 @@ export default function ApprovalsPage() {
                         {b.reason && <p className="text-sm text-yellow-800 mt-1">{b.reason}</p>}
                       </div>
                       <span className="px-2 py-1 text-xs rounded bg-yellow-200 text-yellow-900 whitespace-nowrap">
-                        {b.boundary_type || 'hard boundary'}
+                        {b.boundary_type === 'richard_sign_off' ? 'your sign-off' : b.boundary_type || 'hard boundary'}
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-3 mt-3">
@@ -247,14 +247,14 @@ export default function ApprovalsPage() {
                         onClick={() => decide(b.task_id, 'approve')}
                         className="px-4 py-2 rounded-md bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
                       >
-                        Confirm
+                        {b.boundary_type === 'richard_sign_off' ? 'Approve' : 'Confirm'}
                       </button>
                       <button
                         disabled={acting === b.task_id + 'reject'}
                         onClick={() => decide(b.task_id, 'reject')}
                         className="px-4 py-2 rounded-md bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
                       >
-                        Cancel
+                        {b.boundary_type === 'richard_sign_off' ? 'Reject' : 'Cancel'}
                       </button>
                       <button
                         onClick={() => router.push(`/dashboard/tasks/${b.task_id}`)}

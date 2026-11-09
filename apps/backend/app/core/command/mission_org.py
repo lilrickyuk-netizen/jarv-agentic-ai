@@ -256,7 +256,9 @@ SPECIALISTS: Dict[str, Dict[str, str]] = {
             "files, and run the project's real acceptance commands to the end, including a fresh clone in /tmp "
             "(git clone <workspace> /tmp/verify-<name>, then its bootstrap and verify) when the specification asks "
             "for one. Install any pinned tool you need. Never change the project's files. A requirement is met only "
-            "when you saw the evidence in this conversation."),
+            "when you saw the evidence in this conversation. A requirement whose only missing part is something "
+            "Richard alone can do (his manual review, an approval, the acceptance tag, a push) is waiting, not "
+            "open: judge everything else in it, and name exactly what he must do."),
     },
     "partnerships": {
         "title": "Partnerships Lead",
@@ -1091,21 +1093,33 @@ class MissionTeam:
             check = by_id.get(str(r["id"]).upper())
             if check and check["met"]:
                 r["status"], r["evidence"] = "done", f"[Verifier] {check['evidence']}"[:500]
+            elif check and check.get("waiting"):
+                r["status"], r["evidence"] = "waiting", f"[Verifier] {check['evidence']}"[:500]
             elif r.get("status") == "done":
                 r["status"] = "open"  # the team said done; the Verifier did not see it
         from app.core.command import failures, ledger
 
         unmet = failures.label(unmet)
+        waiting = list(judged["waiting"])
+        if unmet and not self.capped and all(failures.classify(u) == "richard" for u in unmet):
+            # Everything still open waits on Richard: another round cannot finish any of it.
+            waiting, unmet = waiting + [u.split("] ", 1)[-1] for u in unmet], []
         if unmet:  # what the builder recorded as blocked, and why, for Richard's report
-            unmet += [f"[ledger] {line}" for line in ledger.blocked(self.workspace_root)]
+            unmet += [f"[ledger] {line}" for line in ledger.blocked(self.workspace_root)
+                      if "[richard]" not in line]
         verified = not unmet
         integration = (next((p for p in self.packages if p.id == INTEGRATION_ID), None)
                        or next((p for p in self.packages if p.id != VERIFIER_ID), None))  # a one-skill job's P1
         summary = (integration.summary if integration else "") or "The team's work is in the workspace."
         answer = (self._team_report() + summary[:6000] + "\n\n"
-                  + ("**Independent check: verified.** Every requirement was met with evidence the Verifier saw."
+                  + (("**Independent check: verified.** Every requirement was met with evidence the Verifier saw."
+                      if not waiting else
+                      "**Independent check: everything JAI can do is done and verified. Waiting for you:**\n"
+                      + "\n".join(f"- {item}" for item in waiting[:20]))
                      if verified else "**Independent check: not complete yet.**\n"
-                     + "\n".join(f"- {item}" for item in unmet[:20])))
+                     + "\n".join(f"- {item}" for item in unmet[:20])
+                     + ("\n\n**Also waiting for you:**\n" + "\n".join(f"- {item}" for item in waiting[:10])
+                        if waiting else "")))
         await self._close_swarm(verified, answer)
         team = [p.card() for p in self.packages]
         usage = self.lead.usage.summary()
@@ -1113,7 +1127,8 @@ class MissionTeam:
             "answer": answer, "agent_summary": summary, "report": None, "iterations": team_steps,
             "success": verified, "finished": True, "needs_continuation": not verified and not self.capped,
             "step_limit_reached": False,
-            "verification": {"verified": verified, "unmet": unmet, "checks": judged["checks"],
+            "verification": {"verified": verified, "unmet": unmet, "waiting_on_richard": waiting,
+                             "checks": judged["checks"],
                              "steps": next((p.step for p in self.packages if p.id == VERIFIER_ID), 0)},
             "continuation_count": start_continuation, "resume_from_step": team_steps, "remaining_steps": 0,
             "last_tool_call_id": None, "tokens": self.lead.tokens,
@@ -1273,6 +1288,10 @@ class MissionTeam:
 
             frozen = ledger.requirements(self.workspace_root, mission)
             if frozen:
+                from app.core.command import sign_off
+
+                if sign_off.APPROVED in (mission or ""):  # Richard approved what the ledger records waiting on him
+                    frozen = sign_off.reopen(frozen)
                 self.lead.requirements, requirements = frozen, frozen
         standing = await self.lead.hard_checks()
         if standing is not None:
@@ -1397,17 +1416,25 @@ def _judged(verdict: Optional[Dict[str, Any]], requirements: List[Dict[str, Any]
     unmet: no evidence, no acceptance."""
     from app.core.command.sandbox_engine import requirement_statuses
 
+    from app.core.command import failures
+
     said = requirement_statuses(str((verdict or {}).get("answer") or ""))
-    checks, unmet = [], []
+    checks, unmet, waiting = [], [], []
     for r in requirements:
         rid = str(r["id"]).upper()
         found = said.get(rid) or {}
         met = found.get("status") in ("met", "done")
         evidence = found.get("evidence") or ("" if found else "the Verifier gave no judgement for it")
-        checks.append({"requirement": f"{rid} {r.get('text', '')}"[:300], "met": met, "evidence": evidence[:400]})
-        if not met:
-            unmet.append(f"{rid} {str(r.get('text', ''))[:160]}: {evidence[:240] or 'not met'}")
-    return {"checks": checks, "unmet": unmet}
+        # Waiting is accepted only when what it waits for is a gate of Richard's; anything else is unfinished work.
+        waits = found.get("status") == "waiting" and failures.is_gate(evidence)
+        checks.append({"requirement": f"{rid} {r.get('text', '')}"[:300], "met": met, "evidence": evidence[:400],
+                       **({"waiting": True} if waits else {})})
+        line = f"{rid} {str(r.get('text', ''))[:160]}: {evidence[:240] or 'not met'}"
+        if waits:
+            waiting.append(line)
+        elif not met:
+            unmet.append(line)
+    return {"checks": checks, "unmet": unmet, "waiting": waiting}
 
 
 def mission_executor(runtime, model: str, workspace_root: Optional[str], **kwargs):
