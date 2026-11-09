@@ -1100,19 +1100,141 @@ async def show_on_screen(db: AsyncSession, user_id: UUID, args: Dict[str, Any]) 
         if media.get("error"):
             return {"error": media["error"]}
         card = media
+    elif what == "file" and str(args.get("path") or "").lower().endswith(TABLE_TYPES + BINARY_TYPES):
+        card = await _document_card(db, user_id, args)
+        if card.get("error"):
+            return {"error": card["error"]}
     elif what == "file":
         found = await _workspace_files(db, user_id, str(args.get("workspace") or ""), {"path": args.get("path")},
                                        read=True)
         if found.get("error"):
             return {"error": found["error"]}
-        card = {"kind": "file", "title": str(found.get("path")),
-                "subtitle": f"{args.get('workspace')} · {found.get('size_bytes')} bytes"
-                            + (" · first part" if found.get("truncated") else ""),
-                "sections": [{"heading": "", "code": str(found.get("content") or "")[:12000]}]}
+        content = str(found.get("content") or "")
+        if "\x00" in content or content.count("\ufffd") > 20:  # a binary file under any other name
+            card = {"kind": "file", "title": str(found.get("path")),
+                    "subtitle": f"{args.get('workspace')} · {found.get('size_bytes')} bytes",
+                    "sections": [{"heading": "", "items": [
+                        "This is not a text file, so it cannot be shown here.",
+                        f"It is in {args.get('workspace')}'s folder at {args.get('path')}; open it from there."]}]}
+        else:
+            card = {"kind": "file", "title": str(found.get("path")),
+                    "subtitle": f"{args.get('workspace')} · {found.get('size_bytes')} bytes"
+                                + (" · first part" if found.get("truncated") else ""),
+                    "sections": [{"heading": "", "code": content[:12000]}]}
     else:
         return {"error": "Say what to show: mission, spend, approvals or file."}
     return {"shown": True, "card": card,
             "note": "It is on his screen now: say one sentence about it, do not read it all out."}
+
+
+# Spreadsheets go on screen as a table; other binary documents as what they are and where, never their bytes
+# (9 November: the prospects spreadsheet came up as the bytes of its zip).
+TABLE_TYPES = (".xlsx", ".xlsm", ".csv")
+BINARY_TYPES = (".docx", ".doc", ".pptx", ".ppt", ".xls", ".odt", ".ods", ".odp", ".key", ".pages", ".numbers",
+                ".zip", ".gz", ".tar", ".7z", ".ttf", ".otf", ".woff", ".woff2", ".mp3", ".wav", ".m4a", ".ogg",
+                ".psd", ".ai", ".sketch", ".fig", ".exe", ".dll", ".bin")
+TABLE_ROWS, TABLE_COLUMNS = 60, 14
+
+
+def _xlsx_sheets(path) -> List[Dict[str, Any]]:
+    """Each sheet of an .xlsx as {"name", "rows"}, read straight from its XML (shared strings, inline strings,
+    numbers and booleans), at most TABLE_ROWS rows and TABLE_COLUMNS columns each."""
+    import re as _re
+    import zipfile
+    from xml.etree import ElementTree
+
+    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    rel_ns = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+    with zipfile.ZipFile(path) as book:
+        names = book.namelist()
+        shared: List[str] = []
+        if "xl/sharedStrings.xml" in names:
+            for item in ElementTree.fromstring(book.read("xl/sharedStrings.xml")).findall("m:si", ns):
+                shared.append("".join(t.text or "" for t in item.iter(f"{{{ns['m']}}}t")))
+        targets = {}
+        if "xl/_rels/workbook.xml.rels" in names:
+            for rel in ElementTree.fromstring(book.read("xl/_rels/workbook.xml.rels")):
+                targets[rel.get("Id")] = "xl/" + str(rel.get("Target") or "").lstrip("/").removeprefix("xl/")
+        order = []
+        if "xl/workbook.xml" in names:
+            for sheet in ElementTree.fromstring(book.read("xl/workbook.xml")).iter(f"{{{ns['m']}}}sheet"):
+                order.append((sheet.get("name") or "Sheet", targets.get(sheet.get(rel_ns) or "")))
+        if not order:
+            order = [(n.rsplit("/", 1)[-1].removesuffix(".xml"), n) for n in sorted(names)
+                     if n.startswith("xl/worksheets/sheet") and n.endswith(".xml")]
+        sheets = []
+        for name, target in order:
+            if not target or target not in names:
+                continue
+            grid: Dict[int, Dict[int, str]] = {}
+            for row in ElementTree.fromstring(book.read(target)).iter(f"{{{ns['m']}}}row"):
+                for cell in row.findall("m:c", ns):
+                    ref = _re.match(r"([A-Z]+)(\d+)", cell.get("r") or "")
+                    if not ref:
+                        continue
+                    col = 0
+                    for ch in ref.group(1):
+                        col = col * 26 + ord(ch) - 64
+                    r, kind = int(ref.group(2)), cell.get("t")
+                    if r > TABLE_ROWS or col > TABLE_COLUMNS:
+                        continue
+                    value = cell.find("m:v", ns)
+                    if kind == "s" and value is not None and (value.text or "").isdigit():
+                        index = int(value.text)
+                        text = shared[index] if index < len(shared) else ""
+                    elif kind == "inlineStr":
+                        text = "".join(t.text or "" for t in cell.iter(f"{{{ns['m']}}}t"))
+                    elif kind == "b" and value is not None:
+                        text = "TRUE" if value.text == "1" else "FALSE"
+                    else:
+                        text = value.text if value is not None and value.text is not None else ""
+                    grid.setdefault(r, {})[col] = text
+            if grid:
+                width = max(max(cols) for cols in grid.values())
+                rows = [[grid.get(r, {}).get(c, "") for c in range(1, width + 1)] for r in range(1, max(grid) + 1)]
+                sheets.append({"name": name, "rows": rows})
+    return sheets
+
+
+def _csv_rows(path) -> List[List[str]]:
+    import csv
+
+    with open(path, newline="", encoding="utf-8", errors="replace") as handle:
+        return [row[:TABLE_COLUMNS] for _, row in zip(range(TABLE_ROWS), csv.reader(handle))]
+
+
+async def _document_card(db: AsyncSession, user_id: UUID, args: Dict[str, Any]) -> Dict[str, Any]:
+    """A spreadsheet as a table (each sheet, its first row as the header); any other binary document as what it is
+    and where it is, with no bytes."""
+    import asyncio
+
+    found = await _media_target(db, user_id, args)
+    if found.get("error"):
+        return found
+    path, where = found["container"], str(args.get("path") or "")
+    if not path.is_file():
+        return {"error": f"No file at {where}."}
+    size = path.stat().st_size
+    suffix = path.suffix.lower()
+    subtitle = f"{found['workspace']} · {where} · {round(size / 1024, 1)} KB"
+    if suffix in TABLE_TYPES:
+        try:
+            sheets = (await asyncio.to_thread(_xlsx_sheets, path) if suffix != ".csv"
+                      else [{"name": "", "rows": await asyncio.to_thread(_csv_rows, path)}])
+        except Exception as exc:  # noqa: BLE001 - a damaged file is described, not shown as bytes
+            return {"kind": "file", "title": path.name, "subtitle": subtitle,
+                    "sections": [{"heading": "", "items": [f"This spreadsheet could not be read ({exc})."]}]}
+        sections = [{"heading": sheet["name"] if len(sheets) > 1 else "", "columns": sheet["rows"][0],
+                     "rows": sheet["rows"][1:]} for sheet in sheets if sheet["rows"]]
+        return {"kind": "table", "title": path.name,
+                "subtitle": subtitle + f" · first {TABLE_ROWS} rows", "sections": sections or [
+                    {"heading": "", "items": ["The spreadsheet is empty."]}]}
+    kinds = {".docx": "Word document", ".doc": "Word document", ".pptx": "PowerPoint deck", ".ppt": "PowerPoint deck",
+             ".xls": "Excel spreadsheet (old format)"}
+    return {"kind": "file", "title": path.name, "subtitle": subtitle,
+            "sections": [{"heading": "", "items": [
+                f"A {kinds.get(suffix, suffix.lstrip('.').upper() + ' file')}: it cannot be shown here.",
+                f"It is in {found['workspace']}'s folder at {where}; open it from there."]}]}
 
 
 IMAGE_LINK_SECONDS = 24 * 3600
