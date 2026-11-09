@@ -40,6 +40,11 @@ def fish_key() -> Optional[str]:
     return backend_key("FISH_API_KEY")
 
 
+# How long a reply waits for JAI's live state. Four seconds was too tight while a mission ran (9 November); past
+# six the pause before JAI speaks is too long, so the backend gathers its slow parts in parallel instead.
+CONTEXT_SECONDS = 6.0
+
+
 class Backend:
     def __init__(self, token: str, base_url: str = BACKEND_URL, client: Optional[httpx.AsyncClient] = None):
         self._client = client or httpx.AsyncClient(base_url=base_url, timeout=httpx.Timeout(90.0, connect=5.0),
@@ -87,7 +92,7 @@ class Backend:
         knowledge, spend, the date)."""
         try:
             response = await self._client.post("/api/voice/live/context", json={"text": text[:2000]},
-                                               timeout=httpx.Timeout(4.0, connect=2.0))
+                                               timeout=httpx.Timeout(CONTEXT_SECONDS, connect=2.0))
             return response.json() if response.status_code < 400 else {"error": response.text[:200]}
         except (httpx.HTTPError, ValueError) as exc:
             return {"error": str(exc)}

@@ -408,9 +408,19 @@ async def live_context(db: AsyncSession, user_id: UUID, text: str) -> Dict[str, 
     """JAI's live state for the brain voice's next reply, as compact text."""
     import json
 
-    facts = await brain_facts(db, user_id, text, None)
+    import asyncio
+
+    # Mem0 and Graphiti are asked while the rest is gathered, not after it: one after the other they took the read
+    # past the voice's four seconds whenever a mission was running (9 November: every reply said "I can't read the
+    # live state").
+    recalled = asyncio.create_task(_recalled(text, await _active_spaces(db, user_id)))
+    try:
+        facts = await brain_facts(db, user_id, text, None)
+    except BaseException:
+        recalled.cancel()
+        raise
     facts.pop("recent_conversation", None)  # the conversation itself is already in the voice's context
-    facts.update(await _remembered(db, user_id, text))
+    facts.update(await recalled)
     return {"state": voice_state_text(compact_for_voice(facts))}
 
 
@@ -462,16 +472,28 @@ async def _remembered(db: AsyncSession, user_id: UUID, text: str) -> Dict[str, A
     """What Richard has told JAI before and what JAI knows from its work that bear on what he just said (Wave 6:
     Mem0 and Graphiti), and what he said now kept for next time. A slow or stopped knowledge service adds nothing
     and never holds the reply up."""
+    return await _recalled(text, await _active_spaces(db, user_id))
+
+
+async def _active_spaces(db: AsyncSession, user_id: UUID) -> List[Any]:
+    from app.core import knowledge_service as ks
+    from app.models.workspace import Workspace
+
+    if not ks.enabled():
+        return []
+    return list((await db.execute(select(Workspace.id).where(Workspace.owner_id == user_id,
+                                                             Workspace.is_active.is_(True)))).scalars().all())
+
+
+async def _recalled(text: str, spaces: List[Any]) -> Dict[str, Any]:
+    """Mem0 and Graphiti's part of _remembered, which needs no database session (so it runs alongside one)."""
     import asyncio
 
     from app.core import knowledge_service as ks
-    from app.models.workspace import Workspace
 
     said = (text or "").strip()
     if not ks.enabled() or len(said) < 3:
         return {}
-    spaces = (await db.execute(select(Workspace.id).where(Workspace.owner_id == user_id,
-                                                          Workspace.is_active.is_(True)))).scalars().all()
     told, known = await asyncio.gather(
         ks.quietly(ks.recall(said, 6, timeout=2.5), []),
         ks.quietly(ks.search_graph(said, list(spaces), 8, timeout=2.5), []) if spaces else asyncio.sleep(0, []))
