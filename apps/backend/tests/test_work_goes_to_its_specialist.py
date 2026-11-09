@@ -91,3 +91,20 @@ def test_a_later_round_keeps_the_specialist_whatever_jai_ran():
     assert "PROGRESS FROM EARLIER ROUNDS" in note
     assert _kind(f"{brief}\n\n{note}") == "sales"
     assert _kind("RICHARD HAS APPROVED THE SIGN-OFF") is None
+
+
+def test_work_in_richards_folder_is_a_mission_whatever_words_it_uses():
+    """9 November: "finish outreach/Plexecute-Prospects.xlsx ... Do no new research" went to the one-off web
+    research answer, which cannot open the folder."""
+    from app.core.command.service import CommandService
+
+    finish = ("In C:\\Users\\lilri\\Projects\\PLEXECUTE_IMAGES, finish outreach/Plexecute-Prospects.xlsx with "
+              "what you have found. Move every other organisation to a sheet called \"Not yet proven\". Do no new "
+              "research beyond finishing rows you have already started.")
+    plan = ("In C:\\Users\\lilri\\Projects\\PLEXECUTE_IMAGES, put together Plexecute's waiting-list growth plan "
+            "with newsletters to sponsor and a marketing plan.")
+    for brief in (finish, plan):
+        assert CommandService._detect_intent(brief) == "agent_task", brief
+    assert CommandService._detect_intent("npm install in C:\\Users\\lilri\\Projects\\MYCO") == "package_install"
+    assert CommandService._detect_intent("research the npm package left-pad") == "research"
+    assert CommandService._detect_intent("Draft a marketing email for the Plexecute launch") == "company_workflow"

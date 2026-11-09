@@ -57,6 +57,8 @@ from app.models.workspace import Workspace
 
 # Matches a Windows absolute path (the form operators type in commands).
 _PATH_RE = re.compile(r'([A-Za-z]:[\\/][^\s"\'<>|]+)')
+# A document named in a brief (outreach/Plexecute-Prospects.xlsx, pitch-deck/Plexecute-Pitch-Deck.pptx).
+_DOCUMENT_RE = re.compile(r"[\w-]\.(xlsx|xls|csv|pptx|docx|pdf|md)\b", re.I)
 
 logger = logging.getLogger(__name__)
 
@@ -895,6 +897,14 @@ class CommandService:
             from app.core.knowledge.skill_packs import named_skill
 
             if named_skill(command_text) is not None:
+                return "agent_task"
+            # Work in Richard's folder that one of the specialists owns (prospects, decks, research, plans), or a
+            # document there to make or change, is a mission in that folder: on 9 November "finish
+            # outreach/Plexecute-Prospects.xlsx ... Do no new research" went to the one-off web-research answer,
+            # which cannot open the folder, because of the word "research".
+            from app.core.command.work_type import specialist_for
+
+            if specialist_for(command_text) is not None or _DOCUMENT_RE.search(command_text):
                 return "agent_task"
         # Self-completion: map Design.md to code and report gaps honestly.
         if re.search(r"\b(self[- ]complet|finish your own|map design to code|"
