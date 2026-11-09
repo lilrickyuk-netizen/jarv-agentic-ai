@@ -341,13 +341,26 @@ class Package:
     # What the specialist actually used in the sandbox: each tool with how often, and the skills it loaded.
     tools_used: Dict[str, int] = field(default_factory=dict)
     skills_used: List[str] = field(default_factory=list)
+    # The specialist whose work the mission is (work_type.specialist_for): the one builder works as that specialist,
+    # to its standard and with its skills. None: the Lead Builder itself.
+    acting_as: Optional[str] = None
 
     @property
     def role(self) -> str:
-        return SPECIALISTS[self.specialist]["title"]
+        return SPECIALISTS[self.acting_as or self.specialist]["title"]
+
+    @property
+    def standard(self) -> str:
+        if self.acting_as:
+            return (f"{SPECIALISTS[self.acting_as]['standard']} You own this whole mission yourself in one working "
+                    "session: work through the acceptance ledger one item at a time, check each item end to end "
+                    "and commit it before the next. You never claim an item passes unless its check passed in "
+                    "this session.")
+        return SPECIALISTS[self.specialist]["standard"]
 
     def card(self) -> Dict[str, Any]:
         return {"id": self.id, "title": self.title, "specialist": self.specialist, "role": self.role,
+                "acting_as": self.acting_as,
                 "goal": self.goal[:1500], "done_when": self.done_when[:500], "status": self.status,
                 "model": self.model, "effort": self.effort, "max_steps": self.max_steps, "max_cost": self.max_cost,
                 "tools_used": dict(self.tools_used), "skills_used": list(self.skills_used), "step": self.step, "steps": self.steps, "owns": self.owns,
@@ -756,7 +769,7 @@ class MissionTeam:
                 child = SubAgent(swarm_run_id=swarm.id, subagent_name=f"{p.specialist}-{p.id}",
                                  subagent_type=p.specialist, role=p.role, specialization=p.title,
                                  model_provider="router", model_name=self.model,
-                                 system_prompt=SPECIALISTS[p.specialist]["standard"], status="spawning",
+                                 system_prompt=p.standard, status="spawning",
                                  meta_data={"parent_agent_id": str(lead.id), "task_id": str(self.runtime.task_id),
                                             "package": p.id, "owns": p.owns, "depends_on": p.depends_on,
                                             "requirements": p.requirements,
@@ -921,7 +934,7 @@ class MissionTeam:
         before = [q for q in self.packages if q.id in p.depends_on]
         lines = [
             f"You are JAI's {p.role}, one specialist in the team doing this mission. Your standard: "
-            f"{SPECIALISTS[p.specialist]['standard']}",
+            f"{p.standard}",
             "",
             f"THE WHOLE MISSION (for context; do only your work package):\n{mission[:6000]}",
             "",
@@ -1168,7 +1181,8 @@ class MissionTeam:
                         goal=str(c.get("goal") or c.get("title") or ""), owns=list(c.get("owns") or []),
                         depends_on=list(c.get("depends_on") or []), requirements=list(c.get("requirements") or []),
                         done_when=str(c.get("done_when") or ""), model=c.get("model"), effort=c.get("effort"),
-                        max_steps=c.get("max_steps"), max_cost=c.get("max_cost"))
+                        max_steps=c.get("max_steps"), max_cost=c.get("max_cost"),
+                        acting_as=c.get("acting_as") if c.get("acting_as") in SPECIALISTS else None)
             if c.get("success"):
                 p.status, p.success, p.summary = "finished", True, str(c.get("summary") or "")
                 p.step, p.calls, p.cost_usd = int(c.get("step") or 0), int(c.get("tool_calls") or 0), 0.0
@@ -1183,8 +1197,10 @@ class MissionTeam:
         logger.info(f"mission {self.runtime.task_id}: taking over round {self.round_no}, "
                     f"{sum(1 for p in packages if p.success)} of {len(packages)} packages already finished")
 
-    def _builder_package(self, open_ids: List[str], skeleton: bool = False) -> Package:
-        """Tier 2: the one builder. With writers after it (tier 3) it only gets the environment and skeleton green."""
+    def _builder_package(self, open_ids: List[str], skeleton: bool = False,
+                         kind: Optional[Dict[str, Any]] = None) -> Package:
+        """Tier 2: the one builder. With writers after it (tier 3) it only gets the environment and skeleton green.
+        When the mission is a specialist's work (kind, from work_type.specialist_for) it works as that specialist."""
         if skeleton:
             return Package(id=BUILDER_ID, title="Environment and skeleton green, ledger written", specialist="builder",
                            goal=("Get your bearings, write the acceptance ledger, get the environment and the "
@@ -1192,6 +1208,26 @@ class MissionTeam:
                                  "nothing the writers after you own."),
                            owns=[], depends_on=[], requirements=[],
                            done_when=".jai/init.sh and the smoke test pass and the ledger is committed",
+                           model="lead", max_steps=int(settings.OPENHANDS_BUILDER_MAX_ITERATIONS))
+        if kind:
+            from app.core.command.work_type import first_skills
+
+            role = SPECIALISTS[kind["specialist"]]["title"]
+            skills = first_skills(kind["specialist"], tuple(kind.get("skills") or ()))
+            start = (f" This is {role.lower()} work, so before anything else invoke your "
+                     + ", ".join(skills[:-1]) + (" and " if len(skills) > 1 else "") + skills[-1]
+                     + (" skills" if len(skills) > 1 else " skill")
+                     + " and follow them: they are how this work is done well. Work from real, current sources and "
+                       "keep to everything the brief says.") if skills else (
+                f" This is {role.lower()} work: do it to that standard, from real, current sources.")
+            return Package(id=BUILDER_ID, title=f"The {role} works through the mission, item by item",
+                           specialist="builder", acting_as=kind["specialist"],
+                           goal=("Get your bearings, then work through the acceptance ledger one item at a time "
+                                 "until every item passes its check or is honestly blocked, committing each item."
+                                 + start),
+                           owns=[], depends_on=[], requirements=open_ids,
+                           done_when="every ledger item passes its check through jai-check, or is recorded as "
+                                     "blocked",
                            model="lead", max_steps=int(settings.OPENHANDS_BUILDER_MAX_ITERATIONS))
         return Package(id=BUILDER_ID, title="Build the mission, ledger item by ledger item", specialist="builder",
                        goal=("Get your bearings, then work through the acceptance ledger one item at a time until "
@@ -1363,7 +1399,14 @@ class MissionTeam:
                         "The builder gets the environment and skeleton green first; the writers then work on "
                         "separate paths, each integrating and testing its own change.")
             else:
-                self.packages = [self._builder_package(open_ids)]
+                from app.core.command.work_type import specialist_for
+
+                kind = specialist_for(mission)
+                self.packages = [self._builder_package(open_ids, kind=kind)]
+                if kind:
+                    self.approach = (f"This is {SPECIALISTS[kind['specialist']]['title']} work, so that specialist "
+                                     "does it with its own skills, item by item; the independent Verifier checks "
+                                     "every requirement at the end.")
             if skill is not None:
                 # The skill checks its own work (BRAG looks at its stills and runs its own gate) and Richard judges
                 # the result: a generic Verifier has neither the skill's knowledge nor his taste, and on 9 November

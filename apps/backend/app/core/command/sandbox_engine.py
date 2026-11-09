@@ -241,9 +241,11 @@ class SandboxSpecialist:
     def _standard(self) -> str:
         from app.core.command.mission_org import SPECIALISTS
 
-        spec = SPECIALISTS.get(self.package.specialist) or SPECIALISTS["coding_agent"]
+        acting = getattr(self.package, "acting_as", None)
+        spec = SPECIALISTS.get(acting or self.package.specialist) or SPECIALISTS["coding_agent"]
+        standard = self.package.standard if acting else spec["standard"]
         return (f"You are JAI's {spec['title']}, one specialist in a team. Your standard of work: "
-                f"{spec['standard']} Never claim something was done or passed unless a command or file in this "
+                f"{standard} Never claim something was done or passed unless a command or file in this "
                 "conversation shows it.")
 
     async def _register(self, container_root: str) -> None:
@@ -384,7 +386,9 @@ class SandboxSpecialist:
                 "output_cost_per_token": price[1] / 1e6 if price else None,
                 "cache_read_cost_per_token": price[2] / 1e6 if price else None,
                 "cache_write_cost_per_token": price[3] / 1e6 if price else None,
-                "skills": sandbox_skills(self.package.specialist)}
+                # Working as a specialist, the builder is shown that specialist's skills, so the ones the work
+                # needs are in front of it rather than lost among every skill JAI has.
+                "skills": sandbox_skills(getattr(self.package, "acting_as", None) or self.package.specialist)}
         owned = self.client is None
         client = self.client or httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=5.0))
         try:
