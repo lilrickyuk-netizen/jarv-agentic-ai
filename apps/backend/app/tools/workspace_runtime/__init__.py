@@ -31,8 +31,8 @@ from app.core.tools import ToolBase, ToolContext, ToolResult
 _TO_AGENT_LEVEL = {1: AuthorityLevel.LEVEL_1_BASIC_TOOLS, 2: AuthorityLevel.LEVEL_2_FILE_OPERATIONS,
                    3: AuthorityLevel.LEVEL_3_CODE_EXECUTION, 4: AuthorityLevel.LEVEL_4_SYSTEM_CHANGES,
                    5: AuthorityLevel.LEVEL_7_DEPLOYMENT}
-_TYPES = {"string": str, "integer": int, "boolean": bool, "number": float}
-_DESIGN_LEVEL = {"run_command": 3, "run_build": 3, "run_tests": 3, "install_package": 4,
+_TYPES = {"string": str, "integer": int, "boolean": bool, "number": float, "array": list, "object": dict}
+_DESIGN_LEVEL = {"write_spreadsheet": 2, "run_command": 3, "run_build": 3, "run_tests": 3, "install_package": 4,
                  "git_status": 1, "git_diff": 1, "git_log": 1}
 
 

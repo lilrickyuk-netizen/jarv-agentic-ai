@@ -1237,6 +1237,54 @@ class MissionTeam:
         logger.info(f"mission {self.runtime.task_id}: taking over round {self.round_no}, "
                     f"{sum(1 for p in packages if p.success)} of {len(packages)} packages already finished")
 
+    async def _role(self, mission: str) -> Optional[str]:
+        """The specialist whose own agent runs this mission (command/role_mission), or None for the builder:
+        software, a named skill and work Richard asks to split "in parallel" stay with the builder."""
+        if not getattr(settings, "ROLE_AGENTS_ENABLED", True):
+            return None
+        from app.core.command.work_type import classify
+        from app.core.knowledge.skill_packs import named_skill
+
+        try:
+            if named_skill(mission) is not None or PARALLEL_ASKED.search(mission or ""):
+                return None
+            self.route = self.route or await classify(mission)
+        except Exception as exc:  # noqa: BLE001 - the builder runs it
+            logger.info(f"mission not routed to a role: {exc}")
+            return None
+        kind = self.route.get("route")
+        return kind["specialist"] if kind and kind.get("specialist") in SPECIALISTS else None
+
+    async def _role_run(self, role: str, mission: str, steps_per_round: int, max_continuations: int,
+                        start_continuation: int, known: Optional[str], verify: bool,
+                        prior_calls: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
+        """The mission run by the role's own agent: its tools, its playbooks and Richard's rules, the mission
+        engine's rounds, independent check and report, and the role's spending allowance."""
+        from app.core.command.role_mission import RoleExecutor, role_model
+
+        router = MeteredRouter(get_router(), self.lead.usage, "planning", self.lead._cache_key())
+        if self.job is None:  # carrying on: the requirements stand, the playbooks and rules still come with it
+            self.job = await self._job(router, mission, set_out=False)
+        title = SPECIALISTS[role]["title"]
+        why = {"keywords": f"the brief mentions \u201c{self.route.get('matched')}\u201d",
+               "learned": "your earlier correction of a brief like this",
+               "model": f"the routing model chose it, {self.route.get('confidence', 0):.0%} sure",
+               "document": "it is a document to make or change, with nothing about software",
+               "workflow": "this step of a workflow is that specialist's in its council"
+               }.get(str(self.route.get("source")), "")
+        self.approach = (f"This is {title} work" + (f" ({why})" if why else "") + f", so JAI's {title} does it "
+                         "with its own tools, playbooks and your standing rules; the independent check reviews "
+                         "the result.")
+        model = await role_model(stuck=self.stuck)
+        executor = RoleExecutor(self.runtime, model, self.workspace_root, role=role, job=self.job, team=self)
+        executor.usage = self.lead.usage  # one account of the mission's spend
+        result = await executor.run(
+            mission, steps_per_round=max(int(steps_per_round), int(settings.ROLE_STEPS_PER_ROUND)),
+            max_continuations=max_continuations, prior_messages=None, start_continuation=start_continuation,
+            known=known, verify=verify, requirements=self.lead.requirements, prior_calls=prior_calls)
+        result["approach"] = self.approach
+        return result
+
     async def _job(self, router, mission: str, *, set_out: bool):
         """The specialist's job (expertise.job_for) when the brief is a specialist's work, else None. Never raises."""
         from app.core.command import expertise
@@ -1436,6 +1484,10 @@ class MissionTeam:
                                    findings=findings, job=self.job.requirement_guidance() if self.job else "")
             self.lead.requirements = derived["requirements"]
             self.lead.tokens += derived["tokens"]
+        role = None if self.restored else await self._role(mission)
+        if role:
+            return await self._role_run(role, mission, steps_per_round, max_continuations, start_continuation,
+                                        known, verify, prior_calls)
         self.parallel = await self._parallel_limit()
         from app.core.command import sandbox_engine
 

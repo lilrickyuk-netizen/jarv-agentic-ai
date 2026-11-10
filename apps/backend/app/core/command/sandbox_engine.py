@@ -168,7 +168,7 @@ def specialist_method(steps: int) -> str:
         "or pitch page), research_web for a cited answer to a question. Never scrape with Python requests or guess "
         "page addresses one by one. Read each organisation's page once and take everything you need from it.\n"
         "3. To build a list (creators, sites, partners, prospects), work as a researcher does: find round-up, "
-        "directory and 'best of' pages first (for example 'UK fitness YouTubers', 'write for us' lists, partner "
+        "directory and 'best of' pages first (for example 'UK productivity YouTubers', 'write for us' lists, partner "
         "directories), take the names from them, then look each name up for its own page and published contact. "
         "Searching for a whole description of what you want mostly returns noise; searching a name finds its page.\n"
         "4. Write the deliverable as you go and save it after every batch of rows, so nothing is lost.\n"

@@ -64,33 +64,38 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
     },
     "waitlist_growth": {
         "title": "Waiting-list growth",
-        "summary": "Find the newsletters, podcasts, blogs, creators and communities where {product}'s users are, "
-                   "write a pitch to each, wait for Richard to review and send them, then prepare two weeks of "
-                   "posts and the lead magnet.",
+        "summary": "Find the free places where {product}'s users are (creators, blogs that take free guest "
+                   "articles, communities and partner businesses), write a pitch to each, wait for Richard to "
+                   "review and send them, then prepare two weeks of posts and the lead magnet.",
         "council": ["marketing", "content"],
         "steps": [
             {"id": "growth_list", "specialist": "marketing", "title": "Find the audiences",
              "brief": ("In {folder}, build or update growth/{slug}-Waitlist-Growth.xlsx so people who want {product} "
-                       "join its waiting list themselves. Keep every row already there that has a published contact, "
-                       "then add with JAI's search tools: newsletters, podcasts and blogs (target 30), UK first, that "
-                       "take sponsors, ads, guests or guest posts, with audience size and price where published and "
-                       "how to pitch them; creators (target 30) in fitness, nutrition, wellbeing and productivity, "
-                       "found through their talent agency or management pages and their own websites' contact or "
-                       "collaborations pages, each with a published business email; and communities (target 20): "
+                       "join its waiting list themselves, at no cost to Richard. Read the product's own description "
+                       "first and aim at the people it is for. Keep every row already there that has a published "
+                       "contact and costs nothing, then add with JAI's search tools: creators (target 30) in the "
+                       "product's own field, UK first, with roughly 10,000 to 500,000 followers, found through "
+                       "round-up lists, their talent agency or management pages and their own websites' contact or "
+                       "collaborations pages, each with a published business email; blogs and websites that publish "
+                       "free guest articles (target 20), shown on their own 'write for us' page; partner businesses "
+                       "(target 20) that could recommend {product} to their own customers for free; and communities "
+                       "(target 20): "
                        "subreddits (read each one's rules at old.reddit.com/r/NAME/about/rules, which needs no "
                        "login), UK Facebook groups and forums, with their size and rule on self-promotion. No "
-                       "employers: {product} reaches them through employee-benefits platforms. Give every row a fit "
+                       "employers: {product} reaches them through employee-benefits platforms. Nothing paid: no "
+                       "sponsorships, adverts or sponsored posts. Give every row a fit "
                        "score from 1 to 5 and the page each detail is on, sort each sheet by fit, and write at the "
                        "top of each sheet how many were found against its target. "
                        + HONEST + " " + NEW)},
             {"id": "pitches", "specialist": "marketing", "title": "Write the pitches",
-             "brief": ("In {folder}, write a short pitch to each newsletter, podcast, blog and creator in "
+             "brief": ("In {folder}, write a short pitch to each creator, blog and partner in "
                        "growth/{slug}-Waitlist-Growth.xlsx, in growth/pitches.xlsx, using only what is in the folder; "
                        "look up nothing new and send nothing. One row per audience: who, how (their published email "
                        "or form), a subject line, and no more than 100 words that name something specific about "
-                       "their audience, say what {product} does for that audience in one sentence, and ask for a "
-                       "sponsorship slot, a guest spot or a collaboration with a link to the waiting list. Add a "
-                       "Priority column from the fit score. " + NEW)},
+                       "their audience, say what {product} does for that audience in one sentence (its main "
+                       "selling point included), and ask for a free collaboration, a guest article or a partnership "
+                       "with a link to the waiting list, signed by Richard by name. Claim no customers or results "
+                       "the product does not have yet. Add a Priority column from the fit score. " + NEW)},
             {"id": "review", "gate": True, "title": "Richard reviews and sends",
              "ask": ("Read growth/pitches.xlsx in the {product} folder and send the ones you want (sending stays "
                      "with you). Approve when you have, and JAI prepares two weeks of posts and the lead magnet; "

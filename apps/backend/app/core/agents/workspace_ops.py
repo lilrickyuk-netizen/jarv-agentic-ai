@@ -530,7 +530,148 @@ async def memory_link_to_task(tb, args: Dict[str, Any]) -> Dict[str, Any]:
     return {"success": ok, "memory_id": str(memory_id), "task_id": str(task_id)}
 
 
+# ----- spreadsheets -----------------------------------------------------------------------------------------------
+
+_SHEET_NAME_BAD = re.compile(r"[\[\]:*?/\\]")
+_CELL_BAD = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+MAX_SHEET_ROWS = 5000
+
+
+def _column(index: int) -> str:
+    name = ""
+    index += 1
+    while index:
+        index, rest = divmod(index - 1, 26)
+        name = chr(65 + rest) + name
+    return name
+
+
+def _xml(text: Any) -> str:
+    value = _CELL_BAD.sub("", "" if text is None else str(text))
+    return (value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;"))
+
+
+def xlsx_bytes(sheets: List[Dict[str, Any]]) -> bytes:
+    """A real .xlsx workbook (Office Open XML) from [{"name", "rows": [[cell, ...], ...]}]: the first row bold as
+    the header, numbers kept as numbers, everything else as text. Standard library only."""
+    import io
+    import zipfile
+
+    names: List[str] = []
+    bodies: List[str] = []
+    for number, sheet in enumerate(sheets, start=1):
+        name = _SHEET_NAME_BAD.sub(" ", str(sheet.get("name") or f"Sheet{number}")).strip()[:31] or f"Sheet{number}"
+        while name in names:
+            name = f"{name[:28]} {number}"
+        names.append(name)
+        rows_xml = []
+        for r, row in enumerate(list(sheet.get("rows") or [])[:MAX_SHEET_ROWS], start=1):
+            cells = []
+            for c, value in enumerate(row if isinstance(row, (list, tuple)) else [row]):
+                ref = f"{_column(c)}{r}"
+                style = ' s="1"' if r == 1 else ""
+                if isinstance(value, bool) or value is None or not isinstance(value, (int, float)):
+                    cells.append(f'<c r="{ref}" t="inlineStr"{style}><is><t xml:space="preserve">{_xml(value)}'
+                                 f'</t></is></c>')
+                else:
+                    cells.append(f'<c r="{ref}"{style}><v>{value}</v></c>')
+            rows_xml.append(f'<row r="{r}">{"".join(cells)}</row>')
+        bodies.append('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                      '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane='
+                      '"bottomLeft" state="frozen"/></sheetView></sheetViews>'
+                      f'<sheetData>{"".join(rows_xml)}</sheetData></worksheet>')
+    ns = "http://schemas.openxmlformats.org"
+    files = {
+        "[Content_Types].xml": (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            f'<Types xmlns="{ns}/package/2006/content-types">'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.'
+            'spreadsheetml.sheet.main+xml"/>'
+            '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.'
+            'spreadsheetml.styles+xml"/>'
+            + "".join(f'<Override PartName="/xl/worksheets/sheet{i}.xml" ContentType="application/vnd.'
+                      f'openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' for i in range(1, len(names) + 1))
+            + "</Types>"),
+        "_rels/.rels": (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            f'<Relationships xmlns="{ns}/package/2006/relationships">'
+            f'<Relationship Id="rId1" Type="{ns}/officeDocument/2006/relationships/officeDocument" '
+            'Target="xl/workbook.xml"/></Relationships>'),
+        "xl/workbook.xml": (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            f'<workbook xmlns="{ns}/spreadsheetml/2006/main" xmlns:r="{ns}/officeDocument/2006/relationships">'
+            "<sheets>" + "".join(f'<sheet name="{_xml(n)}" sheetId="{i}" r:id="rId{i}"/>'
+                                 for i, n in enumerate(names, start=1)) + "</sheets></workbook>"),
+        "xl/_rels/workbook.xml.rels": (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            f'<Relationships xmlns="{ns}/package/2006/relationships">'
+            + "".join(f'<Relationship Id="rId{i}" Type="{ns}/officeDocument/2006/relationships/worksheet" '
+                      f'Target="worksheets/sheet{i}.xml"/>' for i in range(1, len(names) + 1))
+            + f'<Relationship Id="rId{len(names) + 1}" Type="{ns}/officeDocument/2006/relationships/styles" '
+              'Target="styles.xml"/></Relationships>'),
+        "xl/styles.xml": (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            f'<styleSheet xmlns="{ns}/spreadsheetml/2006/main">'
+            '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font>'
+            '<font><b/><sz val="11"/><name val="Calibri"/></font></fonts>'
+            '<fills count="2"><fill><patternFill patternType="none"/></fill>'
+            '<fill><patternFill patternType="gray125"/></fill></fills>'
+            '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+            '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+            '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+            '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>'
+            '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+            "</styleSheet>"),
+    }
+    for i, body in enumerate(bodies, start=1):
+        files[f"xl/worksheets/sheet{i}.xml"] = body
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, text in files.items():
+            archive.writestr(name, text)
+    return buffer.getvalue()
+
+
+async def write_spreadsheet(tb, args: Dict[str, Any]) -> Dict[str, Any]:
+    """An .xlsx workbook in the workspace, one sheet per list (agents doing research, sales and marketing work keep
+    their deliverables as spreadsheets Richard opens in Excel). Gated and recorded as a file write."""
+    host, path, refused = await _resolve(tb, args.get("path"))
+    if refused:
+        return refused
+    if path.suffix.lower() != ".xlsx":
+        return {"success": False, "error": "write_spreadsheet writes .xlsx files; give a path ending in .xlsx."}
+    if _secret_name(path.name):
+        return {"success": False, "blocked": True, "reason": "Secret-bearing files are never written."}
+    sheets = args.get("sheets")
+    if isinstance(sheets, str):
+        try:
+            sheets = json.loads(sheets)
+        except ValueError:
+            sheets = None
+    if not isinstance(sheets, list) or not sheets or not all(isinstance(s, dict) for s in sheets):
+        return {"success": False, "error": 'sheets must be a list like [{"name": "Creators", "rows": '
+                                           '[["Name", "Link"], ["...", "..."]]}].'}
+    denied = await _gate(tb, "write_file", host, description=f"Write spreadsheet {host}")
+    if denied:
+        return denied
+    data = xlsx_bytes(sheets)
+    existed = path.exists()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    counts = {str(s.get("name") or f"Sheet{i}"): max(0, len(s.get("rows") or []) - 1)
+              for i, s in enumerate(sheets, start=1)}
+    await tb.runtime._record("write_file", {"path": host}, True,
+                             f"spreadsheet {'replaced' if existed else 'created'}: "
+                             + ", ".join(f"{n} {c} rows" for n, c in counts.items()))
+    await tb.runtime._graph("record_file", host, None, operation="modified" if existed else "created")
+    return {"success": True, "path": host, "rows_per_sheet": counts, "bytes": len(data)}
+
+
 HANDLERS = {
+    "write_spreadsheet": write_spreadsheet,
     "edit_file": edit_file, "create_folder": create_folder, "move_file": move_file, "copy_file": copy_file,
     "delete_file_with_boundary": delete_file_with_boundary, "get_file_metadata": get_file_metadata,
     "detect_workspace_type": detect_workspace_type, "detect_stack": detect_stack,

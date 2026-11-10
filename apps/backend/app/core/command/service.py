@@ -2125,6 +2125,23 @@ class CommandService:
             "Integration lead: install, build and test the whole project and fix where the packages meet.",
             "Verifier: accept the mission only on evidence for every requirement.",
         ]
+        # A specialist's work is done by that specialist's own agent (command/role_mission): the mission's record
+        # names it, not the software team (10 November: every marketing report listed devops and qa).
+        from app.core.command.mission_org import PARALLEL_ASKED, SPECIALISTS
+        from app.core.command.work_type import specialist_for
+        from app.core.knowledge.skill_packs import named_skill
+
+        kind = (specialist_for(command_text) if getattr(settings, "ROLE_AGENTS_ENABLED", True)
+                and named_skill(command_text) is None and not PARALLEL_ASKED.search(command_text) else None)
+        if kind and kind.get("specialist") in SPECIALISTS:
+            title = SPECIALISTS[kind["specialist"]]["title"]
+            agents = self._validate_agents(["orchestrator", kind["specialist"], "verifier"])
+            steps = [
+                f"Orchestrator: send the work to JAI's {title} and set out the job with Richard's standing rules.",
+                f"{title}: do the work with the role's own tools, playbooks and field knowledge, saving it in the "
+                "product's folder.",
+                "Verifier: check the result against every requirement.",
+            ]
         from app.core.command.resume import last_state
 
         root = await self._resolve_ws_root(db, command_text)

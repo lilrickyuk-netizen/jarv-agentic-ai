@@ -170,6 +170,19 @@ WORKSPACE_TOOLS: Dict[str, ToolSpec] = {
                  "append": {"type": "boolean", "description": "Add content to the end of the file"}},
                 ["path", "content"]),
         "workspace"),
+    "write_spreadsheet": ToolSpec(
+        "write_spreadsheet",
+        "Create or replace an Excel workbook (.xlsx) in the workspace: one sheet per list, the first row of each "
+        "sheet its column headings. Write the whole workbook each time (read the old one with read_document "
+        "first when adding to it).",
+        _schema({"path": _PATH_PROP,
+                 "sheets": {"type": "array", "description": 'Sheets in order: [{"name": "Creators", "rows": '
+                                                            '[["Name", "Link", ...], ["...", "...", ...]]}]',
+                            "items": {"type": "object", "properties": {
+                                "name": {"type": "string"},
+                                "rows": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}}}}},
+                ["path", "sheets"]),
+        "workspace"),
     "run_command": ToolSpec(
         "run_command",
         "Run ONE command in the workspace (no &&, ;, |, > or $(...)). Read-only, build and test commands "
@@ -372,7 +385,7 @@ WORKSPACE_TOOLS.update({
                                             ["memory_id"]), "workspace"),
 })
 
-_FILESYSTEM_TOOLS = {"generate_image", "make_voiceover", "make_video", "list_files", "read_file", "search_files", "scan_workspace", "write_file",
+_FILESYSTEM_TOOLS = {"generate_image", "make_voiceover", "make_video", "list_files", "read_file", "search_files", "scan_workspace", "write_file", "write_spreadsheet",
                      "run_command", "git_status", "git_diff", "git_log", "edit_file", "create_folder",
                      "move_file", "copy_file", "delete_file_with_boundary", "get_file_metadata",
                      "detect_workspace_type", "detect_stack", "detect_commands", "find_missing_files",
