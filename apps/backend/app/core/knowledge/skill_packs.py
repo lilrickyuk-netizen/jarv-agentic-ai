@@ -71,6 +71,10 @@ ENVIRONMENT = "environment"
 SECURITY_ROLE = "security"
 ENGINEERING_ROLES = (CODING, DEBUG, QA, DEVOPS, INFRA, ENVIRONMENT)
 WRITERS = (CONTENT, MARKETING, SALES, SUPPORT, COMMUNITY, DOCS, ONBOARD, PARTNER, GROWTH, BUSINESS)
+# The trades whose specialists do missions as research and writing (work_type's specialists): each is offered every
+# skill tagged for its trade, not only the ones first chosen for the sandbox.
+FIELD_ROLES = (MARKETING, GROWTH, SUPPORT, SALES, ONBOARD, COMMUNITY, PARTNER, CONTENT, ANALYTICS, BUSINESS,
+               RESEARCH, FINANCE, LEGAL)
 
 
 def _s(pack: str, skill: str, agents: Sequence[str], sandbox: Sequence[str] = ()) -> Dict:
@@ -340,7 +344,19 @@ def sandbox_skills(specialist: str) -> List[str]:
     refused = blocked()
     # The one builder takes on every role, so it is offered every skill (listed by name, loaded only when used).
     mine = [e for e in SKILLS if e["sandbox"] and (specialist == "builder" or specialist in e["sandbox"])]
-    return list(dict.fromkeys(path for path in (f"{e['pack']}/{skill_path(e)}" for e in mine) if path not in refused))
+    if specialist in FIELD_ROLES:
+        # A specialist of a trade is offered every skill of its trade (10 November: the Marketing Lead building a
+        # list of creators, guest-article sites and partners was not offered influencer-marketing, link-building
+        # or public-relations, which were installed and tagged for marketing).
+        mine += [e for e in SKILLS if specialist in e["agents"] and e not in mine]
+    paths, names = [], set()
+    for entry in mine:
+        path = f"{entry['pack']}/{skill_path(entry)}"
+        if path in refused or entry["skill"] in names:  # the sandbox loads skills by name: one per name
+            continue
+        names.add(entry["skill"])
+        paths.append(path)
+    return paths
 
 
 def named_skill(text: str) -> Optional[Dict]:

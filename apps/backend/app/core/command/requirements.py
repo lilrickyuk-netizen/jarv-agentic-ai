@@ -74,21 +74,31 @@ def number(items: List[Dict[str, str]]) -> List[Dict[str, Any]]:
             for i, item in enumerate(items[:MAX_REQUIREMENTS], start=1)]
 
 
+_PROFESSIONAL = (
+    " The mission is a specialist's work and comes with the job as JAI's specialist set it out and Richard's "
+    "standing rules for the product: list requirements for the professional standard the job sets (its "
+    "deliverable, targets, method and exclusions) and one for every standing rule that applies, citing 'the job' "
+    "or 'standing rule' as the source. Richard's own words win where they differ.")
+
+
 async def derive(router, model: str, mission: str, *, spec: str = "",
-                 findings: Optional[List[str]] = None) -> Dict[str, Any]:
+                 findings: Optional[List[str]] = None, job: str = "") -> Dict[str, Any]:
     """{"requirements": [...], "tokens": n}. Hard-check findings are added as requirements of their own; when
-    the model call fails the mission itself is the one requirement, so the mission still runs."""
+    the model call fails the mission itself is the one requirement, so the mission still runs. ``job`` is a
+    specialist's job as JAI set it out, with Richard's standing rules (expertise.Job.requirement_guidance)."""
     from app.core.config import settings
     from app.core.providers import CompletionRequest, Message
 
     items: List[Dict[str, str]] = []
     tokens = 0
     prompt = (f"MISSION:\n{mission[:6000]}\n\n"
+              + (f"{job[:8000]}\n\n" if job else "")
               + (f"SPECIFICATION SECTIONS (the workspace's authority documents):\n{spec[:24000]}\n\n" if spec else "")
               + "List the requirements now.")
     try:
         resp = await router.complete(CompletionRequest(
-            model=model, messages=[Message(role="user", content=prompt)], system=_SYSTEM,
+            model=model, messages=[Message(role="user", content=prompt)],
+            system=_SYSTEM + (_PROFESSIONAL if job else ""),
             tools=[REQUIREMENTS_TOOL], max_tokens=settings.AGENT_MAX_OUTPUT_TOKENS, temperature=0.0,
             reasoning_effort=getattr(settings, "OPENAI_VERIFIER_REASONING_EFFORT", "high")))
         tokens = int((resp.usage or {}).get("total_tokens", 0) or 0)

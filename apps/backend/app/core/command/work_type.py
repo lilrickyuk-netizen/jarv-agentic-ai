@@ -62,7 +62,10 @@ _KINDS: List[Tuple[str, Pattern[str], Tuple[str, ...]]] = [
         r"\b(marketing plans?|launch plans?|marketing campaigns?|campaigns?|positioning|messaging|landing page copy|"
         r"seo|email sequences?|newsletters?|ad copy|social media plans?|brand strategy|growth plans?|waiting[- ]list|"
         r"wait ?list|podcasts?|podcasters?|blogs?|bloggers?|creators?|influencers?|youtubers?|communities|"
-        r"subreddits?|sponsors?|sponsorships?|lead magnets?|ambassadors?|affiliate partners?|audience)\b", re.I),
+        r"subreddits?|sponsors?|sponsorships?|lead magnets?|ambassadors?|affiliate partners?|audience|"
+        # Asked the way a founder asks ("Find free places to market Plexecute", "Promote Plexecute for free").
+        r"promote|promoting|promotion|advertise|advertising|publicity|word of mouth|"
+        r"(?:to|and|help|helps|me|us)\s+market|market(?=\s+(?:it|this|my|our|plexecute|myco)\b))\b", re.I),
      ("marketing-plan", "launch", "product-marketing", "copywriting")),
     ("content", re.compile(
         r"\b(blog posts?|articles?|content plan|content calendar|social posts?|linkedin posts?|"

@@ -59,6 +59,12 @@ from app.models.workspace import Workspace
 _PATH_RE = re.compile(r'([A-Za-z]:[\\/][^\s"\'<>|]+)')
 # A document named in a brief (outreach/Plexecute-Prospects.xlsx, pitch-deck/Plexecute-Pitch-Deck.pptx).
 _DOCUMENT_RE = re.compile(r"[\w-]\.(xlsx|xls|csv|pptx|docx|pdf|md)\b", re.I)
+# A request for work, said the way a founder asks an employee ("find ...", "get me ...", "can you build ...").
+_FOUNDER_REQUEST = re.compile(
+    r"\s*(?:jai,?\s+|jay,?\s+)?(?:please\s+|can you\s+|could you\s+|i want (?:you )?to\s+|i need (?:you )?to\s+)?"
+    r"(?:find|build|make|create|get|write|prepare|put together|compile|plan|design|produce|list|grow|market|"
+    r"promote|update|improve|redo|rework|give me|work out|come up with|set up|source|line up)\b")
+_QUESTION = re.compile(r"\s*(is|are|was|has|have|how|what|why|when|where|which|did|does|do|who)\b")
 
 logger = logging.getLogger(__name__)
 
@@ -916,6 +922,15 @@ class CommandService:
             from app.core.command.work_type import specialist_for
 
             if specialist_for(command_text) is not None or _DOCUMENT_RE.search(command_text):
+                return "agent_task"
+        # A founder's one-line request for a specialist's work, with no folder ("Find free places to market
+        # Plexecute", "Find investors for Plexecute"): that specialist's mission in the workspace the request names
+        # (workspace_choice), not a one-off answer that cannot open the product's folder. Richard, 10 November: "I
+        # shouldn't have to send it big detailed prompts". Questions keep their quick answers.
+        if _FOUNDER_REQUEST.match(text) and not _QUESTION.match(text):
+            from app.core.command.work_type import specialist_for
+
+            if specialist_for(command_text) is not None:
                 return "agent_task"
         # Self-completion: map Design.md to code and report gaps honestly.
         if re.search(r"\b(self[- ]complet|finish your own|map design to code|"

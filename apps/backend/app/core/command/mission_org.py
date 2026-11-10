@@ -658,6 +658,9 @@ class MissionTeam:
                  session_factory: Optional[Callable] = None, stuck: bool = False):
         self.runtime = runtime
         self.route: Dict[str, Any] = {}  # who the brief went to, how sure, and why (work_type.classify)
+        # A specialist's job: Richard's standing rules, the job set out to a professional standard, its playbooks
+        # and field knowledge (expertise.job_for); None for software, a named skill or parallel work.
+        self.job = None
         # The last round of this mission completed nothing: its software work moves up to Opus (OPENHANDS_STUCK_MODEL).
         self.stuck = stuck
         self.model = model
@@ -965,6 +968,8 @@ class MissionTeam:
             "",
             f"THE WHOLE MISSION (for context; do only your work package):\n{mission[:6000]}",
             "",
+            (getattr(self, "job", None).brief_for_team() + "\n")
+            if getattr(self, "job", None) is not None and self.job.brief_for_team() else "",
             f"THE TEAM'S APPROACH: {self.approach}" if self.approach else "",
             f"YOUR WORK PACKAGE {p.id}: {p.title}",
             f"Goal: {p.goal}",
@@ -1233,6 +1238,31 @@ class MissionTeam:
         logger.info(f"mission {self.runtime.task_id}: taking over round {self.round_no}, "
                     f"{sum(1 for p in packages if p.success)} of {len(packages)} packages already finished")
 
+    async def _job(self, router, mission: str, *, set_out: bool):
+        """The specialist's job (expertise.job_for) when the brief is a specialist's work, else None. Never raises."""
+        from app.core.command import expertise
+        from app.core.command.work_type import classify
+        from app.core.knowledge.skill_packs import named_skill
+
+        try:
+            if named_skill(mission) is not None or PARALLEL_ASKED.search(mission or ""):
+                return None
+            self.route = self.route or await classify(mission)
+            kind = self.route.get("route")
+            if not kind:
+                return None
+            job = await expertise.job_for(
+                router.as_role("planning"), self.model, mission, kind["specialist"],
+                starting=tuple(kind.get("skills") or ()), workspace_root=self.workspace_root,
+                workspace_name=Path(str(self.workspace_root or "").replace("\\", "/")).name,
+                db=self.runtime.db, workspace_id=self.runtime.workspace_id, task_id=self.runtime.task_id,
+                rules_model=str(getattr(settings, "CARD_MODEL", "") or "claude-haiku-5-5"), set_out=set_out)
+        except Exception as exc:  # noqa: BLE001 - the specialist still has Richard's request
+            logger.info(f"specialist job not prepared: {exc}")
+            return None
+        self.lead.tokens += job.tokens
+        return job
+
     def _builder_package(self, open_ids: List[str], skeleton: bool = False,
                          kind: Optional[Dict[str, Any]] = None) -> Package:
         """Tier 2: the one builder. With writers after it (tier 3) it only gets the environment and skeleton green.
@@ -1399,8 +1429,12 @@ class MissionTeam:
             findings = ([Finding(**f).text() for f in self.lead._hard_in_scope(mission, standing)]
                         if standing and standing.get("findings") and self.lead._conformance(mission, standing)
                         else [])
+            # A specialist's work is set out as a senior specialist would before the requirements are listed, so
+            # the Verifier holds it to the professional standard and Richard's standing rules, not only to what he
+            # happened to write (10 November: "I shouldn't have to send it big detailed prompts").
+            self.job = await self._job(router, mission, set_out=True)
             derived = await derive(router.as_role("requirements"), self.model, mission, spec=spec,
-                                   findings=findings)
+                                   findings=findings, job=self.job.requirement_guidance() if self.job else "")
             self.lead.requirements = derived["requirements"]
             self.lead.tokens += derived["tokens"]
         self.parallel = await self._parallel_limit()
@@ -1438,8 +1472,13 @@ class MissionTeam:
                 from app.core.command import alarms
                 from app.core.command.work_type import DESCRIBED, classify
 
-                self.route = await classify(mission)
+                self.route = self.route or await classify(mission)
                 kind = self.route["route"]
+                if kind and self.job is None:
+                    # Carrying on: the requirements stand, the playbooks and Richard's rules still come with it.
+                    self.job = await self._job(router, mission, set_out=False)
+                if kind and self.job is not None and self.job.skills:
+                    kind = {**kind, "skills": tuple(self.job.skills)}
                 self.packages = [self._builder_package(open_ids, kind=kind)]
                 # The routing model was asked and was unsure, and nothing matched: the builder has it by default.
                 if not kind and self.route["source"] == "default" and self.route["confidence"] > 0:

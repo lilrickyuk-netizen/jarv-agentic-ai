@@ -167,13 +167,17 @@ def specialist_method(steps: int) -> str:
         "each for a different angle), fetch_url to read the one page that shows a detail (the contact, sponsorship "
         "or pitch page), research_web for a cited answer to a question. Never scrape with Python requests or guess "
         "page addresses one by one. Read each organisation's page once and take everything you need from it.\n"
-        "3. Write the deliverable as you go and save it after every batch of rows, so nothing is lost.\n"
-        f"4. You have about {steps} steps for the whole mission and there is no second round. Aim for the targets in "
+        "3. To build a list (creators, sites, partners, prospects), work as a researcher does: find round-up, "
+        "directory and 'best of' pages first (for example 'UK fitness YouTubers', 'write for us' lists, partner "
+        "directories), take the names from them, then look each name up for its own page and published contact. "
+        "Searching for a whole description of what you want mostly returns noise; searching a name finds its page.\n"
+        "4. Write the deliverable as you go and save it after every batch of rows, so nothing is lost.\n"
+        f"5. You have about {steps} steps for the whole mission and there is no second round. Aim for the targets in "
         "the brief; when the steps are nearly used, stop looking, finish the deliverable with what you have and say "
         "exactly what was found against each target (for example 18 of 30 newsletters). Never pad a list to reach "
         "a number and never guess a detail: a shorter, true list is the right result. Richard decides whether more "
         "is worth paying for.\n"
-        "5. Before you finish, open the deliverable once and check it against each requirement.\n")
+        "6. Before you finish, open the deliverable once and check it against each requirement.\n")
 
 
 def builder_method(mission: str) -> str:
@@ -241,6 +245,12 @@ class SandboxSpecialist:
         if self.known:
             brief += ("\n\nWHAT JAI ALREADY KNOWS ABOUT THIS WORKSPACE (check it against the files):\n"
                       + self.known[:6000])
+        job = getattr(self.team, "job", None)
+        if getattr(self.package, "acting_as", None) and job is not None:
+            # The specialist's playbooks and field knowledge in full, not a list it may or may not open.
+            trade = job.brief_for_specialist()
+            if trade:
+                brief += "\n\n" + trade
         if requirements:
             brief += "\n\nYOUR REQUIREMENTS:\n" + render(requirements)
         if getattr(self.package, "acting_as", None):
