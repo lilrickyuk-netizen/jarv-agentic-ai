@@ -91,10 +91,24 @@ def richard_brief(text: str) -> str:
 _DOCUMENT = re.compile(r"[\w-]\.(xlsx|xls|csv|docx|pptx|pdf|md)\b", re.I)
 
 
+# A workflow step names its specialist outright (its council decides, not the words): "Specialist: sales." first.
+_NAMED = re.compile(r"^\s*Specialist:\s*([a-z_]+)\.", re.I)
+
+
+def named_specialist(brief: str) -> Optional[str]:
+    """The specialist a workflow step was given ("builder" for software), or None."""
+    found = _NAMED.match(brief or "")
+    name = found.group(1).lower() if found else None
+    return name if name in _NAMED_OK else None
+
+
 def specialist_for(brief: str) -> Optional[Dict[str, object]]:
     """The specialist whose work the brief is, with the skills to start from, or None for the Lead Builder:
     {"specialist": "sales", "skills": ("prospecting", ...), "matched": "investor"}."""
     text = richard_brief(brief)
+    named = named_specialist(text)
+    if named:
+        return _route(named, "workflow", 1.0, "the workflow's council")
     if _ENGINEERING.search(text) or _BUILDER_KEEPS.search(text):
         return None
     for specialist, pattern, skills in _KINDS:
@@ -135,6 +149,7 @@ DESCRIBED: Dict[str, str] = {
     "builder": ("software: code, apps, websites, building or continuing a product from its specification or phases "
                 "(MYCO), builds, tests, deployment, and video or animation"),
 }
+_NAMED_OK = frozenset(DESCRIBED)
 _STARTING_SKILLS: Dict[str, Tuple[str, ...]] = {}
 for _name, _pattern, _skills in _KINDS:
     _STARTING_SKILLS.setdefault(_name, _skills)
@@ -216,6 +231,10 @@ async def classify(brief: str) -> Dict[str, object]:
     """Who does this brief: {"route": specialist_for's answer or None (the Lead Builder), "source": rules, keywords,
     learned, model or document, "confidence", "matched"}."""
     text = richard_brief(brief)
+    named = named_specialist(text)
+    if named:
+        return {"route": _route(named, "workflow", 1.0, "the workflow's council"), "source": "workflow",
+                "confidence": 1.0, "matched": "the workflow's council"}
     hit = _ENGINEERING.search(text) or _BUILDER_KEEPS.search(text)
     if hit:
         return {"route": None, "source": "rules", "confidence": 1.0, "matched": hit.group(0).lower()}

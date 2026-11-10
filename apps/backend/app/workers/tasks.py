@@ -288,6 +288,19 @@ def company_daily_loop(self: Task) -> dict[str, Any]:
     return run_async(run())
 
 
+@celery_app.task(name="workflows_advance", bind=True)
+def workflows_advance(self: Task) -> dict[str, Any]:
+    """Move each workflow on when its mission has finished or Richard has decided its gate (Celery beat)."""
+    from app.core.database import AsyncSessionLocal
+    from app.core.workflows import service as workflows
+
+    async def run() -> dict[str, Any]:
+        async with AsyncSessionLocal() as db:
+            return await workflows.tick(db)
+
+    return run_async(run())
+
+
 @celery_app.task(name="sales_send_due", bind=True)
 def sales_send_due(self: Task) -> dict[str, Any]:
     """Send the sales emails Richard approved that are due now, in every workspace (Upgrade 6, Celery beat)."""

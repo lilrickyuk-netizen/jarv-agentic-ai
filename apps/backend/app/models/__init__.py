@@ -112,6 +112,7 @@ from app.models.content import ContentItem, OnboardingFlow, CommunityItem
 from app.models.integrations import ApiCredential, CalendarEvent, OutboundMessageDraft, WebhookEndpoint
 from app.models.company_crm import CRMContact, CRMDeal
 from app.models.prospecting import OutreachMessage, OutreachSuppression, Prospect, ProspectCompany
+from app.models.workflow import WorkflowRun
 
 __all__ = [
     # Base
@@ -212,4 +213,5 @@ __all__ = [
     "Prospect",
     "OutreachMessage",
     "OutreachSuppression",
+    "WorkflowRun",
 ]

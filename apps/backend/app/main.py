@@ -183,6 +183,8 @@ app.include_router(operations_feed.router)
 app.include_router(memory.router)
 app.include_router(experience.router)
 app.include_router(approvals.router)
+from app.api import workflows as workflows_api  # noqa: E402
+app.include_router(workflows_api.router)
 app.include_router(boundary_reports.router)
 app.include_router(checkpoints.router)
 # Richard Boundary Operator: authenticated hard-boundary decision + resume loop (Repair 8)

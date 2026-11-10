@@ -75,6 +75,11 @@ celery_app.conf.update(
             "schedule": float(getattr(settings, "COMPANY_LOOP_INTERVAL_HOURS", 24)) * 3600,
             "options": {"expires": 3600},
         },
+        "workflows-advance": {
+            "task": "workflows_advance",
+            "schedule": float(getattr(settings, "WORKFLOW_TICK_SECONDS", 60)),
+            "options": {"expires": 55},
+        },
         "sales-outbox": {
             "task": "sales_send_due",
             "schedule": float(getattr(settings, "SALES_OUTBOX_INTERVAL_MINUTES", 15)) * 60,
@@ -95,6 +100,14 @@ celery_app.conf.update(
 
 # Declarative registry of scheduled jobs (surfaced via /api/scheduler/jobs).
 SCHEDULED_JOBS = [
+    {
+        "name": "workflows_advance",
+        "task": "workflows_advance",
+        "interval_seconds": float(getattr(settings, "WORKFLOW_TICK_SECONDS", 60)),
+        "enabled": True,
+        "type": "workflows/advance",
+        "description": "Move each workflow on when its mission has finished or Richard has decided its gate.",
+    },
     {
         "name": "sales_outbox",
         "task": "sales_send_due",

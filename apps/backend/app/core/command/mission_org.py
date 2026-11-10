@@ -1459,7 +1459,8 @@ class MissionTeam:
                            "learned": "your earlier correction of a brief like this",
                            "model": f"the routing model chose it, {self.route.get('confidence', 0):.0%} sure: "
                                     f"{self.route.get('matched')}",
-                           "document": "it is a document to make or change, with nothing about software"
+                           "document": "it is a document to make or change, with nothing about software",
+                           "workflow": "this step of a workflow is that specialist's in its council"
                            }.get(str(self.route.get("source")), "")
                     self.approach = (f"This is {SPECIALISTS[kind['specialist']]['title']} work"
                                      + (f" ({why})" if why else "") + ", so that specialist does it with its own "

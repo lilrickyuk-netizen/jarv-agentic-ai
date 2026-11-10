@@ -123,6 +123,36 @@ async def list_command_blocks(operator: CurrentUserId, db: Session = Depends(get
     return items
 
 
+async def _decide_workflow_gate(db, task: Task, operator: str, decision: "ApprovalDecision",
+                                approved: bool) -> CommandApprovalItem:
+    """A workflow's gate: approving it lets the workflow start its next step, rejecting it stops the workflow. The
+    gate itself is not a mission, so it is closed here rather than sent to a worker."""
+    from app.core.workflows import service as workflows
+
+    note = decision.note or None
+    if approved:
+        for target in (lifecycle.QUEUED, lifecycle.RUNNING, lifecycle.COMPLETED):
+            lifecycle.transition(task, target, actor=str(operator), reason="workflow gate approved")
+    else:
+        lifecycle.transition(task, lifecycle.CANCELLED, actor=str(operator), reason="workflow gate rejected")
+    meta = dict(task.meta_data or {})
+    meta.update({"approved_by" if approved else "rejected_by": operator, "approval_note": note,
+                 "decided_at": datetime.now(timezone.utc).isoformat()})
+    task.meta_data = meta
+    await _write_audit(db, task.workspace_id, "workflow_gate_approved" if approved else "workflow_gate_rejected",
+                       f"Operator {operator} {'approved' if approved else 'rejected'} workflow gate: "
+                       f"{(task.title or '')[:300]}", True, str(task.id), operator, required_approval=True)
+    await db.commit()
+    await workflows.gate_decided(db, task, approved=approved, note=note)
+    return CommandApprovalItem(
+        task_id=str(task.id), command=task.description or task.title, status=task.status,
+        reason=meta.get("blocked_reason"), boundary_type=meta.get("boundary_type"),
+        workspace_id=str(task.workspace_id),
+        created_at=task.created_at.isoformat() if task.created_at else None,
+        updated_at=task.updated_at.isoformat() if task.updated_at else None,
+    )
+
+
 @router.post("/command-blocks/{task_id}/approve", response_model=CommandApprovalItem)
 async def approve_command_block(
     task_id: UUID,
@@ -134,6 +164,8 @@ async def approve_command_block(
     grant for this mission only, the mission is re-queued, and it is dispatched
     to the runtime so it resumes automatically."""
     task = await _owned_block(db, operator, task_id)
+    if (task.meta_data or {}).get("boundary_type") == "workflow_gate":
+        return await _decide_workflow_gate(db, task, operator, decision, approved=True)
     lifecycle.transition(task, lifecycle.QUEUED, actor=str(operator),
                          reason=f"approved by operator{': ' + decision.note if decision.note else ''}")
     meta = dict(task.meta_data or {})
@@ -176,6 +208,8 @@ async def reject_command_block(
 ):
     """Cancel a blocked command. The action is dropped and logged."""
     task = await _owned_block(db, operator, task_id)
+    if (task.meta_data or {}).get("boundary_type") == "workflow_gate":
+        return await _decide_workflow_gate(db, task, operator, decision, approved=False)
     lifecycle.transition(task, lifecycle.CANCELLED, actor=str(operator),
                          reason=f"rejected by operator{': ' + decision.note if decision.note else ''}")
     meta = dict(task.meta_data or {})

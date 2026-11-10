@@ -60,6 +60,20 @@ TOOLS: List[Dict[str, Any]] = [
     {"type": "function", "name": "get_mission",
      "description": "The state and result of one mission (the latest one when no id is given).",
      "parameters": {"type": "object", "properties": {"task_id": {"type": "string"}}, "additionalProperties": False}},
+    {"type": "function", "name": "start_workflow",
+     "description": "Start a workflow: a chain of missions done by a council of specialists, with Richard's approval "
+                    "gates between them. investor_outreach finds investors and buyers, writes the introductions, "
+                    "waits for him to send them, then prepares follow-ups. waitlist_growth finds newsletters, "
+                    "podcasts, creators and communities, writes the pitches, waits for him to send them, then writes "
+                    "two weeks of posts and the lead magnet. Only when he asks for one of these by name or plainly "
+                    "(\"run investor outreach for Plexecute\").",
+     "parameters": {"type": "object", "properties": {
+         "workflow": {"type": "string", "enum": ["investor_outreach", "waitlist_growth"]},
+         "workspace": {"type": "string", "description": "The product's workspace, e.g. Plexecute."}},
+         "required": ["workflow", "workspace"], "additionalProperties": False}},
+    {"type": "function", "name": "get_workflows",
+     "description": "Where Richard's workflows are: each one's steps, which is running, and what waits for him.",
+     "parameters": {"type": "object", "properties": {}, "additionalProperties": False}},
     {"type": "function", "name": "correct_routing",
      "description": "Richard says a mission went to the wrong specialist (\"that should have been the Sales Lead\", "
                     "\"that's marketing work\"). Records it, so briefs like it go to that specialist from now on. It "
@@ -772,6 +786,31 @@ async def _mission_named_in(db: AsyncSession, user_id: UUID, text: str) -> Optio
         if full:
             return await _mission(db, user_id, str(full))
     return await _mission(db, user_id, None)
+
+
+async def _workflow_tool(db: AsyncSession, user_id: UUID, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Start a workflow in the workspace Richard named, or say where his workflows are."""
+    from app.core.scoping import owned_workspaces
+    from app.core.workflows import service as workflows
+    from app.models import WorkflowRun
+
+    if name == "get_workflows":
+        rows = (await db.execute(select(WorkflowRun).where(WorkflowRun.workspace_id.in_(owned_workspaces(user_id)))
+                                 .order_by(WorkflowRun.created_at.desc()).limit(5))).scalars().all()
+        return {"workflows": [workflows.describe(r) for r in rows] or "No workflows yet.",
+                "note": "Say where each is (the step running, or what waits for him on the Approvals page)."}
+    workspace_id, problem = await _resolve_workspace(db, user_id, args.get("workspace"))
+    if problem or workspace_id is None:
+        return {"error": problem or "Ask Richard which product's workspace this is for."}
+    workspace = next((w for w in await _workspaces(db, user_id) if w.id == workspace_id), None)
+    try:
+        run = await workflows.start(db, user_id=user_id, workspace=workspace, template=str(args.get("workflow")))
+    except workflows.WorkflowError as exc:
+        return {"error": str(exc)}
+    described = workflows.describe(run)
+    return {"started": described["title"], "steps": [s["title"] for s in described["steps"]],
+            "note": "Tell him it has started, the first step, and that it stops for his approval before anything "
+                    "is sent; progress shows in the Live Operations feed."}
 
 
 async def correct_routing(db: AsyncSession, user_id: UUID, specialist: str,
@@ -1575,6 +1614,8 @@ async def run_tool(db: AsyncSession, user_id: UUID, name: str, arguments: Dict[s
         output = await _mission(db, user_id, args.get("task_id"))
     elif name == "resume_mission":
         output = await _resume(db, user_id, args.get("task_id"))
+    elif name in ("start_workflow", "get_workflows"):
+        output = await _workflow_tool(db, user_id, name, args)
     elif name == "correct_routing":
         output = await correct_routing(db, user_id, str(args.get("specialist") or ""), args.get("task_id"))
     elif name == "list_approvals":
