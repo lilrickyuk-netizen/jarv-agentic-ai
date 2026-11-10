@@ -353,6 +353,10 @@ class Settings(BaseSettings):
     # Both go through JAI's gateway, and Sol takes over when Anthropic cannot serve them.
     OPENHANDS_MODEL: str = "claude-opus-5-5"
     OPENHANDS_SPECIALIST_MODEL: str = "claude-sonnet-5-5"
+    # Research, sales, marketing and writing missions (and their check) run on GPT-6 Luna, about a hundredth of Opus's
+    # price (Richard, 10 November: "it should be using Luna for tasks like that and costing me pennies"). Without an
+    # OpenAI key, or when OpenAI cannot serve it, they run on OPENHANDS_SPECIALIST_MODEL. Software stays on Opus.
+    OPENHANDS_RESEARCH_MODEL: str = "gpt-6-luna"
     # What one mission may spend on AI across all its rounds, re-queues included (US dollars). When it is reached the
     # mission stops, keeps its progress and reports; "carry on" starts a new allowance. 0 turns the cap off.
     MISSION_MAX_COST_USD: float = Field(default=12.0, ge=0, le=500)

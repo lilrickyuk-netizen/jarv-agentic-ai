@@ -295,7 +295,14 @@ class SandboxSpecialist:
         from app.core.providers.router import has_no_credit
 
         wanted = getattr(self.package, "model", None)
-        if lead or wanted == "lead" or (wanted is None and (self.package.id == "VER"
+        if wanted == "research" and not lead:
+            # A specialist's research or writing mission: GPT-6 Luna, or Sonnet without an OpenAI key or credit.
+            chosen = str(getattr(settings, "OPENHANDS_RESEARCH_MODEL", "") or "gpt-6-luna")
+            if chosen.startswith("gpt"):
+                if settings.OPENAI_API_KEY and not await has_no_credit("openai"):
+                    return chosen
+                chosen = str(getattr(settings, "OPENHANDS_SPECIALIST_MODEL", "") or self.lead_model())
+        elif lead or wanted == "lead" or (wanted is None and (self.package.id == "VER"
                                                              or self.package.specialist == "builder")):
             chosen = self.lead_model()
         elif wanted and wanted != "specialist":
@@ -322,10 +329,12 @@ class SandboxSpecialist:
             # unreachable, the other provider finishes the package.
             await asyncio.sleep(UNREACHABLE_WAIT_SECONDS)
             result = self._merge(result, await self._again(requirements, container_root, model))
-            if _unreachable(result) and model.startswith("claude"):
-                fallback = str(settings.OPENHANDS_FALLBACK_MODEL or settings.OPENAI_MODEL)
+            if _unreachable(result) and (model.startswith("claude") or getattr(self.package, "model", None) == "research"):
+                fallback = (str(settings.OPENHANDS_SPECIALIST_MODEL) if not model.startswith("claude")
+                            else str(settings.OPENHANDS_FALLBACK_MODEL or settings.OPENAI_MODEL))
                 result = self._merge(result, await self._again(requirements, container_root, fallback))
-                result["answer"] = (f"(Anthropic could not be reached, so this package finished on {fallback}.)\n"
+                result["answer"] = (f"({'Anthropic' if model.startswith('claude') else 'OpenAI'} could not be "
+                                    f"reached, so this package finished on {fallback}.)\n"
                                     + str(result.get("answer") or ""))
         if _budget_out(result):
             # Its spending limit ran out mid-task: one more run picks up from the files already written, so a

@@ -120,7 +120,7 @@ def test_a_specialist_leaves_earlier_missions_tests_alone_and_its_check_is_brief
     assert "leave the old ones alone" in package.goal
     assert "not yours to keep" not in team._builder_package(["R1"]).goal  # software keeps its whole test suite
     assert "earlier missions left in this folder" in mission_org.SPECIALIST_CHECK
-    assert mission_org.SPECIALIST_CHECK_STEPS <= 40 and mission_org.SPECIALIST_CHECK_COST <= 2.5
+    assert mission_org.SPECIALIST_CHECK_STEPS <= 20 and mission_org.SPECIALIST_CHECK_COST <= 0.5
 
 
 def test_the_report_shows_what_the_mission_cost(monkeypatch):
@@ -145,7 +145,7 @@ def test_specialist_work_is_one_round_of_searching_not_a_software_build():
     team = MissionTeam.__new__(MissionTeam)
     package = team._builder_package(["R1"], kind=specialist_for("Write the Plexecute launch plan"))
     assert package.max_steps == mission_org.SPECIALIST_STEPS <= 100
-    assert package.max_cost == mission_org.SPECIALIST_COST <= 5.0
+    assert package.max_cost == mission_org.SPECIALIST_COST <= 2.0 and package.model == mission_org.RESEARCH
     method = specialist_method(package.max_steps)
     assert "web_search" in method and "fetch_url" in method and "Do not write an init script, unit tests" in method
     assert "no second round" in method and "Never pad a list" in method and "init.sh" not in method
@@ -154,3 +154,31 @@ def test_specialist_work_is_one_round_of_searching_not_a_software_build():
     assert team._specialist_work() is True
     team.packages = [team._builder_package(["R1"])]
     assert team._specialist_work() is False
+
+
+def test_research_and_writing_run_on_luna_and_software_stays_on_opus(monkeypatch):
+    """Richard, 10 November: "it should be using Luna for tasks like that and costing me pennies"."""
+    import asyncio
+
+    from app.core.command import sandbox_engine
+    from app.core.config import settings
+    from app.core.providers import router
+
+    async def no_credit(provider):
+        return False
+
+    monkeypatch.setattr(router, "has_no_credit", no_credit)
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "sk-test", raising=False)
+    monkeypatch.setattr(settings, "CLAUDE_API_KEY", "ck-test", raising=False)
+    team = MissionTeam.__new__(MissionTeam)
+
+    def model_of(package):
+        runner = sandbox_engine.SandboxSpecialist.__new__(sandbox_engine.SandboxSpecialist)
+        runner.package = package
+        return asyncio.run(runner.model())
+
+    research = team._builder_package(["R1"], kind=specialist_for("Build an investor database for Plexecute"))
+    assert model_of(research) == settings.OPENHANDS_RESEARCH_MODEL == "gpt-6-luna"
+    assert model_of(team._builder_package(["R1"])) == settings.OPENHANDS_MODEL
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", None, raising=False)
+    assert model_of(research) == settings.OPENHANDS_SPECIALIST_MODEL

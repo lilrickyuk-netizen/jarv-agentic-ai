@@ -76,10 +76,12 @@ SPECIALIST_CHECK = (" Judge only this mission's requirements by opening the deli
                     "no requirement of this mission names) are not this mission's acceptance: do not run or fix "
                     "them. A target the deliverable honestly reports as not reached (18 of 30 found) is unmet, with "
                     "the count as evidence. Be brief: open the deliverable, check each requirement once, and report.")
-SPECIALIST_CHECK_STEPS, SPECIALIST_CHECK_COST = 20, 1.0
+SPECIALIST_CHECK_STEPS, SPECIALIST_CHECK_COST = 20, 0.5
 # A specialist's whole mission: one round within these, then a report of what was found (Richard, 10 November:
 # research that a chat assistant does in five minutes ran for hours over four rounds).
-SPECIALIST_STEPS, SPECIALIST_COST = 100, 5.0
+SPECIALIST_STEPS, SPECIALIST_COST = 100, 2.0
+# The model a specialist's mission and its check run on: settings.OPENHANDS_RESEARCH_MODEL (GPT-6 Luna).
+RESEARCH = "research"
 SPECIALIST_WORK_RULE = (" Tests and checklists that earlier missions left in this folder are not yours to keep "
                         "passing: write this mission's checks in a new file named for this work, and leave the old "
                         "ones alone.")
@@ -1253,7 +1255,7 @@ class MissionTeam:
                            owns=[], depends_on=[], requirements=open_ids,
                            done_when="the deliverable is written and checked against each requirement, with what "
                                      "was found against every target",
-                           model="lead", max_steps=SPECIALIST_STEPS, max_cost=SPECIALIST_COST)
+                           model=RESEARCH, max_steps=SPECIALIST_STEPS, max_cost=SPECIALIST_COST)
         return Package(id=BUILDER_ID, title="Build the mission, ledger item by ledger item", specialist="builder",
                        goal=("Get your bearings, then work through the acceptance ledger one item at a time until "
                              "every item passes its check or is honestly blocked, committing each item."),
@@ -1448,7 +1450,8 @@ class MissionTeam:
                           "through jai-check so a check whose inputs have not changed is not paid for twice."
                           + (SPECIALIST_CHECK if specialist_work else "")),
                     owns=[], depends_on=[p.id for p in self.packages], requirements=[],
-                    done_when="each requirement judged met or unmet with evidence seen in this run", model="lead",
+                    done_when="each requirement judged met or unmet with evidence seen in this run",
+                    model=RESEARCH if specialist_work else "lead",
                     # Research, sales and writing are checked by reading the deliverable, not by a build: on 9
                     # November the Verifier of a 25-row spreadsheet update ran for most of an hour.
                     **({"max_steps": SPECIALIST_CHECK_STEPS, "max_cost": SPECIALIST_CHECK_COST}
