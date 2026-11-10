@@ -153,6 +153,29 @@ def as_call(action: Dict[str, Any], container_root: str, host_root: str, special
 PHASE_WORD = re.compile(r"\bphase\s*(\d+)\b", re.I)
 
 
+def specialist_method(steps: int) -> str:
+    """How a specialist (sales, research, marketing, content, business) does its mission: like a person with a
+    browser and a search engine, not like a software build. Richard, 10 November: research JAI took hours over is
+    five minutes for a chat assistant. The builder's method (init script, a unit test per requirement, a commit per
+    item, fresh-clone runs) and scraping websites with Python one URL at a time made a 120-row list a four-round job."""
+    return (
+        "\n\nHOW YOU WORK (this is research and writing, not software):\n"
+        "1. Do not write an init script, unit tests, a test file per requirement or a commit per item, and do not "
+        "run fresh-clone checks: they are for software. Keep a short checklist in .jai/progress.md and commit once, "
+        "at the end. If .jai/ledger.json or .jai/progress.md are for earlier work, move them to .jai/earlier/.\n"
+        "2. Find things with JAI's own tools, not with scripts: web_search for candidates (run several searches, "
+        "each for a different angle), fetch_url to read the one page that shows a detail (the contact, sponsorship "
+        "or pitch page), research_web for a cited answer to a question. Never scrape with Python requests or guess "
+        "page addresses one by one. Read each organisation's page once and take everything you need from it.\n"
+        "3. Write the deliverable as you go and save it after every batch of rows, so nothing is lost.\n"
+        f"4. You have about {steps} steps for the whole mission and there is no second round. Aim for the targets in "
+        "the brief; when the steps are nearly used, stop looking, finish the deliverable with what you have and say "
+        "exactly what was found against each target (for example 18 of 30 newsletters). Never pad a list to reach "
+        "a number and never guess a detail: a shorter, true list is the right result. Richard decides whether more "
+        "is worth paying for.\n"
+        "5. Before you finish, open the deliverable once and check it against each requirement.\n")
+
+
 def builder_method(mission: str) -> str:
     """How the one builder works (tier 2), after Anthropic's harness for long-running agents: get bearings, a
     frozen ledger of checkable items, one item at a time, a commit per item, a progress file for the next session."""
@@ -220,7 +243,9 @@ class SandboxSpecialist:
                       + self.known[:6000])
         if requirements:
             brief += "\n\nYOUR REQUIREMENTS:\n" + render(requirements)
-        if self.package.specialist == "builder":
+        if getattr(self.package, "acting_as", None):
+            brief += specialist_method(int(self.package.max_steps or 100))
+        elif self.package.specialist == "builder":
             brief += builder_method(self.mission)
         return brief + (
             "\n\nHOW TO WORK: you have a full shell (chaining, pipes and redirection work) and a file editor, in "

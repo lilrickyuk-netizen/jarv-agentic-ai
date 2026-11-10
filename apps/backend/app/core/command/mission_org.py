@@ -70,11 +70,16 @@ PARALLEL_ASKED = re.compile(r"\b(in parallel|parallel (agents|writers|team|speci
 SKILL_PACKAGE_ID, SKILL_TITLE_END = "P1", " skill, end to end"
 # The Verifier of a specialist's (non-software) mission: this mission's checks only, and a small budget. On 9 November
 # it re-ran the tests earlier prospects missions had left in the folder, which contradicted the new work, for an hour.
-SPECIALIST_CHECK = (" Judge only this mission's requirements, each by its own check and by reading the deliverable "
-                    "itself. Tests, checklists and scripts that earlier missions left in this folder (.jai/earlier, "
-                    "and test files no requirement of this mission names) are not this mission's acceptance: do "
-                    "not run or fix them. Be brief: open the deliverable, check each requirement once, and report.")
-SPECIALIST_CHECK_STEPS, SPECIALIST_CHECK_COST = 40, 2.5
+SPECIALIST_CHECK = (" Judge only this mission's requirements by opening the deliverable itself and reading it; "
+                    "spot-check a few of its sources with fetch_url. Do not write or run unit tests. Tests, "
+                    "checklists and scripts that earlier missions left in this folder (.jai/earlier, and test files "
+                    "no requirement of this mission names) are not this mission's acceptance: do not run or fix "
+                    "them. A target the deliverable honestly reports as not reached (18 of 30 found) is unmet, with "
+                    "the count as evidence. Be brief: open the deliverable, check each requirement once, and report.")
+SPECIALIST_CHECK_STEPS, SPECIALIST_CHECK_COST = 20, 1.0
+# A specialist's whole mission: one round within these, then a report of what was found (Richard, 10 November:
+# research that a chat assistant does in five minutes ran for hours over four rounds).
+SPECIALIST_STEPS, SPECIALIST_COST = 100, 5.0
 SPECIALIST_WORK_RULE = (" Tests and checklists that earlier missions left in this folder are not yours to keep "
                         "passing: write this mission's checks in a new file named for this work, and leave the old "
                         "ones alone.")
@@ -363,9 +368,10 @@ class Package:
     def standard(self) -> str:
         if self.acting_as:
             return (f"{SPECIALISTS[self.acting_as]['standard']} You own this whole mission yourself in one working "
-                    "session: work through the acceptance ledger one item at a time, check each item end to end "
-                    "and commit it before the next. You never claim an item passes unless its check passed in "
-                    "this session.")
+                    "session, like a professional with a browser and a search engine: find what the brief asks "
+                    "for with JAI's search tools, write it into the deliverable as you go, and report honestly what "
+                    "was found against every target. You never claim a requirement is met unless you saw it met "
+                    "in this session.")
         return SPECIALISTS[self.specialist]["standard"]
 
     def card(self) -> Dict[str, Any]:
@@ -1092,6 +1098,9 @@ class MissionTeam:
             for p in wave:
                 finished[p.id] = p
 
+    def _specialist_work(self) -> bool:
+        return bool(self.packages and self.packages[0].acting_as)
+
     async def _sandbox_outcome(self, mission: str, team_steps: int, start_continuation: int) -> Dict[str, Any]:
         """The round's result when the whole team, the Verifier included, worked in the sandbox: the Verifier's
         judgement of every requirement decides, with JAI's own hard checks of the workspace on top."""
@@ -1143,7 +1152,10 @@ class MissionTeam:
                       if not waiting else
                       "**Independent check: everything JAI can do is done and verified. Waiting for you:**\n"
                       + "\n".join(f"- {item}" for item in waiting[:20]))
-                     if verified else "**Independent check: not complete yet.**\n"
+                     if verified else ("**This is what one round found.** Research and writing stop after one "
+                                       "round so they never run for hours; what is still open is listed below. Say "
+                                       "\"carry on\" if more is worth looking for.\n" if self._specialist_work()
+                                       else "") + "**Independent check: not complete yet.**\n"
                      + "\n".join(f"- {item}" for item in unmet[:20])
                      + ("\n\n**Also waiting for you:**\n" + "\n".join(f"- {item}" for item in waiting[:10])
                         if waiting else "")))
@@ -1152,7 +1164,10 @@ class MissionTeam:
         usage = self.lead.usage.summary()
         return {
             "answer": answer, "agent_summary": summary, "report": None, "iterations": team_steps,
-            "success": verified, "finished": True, "needs_continuation": not verified and not self.capped,
+            "success": verified, "finished": True,
+            # A specialist's mission is one round: what it found is the result, and Richard says "carry on" if he
+            # wants more looked for. Software still goes round until it is verified.
+            "needs_continuation": not verified and not self.capped and not self._specialist_work(),
             "step_limit_reached": False,
             "verification": {"verified": verified, "unmet": unmet, "waiting_on_richard": waiting,
                              "checks": judged["checks"],
@@ -1230,15 +1245,15 @@ class MissionTeam:
                      + " and follow them: they are how this work is done well. Work from real, current sources and "
                        "keep to everything the brief says.") if skills else (
                 f" This is {role.lower()} work: do it to that standard, from real, current sources.")
-            return Package(id=BUILDER_ID, title=f"The {role} works through the mission, item by item",
+            return Package(id=BUILDER_ID, title=f"The {role} does the mission",
                            specialist="builder", acting_as=kind["specialist"],
-                           goal=("Get your bearings, then work through the acceptance ledger one item at a time "
-                                 "until every item passes its check or is honestly blocked, committing each item."
-                                 + start + SPECIALIST_WORK_RULE),
+                           goal=("Do the work the brief asks for and write it into the deliverable, then check "
+                                 "the deliverable against every requirement and say what was found against each "
+                                 "target." + start + SPECIALIST_WORK_RULE),
                            owns=[], depends_on=[], requirements=open_ids,
-                           done_when="every ledger item passes its check through jai-check, or is recorded as "
-                                     "blocked",
-                           model="lead", max_steps=int(settings.OPENHANDS_BUILDER_MAX_ITERATIONS))
+                           done_when="the deliverable is written and checked against each requirement, with what "
+                                     "was found against every target",
+                           model="lead", max_steps=SPECIALIST_STEPS, max_cost=SPECIALIST_COST)
         return Package(id=BUILDER_ID, title="Build the mission, ledger item by ledger item", specialist="builder",
                        goal=("Get your bearings, then work through the acceptance ledger one item at a time until "
                              "every item passes its check or is honestly blocked, committing each item."),

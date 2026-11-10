@@ -54,10 +54,10 @@ def test_the_mission_plans_the_builder_as_that_specialist():
     team = MissionTeam.__new__(MissionTeam)
     package = team._builder_package(["R1", "R2"], kind=specialist_for("Build an investor database for Plexecute"))
     assert package.specialist == "builder" and package.acting_as == "sales" and package.model == "lead"
-    assert package.role == "Sales Lead" and package.title.startswith("The Sales Lead")
+    assert package.role == "Sales Lead" and package.title == "The Sales Lead does the mission"
     assert "invoke your prospecting" in package.goal and package.requirements == ["R1", "R2"]
     assert package.standard.startswith(SPECIALISTS["sales"]["standard"])
-    assert "acceptance ledger" in package.standard
+    assert "search tools" in package.standard
     assert package.card()["acting_as"] == "sales" and package.card()["role"] == "Sales Lead"
     plain = team._builder_package(["R1"])
     assert plain.acting_as is None and plain.role == "Lead Builder"
@@ -134,3 +134,23 @@ def test_the_report_shows_what_the_mission_cost(monkeypatch):
     monkeypatch.setattr(mission_budget, "spent", spent)
     assert asyncio.run(mission_budget.line("t1")) == "\n\n**Cost of this mission so far: $4.00 (about £3.12).**"
     assert asyncio.run(mission_budget.line("t2")) == ""
+
+
+def test_specialist_work_is_one_round_of_searching_not_a_software_build():
+    """10 November: a 120-row growth list ran four rounds and hours, writing a unit test per requirement and scraping
+    pages with Python, when JAI's own search tools were there to use."""
+    from app.core.command import mission_org
+    from app.core.command.sandbox_engine import builder_method, specialist_method
+
+    team = MissionTeam.__new__(MissionTeam)
+    package = team._builder_package(["R1"], kind=specialist_for("Write the Plexecute launch plan"))
+    assert package.max_steps == mission_org.SPECIALIST_STEPS <= 100
+    assert package.max_cost == mission_org.SPECIALIST_COST <= 5.0
+    method = specialist_method(package.max_steps)
+    assert "web_search" in method and "fetch_url" in method and "Do not write an init script, unit tests" in method
+    assert "no second round" in method and "Never pad a list" in method and "init.sh" not in method
+    assert "init.sh" in builder_method("Carry on with MYCO Phase 1")
+    team.packages = [package]
+    assert team._specialist_work() is True
+    team.packages = [team._builder_package(["R1"])]
+    assert team._specialist_work() is False
