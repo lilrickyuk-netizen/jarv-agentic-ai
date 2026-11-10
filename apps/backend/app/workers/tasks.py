@@ -292,7 +292,7 @@ def company_daily_loop(self: Task) -> dict[str, Any]:
 def workflows_advance(self: Task) -> dict[str, Any]:
     """Move each workflow on when its mission has finished or Richard has decided its gate (Celery beat)."""
     from app.core.database import AsyncSessionLocal
-    from app.core.workflows import service as workflows
+    from app.core.councils import service as workflows
 
     async def run() -> dict[str, Any]:
         async with AsyncSessionLocal() as db:

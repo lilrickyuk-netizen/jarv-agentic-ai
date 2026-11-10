@@ -791,7 +791,7 @@ async def _mission_named_in(db: AsyncSession, user_id: UUID, text: str) -> Optio
 async def _workflow_tool(db: AsyncSession, user_id: UUID, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
     """Start a workflow in the workspace Richard named, or say where his workflows are."""
     from app.core.scoping import owned_workspaces
-    from app.core.workflows import service as workflows
+    from app.core.councils import service as workflows
     from app.models import WorkflowRun
 
     if name == "get_workflows":

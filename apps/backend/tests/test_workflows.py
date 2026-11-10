@@ -17,7 +17,7 @@ from sqlalchemy import select
 
 from app.core.auth import get_current_user_id
 from app.core.command import work_type
-from app.core.workflows import engine, service, templates
+from app.core.councils import engine, service, templates
 from app.main import app
 from app.models import LiveOperationsFeedItem, WorkflowRun
 from app.models.task import Task

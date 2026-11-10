@@ -26,7 +26,7 @@ websockets = ">=14,<15"
 psutil = "^5.9.8"
 sherpa-onnx = "^1.13.8"
 sentencepiece = "^0.2.1"
-# Workflows and councils (core/workflows): LangGraph's graphs and interrupts, with its Postgres checkpointer on
+# Workflows and councils (core/councils): LangGraph's graphs and interrupts, with its Postgres checkpointer on
 # JAI's database (psycopg 3).
 langgraph = "^1.2.9"
 langgraph-checkpoint-postgres = "^3.1.0"

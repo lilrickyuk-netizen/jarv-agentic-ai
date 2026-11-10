@@ -154,7 +154,7 @@ class Settings(BaseSettings):
     ROUTER_MODEL: str = "claude-haiku-5-5"
     # The small model that writes the result card at the top of every mission report (command/result_card).
     CARD_MODEL: str = "claude-haiku-5-5"
-    # How often (seconds) workflows are moved on when a step's mission has finished (core/workflows, Celery beat).
+    # How often (seconds) workflows are moved on when a step's mission has finished (core/councils, Celery beat).
     WORKFLOW_TICK_SECONDS: int = 60
     OPENAI_REASONING_MODEL: str = "gpt-6-sol"
 

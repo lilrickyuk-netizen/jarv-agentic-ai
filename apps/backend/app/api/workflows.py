@@ -14,7 +14,7 @@ from sqlalchemy import select
 from app.core.auth import CurrentUserId, get_current_user_id
 from app.core.database import get_db
 from app.core.scoping import owned_workspaces
-from app.core.workflows import service as workflows
+from app.core.councils import service as workflows
 from app.models import WorkflowRun
 from app.models.workspace import Workspace
 

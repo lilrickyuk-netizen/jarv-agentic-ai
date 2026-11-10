@@ -127,7 +127,7 @@ async def _decide_workflow_gate(db, task: Task, operator: str, decision: "Approv
                                 approved: bool) -> CommandApprovalItem:
     """A workflow's gate: approving it lets the workflow start its next step, rejecting it stops the workflow. The
     gate itself is not a mission, so it is closed here rather than sent to a worker."""
-    from app.core.workflows import service as workflows
+    from app.core.councils import service as workflows
 
     note = decision.note or None
     if approved:

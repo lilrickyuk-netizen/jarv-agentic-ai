@@ -21,7 +21,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.workflows import engine, templates
+from app.core.councils import engine, templates
 
 logger = logging.getLogger(__name__)
 
