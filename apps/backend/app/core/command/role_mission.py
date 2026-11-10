@@ -18,7 +18,7 @@ sandbox:
   campaign and content drafting); nothing that sends, posts or publishes;
 - it works from the job as a senior specialist set it out, with its playbooks and field knowledge
   (command/expertise), and the numbered requirements;
-- it runs on a capable model that researches well and costs little (ROLE_AGENT_MODEL, GPT-6 Sol by default, as
+- it runs on a capable model that researches well and costs little (ROLE_AGENT_MODEL, GPT-6 Luna by default, as
   Plexecute does), stepping up when a round completed nothing;
 - the mission engine's own independent check, evidence-based report (Upgrade 4) and knowledge graph (Upgrade 3) run
   as for any mission, and it carries on round after round until the work is verified;
@@ -90,7 +90,7 @@ class RoleAgent:
 
 
 async def role_model(stuck: bool = False) -> str:
-    """GPT-6 Sol (ROLE_AGENT_MODEL), Sonnet 5.5 when a round completed nothing (ROLE_AGENT_STUCK_MODEL), and the
+    """GPT-6 Luna (ROLE_AGENT_MODEL), Sonnet 5.5 when a round completed nothing (ROLE_AGENT_STUCK_MODEL), and the
     other provider when one has no key or has run out of credit."""
     from app.core.providers.router import has_no_credit
 

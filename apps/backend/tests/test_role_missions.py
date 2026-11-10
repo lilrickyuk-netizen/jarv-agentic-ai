@@ -70,7 +70,7 @@ def test_each_role_has_its_trades_tools_and_nothing_that_acts_for_richard():
     assert "generate_image" not in role_mission.role_tools("research")
 
 
-def test_sol_does_the_work_and_sonnet_takes_over_a_stuck_round(monkeypatch):
+def test_luna_does_the_work_and_sonnet_takes_over_a_stuck_round(monkeypatch):
     from app.core.providers import router
 
     no_credit = set()
@@ -81,17 +81,17 @@ def test_sol_does_the_work_and_sonnet_takes_over_a_stuck_round(monkeypatch):
     monkeypatch.setattr(router, "has_no_credit", has_no_credit)
     monkeypatch.setattr(settings, "OPENAI_API_KEY", "sk-test", raising=False)
     monkeypatch.setattr(settings, "CLAUDE_API_KEY", "ck-test", raising=False)
-    assert _run(role_mission.role_model()) == "gpt-6-sol"
+    assert _run(role_mission.role_model()) == "gpt-6-luna"
     assert _run(role_mission.role_model(stuck=True)) == "claude-sonnet-5-5"
     no_credit.add("openai")
     assert _run(role_mission.role_model()) == "claude-sonnet-5-5"
     no_credit.clear()
     no_credit.add("claude")
-    assert _run(role_mission.role_model(stuck=True)) == "gpt-6-sol"
+    assert _run(role_mission.role_model(stuck=True)) == "gpt-6-luna"
 
 
 def test_the_agent_speaks_as_its_role_not_as_a_software_engineer():
-    runner = role_mission.RoleExecutor(SimpleNamespace(), "gpt-6-sol", "C:\\Users\\lilri\\Projects\\PLEXECUTE",
+    runner = role_mission.RoleExecutor(SimpleNamespace(), "gpt-6-luna", "C:\\Users\\lilri\\Projects\\PLEXECUTE",
                                        role="marketing")
     prompt = runner._system_prompt(True)
     assert prompt.startswith("You are JAI's Marketing") and "not a software engineer" in prompt
@@ -102,7 +102,7 @@ def test_the_agent_speaks_as_its_role_not_as_a_software_engineer():
 
 def test_a_role_mission_stops_at_its_own_allowance(monkeypatch):
     monkeypatch.setattr(settings, "ROLE_MISSION_MAX_COST_USD", 2.5)
-    runner = role_mission.RoleExecutor(SimpleNamespace(), "gpt-6-sol", None, role="sales")
+    runner = role_mission.RoleExecutor(SimpleNamespace(), "gpt-6-luna", None, role="sales")
     runner._spent_before = 1.0
     runner.usage.cost_usd = 1.0
     assert _run(runner._over_allowance()) is None and runner.capped is False
@@ -131,7 +131,7 @@ def test_the_role_agent_works_in_the_products_folder_with_its_own_tools(project)
         async with AsyncTestingSessionLocal() as db:
             user_id, ws_id = await _seed(db, host)
             runtime = ToolRuntime(db, ws_id, None, operator="agent:marketing", authority_level=3, user_id=user_id)
-            runner = role_mission.RoleExecutor(runtime, "gpt-6-sol", host, role="marketing")
+            runner = role_mission.RoleExecutor(runtime, "gpt-6-luna", host, role="marketing")
             tools = {t["name"] for t in await runner._prepare_tools()}
             written = await runner.toolbox.call("write_spreadsheet", {
                 "path": "growth/free-places.xlsx",

@@ -447,10 +447,10 @@ class Settings(BaseSettings):
     MISSION_TEAM_ENABLED: bool = True
     # A specialist's mission (marketing, sales, partnerships, research, content, business, finance, legal, support)
     # is run by that role's own agent in JAI, with its trade's tools, not by the software builder in the coding
-    # sandbox (command/role_mission; Richard, 10 November). Sol researches well for little, as in Plexecute;
+    # sandbox (command/role_mission; Richard, 10 November). Luna researches well for little, as in Plexecute;
     # Sonnet takes a round over when the last one completed nothing. Each such mission stops at its own allowance.
     ROLE_AGENTS_ENABLED: bool = True
-    ROLE_AGENT_MODEL: str = "gpt-6-sol"
+    ROLE_AGENT_MODEL: str = "gpt-6-luna"
     ROLE_AGENT_STUCK_MODEL: str = "claude-sonnet-5-5"
     ROLE_MISSION_MAX_COST_USD: float = Field(default=2.5, ge=0, le=100)
     ROLE_STEPS_PER_ROUND: int = Field(default=15, ge=4, le=60)
