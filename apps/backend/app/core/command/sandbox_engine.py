@@ -306,12 +306,13 @@ class SandboxSpecialist:
                 if chosen.startswith("gpt") and settings.OPENAI_API_KEY and not await has_no_credit("openai"):
                     return chosen
             chosen = str(getattr(settings, "OPENHANDS_SPECIALIST_MODEL", "") or self.lead_model())
-        elif lead or (wanted == "lead" and getattr(self.team, "stuck", False)):
-            # Software work that completed nothing last round: Opus takes over.
-            chosen = str(getattr(settings, "OPENHANDS_STUCK_MODEL", "") or self.lead_model())
-        elif wanted == "lead" or (wanted is None and (self.package.id == "VER"
-                                                             or self.package.specialist == "builder")):
-            chosen = self.lead_model()
+        elif lead or wanted == "lead" or (wanted is None and (self.package.id == "VER"
+                                                               or self.package.specialist == "builder")):
+            # The builder and the Verifier: Sonnet; Opus when a round of this software work completed nothing, and
+            # for a takeover (lead=True).
+            stuck = lead or bool(getattr(self.team, "stuck", False))
+            chosen = str(getattr(settings, "OPENHANDS_STUCK_MODEL", "") or self.lead_model()) if stuck \
+                else self.lead_model()
         elif wanted and wanted != "specialist":
             chosen = str(wanted)
         else:

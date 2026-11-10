@@ -53,7 +53,7 @@ def test_the_specialist_starts_from_its_own_skills():
 def test_the_mission_plans_the_builder_as_that_specialist():
     team = MissionTeam.__new__(MissionTeam)
     package = team._builder_package(["R1", "R2"], kind=specialist_for("Build an investor database for Plexecute"))
-    assert package.specialist == "builder" and package.acting_as == "sales" and package.model == "lead"
+    assert package.specialist == "builder" and package.acting_as == "sales" and package.model == "research"
     assert package.role == "Sales Lead" and package.title == "The Sales Lead does the mission"
     assert "invoke your prospecting" in package.goal and package.requirements == ["R1", "R2"]
     assert package.standard.startswith(SPECIALISTS["sales"]["standard"])
