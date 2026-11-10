@@ -70,6 +70,9 @@ async def start_mission(state: Dict[str, Any], step: Dict[str, Any]) -> str:
         task = (await db.execute(select(Task).where(Task.id == UUID(submitted.task_id)))).scalar_one()
         task.meta_data = {**(task.meta_data or {}), "channel": "workflow", "workflow_run_id": state["run_id"],
                           "workflow_step": step["id"]}
+        # Shown as the step's name ("Waiting-list growth for Plexecute: Find the audiences"), not its brief.
+        title = templates.TEMPLATES[state["template"]]["title"]
+        task.title = f"{title} for {state['product']}: {step['title']}"[:500]
         await db.commit()
     if submitted.status == lifecycle.QUEUED:
         from app.core.runtime.dispatcher import dispatch_mission

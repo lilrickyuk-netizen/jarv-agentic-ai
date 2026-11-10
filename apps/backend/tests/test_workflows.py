@@ -316,3 +316,13 @@ def test_a_typed_or_spoken_command_starts_the_workflow(stand_ins):
             return await CommandService()._handle_workflow(db, runtime, "Run investor outreach for Plexecute")
     refused, _, _, extra = _run(again())
     assert "already running" in refused and extra["workflow"] is None
+
+
+
+def test_the_growth_step_looks_where_audiences_are_and_not_at_employers():
+    """10 November: the growth step spent its searches on NHS trusts' staff wellbeing pages."""
+    brief = next(s for s in templates.steps("waitlist_growth", product="Plexecute", folder=FOLDER)
+                 if s["id"] == "growth_list")["brief"]
+    assert "No employers" in brief and "UK employers (target" not in brief
+    assert "old.reddit.com" in brief and "talent agency or management pages" in brief
+    assert work_type.specialist_for(brief)["specialist"] == "marketing"
