@@ -152,6 +152,8 @@ class Settings(BaseSettings):
     LIGHT_MODEL: str = "gpt-6-luna"
     # The small model that chooses a specialist when no rule matches a brief (command/work_type.classify).
     ROUTER_MODEL: str = "claude-haiku-5-5"
+    # The small model that writes the result card at the top of every mission report (command/result_card).
+    CARD_MODEL: str = "claude-haiku-5-5"
     OPENAI_REASONING_MODEL: str = "gpt-6-sol"
 
     # Voicebox is an optional local service; the API remains disabled until

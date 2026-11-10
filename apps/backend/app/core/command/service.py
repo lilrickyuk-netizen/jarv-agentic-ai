@@ -2084,6 +2084,7 @@ class CommandService:
                             f"({sum(1 for r in carried['requirements'] if r.get('status') == 'done')} of "
                             f"{len(carried['requirements'])} requirements already done).")
         executor = mission_executor(runtime, self.model, root)
+        mission_started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         result = await executor.run(command_text, steps_per_round=8, max_continuations=max_cont, known=known,
                                     requirements=carried["requirements"] if carried else None)
         extra: Dict[str, Any] = {
@@ -2108,6 +2109,7 @@ class CommandService:
             "workspace_path": root,
             "mission": command_text,
             "team": result.get("team"),
+            "mission_started_at": mission_started_at,
         }
         from app.core.command import sign_off
 
@@ -2155,10 +2157,15 @@ class CommandService:
                     f"{len(runtime.calls)} tool calls).**\n\n"
                     + (f"_Workspace:_ `{root}`\n\n" if root else
                        "_No approved workspace resolved — register one, or include its path._\n\n"))
-        from app.core.command import mission_budget
+        from app.core.command import mission_budget, result_card
 
         cost = await mission_budget.line(runtime.task_id)
-        return head + result["answer"] + _metrics_line(result.get("metrics")) + cost, steps, agents, extra
+        # The result card first (Richard, 10 November): what came out of it, in a line he can read himself.
+        card = await result_card.make(result, mission=command_text, cost_usd=await mission_budget.spent(runtime.task_id),
+                                      started_at=mission_started_at, waiting=extra.get("waiting_on_richard"))
+        extra["card"] = card
+        return (result_card.render(card) + head + result["answer"] + _metrics_line(result.get("metrics")) + cost,
+                steps, agents, extra)
 
     async def _resolve_ws_root(self, db: AsyncSession, command_text: str) -> Optional[str]:
         """The folder a mission works in.

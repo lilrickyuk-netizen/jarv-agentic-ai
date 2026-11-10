@@ -842,8 +842,12 @@ async def _mission(db: AsyncSession, user_id: UUID, task_id: Optional[str]) -> D
     # Missions store their report under "response".
     summary = (result.get("response") or result.get("response_text") or result.get("output")
                or result.get("summary") or "")
+    card = result.get("card") if isinstance(result.get("card"), dict) else None
     return {"task_id": str(task.id), "title": task.title, "status": task.status,
             "folder": result.get("workspace_path"),
+            # The result card: say its headline first, then what needs Richard, then the next steps.
+            "card": {k: card.get(k) for k in ("headline", "status", "numbers", "needs_you", "next_steps")}
+            if card else None,
             # The whole report: Richard asks for it to be read out or analysed, and a cut one cannot be.
             "result": str(summary)[:MISSION_REPORT_CHARS], "error": (task.error_message or "")[:300] or None,
             # The evidence report (Upgrade 4): say what is shown done with evidence, nothing more.

@@ -295,9 +295,16 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
                                                                           runtime.calls),
                                         int(res.get("idle_rounds") or 0))
     checkpoint_id = str(uuid4()) if outcome == lifecycle.NEEDS_CONTINUATION else res.get("checkpoint_id")
+    from app.core.command import mission_budget, result_card
+
+    card = await result_card.make(result, mission=str(res.get("mission") or mission),
+                                  cost_usd=await mission_budget.spent(task.id),
+                                  started_at=res.get("mission_started_at"), waiting=sign_off.waiting(result))
     updated = dict(res)
     updated.update({
-        "response": (result["answer"] or "") + await _cost_line(task.id), "task_status": outcome,
+        "card": card,
+        "response": result_card.render(card) + (result["answer"] or "") + await _cost_line(task.id),
+        "task_status": outcome,
         "agent_needs_continuation": result["needs_continuation"],
         "step_limit_reached": result["step_limit_reached"],
         "continuation_required": result["needs_continuation"],
