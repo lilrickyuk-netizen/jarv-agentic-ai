@@ -50,6 +50,7 @@ CREATIVE_TOOLS = ("generate_image", "make_voiceover", "make_video", "social_chan
 CREATIVE_ROLES = ("marketing", "content", "growth", "community")
 # The business tool groups of roles that have no business mode of their own.
 EXTRA_GROUPS = {"customer_support": ("support",), "research": (), "legal": ()}
+SAVE_EVERY = 12  # steps between reminders to save what has been found
 # Tools that act on the world from Richard's name (send, post, publish, moderate): never in a specialist's mission.
 _ACTS = ("send", "publish", "moderate", "post_")
 
@@ -151,7 +152,9 @@ class RoleExecutor(AgentExecutor):
             + "YOUR TOOLS: web_search (run several searches, each a different angle; search a name to find its "
               "page), fetch_url to read a page, research_web for a cited answer to a question, use_browser for a "
               "page that needs clicking through, read_document for PDFs, Word, PowerPoint and Excel files, "
-              "write_spreadsheet for any list (one sheet per kind of entry, headings in the first row), write_file "
+              "write_spreadsheet for any list (one sheet per kind of entry, headings in the first row; add new "
+              "entries with mode \"append\", and sheets you do not name are kept), read_file to see a workbook's "
+              "rows, write_file "
               "and edit_file for documents, memory_search, recall_richard and knowledge_graph_search for what JAI "
               "and Richard already know, consult_specialist_knowledge for your field's reference material"
             + (", generate_image, make_voiceover, make_video and social_draft for drafts (never published)"
@@ -169,6 +172,15 @@ class RoleExecutor(AgentExecutor):
             "Contact, send, post, publish and spend nothing: drafts and lists are for Richard to use. Never claim "
             "something was done unless a tool result in this conversation shows it. Mark each requirement with "
             "requirement_status as you meet it, and call finish when the whole job is done.")
+
+    def _reminder(self) -> Optional[str]:
+        """Every SAVE_EVERY steps: save what has been found and mark what is met (10 November: a list mission found
+        a dozen creators and saved once in about 200 steps)."""
+        if self.iterations <= 1 or self.iterations % SAVE_EVERY:
+            return None
+        return ("[SAVE NOW] Before searching further, save every entry you have found since your last save "
+                "(write_spreadsheet with mode \"append\" for a list, write_file or edit_file for a document), "
+                "then mark each requirement that is now met with requirement_status. Then carry on.")
 
     async def _over_allowance(self) -> Optional[str]:
         cap = float(getattr(settings, "ROLE_MISSION_MAX_COST_USD", 0) or 0)

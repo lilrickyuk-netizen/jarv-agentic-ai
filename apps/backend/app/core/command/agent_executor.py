@@ -445,6 +445,10 @@ class AgentExecutor:
             "When the WHOLE mission is done, call finish."
         )
 
+    def _reminder(self) -> Optional[str]:
+        """A word to the agent between steps (a role's agent is reminded to save what it has found), or None."""
+        return None
+
     async def _over_allowance(self) -> Optional[str]:
         """Why the mission must stop spending now (its allowance is used), or None. The base mission has no allowance
         of its own here: its team and the daily limit guard it."""
@@ -553,6 +557,10 @@ class AgentExecutor:
                     f"Do the remaining work and call finish when the whole mission is verified."
                     + (f"\n\nREQUIREMENTS NOW:\n{render_requirements(self.requirements)}"
                        if self.requirements else ""))))
+            else:
+                reminder = self._reminder()
+                if reminder:
+                    messages.append(Message(role="user", content=reminder))
             self.context_trimmed += compact_messages(messages)
             resp = await self._model_step(router, CompletionRequest(
                 model=self.model, messages=messages, system=system,

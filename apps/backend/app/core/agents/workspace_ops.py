@@ -635,9 +635,87 @@ def xlsx_bytes(sheets: List[Dict[str, Any]]) -> bytes:
     return buffer.getvalue()
 
 
+def _cell_ref_column(ref: str) -> int:
+    letters = "".join(ch for ch in ref if ch.isalpha())
+    number = 0
+    for ch in letters.upper():
+        number = number * 26 + (ord(ch) - 64)
+    return max(0, number - 1)
+
+
+def xlsx_read(data: bytes) -> List[Dict[str, Any]]:
+    """The sheets of an .xlsx workbook as [{"name", "rows"}], every cell as text (numbers kept as numbers): the
+    workbooks JAI writes and the ones written with openpyxl or Excel (shared strings). Standard library only."""
+    import io
+    import xml.etree.ElementTree as ET
+    import zipfile
+
+    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+          "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+          "p": "http://schemas.openxmlformats.org/package/2006/relationships"}
+    archive = zipfile.ZipFile(io.BytesIO(data))
+    names = set(archive.namelist())
+    shared: List[str] = []
+    if "xl/sharedStrings.xml" in names:
+        for item in ET.fromstring(archive.read("xl/sharedStrings.xml")).findall("m:si", ns):
+            shared.append("".join(t.text or "" for t in item.iter(f"{{{ns['m']}}}t")))
+    targets = {}
+    if "xl/_rels/workbook.xml.rels" in names:
+        for rel in ET.fromstring(archive.read("xl/_rels/workbook.xml.rels")).findall("p:Relationship", ns):
+            target = rel.get("Target", "").lstrip("/")
+            targets[rel.get("Id")] = target if target.startswith("xl/") else f"xl/{target}"
+    sheets = []
+    for sheet in ET.fromstring(archive.read("xl/workbook.xml")).findall("m:sheets/m:sheet", ns):
+        part = targets.get(sheet.get(f"{{{ns['r']}}}id"), "")
+        if part not in names:
+            continue
+        rows: List[List[Any]] = []
+        for row in ET.fromstring(archive.read(part)).iter(f"{{{ns['m']}}}row"):
+            values: Dict[int, Any] = {}
+            for cell in row.findall("m:c", ns):
+                kind, column = cell.get("t"), _cell_ref_column(cell.get("r") or "A")
+                if kind == "inlineStr":
+                    value: Any = "".join(t.text or "" for t in cell.iter(f"{{{ns['m']}}}t"))
+                else:
+                    raw = cell.findtext("m:v", default="", namespaces=ns)
+                    if kind == "s":
+                        value = shared[int(raw)] if raw.isdigit() and int(raw) < len(shared) else ""
+                    elif kind in ("str", "b", "e"):
+                        value = raw
+                    else:
+                        try:
+                            value = int(raw) if raw.lstrip("-").isdigit() else float(raw) if raw else ""
+                        except ValueError:
+                            value = raw
+                values[column] = value
+            if values:
+                rows.append([values.get(i, "") for i in range(max(values) + 1)])
+        sheets.append({"name": sheet.get("name") or f"Sheet{len(sheets) + 1}", "rows": rows})
+    return sheets
+
+
+def xlsx_text(data: bytes, limit: int = 60000) -> str:
+    """A workbook as text an agent or the Verifier can read: each sheet with its row count, then its rows."""
+    parts = []
+    for sheet in xlsx_read(data):
+        rows = sheet["rows"]
+        parts.append(f"## Sheet: {sheet['name']} ({max(0, len(rows) - 1)} rows under the header)")
+        parts += [" | ".join(str(v) for v in row) for row in rows]
+    return "\n".join(parts)[:limit]
+
+
+def _same_header(a: List[Any], b: List[Any]) -> bool:
+    return [str(x).strip().lower() for x in a] == [str(x).strip().lower() for x in b]
+
+
 async def write_spreadsheet(tb, args: Dict[str, Any]) -> Dict[str, Any]:
     """An .xlsx workbook in the workspace, one sheet per list (agents doing research, sales and marketing work keep
-    their deliverables as spreadsheets Richard opens in Excel). Gated and recorded as a file write."""
+    their deliverables as spreadsheets Richard opens in Excel). Gated and recorded as a file write.
+
+    An existing workbook is updated, never wiped (10 November: a save that named one sheet replaced the whole
+    workbook and lost two sheets of an earlier mission's work): sheets the call does not name are kept, a named
+    sheet is replaced, or with mode "append" gets the new rows added under its own (a repeated header row is
+    skipped). The previous copy is kept in .jai/backups/ first."""
     host, path, refused = await _resolve(tb, args.get("path"))
     if refused:
         return refused
@@ -654,20 +732,62 @@ async def write_spreadsheet(tb, args: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(sheets, list) or not sheets or not all(isinstance(s, dict) for s in sheets):
         return {"success": False, "error": 'sheets must be a list like [{"name": "Creators", "rows": '
                                            '[["Name", "Link"], ["...", "..."]]}].'}
+    append = str(args.get("mode") or "").lower() == "append"
     denied = await _gate(tb, "write_file", host, description=f"Write spreadsheet {host}")
     if denied:
         return denied
-    data = xlsx_bytes(sheets)
     existed = path.exists()
+    before: List[Dict[str, Any]] = []
+    if existed:
+        old = path.read_bytes()
+        try:
+            before = xlsx_read(old)
+        except Exception:  # noqa: BLE001 - never overwrite what cannot be read back
+            return {"success": False, "error": f"{host} exists but could not be read as a workbook, so it was not "
+                                               "changed. Write to a new file name instead."}
+        backups = path.parent
+        for _ in range(8):  # the workspace root holds .jai/
+            if (backups / ".jai").is_dir() or (backups / ".git").exists():
+                break
+            backups = backups.parent
+        folder = backups / ".jai" / "backups"
+        folder.mkdir(parents=True, exist_ok=True)
+        from datetime import datetime, timezone
+
+        (folder / f"{path.stem}-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}.xlsx").write_bytes(old)
+        for stale in sorted(folder.glob(f"{path.stem}-*.xlsx"))[:-10]:
+            stale.unlink(missing_ok=True)
+    merged = [{"name": s["name"], "rows": list(s["rows"])} for s in before]
+    by_name = {s["name"].strip().lower(): s for s in merged}
+    added: Dict[str, int] = {}
+    for given in sheets:
+        name = str(given.get("name") or f"Sheet{len(merged) + 1}")
+        rows = [r if isinstance(r, (list, tuple)) else [r] for r in (given.get("rows") or [])]
+        current = by_name.get(name.strip().lower())
+        if current is None:
+            current = {"name": name, "rows": []}
+            merged.append(current)
+            by_name[name.strip().lower()] = current
+        if append and current["rows"]:
+            if rows and _same_header(rows[0], current["rows"][0]):
+                rows = rows[1:]
+            current["rows"].extend(list(r) for r in rows)
+            added[name] = len(rows)
+        else:
+            current["rows"] = [list(r) for r in rows]
+            added[name] = max(0, len(rows) - 1)
+    data = xlsx_bytes(merged)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
-    counts = {str(s.get("name") or f"Sheet{i}"): max(0, len(s.get("rows") or []) - 1)
-              for i, s in enumerate(sheets, start=1)}
+    counts = {s["name"]: max(0, len(s["rows"]) - 1) for s in merged}
+    kept = [s["name"] for s in before if s["name"] not in added]
     await tb.runtime._record("write_file", {"path": host}, True,
-                             f"spreadsheet {'replaced' if existed else 'created'}: "
-                             + ", ".join(f"{n} {c} rows" for n, c in counts.items()))
+                             f"spreadsheet {'updated' if existed else 'created'}: "
+                             + ", ".join(f"{n} {c} rows" for n, c in counts.items())
+                             + (f"; kept unchanged: {', '.join(kept)}" if kept else ""))
     await tb.runtime._graph("record_file", host, None, operation="modified" if existed else "created")
-    return {"success": True, "path": host, "rows_per_sheet": counts, "bytes": len(data)}
+    return {"success": True, "path": host, "rows_per_sheet": counts, "written": added, "kept_unchanged": kept,
+            "bytes": len(data)}
 
 
 HANDLERS = {

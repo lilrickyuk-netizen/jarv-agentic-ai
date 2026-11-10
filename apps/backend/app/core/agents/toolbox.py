@@ -172,15 +172,19 @@ WORKSPACE_TOOLS: Dict[str, ToolSpec] = {
         "workspace"),
     "write_spreadsheet": ToolSpec(
         "write_spreadsheet",
-        "Create or replace an Excel workbook (.xlsx) in the workspace: one sheet per list, the first row of each "
-        "sheet its column headings. Write the whole workbook each time (read the old one with read_document "
-        "first when adding to it).",
+        "Create or update an Excel workbook (.xlsx) in the workspace: one sheet per list, the first row of each "
+        "sheet its column headings. Sheets you do not name are kept as they are; a sheet you name is replaced, or "
+        "with mode \"append\" gets your rows added under its own. Save new entries with mode append after every "
+        "few finds. read_file shows a workbook's sheets and rows.",
         _schema({"path": _PATH_PROP,
                  "sheets": {"type": "array", "description": 'Sheets in order: [{"name": "Creators", "rows": '
                                                             '[["Name", "Link", ...], ["...", "...", ...]]}]',
                             "items": {"type": "object", "properties": {
                                 "name": {"type": "string"},
-                                "rows": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}}}}},
+                                "rows": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}}}},
+                 "mode": {"type": "string", "enum": ["replace", "append"],
+                          "description": "append: add rows under a sheet's existing ones (default: replace the "
+                                         "named sheets, keeping the others)"}},
                 ["path", "sheets"]),
         "workspace"),
     "run_command": ToolSpec(
@@ -474,6 +478,24 @@ class AgentToolbox:
         self._prepared = True
         return self
 
+    async def _read_workbook(self, host: str) -> Dict[str, Any]:
+        """An Excel workbook as its sheets and rows, so an agent and the Verifier can see what a list holds (10
+        November: the Verifier of a list mission could not read the workbook and judged almost nothing)."""
+        from app.core.agents.workspace_ops import xlsx_text
+
+        denied = await self.runtime._enforce("read_file", path=host)
+        if denied:
+            return denied
+        path = self._to_container(host)
+        try:
+            text = xlsx_text(path.read_bytes())
+            ok = True
+        except Exception as exc:  # noqa: BLE001
+            text, ok = f"could not read the workbook: {exc}", False
+        await self.runtime._record("read_file", {"path": host}, ok,
+                                   (text.split("\n", 1)[0] if ok else text)[:200])
+        return {"success": ok, "data": {"content": text, "path": host}} if ok else {"success": False, "error": text}
+
     def _resolve_specs(self) -> Dict[str, ToolSpec]:
         from app.core.tools.registry import get_registry
 
@@ -682,6 +704,8 @@ class AgentToolbox:
             if name == "list_files":
                 return await rt.list_files(host)
             if name == "read_file":
+                if str(host).lower().endswith(".xlsx"):
+                    return await self._read_workbook(host)
                 return await rt.read_file(host, offset=_offset(args.get("offset")))
             if name == "scan_workspace":
                 return await rt.scan_workspace(host)

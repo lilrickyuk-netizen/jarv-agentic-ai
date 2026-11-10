@@ -186,3 +186,50 @@ def test_the_job_is_written_with_richards_recent_requests_for_the_product():
 
     recent, none = _run(go())
     assert recent == "- Build a database of free blogs, creators and partnerships" and none == ""
+
+
+def test_the_workbook_reader_reads_jais_and_excels_workbooks():
+    from app.core.agents.workspace_ops import xlsx_read, xlsx_text
+
+    sheets = xlsx_read(xlsx_bytes([{"name": "Free-Blogs", "rows": [["Site", "Fit"], ["A & B", 4]]}]))
+    assert sheets == [{"name": "Free-Blogs", "rows": [["Site", "Fit"], ["A & B", 4]]}]
+    assert "## Sheet: Free-Blogs (1 rows under the header)" in xlsx_text(xlsx_bytes(sheets))
+
+
+@pytest.mark.integration
+def test_saving_a_sheet_never_wipes_the_others_and_append_adds_rows(project):  # noqa: F811
+    from app.core.command.tool_runtime import ToolRuntime
+
+    host, root = project
+
+    async def go():
+        async with AsyncTestingSessionLocal() as db:
+            user_id, ws_id = await _seed(db, host)
+            runtime = ToolRuntime(db, ws_id, None, operator="agent:marketing", authority_level=3, user_id=user_id)
+            runner = role_mission.RoleExecutor(runtime, "gpt-6-luna", host, role="marketing")
+            await runner._prepare_tools()
+            call = runner.toolbox.call
+            await call("write_spreadsheet", {"path": "growth/db.xlsx", "sheets": [
+                {"name": "Creators", "rows": [["Name", "Contact"], ["Ruby Granger", "a@x.com"]]},
+                {"name": "Partnerships", "rows": [["Org"], ["Habitica"]]}]})
+            one = await call("write_spreadsheet", {"path": "growth/db.xlsx", "sheets": [
+                {"name": "Free-Blogs", "rows": [["Site"], ["The Coach Space"]]}]})
+            two = await call("write_spreadsheet", {"path": "growth/db.xlsx", "mode": "append", "sheets": [
+                {"name": "Creators", "rows": [["Name", "Contact"], ["Jade Bowler", "b@x.com"]]}]})
+            seen = await call("read_file", {"path": "growth/db.xlsx"})
+            return one, two, seen
+
+    one, two, seen = _run(go())
+    assert one["kept_unchanged"] == ["Creators", "Partnerships"]
+    assert two["rows_per_sheet"] == {"Creators": 2, "Partnerships": 1, "Free-Blogs": 1} and two["written"] == {"Creators": 1}
+    text = seen["data"]["content"]
+    assert "Ruby Granger" in text and "Jade Bowler" in text and "Habitica" in text and "The Coach Space" in text
+    assert len(list((Path(root) / ".jai" / "backups").glob("db-*.xlsx"))) >= 1  # the previous copy is kept
+
+
+def test_the_role_agent_is_reminded_to_save():
+    runner = role_mission.RoleExecutor(SimpleNamespace(), "gpt-6-luna", None, role="marketing")
+    runner.iterations = role_mission.SAVE_EVERY
+    assert "[SAVE NOW]" in runner._reminder() and 'mode "append"' in runner._reminder()
+    runner.iterations = role_mission.SAVE_EVERY + 1
+    assert runner._reminder() is None
