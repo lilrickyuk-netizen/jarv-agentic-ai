@@ -159,3 +159,30 @@ def test_the_waiting_list_workflow_follows_richards_rules():
     assert "free guest articles" in growth and "partner businesses" in growth
     assert "sponsorship" not in pitches and "podcast" not in pitches.lower()
     assert "signed by Richard by name" in pitches and "Claim no customers" in pitches
+
+
+def test_the_job_aims_at_customers_keeps_unconfirmed_entries_and_the_agent_never_guesses_addresses():
+    from app.core.command import expertise, requirements
+
+    assert "not at founders or the startup trade" in expertise._JOB_SYSTEM
+    assert "A list is one .xlsx workbook" in expertise._JOB_SYSTEM
+    assert "Never make an entry earn its place" in expertise._JOB_SYSTEM
+    assert "never write a requirement that leaves an entry out" in requirements._PROFESSIONAL
+    prompt = role_mission.RoleExecutor(SimpleNamespace(), "gpt-6-luna", None, role="marketing")._system_prompt(True)
+    assert "never type an address from memory" in prompt and "as soon as it is met" in prompt
+
+
+def test_the_job_is_written_with_richards_recent_requests_for_the_product():
+    from app.core.command import expertise
+    from app.models.task import Task
+
+    async def go():
+        async with AsyncTestingSessionLocal() as db:
+            _, ws_id = await _seed(db, "/test_workspaces/recent")
+            db.add(Task(id=uuid4(), workspace_id=ws_id, title="db", task_type="command", status="completed",
+                        priority=5, description="Build a database of free blogs, creators and partnerships"))
+            await db.commit()
+            return (await expertise._recent_requests(db, ws_id, None), await expertise._recent_requests(None, ws_id, None))
+
+    recent, none = _run(go())
+    assert recent == "- Build a database of free blogs, creators and partnerships" and none == ""

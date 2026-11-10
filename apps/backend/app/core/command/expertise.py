@@ -360,9 +360,37 @@ _JOB_SYSTEM = (
     "product's folder), sensible targets (how many of what), the method a professional uses (where to look and in "
     "what order, what to check before adding anything), the quality bar, and what to leave out. Keep to everything "
     "Richard wrote and to his standing rules: his words always win. Use only facts about the product from its own "
-    "description. Contact, send, post, publish and spend nothing: drafts and lists only, for Richard to use. Pick "
+    "description. Contact, send, post, publish and spend nothing: drafts and lists only, for Richard to use. "
+    "Aim at the product's own customers and the people who reach them (creators, blogs, newsletters, communities "
+    "and partner businesses in its field), not at founders or the startup trade, unless he asks for that; his "
+    "recent requests for the product say what he is after. A list is one .xlsx workbook in the product's folder "
+    "with a sheet per kind of entry; a document is .md or .docx. Targets are aims for about an hour's work. Never "
+    "make an entry earn its place by passing every check: an entry goes in with a column saying what is still to "
+    "check, and only paid, closed or off-topic ones are left out. Pick "
     "up to {k} of your skills (by their exact names) whose method the job needs. Answer with JSON only: "
     '{{"job": "<the job, at most 300 words, in plain sentences>", "skills": ["<skill>", ...]}}')
+
+
+async def _recent_requests(db, workspace_id: Optional[UUID], task_id: Optional[UUID], limit: int = 6) -> str:
+    """Richard's last few requests for the product, in his words, so a one-line request is read the way he means
+    it (10 November: "find free places to market Plexecute" came an hour after he asked for blogs, creators and
+    partnerships, and the job was written for startup directories)."""
+    if db is None or workspace_id is None:
+        return ""
+    try:
+        from sqlalchemy import select
+
+        from app.core.command.work_type import richard_brief
+        from app.models.task import Task
+
+        query = select(Task.description).where(Task.workspace_id == workspace_id, Task.description.isnot(None))
+        if task_id is not None:
+            query = query.where(Task.id != task_id)
+        rows = (await db.execute(query.order_by(Task.created_at.desc()).limit(limit))).scalars().all()
+        return "\n".join(f"- {' '.join(richard_brief(str(r)).split())[:400]}" for r in rows if r)
+    except Exception as exc:  # noqa: BLE001
+        logger.info(f"recent requests unavailable: {exc}")
+        return ""
 
 
 @dataclass
@@ -428,7 +456,9 @@ async def job_for(router, model: str, mission: str, specialist: str, *, starting
 
             role = SPECIALISTS.get(specialist, {}).get("title", "specialist")
             facts = product_file(workspace_root, workspace_name)
+            recent = await _recent_requests(db, workspace_id, task_id)
             prompt = (f"RICHARD'S REQUEST:\n{request[:6000]}\n\n"
+                      + (f"HIS RECENT REQUESTS FOR THIS PRODUCT (newest first):\n{recent}\n\n" if recent else "")
                       + ("HIS STANDING RULES FOR THIS PRODUCT:\n" + "\n".join(f"- {r}" for r in job.rules) + "\n\n"
                          if job.rules else "")
                       + (f"THE PRODUCT'S OWN DESCRIPTION ({facts[:12000]})\n\n" if facts else "")

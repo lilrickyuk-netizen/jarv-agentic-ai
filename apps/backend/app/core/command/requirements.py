@@ -78,7 +78,9 @@ _PROFESSIONAL = (
     " The mission is a specialist's work and comes with the job as JAI's specialist set it out and Richard's "
     "standing rules for the product: list requirements for the professional standard the job sets (its "
     "deliverable, targets, method and exclusions) and one for every standing rule that applies, citing 'the job' "
-    "or 'standing rule' as the source. Richard's own words win where they differ.")
+    "or 'standing rule' as the source. Richard's own words win where they differ. A target is met by a list "
+    "that reaches it; never write a requirement that leaves an entry out for not being fully confirmed (an "
+    "entry goes in with what is still to check).")
 
 
 async def derive(router, model: str, mission: str, *, spec: str = "",
