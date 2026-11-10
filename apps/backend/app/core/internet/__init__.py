@@ -295,20 +295,168 @@ async def searxng_search(query: str, limit: int = 10, category: Optional[str] = 
             "engines_unresponsive": [str(e[0]) for e in (payload.get("unresponsive_engines") or []) if e][:8]}
 
 
+# A search service that has used its free allowance or turned its key down is skipped for a while (Redis), so a
+# mission does not pay a failed request on every search; one limiting requests is skipped for a minute.
+_RESTING = "search:resting:"
+_REST_SECONDS = {"allowance": 6 * 3600, "key": 3600, "busy": 60}
+_DAYS = {"day": 1, "week": 7, "month": 31, "year": 366}
+
+
+def _why_not(status: int, body: str) -> Optional[str]:
+    """Why a search service refused (its allowance, its key, too many requests), or None for any other failure."""
+    text = (body or "").lower()
+    if status in (402, 432, 433) or "credit" in text or "quota" in text or "usage limit" in text:
+        return "allowance"
+    if status in (401, 403):
+        return "key"
+    if status == 429:
+        return "busy"
+    return None
+
+
+async def _resting(service: str) -> bool:
+    try:
+        from app.core.redis import get_redis
+
+        return bool(await (await get_redis()).get(_RESTING + service))
+    except Exception:  # noqa: BLE001 - without Redis every service is tried
+        return False
+
+
+async def _rest(service: str, why: str) -> None:
+    try:
+        from app.core.redis import get_redis
+
+        await (await get_redis()).set(_RESTING + service, why, ex=_REST_SECONDS[why])
+    except Exception:  # noqa: BLE001
+        pass
+    logger.warning(f"web search: {service} skipped for now ({why})")
+
+
+async def exa_search(query: str, limit: int = 10, category: Optional[str] = None,
+                     time_range: Optional[str] = None) -> Dict[str, Any]:
+    """Exa (exa.ai): finds pages by meaning, so "UK fitness creators" returns creators. Titles and links only,
+    which keeps each search to the cheapest kind; JAI reads the pages it picks with fetch_url."""
+    key = _setting("EXA_API_KEY")
+    if not key:
+        return {"ok": False, "query": query, "reason": "Exa has no key"}
+    body: Dict[str, Any] = {"query": query, "numResults": max(1, min(int(limit or 10), 25)), "type": "auto"}
+    if category == "news":
+        body["category"] = "news"
+    if time_range in _DAYS:
+        from datetime import datetime, timedelta, timezone
+
+        body["startPublishedDate"] = (datetime.now(timezone.utc) - timedelta(days=_DAYS[time_range])).strftime(
+            "%Y-%m-%dT%H:%M:%S.000Z")
+    try:
+        async with httpx.AsyncClient(timeout=FETCH_TIMEOUT) as c:
+            r = await c.post("https://api.exa.ai/search", json=body,
+                             headers={"x-api-key": key, "Content-Type": "application/json"})
+    except httpx.HTTPError as exc:
+        return {"ok": False, "query": query, "reason": f"Exa could not be reached: {type(exc).__name__}"}
+    if r.status_code >= 400:
+        why = _why_not(r.status_code, r.text[:500])
+        if why:
+            await _rest("exa", why)
+        return {"ok": False, "query": query, "reason": f"Exa answered {r.status_code}", "why": why}
+    try:
+        items = r.json().get("results") or []
+    except ValueError:
+        return {"ok": False, "query": query, "reason": "Exa answered with something that was not JSON"}
+    results = []
+    for item in items:
+        url = str(item.get("url") or "")
+        if not url.startswith("http"):
+            continue
+        entry = {"title": str(item.get("title") or url)[:200], "url": url,
+                 "snippet": " ".join(str(item.get("text") or " ".join(item.get("highlights") or [])
+                                         or item.get("author") or "").split())[:400], "engines": ["exa"]}
+        if item.get("publishedDate"):
+            entry["published"] = str(item["publishedDate"])[:25]
+        results.append(entry)
+    return {"ok": True, "query": query, "source": "exa", "results": results[:limit]}
+
+
+async def tavily_search(query: str, limit: int = 10, category: Optional[str] = None,
+                        time_range: Optional[str] = None) -> Dict[str, Any]:
+    """Tavily (tavily.com): web search made for AI agents, with a short extract of each page (basic search, one
+    credit)."""
+    key = _setting("TAVILY_API_KEY")
+    if not key:
+        return {"ok": False, "query": query, "reason": "Tavily has no key"}
+    body: Dict[str, Any] = {"query": query, "max_results": max(1, min(int(limit or 10), 20)),
+                            "search_depth": "basic", "topic": "news" if category == "news" else "general"}
+    if time_range in TIME_RANGES:
+        body["time_range"] = time_range
+    try:
+        async with httpx.AsyncClient(timeout=FETCH_TIMEOUT) as c:
+            r = await c.post("https://api.tavily.com/search", json=body,
+                             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+    except httpx.HTTPError as exc:
+        return {"ok": False, "query": query, "reason": f"Tavily could not be reached: {type(exc).__name__}"}
+    if r.status_code >= 400:
+        why = _why_not(r.status_code, r.text[:500])
+        if why:
+            await _rest("tavily", why)
+        return {"ok": False, "query": query, "reason": f"Tavily answered {r.status_code}", "why": why}
+    try:
+        payload = r.json()
+    except ValueError:
+        return {"ok": False, "query": query, "reason": "Tavily answered with something that was not JSON"}
+    results = []
+    for item in payload.get("results") or []:
+        url = str(item.get("url") or "")
+        if not url.startswith("http"):
+            continue
+        entry = {"title": str(item.get("title") or url)[:200], "url": url,
+                 "snippet": " ".join(str(item.get("content") or "").split())[:400], "engines": ["tavily"]}
+        if item.get("published_date"):
+            entry["published"] = str(item["published_date"])[:25]
+        results.append(entry)
+    found = {"ok": True, "query": query, "source": "tavily", "results": results[:limit]}
+    if payload.get("answer"):
+        found["answers"] = [str(payload["answer"])[:400]]
+    return found
+
+
+_SERVICES = {"exa": exa_search, "tavily": tavily_search}
+
+
 async def web_search(query: str, limit: int = 10, category: Optional[str] = None,
                      time_range: Optional[str] = None) -> Dict[str, Any]:
-    """Public web search, read-only: JAI's own SearXNG first (many engines at once; categories such as news,
-    it or science; a time range of day, week, month or year), DuckDuckGo directly if SearXNG is off, down or
-    finds nothing."""
+    """Public web search, read-only. The search services in SEARCH_ORDER that have a key and allowance left
+    (Exa, then Tavily: free monthly allowances, no card), then JAI's own SearXNG (many engines at once;
+    categories such as news, it or science; a time range of day, week, month or year), then DuckDuckGo directly.
+    Each result says which service found it."""
     query = (query or "").strip()
     if not query:
         return {"ok": False, "reason": "empty query"}
+    skipped: Dict[str, str] = {}
+    order = [s.strip().lower() for s in (_setting("SEARCH_ORDER") or "searxng").split(",") if s.strip()]
+    for service in order:
+        if service not in _SERVICES:
+            continue
+        if not _setting(f"{service.upper()}_API_KEY"):
+            continue
+        if await _resting(service):
+            skipped[service] = "resting (allowance used, key refused or too many requests)"
+            continue
+        found = await _SERVICES[service](query, limit, category, time_range)
+        if found.get("ok") and found.get("results"):
+            if skipped:
+                found["skipped"] = skipped
+            return found
+        skipped[service] = str(found.get("reason") or "found nothing")
     found = await searxng_search(query, limit, category, time_range)
     if found.get("ok") and found.get("results"):
+        if skipped:
+            found["skipped"] = skipped
         return found
     fallback = await _duckduckgo(query, limit)
     if fallback.get("ok"):
         fallback["searxng"] = found.get("reason") or "SearXNG found nothing"
+        if skipped:
+            fallback["skipped"] = skipped
         return fallback
     return found if found.get("ok") else fallback
 

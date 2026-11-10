@@ -299,6 +299,14 @@ class Settings(BaseSettings):
     # that renders JavaScript pages and returns their main content as Markdown). Empty turns either off; JAI then
     # searches DuckDuckGo directly and reads pages without rendering.
     SEARXNG_URL: str = "http://searxng:8080"
+    # Search services with a free monthly allowance and no card on file (10 November: every engine SearXNG asks had
+    # blocked JAI's home connection, and Bing searched only the first word). JAI asks them in SEARCH_ORDER and moves
+    # to the next when one has no key, has used its allowance or is limiting requests; SearXNG and DuckDuckGo stay
+    # as the last resort. Keys live only in apps/backend/.env. Exa: about 1,400-2,500 searches a month free;
+    # Tavily: 1,000 a month free.
+    EXA_API_KEY: Optional[str] = None
+    TAVILY_API_KEY: Optional[str] = None
+    SEARCH_ORDER: str = "exa,tavily,searxng"
     CRAWL4AI_URL: str = "http://crawl4ai:11235"
     CRAWL4AI_TOKEN: Optional[str] = None
     RESEARCH_TIMEOUT_SECONDS: float = Field(default=20.0, ge=3, le=120)
