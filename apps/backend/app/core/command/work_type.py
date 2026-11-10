@@ -57,8 +57,10 @@ _KINDS: List[Tuple[str, Pattern[str], Tuple[str, ...]]] = [
         r"\b(help cent(?:re|er)|faqs?|support macros?|support articles?|knowledge base|customer support)\b", re.I),
      ("copywriting",)),
     ("marketing", re.compile(
-        r"\b(marketing plan|launch plan|marketing campaign|campaigns?|positioning|messaging|landing page copy|"
-        r"seo|email sequence|newsletter|ad copy|social media plan|brand strategy)\b", re.I),
+        r"\b(marketing plans?|launch plans?|marketing campaigns?|campaigns?|positioning|messaging|landing page copy|"
+        r"seo|email sequences?|newsletters?|ad copy|social media plans?|brand strategy|growth plans?|waiting[- ]list|"
+        r"wait ?list|podcasts?|podcasters?|blogs?|bloggers?|creators?|influencers?|youtubers?|communities|"
+        r"subreddits?|sponsors?|sponsorships?|lead magnets?|ambassadors?|affiliate partners?|audience)\b", re.I),
      ("marketing-plan", "launch", "product-marketing", "copywriting")),
     ("content", re.compile(
         r"\b(blog posts?|articles?|content plan|content calendar|social posts?|linkedin posts?|"
@@ -83,6 +85,10 @@ def richard_brief(text: str) -> str:
     return (text or "")[:cut]
 
 
+# A deliverable that is a document, spreadsheet or deck, not software.
+_DOCUMENT = re.compile(r"[\w-]\.(xlsx|xls|csv|docx|pptx|pdf|md)\b", re.I)
+
+
 def specialist_for(brief: str) -> Optional[Dict[str, object]]:
     """The specialist whose work the brief is, with the skills to start from, or None for the Lead Builder:
     {"specialist": "sales", "skills": ("prospecting", ...), "matched": "investor"}."""
@@ -93,6 +99,13 @@ def specialist_for(brief: str) -> Optional[Dict[str, object]]:
         found = pattern.search(text)
         if found:
             return {"specialist": specialist, "skills": skills, "matched": found.group(0).lower()}
+    # 10 November: a growth list for creators and podcasts matched no word above and went to the Lead Builder, with
+    # its software routine and 250 steps. A document to make or change, with nothing about software in the brief, is
+    # research and writing: the Research Analyst does it.
+    found = _DOCUMENT.search(text)
+    if found:
+        return {"specialist": "research", "skills": ("deep-research", "market-research"),
+                "matched": found.group(0).lower()}
     return None
 
 

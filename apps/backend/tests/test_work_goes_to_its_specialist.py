@@ -201,3 +201,16 @@ def test_research_runs_on_haiku_software_on_sonnet_and_opus_only_when_stuck(monk
     usage.add({"input_tokens": 120_000, "output_tokens": 1_000}, "claude-haiku-5-5", "mission")
     assert abs(usage.cost_usd - (120_000 * 0.50 + 1_000 * 2.50) / 1e6) < 1e-12
     assert metrics.SANDBOX_PRICES["claude-haiku-5-5"] == (0.50, 2.50, 0.05, 0.625)
+
+
+def test_growth_lists_and_any_document_job_go_to_a_specialist():
+    """10 November: "update growth/Plexecute-Waitlist-Growth.xlsx ... Newsletters, podcasts and blogs ... Creators ...
+    Communities ... Employers" matched no word and went to the Lead Builder."""
+    growth = ("In C:\\Users\\lilri\\Projects\\PLEXECUTE_IMAGES, update growth/Plexecute-Waitlist-Growth.xlsx. "
+              "Keep every row already there that has a published contact. Newsletters, podcasts and blogs (target 30). "
+              "Creators (target 40) on YouTube, Instagram, TikTok and LinkedIn. Communities (target 20).")
+    assert _kind(growth) == "marketing"
+    assert _kind("Find 40 fitness YouTubers with a business email") == "marketing"
+    assert _kind("In C:\\Users\\lilri\\Projects\\X, tidy notes/meeting-notes.md") == "research"
+    assert _kind("Fix the failing tests in C:\\Users\\lilri\\Projects\\MYCO") is None
+    assert _kind("Update the README.md of the MYCO repo") is None  # software words keep it with the builder
