@@ -152,6 +152,7 @@ def test_live_conversation_needs_the_openai_key_and_never_hands_it_to_the_browse
     assert session["type"] == "realtime" and session["model"] == settings.OPENAI_REALTIME_MODEL
     # The voice acts and asks JAI's brain; it does not read raw status, mission or memory records itself.
     assert {t["name"] for t in session["tools"]} == {"start_mission", "resume_mission", "cancel_mission", "ask_jarv",
+                                                     "correct_routing",
                                                      "list_workspaces", "list_workspace_files", "read_workspace_file",
                                                      "trace_artifact", "show_on_screen", "research_web",
                                                      "make_image"}

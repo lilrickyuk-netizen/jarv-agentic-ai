@@ -76,7 +76,7 @@ def test_the_brief_carries_jais_instructions_tools_and_voice_but_never_the_key(c
     assert openai_voice["tts_engine"] == "openai" and openai_voice["tts_voice"] == settings.VOICE_PIPELINE_TTS_VOICE
     assert "British" in openai_voice["tts_instructions"]
     # The voice is JAI's brain: JAI's tools, and no ask_jarv (it is given JAI's live state every turn instead).
-    assert {t["name"] for t in body["tools"]} == {"start_mission", "resume_mission", "cancel_mission",
+    assert {t["name"] for t in body["tools"]} == {"start_mission", "resume_mission", "cancel_mission", "correct_routing",
                                                   "list_workspaces", "list_workspace_files", "read_workspace_file",
                                                   "trace_artifact", "show_on_screen", "research_web",
                                                   "make_image"}
