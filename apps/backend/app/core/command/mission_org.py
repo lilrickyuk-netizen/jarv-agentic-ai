@@ -1174,6 +1174,7 @@ class MissionTeam:
                      + ("\n\n**Also waiting for you:**\n" + "\n".join(f"- {item}" for item in waiting[:10])
                         if waiting else "")))
         await self._close_swarm(verified, answer)
+        await self._graph_outcome(judged["checks"])
         team = [p.card() for p in self.packages]
         usage = self.lead.usage.summary()
         return {
@@ -1236,6 +1237,24 @@ class MissionTeam:
         self.restored = True
         logger.info(f"mission {self.runtime.task_id}: taking over round {self.round_no}, "
                     f"{sum(1 for p in packages if p.success)} of {len(packages)} packages already finished")
+
+    async def _graph_outcome(self, checks: List[Dict[str, Any]]) -> None:
+        """The builder's mission in the knowledge graph (Upgrade 3): its requirements and the Verifier's evidence
+        for each, as the in-process engine records them. Sandbox missions recorded neither until 10 November's
+        audit. A savepoint: the graph records, it never stops or undoes a mission."""
+        if self.runtime.workspace_id is None or self.runtime.task_id is None or not self.lead.requirements:
+            return
+        try:
+            from app.core.graph import graph_service
+
+            async with self.runtime.db.begin_nested():
+                await graph_service.record_requirements(self.runtime.db, self.runtime.workspace_id,
+                                                        self.runtime.task_id, self.lead.requirements)
+                await graph_service.record_verification(self.runtime.db, self.runtime.workspace_id,
+                                                        self.runtime.task_id, self.lead.requirements,
+                                                        list(checks or []), [])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"mission not recorded in the knowledge graph: {exc}")
 
     async def _role(self, mission: str) -> Optional[str]:
         """The specialist whose own agent runs this mission (command/role_mission), or None for the builder:

@@ -58,6 +58,20 @@ _KINDS: List[Tuple[str, Pattern[str], Tuple[str, ...]]] = [
     ("customer_support", re.compile(
         r"\b(help cent(?:re|er)|faqs?|support macros?|support articles?|knowledge base|customer support)\b", re.I),
      ("copywriting",)),
+    # The rest of Richard's business agents, each by the work only it does (10 November: every agent takes the
+    # missions that are its own). Their phrases are narrow, so a marketing or content brief is not pulled away.
+    ("onboarding", re.compile(
+        r"\b(onboarding (?:emails?|sequence|plan|guide|checklist|journey)|welcome emails?|welcome sequence|"
+        r"getting[- ]started guide|user guides?|activation emails?)\b", re.I), ()),
+    ("community", re.compile(
+        r"\b(community (?:guidelines|rules|plan|management|launch|programme|program|calendar)|"
+        r"moderation (?:policy|guidelines|rules)|ambassador programme|ambassador program)\b", re.I), ()),
+    ("analytics", re.compile(
+        r"\b(analytics report|funnel analysis|cohort analysis|retention analysis|churn analysis|metrics report|"
+        r"kpi report|conversion analysis|data analysis)\b", re.I), ()),
+    ("growth", re.compile(
+        r"\b(growth experiments?|referral (?:programme|program|scheme)|growth loops?|viral loops?|"
+        r"conversion rate optimi[sz]ation|activation rate)\b", re.I), ()),
     ("marketing", re.compile(
         r"\b(marketing plans?|launch plans?|marketing campaigns?|campaigns?|positioning|messaging|landing page copy|"
         r"seo|email sequences?|newsletters?|ad copy|social media plans?|brand strategy|growth plans?|waiting[- ]list|"
@@ -169,6 +183,10 @@ DESCRIBED: Dict[str, str] = {
     "customer_support": "help centre, FAQs, support replies",
     "marketing": "growth, waiting lists, newsletters, podcasts, creators, communities, campaigns, launch plans",
     "content": "decks, posts, articles, scripts and other writing",
+    "onboarding": "onboarding journeys, welcome emails, getting-started and user guides",
+    "community": "community plans, guidelines, moderation rules, ambassador programmes",
+    "analytics": "analysis of metrics, funnels, cohorts, retention and churn",
+    "growth": "growth experiments, referral programmes, growth loops, conversion and activation",
     "builder": ("software: code, apps, websites, building or continuing a product from its specification or phases "
                 "(MYCO), builds, tests, deployment, and video or animation"),
 }

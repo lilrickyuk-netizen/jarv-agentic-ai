@@ -71,7 +71,7 @@ async def start_mission(state: Dict[str, Any], step: Dict[str, Any]) -> str:
         task.meta_data = {**(task.meta_data or {}), "channel": "workflow", "workflow_run_id": state["run_id"],
                           "workflow_step": step["id"]}
         # Shown as the step's name ("Waiting-list growth for Plexecute: Find the audiences"), not its brief.
-        title = templates.TEMPLATES[state["template"]]["title"]
+        title = _title(state)
         task.title = f"{title} for {state['product']}: {step['title']}"[:500]
         await db.commit()
     if submitted.status == lifecycle.QUEUED:
@@ -85,7 +85,7 @@ async def open_gate(state: Dict[str, Any], step: Dict[str, Any]) -> str:
     """An approval on the Approvals page: approving it lets the workflow go on, rejecting it stops it."""
     from app.models.task import Task
 
-    title = templates.TEMPLATES[state["template"]]["title"]
+    title = _title(state)
     async with _session_factory()() as db:
         gate = Task(id=uuid4(), title=f"{title} for {state['product']}: {step['title']}"[:500],
                     description=step["ask"], task_type=GATE_TASK_TYPE, workspace_id=UUID(state["workspace_id"]),
@@ -98,6 +98,28 @@ async def open_gate(state: Dict[str, Any], step: Dict[str, Any]) -> str:
 
 
 PORTS = engine.Ports(start_mission=start_mission, open_gate=open_gate)
+
+
+def _title(state: Dict[str, Any]) -> str:
+    """The workflow's name: the Orchestrator's plan carries its own, a template's is looked up."""
+    return str(state.get("title") or templates.TEMPLATES.get(state.get("template", ""), {}).get("title")
+               or "Workflow")
+
+
+def _info(run: Any) -> Dict[str, Any]:
+    """What the run is following: the Orchestrator's plan kept on the run, or its template."""
+    planned = (run.steps or {}).get("plan")
+    if isinstance(planned, dict) and planned.get("steps"):
+        return planned
+    return templates.TEMPLATES.get(run.template, {"title": run.template, "steps": []})
+
+
+def _steps(run: Any) -> List[Dict[str, Any]]:
+    """The run's steps as the engine runs them."""
+    planned = (run.steps or {}).get("plan")
+    if isinstance(planned, dict) and planned.get("steps"):
+        return list(planned["steps"])
+    return templates.steps(run.template, product=run.product, folder=(run.steps or {}).get("folder", ""))
 
 
 # ----- moving a run on ---------------------------------------------------------------------------------------------
@@ -137,7 +159,7 @@ def _apply(db: AsyncSession, run: Any, outcome: Dict[str, Any]) -> None:
     steps.pop("pending_resume", None)
     run.steps = steps
     paused = outcome.get("paused")
-    titles = {s["id"]: s["title"] for s in templates.TEMPLATES[run.template]["steps"]}
+    titles = {s["id"]: s["title"] for s in _info(run)["steps"]}
     if paused:
         run.current_step = paused.get("step")
         run.waiting_task_id = UUID(paused["task_id"]) if paused.get("task_id") else None
@@ -168,7 +190,7 @@ async def _advance(db: AsyncSession, run: Any, *, start: Optional[Dict[str, Any]
     async with _locked(run.id) as got:
         if not got:
             return False
-        steps = templates.steps(run.template, product=run.product, folder=(run.steps or {}).get("folder", ""))
+        steps = _steps(run)
         async with (saver_factory or engine.postgres_saver)() as saver:
             outcome = await engine.advance(steps, ports or PORTS, saver, str(run.id), start=start, resume=resume)
         _apply(db, run, outcome)
@@ -210,8 +232,45 @@ async def start(db: AsyncSession, *, user_id: UUID, workspace: Any, template: st
     db.add(run)
     _feed(db, run, f"{run.title}: started", info["summary"].format(product=workspace.name))
     await db.commit()
-    first = {"run_id": str(run.id), "template": template, "product": workspace.name, "folder": folder,
-             "workspace_id": str(workspace.id), "user_id": str(user_id), "tasks": {}, "results": {}, "stopped": None}
+    first = {"run_id": str(run.id), "template": template, "title": info["title"], "product": workspace.name,
+             "folder": folder, "workspace_id": str(workspace.id), "user_id": str(user_id), "tasks": {},
+             "results": {}, "stopped": None}
+    await _advance(db, run, start=first, saver_factory=saver_factory, ports=ports)
+    return run
+
+
+async def start_planned(db: AsyncSession, *, user_id: UUID, workspace: Any, planned: Dict[str, Any],
+                        saver_factory: Optional[Callable] = None, ports: Optional[engine.Ports] = None,
+                        launched_by: Optional[UUID] = None) -> Any:
+    """Start the Orchestrator's plan for a mission that needs several agents (councils/planner): the same engine,
+    rules and gates as a template, with the plan kept on the run."""
+    from app.core.councils import planner
+    from app.models import WorkflowRun
+
+    folder = _folder(workspace)
+    if not folder:
+        raise WorkflowError(f"The {workspace.name} workspace has no folder, so the plan has nowhere to work.")
+    running = (await db.execute(select(WorkflowRun).where(
+        WorkflowRun.workspace_id == workspace.id, WorkflowRun.status.in_(OPEN)))).scalars().first()
+    if running is not None:
+        raise WorkflowError(f"\u201c{running.title}\u201d is already running in {workspace.name}; one workflow per "
+                            "workspace at a time.")
+    busy = await _busy(db, workspace.id, except_task=launched_by)
+    if busy is not None:
+        raise WorkflowError(f"A mission (\u201c{(busy.title or '')[:80]}\u201d) is working in {workspace.name} now.")
+    steps = planner.fill(planned, product=workspace.name, folder=folder)
+    agents = [s["specialist"] for s in steps if not s.get("gate")]
+    plan = {"title": planned["title"], "council": list(dict.fromkeys(agents)), "steps": steps,
+            "summary": "The Orchestrator split this mission across " + ", ".join(dict.fromkeys(agents)) + "."}
+    run = WorkflowRun(id=uuid4(), workspace_id=workspace.id, user_id=user_id, template=planner.PLANNED,
+                      title=f"{planned['title']} for {workspace.name}"[:200], product=workspace.name,
+                      status="running", steps={"folder": folder, "order": [s["id"] for s in steps], "plan": plan})
+    db.add(run)
+    _feed(db, run, f"{run.title}: started", plan["summary"])
+    await db.commit()
+    first = {"run_id": str(run.id), "template": planner.PLANNED, "title": planned["title"],
+             "product": workspace.name, "folder": folder, "workspace_id": str(workspace.id),
+             "user_id": str(user_id), "tasks": {}, "results": {}, "stopped": None}
     await _advance(db, run, start=first, saver_factory=saver_factory, ports=ports)
     return run
 
@@ -287,7 +346,7 @@ async def cancel(db: AsyncSession, run: Any, *, actor: str) -> Any:
 
 def describe(run: Any) -> Dict[str, Any]:
     """A run for the dashboard and the voice: where it is and how each step went."""
-    info = templates.TEMPLATES.get(run.template, {"title": run.template, "steps": []})
+    info = _info(run)
     results = (run.steps or {}).get("results") or {}
     tasks = (run.steps or {}).get("tasks") or {}
     return {

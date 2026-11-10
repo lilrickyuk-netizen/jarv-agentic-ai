@@ -927,6 +927,13 @@ class CommandService:
         # Plexecute", "Find investors for Plexecute"): that specialist's mission in the workspace the request names
         # (workspace_choice), not a one-off answer that cannot open the product's folder. Richard, 10 November: "I
         # shouldn't have to send it big detailed prompts". Questions keep their quick answers.
+        if not _QUESTION.match(text):
+            # A short request for several kinds of work ("Launch Plexecute: research the competitors, write the
+            # launch plan, then the posts") is a mission: the Orchestrator decides whether to split it.
+            from app.core.councils import planner
+
+            if planner.may_need_several(command_text):
+                return "agent_task"
         if _FOUNDER_REQUEST.match(text) and not _QUESTION.match(text):
             from app.core.command.work_type import specialist_for
 
@@ -1492,6 +1499,68 @@ class CommandService:
                     "step starts by itself when the one before it finishes; nothing is sent or posted until you "
                     "approve. Progress shows in the Live Operations feed, or ask \u201chow's the workflow going?\u201d.")
         return answer, steps, agents, {"workflow": described}
+
+    async def _orchestrate(self, db: AsyncSession, runtime: ToolRuntime, command_text: str
+                           ) -> Optional[tuple[str, List[str], List[str], Dict[str, Any]]]:
+        """When the mission needs several agents: the Orchestrator's plan, started on the workflow engine, and the
+        answer that tells Richard the steps. None when it is one agent's job (the usual case), when another
+        workflow is open in the workspace, or when the Orchestrator cannot be asked."""
+        from app.core.councils import planner, service as councils
+
+        if not getattr(settings, "ORCHESTRATED_MISSIONS_ENABLED", True) or runtime.workspace_id is None:
+            return None
+        try:
+            if not planner.may_need_several(command_text):
+                return None
+            planned = await planner.plan(await self._orchestrator_router(), await self._orchestrator_model(),
+                                         command_text)
+            if planned is None:
+                return None
+            workspace = (await db.execute(select(Workspace).where(Workspace.id == runtime.workspace_id))
+                         ).scalar_one_or_none()
+            if workspace is None:
+                return None
+            run = await councils.start_planned(db, user_id=workspace.owner_id, workspace=workspace, planned=planned,
+                                               launched_by=runtime.task_id)
+        except councils.WorkflowError as exc:
+            logger.info(f"mission not split (it runs as one mission): {exc}")
+            return None
+        except Exception as exc:  # noqa: BLE001 - one agent runs the mission as before
+            logger.warning(f"the Orchestrator could not split the mission: {exc}")
+            await db.rollback()
+            return None
+        described = councils.describe(run)
+        from app.core.command.mission_org import SPECIALISTS
+
+        def who(step: Dict[str, Any]) -> str:
+            if step["gate"]:
+                return "you, on the Approvals page"
+            name = step.get("specialist") or ""
+            return "the Lead Builder" if name == "builder" else f"JAI's {SPECIALISTS.get(name, {}).get('title', name)}"
+
+        lines = [f"{i}. {s['title']} \u2014 {who(s)}" for i, s in enumerate(described["steps"], 1)]
+        answer = (f"**This mission needs several agents, so the Orchestrator has split it: {described['title']}.**"
+                  "\n\n" + "\n".join(lines)
+                  + "\n\nThe first step is working now as its own mission. Each step starts by itself when the one "
+                    "before it finishes; nothing is sent or posted. Progress shows in the Live Operations feed, or "
+                    "ask \u201chow's the workflow going?\u201d.")
+        names = [s["specialist"] for s in described["steps"] if s.get("specialist") and s["specialist"] != "builder"]
+        agents = self._validate_agents(["orchestrator"] + list(dict.fromkeys(names)))
+        return answer, [line.split(". ", 1)[1] for line in lines], agents, {"workflow": described,
+                                                                            "orchestrated": True}
+
+    async def _orchestrator_router(self):
+        """The model router for the Orchestrator's plan; None in tests, which never spend provider credit."""
+        if getattr(settings, "TESTING", False):
+            return None
+        from app.core.providers.router import get_router
+
+        return get_router()
+
+    async def _orchestrator_model(self) -> str:
+        from app.core.command.role_mission import role_model
+
+        return await role_model(stuck=True)  # the stronger of the role models: the plan is one short call
 
     async def _handle_package_install(
         self, db: AsyncSession, runtime: ToolRuntime, command_text: str
@@ -2157,6 +2226,12 @@ class CommandService:
             steps.insert(0, f"Resume: carry on from mission {carried['task_id'][:8]} "
                             f"({sum(1 for r in carried['requirements'] if r.get('status') == 'done')} of "
                             f"{len(carried['requirements'])} requirements already done).")
+        if not carried:
+            # A mission that needs several agents is split by the Orchestrator and run step by step, each step by
+            # its own agent (councils/planner); one agent's job goes on below as before.
+            split = await self._orchestrate(db, runtime, command_text)
+            if split is not None:
+                return split
         executor = mission_executor(runtime, self.model, root)
         mission_started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         result = await executor.run(command_text, steps_per_round=8, max_continuations=max_cont, known=known,

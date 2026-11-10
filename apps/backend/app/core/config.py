@@ -450,6 +450,9 @@ class Settings(BaseSettings):
     # sandbox (command/role_mission; Richard, 10 November). Luna researches well for little, as in Plexecute;
     # Sonnet takes a round over when the last one completed nothing. Each such mission stops at its own allowance.
     ROLE_AGENTS_ENABLED: bool = True
+    # A short request that needs several agents ("launch X: research, then the plan, then the posts") is split by
+    # the Orchestrator into steps, each done by its own agent, on the workflow engine (councils/planner).
+    ORCHESTRATED_MISSIONS_ENABLED: bool = True
     ROLE_AGENT_MODEL: str = "gpt-6-luna"
     ROLE_AGENT_STUCK_MODEL: str = "claude-sonnet-5-5"
     ROLE_MISSION_MAX_COST_USD: float = Field(default=2.5, ge=0, le=100)

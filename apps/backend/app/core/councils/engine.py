@@ -29,6 +29,7 @@ GOES_ON = frozenset({"completed", "partial"})
 class FlowState(TypedDict, total=False):
     run_id: str
     template: str
+    title: str                            # the workflow's name (a template's, or the Orchestrator's plan's)
     product: str
     folder: str
     workspace_id: str
