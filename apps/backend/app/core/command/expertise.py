@@ -52,6 +52,9 @@ FIELDS: Dict[str, Sequence[str]] = {
     "legal": ("legal",),
     "customer_support": ("customer_support", "onboarding"),
     "content": ("content", "marketing", "creation"),
+    # The Lead Builder takes on every engineering role, so it draws on all of their fields.
+    "builder": ("coding_agent", "debugging_agent", "qa", "devops", "security", "infrastructure", "documentation",
+                "creation"),
 }
 
 _WORD = re.compile(r"[a-z0-9][a-z0-9'-]*")
@@ -106,8 +109,11 @@ def trade_skills(specialist: str) -> List[Dict[str, Any]]:
     from app.core.knowledge.skill_packs import SKILLS, blocked, skill_path
 
     refused = blocked()
-    mine = [e for e in SKILLS if specialist in e["sandbox"]] + [
-        e for e in SKILLS if specialist in e["agents"] and specialist not in e["sandbox"]]
+    if specialist == "builder":  # the one builder is offered every skill made for missions
+        mine = [e for e in SKILLS if e["sandbox"]]
+    else:
+        mine = [e for e in SKILLS if specialist in e["sandbox"]] + [
+            e for e in SKILLS if specialist in e["agents"] and specialist not in e["sandbox"]]
     out, seen = [], set()
     for entry in mine:
         if entry["skill"] in seen or f"{entry['pack']}/{skill_path(entry)}" in refused:
@@ -134,17 +140,26 @@ def score(entry: Dict[str, Any], wanted: set, description: str) -> float:
     return points
 
 
-def choose_skills(specialist: str, work: str, starting: Sequence[str] = (), k: int = PLAYBOOKS) -> List[str]:
+# The Lead Builder's playbooks when the brief's words pick none: how it builds, debugs and proves its work.
+BUILDER_CORE = ("test-driven-development", "systematic-debugging", "verification-before-completion")
+BUILDER_MATCH = 5.0   # a builder skill must fit the brief by more than one shared word ("builder" in its name)
+
+
+def choose_skills(specialist: str, work: str, starting: Sequence[str] = (), k: int = PLAYBOOKS,
+                  minimum: float = 3.0) -> List[str]:
     """The playbooks this piece of work needs, best first: matched against the work, the specialist's usual
     starting skills breaking ties; the starting skills when nothing matches."""
     wanted = terms(work)
     ranked = []
-    for entry in trade_skills(specialist):
+    entries = trade_skills(specialist)
+    if specialist == "builder":  # for software work, the engineering roles' skills (not the marketing ones it lists)
+        entries = [e for e in entries if set(FIELDS["builder"]) & set(e["sandbox"])]
+    for entry in entries:
         description = _front(_skill_text(entry)).get("description", "")
         points = score(entry, wanted, description) + (0.5 if entry["skill"] in starting else 0.0)
         ranked.append((points, entry["skill"]))
     ranked.sort(key=lambda item: -item[0])
-    chosen = [name for points, name in ranked if points >= 3.0][:k]
+    chosen = [name for points, name in ranked if points >= minimum][:k]
     names = {name for _, name in ranked}
     chosen += [name for name in starting if name in names and name not in chosen]
     return chosen[:k]
@@ -430,7 +445,9 @@ async def job_for(router, model: str, mission: str, specialist: str, *, starting
         except Exception as exc:  # noqa: BLE001 - the request alone still runs
             logger.info(f"job not set out: {exc}")
     work = " ".join([request, job.text])
-    if not job.skills:
+    if not job.skills and specialist == "builder":
+        job.skills = choose_skills(specialist, work, starting or BUILDER_CORE, minimum=BUILDER_MATCH)
+    elif not job.skills:
         job.skills = choose_skills(specialist, work, starting)
     try:
         job.knowledge = field_knowledge(specialist, work)

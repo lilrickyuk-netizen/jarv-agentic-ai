@@ -1304,6 +1304,23 @@ class MissionTeam:
         result["approach"] = self.approach
         return result
 
+    async def _builder_job(self, router, mission: str):
+        """The Lead Builder's playbooks, field knowledge and Richard's standing rules (expertise.job_for). Never
+        raises: the builder still has the brief and every skill listed."""
+        from app.core.command import expertise, work_type
+
+        if work_type._BUILDER_KEEPS.search(work_type.richard_brief(mission)):
+            return None  # video and motion work has its own method and skills in the builder's goal
+        try:
+            job = await expertise.job_for(
+                router.as_role("planning"), self.model, mission, "builder", workspace_root=self.workspace_root,
+                db=self.runtime.db, workspace_id=self.runtime.workspace_id, task_id=self.runtime.task_id,
+                rules_model=str(getattr(settings, "CARD_MODEL", "") or "claude-haiku-5-5"), set_out=False)
+        except Exception as exc:  # noqa: BLE001
+            logger.info(f"builder's playbooks not prepared: {exc}")
+            return None
+        return job
+
     async def _job(self, router, mission: str, *, set_out: bool):
         """The specialist's job (expertise.job_for) when the brief is a specialist's work, else None. Never raises."""
         from app.core.command import expertise
@@ -1549,6 +1566,11 @@ class MissionTeam:
                     self.job = await self._job(router, mission, set_out=False)
                 if kind and self.job is not None and self.job.skills:
                     kind = {**kind, "skills": tuple(self.job.skills)}
+                if not kind and self.job is None:
+                    # Software: the Lead Builder starts with the playbooks this work needs, its fields' knowledge
+                    # and Richard's standing rules for the product in its brief. The specification stays the
+                    # authority, so the job is not rewritten for it.
+                    self.job = await self._builder_job(router, mission)
                 self.packages = [self._builder_package(open_ids, kind=kind)]
                 # The routing model was asked and was unsure, and nothing matched: the builder has it by default.
                 if not kind and self.route["source"] == "default" and self.route["confidence"] > 0:

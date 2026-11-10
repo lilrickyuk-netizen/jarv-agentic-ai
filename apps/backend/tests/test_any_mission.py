@@ -178,3 +178,30 @@ def test_the_mission_handler_splits_only_when_the_orchestrator_says_so(monkeypat
     # A workflow is already open in the workspace: the next such mission runs as one mission.
     answers.append(planner._clean(PLAN))
     assert _run(go(LAUNCH)) is None
+
+
+def test_the_one_builder_starts_with_its_playbooks_knowledge_and_richards_rules(tmp_path, monkeypatch):
+    from app.core.command import expertise, sandbox_engine
+    from app.core.command.mission_org import Package
+    from app.core.config import settings
+    from app.core.knowledge import skill_packs
+
+    entry = next(e for e in skill_packs.SKILLS if e["skill"] == "test-driven-development" and e["sandbox"])
+    folder = tmp_path / entry["pack"] / skill_packs.skill_path(entry)
+    folder.mkdir(parents=True)
+    (folder / "SKILL.md").write_text('---\nname: test-driven-development\ndescription: "Use when implementing any '
+                                     'feature or bugfix, before writing implementation code"\n---\n# TDD\n\nWrite '
+                                     "the failing test first, watch it fail, then make it pass.\n", encoding="utf-8")
+    monkeypatch.setattr(settings, "SKILL_PACKS_DIR", str(tmp_path))
+    job = _run(expertise.job_for(None, "m", "With test driven development, fix the failing unit tests and add a test for sub()",
+                                 "builder", set_out=False))
+    assert "test-driven-development" in job.skills and job.text == ""  # the brief is not rewritten for software
+    job.rules = ["Plexecute has not launched: never claim customers."]
+    team = SimpleNamespace(runtime=SimpleNamespace(task_id=None), workspace_root="/test_workspaces/x",
+                           _brief=lambda p, m: "brief", job=job)
+    builder = Package("B1", "t", "builder", "g", [], [], [], "")
+    brief = sandbox_engine.SandboxSpecialist(team, builder, "m", None)._brief([])
+    assert "=== test-driven-development ===" in brief and "Write the failing test first" in brief
+    checker = Package("VER", "t", "verifier", "g", [], [], [], "")
+    assert "=== test-driven-development ===" not in sandbox_engine.SandboxSpecialist(team, checker, "m", None)._brief([])
+    assert "never claim customers" in job.brief_for_team()
