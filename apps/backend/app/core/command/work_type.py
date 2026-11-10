@@ -87,6 +87,26 @@ def richard_brief(text: str) -> str:
     return (text or "")[:cut]
 
 
+def _by_words(text: str) -> Optional[Tuple[str, Tuple[str, ...], str]]:
+    """The specialist whose words the brief uses most (10 November: one "investor" in a growth brief beat seven
+    marketing words when the first match won). A tie goes to the earlier kind of work in _KINDS (a deck to make
+    before the sales words in it). Returns (specialist, skills, the words that matched)."""
+    scores: Dict[str, List[str]] = {}
+    order: List[str] = []
+    skills_of: Dict[str, Tuple[str, ...]] = {}
+    for specialist, pattern, skills in _KINDS:
+        found = [m.group(0).lower() for m in pattern.finditer(text)]
+        if found:
+            if specialist not in scores:
+                order.append(specialist)
+                skills_of[specialist] = skills
+            scores.setdefault(specialist, []).extend(found)
+    if not scores:
+        return None
+    winner = max(order, key=lambda name: (len(set(scores[name])), -order.index(name)))
+    return winner, skills_of[winner], ", ".join(dict.fromkeys(scores[winner]))
+
+
 # A deliverable that is a document, spreadsheet or deck, not software.
 _DOCUMENT = re.compile(r"[\w-]\.(xlsx|xls|csv|docx|pptx|pdf|md)\b", re.I)
 
@@ -111,10 +131,10 @@ def specialist_for(brief: str) -> Optional[Dict[str, object]]:
         return _route(named, "workflow", 1.0, "the workflow's council")
     if _ENGINEERING.search(text) or _BUILDER_KEEPS.search(text):
         return None
-    for specialist, pattern, skills in _KINDS:
-        found = pattern.search(text)
-        if found:
-            return {"specialist": specialist, "skills": skills, "matched": found.group(0).lower()}
+    best = _by_words(text)
+    if best:
+        specialist, skills, matched = best
+        return {"specialist": specialist, "skills": skills, "matched": matched}
     # 10 November: a growth list for creators and podcasts matched no word above and went to the Lead Builder, with
     # its software routine and 250 steps. A document to make or change, with nothing about software in the brief, is
     # research and writing: the Research Analyst does it.
@@ -238,17 +258,18 @@ async def classify(brief: str) -> Dict[str, object]:
     hit = _ENGINEERING.search(text) or _BUILDER_KEEPS.search(text)
     if hit:
         return {"route": None, "source": "rules", "confidence": 1.0, "matched": hit.group(0).lower()}
-    for specialist, pattern, skills in _KINDS:
-        found = pattern.search(text)
-        if found:
-            return {"route": _route(specialist, "keywords", 1.0, found.group(0).lower()), "source": "keywords",
-                    "confidence": 1.0, "matched": found.group(0).lower()}
+    # Richard's correction of a brief like this one wins over the word lists.
     best = max(((_overlap(text, c.get("brief", "")), c) for c in await corrections()), default=(0.0, None),
                key=lambda pair: pair[0])
     if best[1] is not None and best[0] >= LEARNED_OVERLAP:
         name = str(best[1].get("specialist"))
         return {"route": _route(name, "learned", best[0], "your earlier correction"), "source": "learned",
                 "confidence": round(best[0], 2), "matched": "your earlier correction"}
+    words = _by_words(text)
+    if words:
+        specialist, skills, matched = words
+        return {"route": _route(specialist, "keywords", 1.0, matched), "source": "keywords",
+                "confidence": 1.0, "matched": matched}
     try:
         chosen = await _ask_model(text)
     except Exception:  # noqa: BLE001 - the model is a second opinion; the rules still decide without it

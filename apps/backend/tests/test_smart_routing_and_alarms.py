@@ -150,3 +150,29 @@ def test_an_alarm_that_cannot_be_written_does_not_stop_the_mission(monkeypatch):
     monkeypatch.setattr(database, "AsyncSessionLocal", Broken)
     team = _team("marketing", minutes=60, spent=0)
     assert _run(alarms.raise_once(team, "slow", "t", "m")) is False
+
+
+def test_the_specialist_with_most_of_the_briefs_words_wins(monkeypatch):
+    """10 November: "the benefits platforms on the investor list" sent a creators-and-communities brief to Sales."""
+    brief = ("In C:\\Users\\lilri\\Projects\\PLEXECUTE_IMAGES, add to growth/Plexecute-Waitlist-Growth.xlsx. Creators: "
+             "find UK fitness creators through their talent agency pages. Communities: read each subreddit's rules. "
+             "Drop the Employers sheet: Plexecute reaches employers through the benefits platforms on the investor "
+             "list instead.")
+    route = work_type.specialist_for(brief)
+    assert route["specialist"] == "marketing" and "creators" in route["matched"] and "communities" in route["matched"]
+    assert work_type.specialist_for("make me a professional pitch deck for plexecute aimed at investors")[
+        "specialist"] == "content"  # a tie goes to the deck to make
+
+
+def test_richards_correction_wins_over_the_word_lists(monkeypatch):
+    async def model(text):
+        return None
+
+    monkeypatch.setattr(work_type, "_ask_model", model)
+    _forget()
+    brief = "Plan the investor newsletter for Plexecute's backers"
+    assert _run(work_type.classify(brief))["source"] == "keywords"
+    _run(work_type.learn(brief, "content"))
+    corrected = _run(work_type.classify("Plan the investor newsletter for Plexecute backers"))
+    assert corrected["source"] == "learned" and corrected["route"]["specialist"] == "content"
+    _forget()
