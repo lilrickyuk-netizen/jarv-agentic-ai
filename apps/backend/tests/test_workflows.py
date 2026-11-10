@@ -279,3 +279,40 @@ def test_a_workflow_survives_a_restart_in_postgres(monkeypatch):
     resumed = _run(after_restart())
     assert resumed["paused"]["step"] == "introductions" and starts == ["prospects", "introductions"]
     assert resumed["state"]["results"]["prospects"]["status"] == "completed"
+
+
+def test_a_typed_or_spoken_command_starts_the_workflow(stand_ins):
+    """10 November: "Run waiting-list growth for Plexecute", typed, went to a one-off research and QA answer."""
+    from types import SimpleNamespace
+
+    from app.core.command.service import CommandService
+
+    detect = CommandService._detect_intent
+    assert detect("Run waiting-list growth for Plexecute") == "workflow"
+    assert detect("please start investor outreach for Plexecute") == "workflow"
+    assert detect("Run the tests in C:\\Users\\lilri\\Projects\\MYCO") != "workflow"
+    assert detect("How is the investor outreach going?") != "workflow"
+
+    user_id, ws_id = _run(_seed())
+
+    async def launch():
+        async with AsyncTestingSessionLocal() as db:
+            command = Task(id=uuid4(), workspace_id=ws_id, title="Run waiting-list growth for Plexecute",
+                           description="Run waiting-list growth for Plexecute", task_type="command",
+                           status="running", priority=5)
+            db.add(command)
+            await db.commit()
+            runtime = SimpleNamespace(workspace_id=ws_id, task_id=command.id)
+            return await CommandService()._handle_workflow(db, runtime, "Run waiting-list growth for Plexecute")
+    answer, steps, agents, extra = _run(launch())
+    assert answer.startswith("**Waiting-list growth for Plexecute has started.**")
+    assert "Find the audiences" in answer and "waits for you on the Approvals page" in answer
+    assert extra["workflow"]["status"] == "waiting_mission" and [s for s, _ in stand_ins] == ["growth_list"]
+    assert stand_ins[0][1].startswith("Specialist: marketing.")
+
+    async def again():
+        async with AsyncTestingSessionLocal() as db:
+            runtime = SimpleNamespace(workspace_id=ws_id, task_id=uuid4())
+            return await CommandService()._handle_workflow(db, runtime, "Run investor outreach for Plexecute")
+    refused, _, _, extra = _run(again())
+    assert "already running" in refused and extra["workflow"] is None

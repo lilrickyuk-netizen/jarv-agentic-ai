@@ -306,7 +306,7 @@ class CommandService:
             "send_notification", "delegate", "agent_task",
             "launch_readiness", "infra_readiness",
             "self_healing", "self_evolution", "swarm", "company_workflow",
-            "package_install", "research", "self_completion",
+            "package_install", "research", "self_completion", "workflow",
         }
         if self._detect_intent(command_text) in _controlled:
             safety = SafetyDecision(
@@ -522,6 +522,11 @@ class CommandService:
             elif intent == "package_install":
                 answer, plan_steps, selected_agents, result_extra = (
                     await self._handle_package_install(db, runtime, command_text)
+                )
+                total_tokens = 0
+            elif intent == "workflow":
+                answer, plan_steps, selected_agents, result_extra = (
+                    await self._handle_workflow(db, runtime, command_text)
                 )
                 total_tokens = 0
             elif intent == "research":
@@ -875,6 +880,12 @@ class CommandService:
         """Classify a command into a real specialized handler, or None (generic)."""
         text = command_text.lower()
         has_path = bool(_PATH_RE.search(command_text))
+        # Starting a workflow by name ("Run waiting-list growth for Plexecute"): typed or spoken, it starts the
+        # chain of missions, not one mission about it (10 November: it went to a one-off research and QA answer).
+        from app.core.councils.templates import template_named
+
+        if re.match(r"\s*(please\s+)?(run|start|begin|kick\s+off|launch)\b", text) and template_named(command_text):
+            return "workflow"
         # A written mission (introduced as one, or set out in numbered steps) is work for the
         # agents. A keyword inside one of its steps ("run pnpm install", "research", "draft")
         # must not hand the whole mission to a one-step handler.
@@ -1435,6 +1446,37 @@ class CommandService:
             f"{fix_detail.get('summary', '')}"
         )
         return answer, steps, agents, {"self_healing": fix_detail}
+
+    async def _handle_workflow(
+        self, db: AsyncSession, runtime: ToolRuntime, command_text: str
+    ) -> tuple[str, List[str], List[str], Dict[str, Any]]:
+        """Start the workflow the command names in the workspace it names: its first mission starts now and the rest
+        follow one by one, with Richard's approval before anything is sent."""
+        from app.core.councils import service as councils, templates
+
+        name = templates.template_named(command_text) or ""
+        info = templates.TEMPLATES.get(name, {})
+        steps = [f"{s['title']} ({'you' if s.get('gate') else s['specialist']})" for s in info.get("steps", [])]
+        agents = self._validate_agents(["orchestrator"])
+        workspace = (await db.execute(select(Workspace).where(Workspace.id == runtime.workspace_id))
+                     ).scalar_one_or_none() if runtime.workspace_id else None
+        if workspace is None:
+            return ("Say which product's workspace the workflow is for, e.g. \u201cRun waiting-list growth for "
+                    "Plexecute\u201d.", steps, agents, {"workflow": None})
+        try:
+            run = await councils.start(db, user_id=workspace.owner_id, workspace=workspace, template=name,
+                                       launched_by=runtime.task_id)
+        except councils.WorkflowError as exc:
+            return f"{exc}", steps, agents, {"workflow": None}
+        described = councils.describe(run)
+        first = next((s for s in described["steps"] if s["status"] == "in progress"), described["steps"][0])
+        answer = (f"**{described['title']} has started.**\n\n"
+                  + "\n".join(f"{i}. {s['title']}" + (" \u2014 waits for you on the Approvals page" if s["gate"]
+                                                        else "") for i, s in enumerate(described["steps"], 1))
+                  + f"\n\nThe first step, \u201c{first['title']}\u201d, is working now as its own mission. Each "
+                    "step starts by itself when the one before it finishes; nothing is sent or posted until you "
+                    "approve. Progress shows in the Live Operations feed, or ask \u201chow's the workflow going?\u201d.")
+        return answer, steps, agents, {"workflow": described}
 
     async def _handle_package_install(
         self, db: AsyncSession, runtime: ToolRuntime, command_text: str

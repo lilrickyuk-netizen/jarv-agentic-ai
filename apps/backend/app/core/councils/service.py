@@ -179,8 +179,10 @@ def _folder(workspace: Any) -> Optional[str]:
 
 
 async def start(db: AsyncSession, *, user_id: UUID, workspace: Any, template: str,
-                saver_factory: Optional[Callable] = None, ports: Optional[engine.Ports] = None) -> Any:
-    """Start a workflow in Richard's workspace: the product is the workspace's name, the folder its folder."""
+                saver_factory: Optional[Callable] = None, ports: Optional[engine.Ports] = None,
+                launched_by: Optional[UUID] = None) -> Any:
+    """Start a workflow in Richard's workspace: the product is the workspace's name, the folder its folder.
+    launched_by: the command task that asked for it, which is not a mission working in the folder."""
     from app.models import WorkflowRun
 
     if template not in templates.TEMPLATES:
@@ -194,7 +196,7 @@ async def start(db: AsyncSession, *, user_id: UUID, workspace: Any, template: st
     if running is not None:
         raise WorkflowError(f"“{running.title}” is already running in {workspace.name}; one workflow per "
                             "workspace at a time.")
-    busy = await _busy(db, workspace.id)
+    busy = await _busy(db, workspace.id, except_task=launched_by)
     if busy is not None:
         raise WorkflowError(f"A mission (“{(busy.title or '')[:80]}”) is working in {workspace.name} now; "
                             "start the workflow when it has finished.")
