@@ -80,7 +80,7 @@ SPECIALIST_CHECK_STEPS, SPECIALIST_CHECK_COST = 20, 0.5
 # A specialist's whole mission: one round within these, then a report of what was found (Richard, 10 November:
 # research that a chat assistant does in five minutes ran for hours over four rounds).
 SPECIALIST_STEPS, SPECIALIST_COST = 100, 2.0
-# The model a specialist's mission and its check run on: settings.OPENHANDS_RESEARCH_MODEL (GPT-6 Luna).
+# The model a specialist's mission and its check run on: settings.OPENHANDS_RESEARCH_MODEL (Haiku 5.5).
 RESEARCH = "research"
 SPECIALIST_WORK_RULE = (" Tests and checklists that earlier missions left in this folder are not yours to keep "
                         "passing: write this mission's checks in a new file named for this work, and leave the old "
@@ -655,8 +655,10 @@ class MissionTeam:
     same way."""
 
     def __init__(self, runtime, model: str, workspace_root: Optional[str], *,
-                 session_factory: Optional[Callable] = None):
+                 session_factory: Optional[Callable] = None, stuck: bool = False):
         self.runtime = runtime
+        # The last round of this mission completed nothing: its software work moves up to Opus (OPENHANDS_STUCK_MODEL).
+        self.stuck = stuck
         self.model = model
         self.workspace_root = workspace_root
         self.lead = LeadExecutor(runtime, model, workspace_root, team=self)

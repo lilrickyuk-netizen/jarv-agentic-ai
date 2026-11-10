@@ -259,7 +259,8 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
     runtime = ToolRuntime(db, task.workspace_id, task.id, operator=operator)
     # The same model that started the mission continues it.
     model = res.get("model") or getattr(settings, "DEFAULT_MODEL", "claude-sonnet-4-6")
-    executor = mission_executor(runtime, model, root)
+    # A round that completed nothing hands the software work to Opus for the next one.
+    executor = mission_executor(runtime, model, root, stuck=int(res.get("idle_rounds") or 0) >= 1)
     note = progress_note(res)
     from app.core.command import sign_off
 

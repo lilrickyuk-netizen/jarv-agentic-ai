@@ -23,7 +23,16 @@ PRICES: Dict[str, tuple] = {
     "gpt-6-sol": (2.00, 10.00, 0.20, 2.50),
     "claude-opus-5-5": (4.00, 20.00, 0.20, 5.00),
     "claude-sonnet-5-5": (2.00, 10.00, 0.10, 2.50),
+    "claude-haiku-5-5": (0.10, 0.50, 0.01, 0.125),
 }
+# Prices that change with the size of a request: past the threshold (prompt tokens, cached and written included) the
+# higher rates apply to the whole request. Haiku 5.5: five times the rate once a prompt passes 100K tokens.
+CLIFFS: Dict[str, tuple] = {
+    "claude-haiku-5-5": (100_000, (0.50, 2.50, 0.05, 0.625)),
+}
+# What a sandbox run is priced at when its requests' sizes are not known one by one: the higher rate, so a mission's
+# cost and allowance are never under-counted.
+SANDBOX_PRICES: Dict[str, tuple] = {model: rates for model, (_, rates) in CLIFFS.items()}
 
 ROLES = ("mission", "requirements", "verifier", "report")
 # Roles that are light work whatever the mission's model: the report is written from evidence already gathered.
@@ -70,6 +79,9 @@ class Usage:
         if price is None:
             self.priced = False
             return
+        cliff = CLIFFS.get(model)
+        if cliff and n["input"] + n["cached"] + n["cache_write"] > cliff[0]:
+            price = cliff[1]
         inp, out, cached, write = price
         self.cost_usd += (n["input"] * inp + n["output"] * out + n["cached"] * cached
                           + n["cache_write"] * write) / 1_000_000

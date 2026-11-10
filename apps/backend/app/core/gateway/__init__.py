@@ -45,7 +45,9 @@ def allowed_models() -> Tuple[str, ...]:
     raw = str(getattr(settings, "GATEWAY_MODELS", "") or "")
     models = [m.strip() for m in raw.split(",") if m.strip()]
     # The sandbox's own models are always allowed, even when an older .env lists the gateway's models itself.
-    for own in (getattr(settings, "OPENHANDS_MODEL", ""), getattr(settings, "OPENHANDS_SPECIALIST_MODEL", "")):
+    for own in (getattr(settings, "OPENHANDS_MODEL", ""), getattr(settings, "OPENHANDS_SPECIALIST_MODEL", ""),
+                getattr(settings, "OPENHANDS_STUCK_MODEL", ""), getattr(settings, "OPENHANDS_RESEARCH_MODEL", ""),
+                getattr(settings, "OPENHANDS_RESEARCH_FALLBACK_MODEL", "")):
         if own and own not in models:
             models.append(str(own))
     return tuple(models)

@@ -311,7 +311,8 @@ class Settings(BaseSettings):
     # Wave 6. JAI's model gateway: the services below call OpenAI only through it, with this token, inside the daily
     # spending limit and only for these models. No token turns the gateway off.
     JAI_GATEWAY_TOKEN: Optional[str] = None
-    GATEWAY_MODELS: str = "gpt-6-luna,gpt-6-sol,claude-opus-5-5,claude-sonnet-5-5,text-embedding-3-small"
+    GATEWAY_MODELS: str = ("gpt-6-luna,gpt-6-sol,claude-opus-5-5,claude-sonnet-5-5,claude-haiku-5-5,"
+                           "text-embedding-3-small")
     GATEWAY_UPSTREAM: str = "https://api.openai.com/v1"
     # Docling (the "docs" profile) turns PDFs, Word, PowerPoint, Excel and scanned pages into text.
     DOCLING_URL: str = "http://docling:5001"
@@ -351,12 +352,17 @@ class Settings(BaseSettings):
     # The sandbox's hands-on specialists (environment, builders, integration) work with Sonnet 5.5, half Opus's price;
     # the independent Verifier, and a specialist taking over a package that stopped, think with Opus 5.5 (OPENHANDS_MODEL).
     # Both go through JAI's gateway, and Sol takes over when Anthropic cannot serve them.
-    OPENHANDS_MODEL: str = "claude-opus-5-5"
+    # Richard, 10 November: speed and cost. Software (the builder and its Verifier) runs on Sonnet 5.5, half Opus's
+    # price; Opus 5.5 (OPENHANDS_STUCK_MODEL) takes over only when a round of software work completed nothing.
+    OPENHANDS_MODEL: str = "claude-sonnet-5-5"
+    OPENHANDS_STUCK_MODEL: str = "claude-opus-5-5"
     OPENHANDS_SPECIALIST_MODEL: str = "claude-sonnet-5-5"
-    # Research, sales, marketing and writing missions (and their check) run on GPT-6 Luna, about a hundredth of Opus's
-    # price (Richard, 10 November: "it should be using Luna for tasks like that and costing me pennies"). Without an
-    # OpenAI key, or when OpenAI cannot serve it, they run on OPENHANDS_SPECIALIST_MODEL. Software stays on Opus.
-    OPENHANDS_RESEARCH_MODEL: str = "gpt-6-luna"
+    # Research, sales, marketing and writing missions (and their check) run on Haiku 5.5: Luna's price, much better at
+    # multi-step tool work. Without Anthropic, they run on OPENHANDS_RESEARCH_FALLBACK_MODEL (GPT-6 Luna), and on
+    # Sonnet when neither can serve them.
+    OPENHANDS_RESEARCH_MODEL: str = "claude-haiku-5-5"
+    OPENHANDS_RESEARCH_FALLBACK_MODEL: str = "gpt-6-luna"
+    OPENHANDS_RESEARCH_EFFORT: str = "low"
     # What one mission may spend on AI across all its rounds, re-queues included (US dollars). When it is reached the
     # mission stops, keeps its progress and reports; "carry on" starts a new allowance. 0 turns the cap off.
     MISSION_MAX_COST_USD: float = Field(default=12.0, ge=0, le=500)

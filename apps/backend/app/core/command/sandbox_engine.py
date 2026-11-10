@@ -286,23 +286,30 @@ class SandboxSpecialist:
             "parent_agent_id": str(self.team.lead_agent_id) if self.team.lead_agent_id else None})
 
     def lead_model(self) -> str:
-        """Opus 5.5: the independent Verifier, and a specialist taking over a package that stopped."""
+        """The builder's and the Verifier's model (Sonnet 5.5, settings.OPENHANDS_MODEL)."""
         return str(settings.OPENHANDS_MODEL or settings.OPENAI_MODEL)
 
     async def model(self, lead: bool = False) -> str:
-        """Sonnet 5.5 for the hands-on specialists, Opus 5.5 for the Verifier (or with lead=True), while Anthropic can
-        serve them; GPT-6 Sol when JAI has no Anthropic key or the account has run out of credit."""
+        """Sonnet 5.5 for software (the builder, its Verifier and the hands-on specialists), Opus 5.5 when a round of
+        software work completed nothing (or with lead=True), Haiku 5.5 for research and writing; GPT-6 Sol (or Luna for
+        research) when JAI has no Anthropic key or the account has run out of credit."""
         from app.core.providers.router import has_no_credit
 
         wanted = getattr(self.package, "model", None)
         if wanted == "research" and not lead:
-            # A specialist's research or writing mission: GPT-6 Luna, or Sonnet without an OpenAI key or credit.
-            chosen = str(getattr(settings, "OPENHANDS_RESEARCH_MODEL", "") or "gpt-6-luna")
-            if chosen.startswith("gpt"):
-                if settings.OPENAI_API_KEY and not await has_no_credit("openai"):
+            # A specialist's research or writing mission: Haiku 5.5, then GPT-6 Luna, then Sonnet, by who can serve it.
+            for chosen in (settings.OPENHANDS_RESEARCH_MODEL, settings.OPENHANDS_RESEARCH_FALLBACK_MODEL):
+                chosen = str(chosen or "")
+                if chosen.startswith("claude") and (settings.CLAUDE_API_KEY or settings.ANTHROPIC_API_KEY) \
+                        and not await has_no_credit("claude"):
                     return chosen
-                chosen = str(getattr(settings, "OPENHANDS_SPECIALIST_MODEL", "") or self.lead_model())
-        elif lead or wanted == "lead" or (wanted is None and (self.package.id == "VER"
+                if chosen.startswith("gpt") and settings.OPENAI_API_KEY and not await has_no_credit("openai"):
+                    return chosen
+            chosen = str(getattr(settings, "OPENHANDS_SPECIALIST_MODEL", "") or self.lead_model())
+        elif lead or (wanted == "lead" and getattr(self.team, "stuck", False)):
+            # Software work that completed nothing last round: Opus takes over.
+            chosen = str(getattr(settings, "OPENHANDS_STUCK_MODEL", "") or self.lead_model())
+        elif wanted == "lead" or (wanted is None and (self.package.id == "VER"
                                                              or self.package.specialist == "builder")):
             chosen = self.lead_model()
         elif wanted and wanted != "specialist":
@@ -329,8 +336,9 @@ class SandboxSpecialist:
             # unreachable, the other provider finishes the package.
             await asyncio.sleep(UNREACHABLE_WAIT_SECONDS)
             result = self._merge(result, await self._again(requirements, container_root, model))
-            if _unreachable(result) and (model.startswith("claude") or getattr(self.package, "model", None) == "research"):
-                fallback = (str(settings.OPENHANDS_SPECIALIST_MODEL) if not model.startswith("claude")
+            if _unreachable(result) and model.startswith("claude"):
+                fallback = (str(settings.OPENHANDS_RESEARCH_FALLBACK_MODEL)
+                            if getattr(self.package, "model", None) == "research"
                             else str(settings.OPENHANDS_FALLBACK_MODEL or settings.OPENAI_MODEL))
                 result = self._merge(result, await self._again(requirements, container_root, fallback))
                 result["answer"] = (f"({'Anthropic' if model.startswith('claude') else 'OpenAI'} could not be "
@@ -352,9 +360,13 @@ class SandboxSpecialist:
             for key in ("steps", "tokens", "cost_usd"):
                 again[key] = (again.get(key) or 0) + (result.get(key) or 0)
             return again
-        lead = self.lead_model()
-        if (not result.get("success") and self.package.id != "VER" and model != lead and lead.startswith("claude")
-                and not _no_credit(result) and await self._allowance(lead) > 0):
+        lead = str(getattr(settings, "OPENHANDS_STUCK_MODEL", "") or self.lead_model())
+        # A writer that stopped short is taken over once by Opus. The builder is not: its next round carries on, and
+        # Opus takes it only when a round completed nothing (team.stuck). Research and writing stop after their one
+        # round with an honest count, so they are never handed to Opus.
+        if (not result.get("success") and self.package.id != "VER" and self.package.specialist != "builder"
+                and getattr(self.package, "model", None) != "research" and model != lead
+                and lead.startswith("claude") and not _no_credit(result) and await self._allowance(lead) > 0):
             # The specialist stopped short: Opus takes the package over once, from the files already on disk.
             stopped = str(result.get("answer") or "")[:600]
             result = self._merge(result, await self._again(requirements, container_root, lead))
@@ -399,7 +411,7 @@ class SandboxSpecialist:
         return later
 
     async def _attempt(self, requirements: List[Dict[str, Any]], container_root: str, model: str) -> Dict[str, Any]:
-        from app.core.command.metrics import PRICES
+        from app.core.command.metrics import PRICES, SANDBOX_PRICES
 
         allowance = await self._allowance(model)
         if allowance <= 0:
@@ -408,11 +420,14 @@ class SandboxSpecialist:
         await self._register(container_root)
         from app.core.knowledge.skill_packs import sandbox_skills
 
-        price = PRICES.get(model)
+        price = SANDBOX_PRICES.get(model) or PRICES.get(model)
+        research = getattr(self.package, "model", None) == "research"
         body = {"run_id": self.run_id, "workspace": container_root, "brief": self._brief(requirements),
                 "standard": self._standard(), "model": model,
                 "provider": "anthropic" if model.startswith("claude") else "openai",
-                "reasoning_effort": getattr(self.package, "effort", None) or settings.OPENHANDS_REASONING_EFFORT,
+                # Research and writing think briefly at each step: looking up a contact page needs no deep reasoning.
+                "reasoning_effort": getattr(self.package, "effort", None) or (
+                    settings.OPENHANDS_RESEARCH_EFFORT if research else settings.OPENHANDS_REASONING_EFFORT),
                 "max_iterations": int(getattr(self.package, "max_steps", None) or settings.OPENHANDS_MAX_ITERATIONS),
                 "vision": True,  # the agent sees the stills and screenshots it opens
                 "max_cost_usd": round(max(0.05, allowance), 4),

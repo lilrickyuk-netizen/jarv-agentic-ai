@@ -156,29 +156,48 @@ def test_specialist_work_is_one_round_of_searching_not_a_software_build():
     assert team._specialist_work() is False
 
 
-def test_research_and_writing_run_on_luna_and_software_stays_on_opus(monkeypatch):
-    """Richard, 10 November: "it should be using Luna for tasks like that and costing me pennies"."""
+def test_research_runs_on_haiku_software_on_sonnet_and_opus_only_when_stuck(monkeypatch):
+    """Richard, 10 November: speed and cost. Research and writing on Haiku 5.5 (Luna when Anthropic cannot serve it),
+    software on Sonnet 5.5, Opus 5.5 only when a round of software work completed nothing."""
     import asyncio
+    from types import SimpleNamespace
 
-    from app.core.command import sandbox_engine
+    from app.core.command import metrics, sandbox_engine
     from app.core.config import settings
     from app.core.providers import router
 
-    async def no_credit(provider):
-        return False
+    no_credit = set()
 
-    monkeypatch.setattr(router, "has_no_credit", no_credit)
+    async def has_no_credit(provider):
+        return provider in no_credit
+
+    monkeypatch.setattr(router, "has_no_credit", has_no_credit)
     monkeypatch.setattr(settings, "OPENAI_API_KEY", "sk-test", raising=False)
     monkeypatch.setattr(settings, "CLAUDE_API_KEY", "ck-test", raising=False)
     team = MissionTeam.__new__(MissionTeam)
 
-    def model_of(package):
+    def model_of(package, stuck=False):
         runner = sandbox_engine.SandboxSpecialist.__new__(sandbox_engine.SandboxSpecialist)
-        runner.package = package
+        runner.package, runner.team = package, SimpleNamespace(stuck=stuck)
         return asyncio.run(runner.model())
 
     research = team._builder_package(["R1"], kind=specialist_for("Build an investor database for Plexecute"))
-    assert model_of(research) == settings.OPENHANDS_RESEARCH_MODEL == "gpt-6-luna"
-    assert model_of(team._builder_package(["R1"])) == settings.OPENHANDS_MODEL
+    software = team._builder_package(["R1"])
+    assert model_of(research) == "claude-haiku-5-5" and research.effort is None
+    assert settings.OPENHANDS_RESEARCH_EFFORT == "low"
+    assert model_of(software) == "claude-sonnet-5-5"
+    assert model_of(software, stuck=True) == "claude-opus-5-5"
+    assert model_of(research, stuck=True) == "claude-haiku-5-5"  # research is never handed to Opus
+    no_credit.add("claude")
+    assert model_of(research) == "gpt-6-luna"
     monkeypatch.setattr(settings, "OPENAI_API_KEY", None, raising=False)
-    assert model_of(research) == settings.OPENHANDS_SPECIALIST_MODEL
+    assert model_of(research) == "gpt-6-sol"  # no Anthropic credit and no OpenAI key: the general fallback
+
+    # Haiku's price, and its higher rate once a request passes 100K tokens.
+    usage = metrics.Usage()
+    usage.add({"input_tokens": 50_000, "output_tokens": 1_000}, "claude-haiku-5-5", "mission")
+    assert abs(usage.cost_usd - (50_000 * 0.10 + 1_000 * 0.50) / 1e6) < 1e-12
+    usage = metrics.Usage()
+    usage.add({"input_tokens": 120_000, "output_tokens": 1_000}, "claude-haiku-5-5", "mission")
+    assert abs(usage.cost_usd - (120_000 * 0.50 + 1_000 * 2.50) / 1e6) < 1e-12
+    assert metrics.SANDBOX_PRICES["claude-haiku-5-5"] == (0.50, 2.50, 0.05, 0.625)

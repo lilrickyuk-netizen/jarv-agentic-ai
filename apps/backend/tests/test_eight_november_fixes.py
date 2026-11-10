@@ -45,9 +45,13 @@ def test_sonnet_does_the_hands_on_work_and_opus_checks_builds_and_takes_over(mon
 
     writer = Package("P1", "api", "coding_agent", "g", [], [], [], "d")
     assert chosen(writer) == "claude-sonnet-5-5"
-    assert chosen(Package("VER", "check", "verifier", "g", [], [], [], "d")) == "claude-opus-5-5"
+    # Since 10 November software builds and checks on Sonnet; Opus takes over when a round completed nothing.
+    assert chosen(Package("VER", "check", "verifier", "g", [], [], [], "d")) == "claude-sonnet-5-5"
+    assert chosen(Package("B1", "build", "builder", "g", [], [], [], "d")) == "claude-sonnet-5-5"
+    assert chosen(Package("P1", "video", "creation", "g", [], [], [], "d", model="lead")) == "claude-sonnet-5-5"
+    team.stuck = True
     assert chosen(Package("B1", "build", "builder", "g", [], [], [], "d")) == "claude-opus-5-5"
-    assert chosen(Package("P1", "video", "creation", "g", [], [], [], "d", model="lead")) == "claude-opus-5-5"
+    assert "claude-haiku-5-5" in gateway.allowed_models() and "claude-opus-5-5" in gateway.allowed_models()
 
 
 def test_a_writer_that_stops_short_is_taken_over_once_by_opus(monkeypatch):
