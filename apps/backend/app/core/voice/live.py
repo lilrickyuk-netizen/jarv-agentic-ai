@@ -60,6 +60,16 @@ TOOLS: List[Dict[str, Any]] = [
     {"type": "function", "name": "get_mission",
      "description": "The state and result of one mission (the latest one when no id is given).",
      "parameters": {"type": "object", "properties": {"task_id": {"type": "string"}}, "additionalProperties": False}},
+    {"type": "function", "name": "correct_routing",
+     "description": "Richard says a mission went to the wrong specialist (\"that should have been the Sales Lead\", "
+                    "\"that's marketing work\"). Records it, so briefs like it go to that specialist from now on. It "
+                    "does not restart the mission: to redo it, he cancels it and sends the brief again.",
+     "parameters": {"type": "object", "properties": {
+         "specialist": {"type": "string", "enum": ["sales", "partnerships", "research", "finance", "business", "legal",
+                                                    "customer_support", "marketing", "content", "builder"],
+                        "description": "Who it should have gone to; builder means software or video."},
+         "task_id": {"type": "string", "description": "The mission's id. Omit for the latest mission."}},
+         "required": ["specialist"], "additionalProperties": False}},
     {"type": "function", "name": "cancel_mission",
      "description": "Cancel the mission in progress. Only when Richard clearly asks to stop or cancel it.",
      "parameters": {"type": "object", "properties": {"workspace": _NO_WORKSPACE}, "additionalProperties": False}},
@@ -762,6 +772,36 @@ async def _mission_named_in(db: AsyncSession, user_id: UUID, text: str) -> Optio
         if full:
             return await _mission(db, user_id, str(full))
     return await _mission(db, user_id, None)
+
+
+async def correct_routing(db: AsyncSession, user_id: UUID, specialist: str,
+                          task_id: Optional[str] = None) -> Dict[str, Any]:
+    """Richard's correction of who a mission went to: kept, so a brief like it goes to that specialist next time."""
+    from app.core.command import work_type
+    from app.core.command.mission_org import SPECIALISTS
+    from app.core.scoping import owned_workspaces
+    from app.models.task import Task
+
+    if specialist not in work_type.DESCRIBED:
+        return {"error": f"There is no specialist called {specialist!r}."}
+    query = select(Task).where(Task.workspace_id.in_(owned_workspaces(user_id)), Task.task_type != "subtask")
+    if task_id:
+        try:
+            query = query.where(Task.id == UUID(str(task_id)))
+        except ValueError:
+            return {"error": "That is not a mission id."}
+    task = (await db.execute(query.order_by(Task.created_at.desc()).limit(1))).scalars().first()
+    if task is None:
+        return {"error": "No mission found."}
+    brief = str(task.description or task.title or "")
+    try:
+        await work_type.learn(brief, specialist)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"The correction could not be kept: {exc}"}
+    role = SPECIALISTS["builder" if specialist == "builder" else specialist]["title"]
+    return {"recorded": True, "task_id": str(task.id), "specialist": role,
+            "note": f"Recorded: briefs like this one go to the {role} from now on. This mission is not restarted; "
+                    "to redo it, Richard cancels it and sends the brief again."}
 
 
 async def _mission(db: AsyncSession, user_id: UUID, task_id: Optional[str]) -> Dict[str, Any]:
@@ -1531,6 +1571,8 @@ async def run_tool(db: AsyncSession, user_id: UUID, name: str, arguments: Dict[s
         output = await _mission(db, user_id, args.get("task_id"))
     elif name == "resume_mission":
         output = await _resume(db, user_id, args.get("task_id"))
+    elif name == "correct_routing":
+        output = await correct_routing(db, user_id, str(args.get("specialist") or ""), args.get("task_id"))
     elif name == "list_approvals":
         output = await _approvals(db, user_id)
     elif name == "trace_artifact":

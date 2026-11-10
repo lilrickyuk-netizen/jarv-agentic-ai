@@ -17,6 +17,8 @@ _ENGINEERING = re.compile(
     r"\b(code|coding|codebase|repo|repository|refactor|bug|bugs|debug|compile|unit tests?|test suite|"
     r"frontend|backend|api endpoints?|database migrations?|schema migration|docker|kubernetes|deploy|deployment|"
     r"ci pipeline|github actions|typescript|python|react|next\.?js|fastapi|implement|"
+    # A product being built in phases from a specification (MYCO): software, whatever else the brief says.
+    r"phase\s*\d+|specification|mvp|prototype|"
     r"(?:build|fix|ship|write)\s+(?:the|an?|my|our)?\s*(?:app|website|site|feature|service|endpoint|component|"
     r"screen|page|integration))\b", re.I)
 
@@ -107,6 +109,139 @@ def specialist_for(brief: str) -> Optional[Dict[str, object]]:
         return {"specialist": "research", "skills": ("deep-research", "market-research"),
                 "matched": found.group(0).lower()}
     return None
+
+
+# ----- two-stage routing (Richard, 10 November: take AskRich's router) ---------------------------------------------
+# Stage 1 is the rules above: software words, then each specialist's words. When they find nothing, stage 2 asks a
+# small, cheap model to choose, with a confidence; below CONFIDENT it falls back to the document rule. A correction
+# Richard makes ("that should have been the Sales Lead") is kept and wins next time for a brief like it.
+
+CONFIDENT = 0.6
+CORRECTIONS_KEY = "routing:corrections"
+CORRECTIONS_KEPT = 200
+LEARNED_OVERLAP = 0.6
+ROUTER_SECONDS = 8.0
+# What each specialist does, for the model that chooses (and the skills it starts from).
+DESCRIBED: Dict[str, str] = {
+    "sales": "prospect and investor lists, buyers, contact details, outreach and introductions",
+    "partnerships": "partner programmes, affiliates, resellers, business development",
+    "research": "market, competitor and customer research, reports, fact-finding, tidying documents",
+    "finance": "financial models, forecasts, unit economics, pricing maths",
+    "business": "business plans, pricing strategy, go-to-market, KPIs",
+    "legal": "privacy policies, terms, contracts and other legal drafts",
+    "customer_support": "help centre, FAQs, support replies",
+    "marketing": "growth, waiting lists, newsletters, podcasts, creators, communities, campaigns, launch plans",
+    "content": "decks, posts, articles, scripts and other writing",
+    "builder": ("software: code, apps, websites, building or continuing a product from its specification or phases "
+                "(MYCO), builds, tests, deployment, and video or animation"),
+}
+_STARTING_SKILLS: Dict[str, Tuple[str, ...]] = {}
+for _name, _pattern, _skills in _KINDS:
+    _STARTING_SKILLS.setdefault(_name, _skills)
+
+
+def _words(text: str) -> set:
+    return {w for w in re.findall(r"[a-z]{3,}", (text or "").lower())}
+
+
+def _overlap(a: str, b: str) -> float:
+    x, y = _words(a), _words(b)
+    return len(x & y) / max(1, min(len(x), len(y))) if x and y else 0.0
+
+
+def _route(specialist: Optional[str], source: str, confidence: float, matched: str) -> Optional[Dict[str, object]]:
+    if not specialist or specialist == "builder":
+        return None
+    return {"specialist": specialist, "skills": _STARTING_SKILLS.get(specialist, ()), "matched": matched,
+            "source": source, "confidence": round(confidence, 2)}
+
+
+async def _redis():
+    from app.core.redis import get_redis
+
+    return await get_redis()
+
+
+async def corrections() -> List[Dict[str, str]]:
+    import json
+
+    try:
+        rows = await (await _redis()).lrange(CORRECTIONS_KEY, 0, CORRECTIONS_KEPT - 1)
+        return [json.loads(r) for r in rows]
+    except Exception:  # noqa: BLE001 - routing works without what was learned
+        return []
+
+
+async def learn(brief: str, specialist: str) -> None:
+    """Richard's correction: briefs like this one are this specialist's work ("builder" for software)."""
+    import json
+
+    if specialist not in DESCRIBED:
+        raise ValueError(f"unknown specialist {specialist!r}")
+    redis = await _redis()
+    await redis.lpush(CORRECTIONS_KEY, json.dumps({"brief": richard_brief(brief)[:2000], "specialist": specialist}))
+    await redis.ltrim(CORRECTIONS_KEY, 0, CORRECTIONS_KEPT - 1)
+
+
+async def _ask_model(text: str) -> Optional[Dict[str, object]]:
+    """Stage 2: a small model chooses the specialist, with a confidence from 0 to 1."""
+    import asyncio
+    import json
+
+    from app.core.config import settings
+    from app.core.providers.base import CompletionRequest, Message
+    from app.core.providers.router import get_router
+
+    if getattr(settings, "TESTING", False):
+        return None  # tests never spend provider credit; they stand a model in for this function
+    options = "\n".join(f"- {name}: {what}" for name, what in DESCRIBED.items())
+    prompt = (f"Which of JAI's specialists should do this piece of work?\n{options}\n\nThe brief:\n{text[:4000]}\n\n"
+              'Answer with JSON only: {"specialist": "<one name from the list>", "confidence": <0 to 1>, '
+              '"why": "<a few words>"}')
+    model = str(getattr(settings, "ROUTER_MODEL", "") or "claude-haiku-5-5")
+    response = await asyncio.wait_for(get_router().complete(CompletionRequest(
+        model=model, messages=[Message(role="user", content=prompt)], temperature=0.0, max_tokens=120)),
+        timeout=ROUTER_SECONDS)
+    found = re.search(r"\{.*\}", response.content or "", re.S)
+    if not found:
+        return None
+    answer = json.loads(found.group(0))
+    name = str(answer.get("specialist") or "").strip().lower()
+    if name not in DESCRIBED:
+        return None
+    return {"specialist": name, "confidence": float(answer.get("confidence") or 0), "why": str(answer.get("why") or "")}
+
+
+async def classify(brief: str) -> Dict[str, object]:
+    """Who does this brief: {"route": specialist_for's answer or None (the Lead Builder), "source": rules, keywords,
+    learned, model or document, "confidence", "matched"}."""
+    text = richard_brief(brief)
+    hit = _ENGINEERING.search(text) or _BUILDER_KEEPS.search(text)
+    if hit:
+        return {"route": None, "source": "rules", "confidence": 1.0, "matched": hit.group(0).lower()}
+    for specialist, pattern, skills in _KINDS:
+        found = pattern.search(text)
+        if found:
+            return {"route": _route(specialist, "keywords", 1.0, found.group(0).lower()), "source": "keywords",
+                    "confidence": 1.0, "matched": found.group(0).lower()}
+    best = max(((_overlap(text, c.get("brief", "")), c) for c in await corrections()), default=(0.0, None),
+               key=lambda pair: pair[0])
+    if best[1] is not None and best[0] >= LEARNED_OVERLAP:
+        name = str(best[1].get("specialist"))
+        return {"route": _route(name, "learned", best[0], "your earlier correction"), "source": "learned",
+                "confidence": round(best[0], 2), "matched": "your earlier correction"}
+    try:
+        chosen = await _ask_model(text)
+    except Exception:  # noqa: BLE001 - the model is a second opinion; the rules still decide without it
+        chosen = None
+    if chosen and chosen["confidence"] >= CONFIDENT:
+        why = str(chosen.get("why") or "the model's choice")
+        return {"route": _route(str(chosen["specialist"]), "model", float(chosen["confidence"]), why),
+                "source": "model", "confidence": round(float(chosen["confidence"]), 2), "matched": why}
+    route = specialist_for(text)  # the document rule, or the Lead Builder
+    return {"route": route, "source": "document" if route else "default",
+            "confidence": round(float(chosen["confidence"]), 2) if chosen else 0.0,
+            "matched": route["matched"] if route else ""}
 
 
 def first_skills(specialist: str, wanted: Tuple[str, ...]) -> List[str]:

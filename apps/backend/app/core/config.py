@@ -150,6 +150,8 @@ class Settings(BaseSettings):
     # scripts, the agents' routine analyses) runs on LIGHT_MODEL, GPT-6 Luna.
     MODEL_TIERS_ENABLED: bool = True
     LIGHT_MODEL: str = "gpt-6-luna"
+    # The small model that chooses a specialist when no rule matches a brief (command/work_type.classify).
+    ROUTER_MODEL: str = "claude-haiku-5-5"
     OPENAI_REASONING_MODEL: str = "gpt-6-sol"
 
     # Voicebox is an optional local service; the API remains disabled until

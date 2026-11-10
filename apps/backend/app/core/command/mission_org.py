@@ -657,6 +657,7 @@ class MissionTeam:
     def __init__(self, runtime, model: str, workspace_root: Optional[str], *,
                  session_factory: Optional[Callable] = None, stuck: bool = False):
         self.runtime = runtime
+        self.route: Dict[str, Any] = {}  # who the brief went to, how sure, and why (work_type.classify)
         # The last round of this mission completed nothing: its software work moves up to Opus (OPENHANDS_STUCK_MODEL).
         self.stuck = stuck
         self.model = model
@@ -735,6 +736,12 @@ class MissionTeam:
             phase=phase, usage=self.lead.usage.summary(), started_at=self._started_at, root=self.workspace_root,
             agent_said=next((p.doing for p in reversed(working) if p.doing), None))
         record.update(self.progress_extra())
+        try:
+            from app.core.command import alarms
+
+            await alarms.check(self)
+        except Exception as exc:  # noqa: BLE001 - an alarm is a notice; the mission goes on
+            logger.info(f"alarm check failed: {exc}")
         try:
             await progress.save(self.runtime.task_id, record)
         except Exception as exc:  # noqa: BLE001 - progress is a view; the work goes on
@@ -1428,14 +1435,35 @@ class MissionTeam:
                         "The builder gets the environment and skeleton green first; the writers then work on "
                         "separate paths, each integrating and testing its own change.")
             else:
-                from app.core.command.work_type import specialist_for
+                from app.core.command import alarms
+                from app.core.command.work_type import DESCRIBED, classify
 
-                kind = specialist_for(mission)
+                self.route = await classify(mission)
+                kind = self.route["route"]
                 self.packages = [self._builder_package(open_ids, kind=kind)]
+                # The routing model was asked and was unsure, and nothing matched: the builder has it by default.
+                if not kind and self.route["source"] == "default" and self.route["confidence"] > 0:
+                    await alarms.raise_once(
+                        self, "routed", "Sent to the Lead Builder: check this is software work",
+                        "Nothing in this brief was about software, and no specialist matched it"
+                        + (f" (the routing model was only {self.route['confidence']:.0%} sure)"
+                           if self.route["confidence"] else "")
+                        + ", so the Lead Builder has it. If it is research, sales, marketing or writing, cancel it "
+                        "and tell JAI which specialist it is for: JAI learns from the correction.")
+                if self.stuck:
+                    await alarms.raise_once(self, "stuck", "Last round completed nothing: Opus takes this one",
+                                            "The last round of this software work completed no requirement, so "
+                                            "Opus 5.5 does this round instead of Sonnet.", severity="info")
                 if kind:
-                    self.approach = (f"This is {SPECIALISTS[kind['specialist']]['title']} work, so that specialist "
-                                     "does it with its own skills, item by item; the independent Verifier checks "
-                                     "every requirement at the end.")
+                    why = {"keywords": f"the brief mentions \u201c{self.route.get('matched')}\u201d",
+                           "learned": "your earlier correction of a brief like this",
+                           "model": f"the routing model chose it, {self.route.get('confidence', 0):.0%} sure: "
+                                    f"{self.route.get('matched')}",
+                           "document": "it is a document to make or change, with nothing about software"
+                           }.get(str(self.route.get("source")), "")
+                    self.approach = (f"This is {SPECIALISTS[kind['specialist']]['title']} work"
+                                     + (f" ({why})" if why else "") + ", so that specialist does it with its own "
+                                     "skills; the independent Verifier checks every requirement at the end.")
             if skill is not None:
                 # The skill checks its own work (BRAG looks at its stills and runs its own gate) and Richard judges
                 # the result: a generic Verifier has neither the skill's knowledge nor his taste, and on 9 November
