@@ -172,11 +172,11 @@ def specialist_method(steps: int) -> str:
         "directories), take the names from them, then look each name up for its own page and published contact. "
         "Searching for a whole description of what you want mostly returns noise; searching a name finds its page.\n"
         "4. Write the deliverable as you go and save it after every batch of rows, so nothing is lost.\n"
-        f"5. You have about {steps} steps for the whole mission and there is no second round. Aim for the targets in "
-        "the brief; when the steps are nearly used, stop looking, finish the deliverable with what you have and say "
-        "exactly what was found against each target (for example 18 of 30 newsletters). Never pad a list to reach "
-        "a number and never guess a detail: a shorter, true list is the right result. Richard decides whether more "
-        "is worth paying for.\n"
+        f"5. You have about {steps} steps this round. Work until every target in the brief is met: do not stop early "
+        "to report a short list. Save the deliverable after every batch, so that if the steps run out first, the "
+        "next round carries on from what is saved. Report exactly what was found against each target (for example "
+        "18 of 30 newsletters). Never pad a list to reach a number and never guess a detail.\n"
+        "Do not write scripts or grep checks to test your own work: open the deliverable and read it.\n"
         "6. Before you finish, open the deliverable once and check it against each requirement.\n")
 
 
@@ -306,7 +306,11 @@ class SandboxSpecialist:
         from app.core.providers.router import has_no_credit
 
         wanted = getattr(self.package, "model", None)
-        if wanted == "research" and not lead:
+        if wanted == "research" and not lead and getattr(self.team, "stuck", False):
+            # A round of research or writing that completed nothing: the next round steps up to Sonnet (restored 10
+            # November; Opus stays for software), still within the mission's allowance.
+            chosen = self.lead_model()
+        elif wanted == "research" and not lead:
             # A specialist's research or writing mission: Haiku 5.5, then GPT-6 Luna, then Sonnet, by who can serve it.
             for chosen in (settings.OPENHANDS_RESEARCH_MODEL, settings.OPENHANDS_RESEARCH_FALLBACK_MODEL):
                 chosen = str(chosen or "")

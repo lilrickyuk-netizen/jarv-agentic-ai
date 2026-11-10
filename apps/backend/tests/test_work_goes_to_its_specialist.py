@@ -7,6 +7,7 @@ mission plans, its standard, title and saved card, and the skills the sandbox is
 from __future__ import annotations
 
 from app.core.command.mission_org import SPECIALISTS, MissionTeam, Package
+from app.core.config import settings
 from app.core.command.work_type import first_skills, specialist_for
 from app.core.knowledge.skill_packs import sandbox_skills
 
@@ -144,11 +145,13 @@ def test_specialist_work_is_one_round_of_searching_not_a_software_build():
 
     team = MissionTeam.__new__(MissionTeam)
     package = team._builder_package(["R1"], kind=specialist_for("Write the Plexecute launch plan"))
-    assert package.max_steps == mission_org.SPECIALIST_STEPS <= 100
-    assert package.max_cost == mission_org.SPECIALIST_COST <= 2.0 and package.model == mission_org.RESEARCH
+    # Restored: the builder's full step allowance per round, within the mission's spending allowance.
+    assert package.max_steps == mission_org.SPECIALIST_STEPS == settings.OPENHANDS_BUILDER_MAX_ITERATIONS
+    assert package.max_cost is None and package.model == mission_org.RESEARCH
     method = specialist_method(package.max_steps)
     assert "web_search" in method and "fetch_url" in method and "Do not write an init script, unit tests" in method
-    assert "no second round" in method and "Never pad a list" in method and "init.sh" not in method
+    assert "do not stop early" in method and "next round carries on" in method and "no second round" not in method
+    assert "Never pad a list" in method and "init.sh" not in method and "Do not write scripts" in method
     assert "init.sh" in builder_method("Carry on with MYCO Phase 1")
     team.packages = [package]
     assert team._specialist_work() is True
@@ -187,7 +190,7 @@ def test_research_runs_on_haiku_software_on_sonnet_and_opus_only_when_stuck(monk
     assert settings.OPENHANDS_RESEARCH_EFFORT == "low"
     assert model_of(software) == "claude-sonnet-5-5"
     assert model_of(software, stuck=True) == "claude-opus-5-5"
-    assert model_of(research, stuck=True) == "claude-haiku-5-5"  # research is never handed to Opus
+    assert model_of(research, stuck=True) == "claude-sonnet-5-5"  # a stuck round of research steps up to Sonnet
     no_credit.add("claude")
     assert model_of(research) == "gpt-6-luna"
     monkeypatch.setattr(settings, "OPENAI_API_KEY", None, raising=False)

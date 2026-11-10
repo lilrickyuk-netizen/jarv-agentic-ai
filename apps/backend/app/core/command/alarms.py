@@ -68,7 +68,7 @@ async def check(team: Any) -> None:
     if minutes >= SLOW_SPECIALIST_MINUTES:
         await raise_once(team, "slow", f"{role} is taking longer than expected",
                          f"This {role} mission has run for {int(minutes)} minutes; research and writing should take "
-                         "a few. It stops by itself after one round. Cancel it if it looks stuck.")
+                         "a few. It carries on round by round within its allowance. Cancel it if it looks stuck.")
     spent = float(getattr(team.lead.usage, "cost_usd", 0) or 0)
     if spent >= COSTLY_SPECIALIST_USD:
         await raise_once(team, "costly", f"{role} has spent ${spent:.2f}",

@@ -77,9 +77,10 @@ SPECIALIST_CHECK = (" Judge only this mission's requirements by opening the deli
                     "them. A target the deliverable honestly reports as not reached (18 of 30 found) is unmet, with "
                     "the count as evidence. Be brief: open the deliverable, check each requirement once, and report.")
 SPECIALIST_CHECK_STEPS, SPECIALIST_CHECK_COST = 20, 0.5
-# A specialist's whole mission: one round within these, then a report of what was found (Richard, 10 November:
-# research that a chat assistant does in five minutes ran for hours over four rounds).
-SPECIALIST_STEPS, SPECIALIST_COST = 100, 2.0
+# A specialist's round: the builder's full step allowance, within the mission's own spending allowance (restored 10
+# November, after a morning's cut to 100 steps and $2 in one round left every list mission "partial"; the hours the
+# cut was meant to stop came from scraping with Python and broken search, both since fixed).
+SPECIALIST_STEPS, SPECIALIST_COST = settings.OPENHANDS_BUILDER_MAX_ITERATIONS, None
 # The model a specialist's mission and its check run on: settings.OPENHANDS_RESEARCH_MODEL (Haiku 5.5).
 RESEARCH = "research"
 SPECIALIST_WORK_RULE = (" Tests and checklists that earlier missions left in this folder are not yours to keep "
@@ -1168,10 +1169,7 @@ class MissionTeam:
                       if not waiting else
                       "**Independent check: everything JAI can do is done and verified. Waiting for you:**\n"
                       + "\n".join(f"- {item}" for item in waiting[:20]))
-                     if verified else ("**This is what one round found.** Research and writing stop after one "
-                                       "round so they never run for hours; what is still open is listed below. Say "
-                                       "\"carry on\" if more is worth looking for.\n" if self._specialist_work()
-                                       else "") + "**Independent check: not complete yet.**\n"
+                     if verified else "**Independent check: not complete yet.**\n"
                      + "\n".join(f"- {item}" for item in unmet[:20])
                      + ("\n\n**Also waiting for you:**\n" + "\n".join(f"- {item}" for item in waiting[:10])
                         if waiting else "")))
@@ -1181,9 +1179,10 @@ class MissionTeam:
         return {
             "answer": answer, "agent_summary": summary, "report": None, "iterations": team_steps,
             "success": verified, "finished": True,
-            # A specialist's mission is one round: what it found is the result, and Richard says "carry on" if he
-            # wants more looked for. Software still goes round until it is verified.
-            "needs_continuation": not verified and not self.capped and not self._specialist_work(),
+            # Restored 10 November: a specialist's mission goes on, round after round, until it is verified or its
+            # allowance is used, as it did before research was cut to one round that morning (every list mission
+            # after that came back "partial").
+            "needs_continuation": not verified and not self.capped,
             "step_limit_reached": False,
             "verification": {"verified": verified, "unmet": unmet, "waiting_on_richard": waiting,
                              "checks": judged["checks"],
