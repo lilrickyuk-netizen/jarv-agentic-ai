@@ -708,3 +708,198 @@ def test_the_agent_and_the_independent_verifier_both_have_the_check_and_the_agen
     assert not {"write_spreadsheet", "tidy_spreadsheet", "write_file"} & set(VERIFIER_TOOLS)   # it still only looks
     assert f"{datetime.now(timezone.utc):%Y-%m-%d}" in prompt
     assert "FINISH EACH ENTRY BEFORE THE NEXT" in prompt and "PROVE IT BEFORE YOU FINISH" in prompt
+
+
+# ----- 8. contact details come from the business's own site, many at once; a mission can end cleanly ----------------
+
+def _protect(email, key=0x54):
+    return "%02x" % key + "".join("%02x" % (ord(ch) ^ key) for ch in email)
+
+
+HOME_PAGE = f"""<html><head><script type="application/ld+json">{{"@type":"Restaurant","telephone":"+44 161 234 5678",
+"contactPoint":[{{"@type":"ContactPoint","email":"mailto:bookings@luigis.co.uk"}}]}}</script>
+<script>var x="tracker@sentry.io"; var d="2026-11-14 12345678901";</script></head><body>
+<nav><a href="/menu">Menu</a><a href="/contact-us/">Contact us</a><a href="/about/our-team">Our team</a>
+<a href="https://facebook.com/luigis">Facebook</a><a href="/partners">Work with us</a><a href="/press">Press</a></nav>
+<main><h1>Welcome</h1><p>Order ref 2026 1114 2025. Sizes 100 200 300.</p></main>
+<footer>Call us on 0161 234 5678. <a class="__cf_email__" data-cfemail="{_protect('partnerships@luigis.co.uk')}">
+[email&#160;protected]</a> <img src="logo@2x.png"> hello@luigis.co.uk your@email.com</footer></body></html>"""
+CONTACT_PAGE = ('<html><body><h1>Contact</h1><p>Telephone: (020) 7946 0991</p>'
+                '<a href="mailto:press@luigis.co.uk?subject=Hi">Press office</a><a href="/investors">Investors</a>'
+                '</body></html>')
+SITE = {"https://www.luigis.co.uk": HOME_PAGE, "https://www.luigis.co.uk/contact-us/": CONTACT_PAGE,
+        "https://www.luigis.co.uk/partners": "<html><body>Partner with us.</body></html>"}
+
+
+def test_a_business_contact_details_are_read_from_the_raw_pages_of_its_own_site_and_nothing_is_guessed():
+    from app.core.internet import contacts
+
+    assert contacts.site_of("https://corporate.greggs.co.uk/investors") == "greggs.co.uk"
+    home = contacts.extract(HOME_PAGE, "https://www.luigis.co.uk/")
+    # What the page reader drops (the footer, the menu, the page's structured data) is where the details are.
+    assert home["phones"] == ["+44 161 234 5678"]                       # the footer's number is the same one
+    assert set(home["emails"]) == {"bookings@luigis.co.uk", "partnerships@luigis.co.uk", "hello@luigis.co.uk"}
+    assert home["links"]["contact"] == ["https://www.luigis.co.uk/contact-us/"]
+    assert home["links"]["partnership"] == ["https://www.luigis.co.uk/partners"]
+    assert home["links"]["leadership"] == ["https://www.luigis.co.uk/about/our-team"]
+
+    asked = []
+
+    async def fetch(url):
+        asked.append(url)
+        page = SITE.get(url) or SITE.get(url.rstrip("/"))
+        return {"ok": bool(page), "url": url, "status": 200 if page else 404, "html": page or ""}
+
+    found = _run(contacts.site_contacts("www.luigis.co.uk", fetch))
+    assert found["ok"] and found["site"] == "luigis.co.uk" and len(found["pages_read"]) == 3
+    assert all(contacts.site_of(url) == "luigis.co.uk" for url in asked)      # only its own site is read
+    assert found["email"] == "partnerships@luigis.co.uk"                      # the partnerships address first
+    assert found["phone"] == "(020) 7946 0991"                                # the contact page's before the home's
+    assert contacts.source_of(found, "phones", found["phone"]).endswith("/contact-us/")
+    assert found["contact_page"].endswith("/contact-us/") and found["partnership_page"].endswith("/partners")
+    assert found["investor_pages"] == ["https://www.luigis.co.uk/investors"]
+    quiet = {"https://quiet.com": "<html><body><p>" + "word " * 200 + "</p></body></html>"}
+
+    async def fetch_quiet(url):
+        page = quiet.get(url.rstrip("/"))
+        return {"ok": bool(page), "url": url, "status": 200 if page else 404, "html": page or ""}
+
+    nothing = _run(contacts.site_contacts("https://quiet.com", fetch_quiet))
+    assert nothing["ok"] and nothing["phone"] == "" and nothing["email"] == "" and nothing["phones"] == []
+    assert _run(contacts.site_contacts("https://down.example.org", fetch_quiet))["ok"] is False
+    assert _run(contacts.site_contacts("", fetch_quiet))["ok"] is False
+
+
+CONTACT_HEAD = ["country", "company", "website", "published phone", "published email",
+                "official partnership/contact channel", "source links", "verification date", "still to check"]
+
+
+def _contact_book():
+    return [{"name": "National Chains", "rows": [
+        list(CONTACT_HEAD),
+        ["UK", "Luigi's", "https://www.luigis.co.uk", "", "", "", "https://old", "2026-06-15", "count to confirm"],
+        ["UK", "Has All", "https://hasall.com", "020 1", "a@hasall.com", "https://hasall.com/contact", "", "", ""],
+        ["US", "No Site", "", "", "", "", "", "", ""],
+        ["US", "Quiet Co", "quiet.com", "", "", "", "", "", ""],
+        ["US", "Down Ltd", "https://down.com", "", "keep@down.com", "", "", "", ""]]},
+        {"name": "Decision-Makers", "rows": [["Company", "Decision-maker name"], ["Luigi's", "A B"]]}]
+
+
+FOUND = {
+    "luigis.co.uk": {"ok": True, "site": "luigis.co.uk", "phone": "0161 234 5678",
+                     "email": "partnerships@luigis.co.uk",
+                     "phones": [{"value": "0161 234 5678", "source": "https://www.luigis.co.uk/contact"}],
+                     "emails": [{"value": "partnerships@luigis.co.uk", "source": "https://www.luigis.co.uk"}],
+                     "partnership_page": "https://www.luigis.co.uk/partners",
+                     "contact_page": "https://www.luigis.co.uk/contact",
+                     "pages_read": ["https://www.luigis.co.uk", "https://www.luigis.co.uk/contact"],
+                     "pages_failed": []},
+    "quiet.com": {"ok": True, "site": "quiet.com", "phone": "", "email": "", "phones": [], "emails": [],
+                  "partnership_page": "", "contact_page": "https://quiet.com/contact",
+                  "pages_read": ["https://quiet.com"], "pages_failed": []},
+    "down.com": {"ok": False, "site": "down.com", "reason": "the site answered 403", "pages_read": [],
+                 "pages_failed": ["https://down.com"]},
+}
+
+
+@pytest.mark.integration
+def test_a_workbooks_contact_columns_are_filled_from_each_business_own_site_many_at_once(project, monkeypatch):  # noqa: F811
+    from pathlib import Path
+
+    from app.core.agents.workspace_ops import xlsx_read
+    from app.core.command.tool_runtime import ToolRuntime
+    from app.core.internet import contacts
+    from tests.test_repair12e3a_workspace_tools import _seed as seed_workspace
+
+    host, root = project
+    book = Path(root) / "plexecute" / "partners.xlsx"
+    read = []
+
+    async def stand_in(url, fetch=None):
+        read.append(url)
+        return dict(FOUND[contacts.site_of(url)])
+
+    monkeypatch.setattr(contacts, "site_contacts", stand_in)
+
+    async def go():
+        async with AsyncTestingSessionLocal() as db:
+            user_id, ws_id = await seed_workspace(db, host)
+            runtime = ToolRuntime(db, ws_id, None, operator="agent:partnerships", authority_level=3,
+                                  user_id=user_id)
+            runner = RoleExecutor(runtime, "gpt-6-luna", host, role="partnerships")
+            await runner._prepare_tools()
+            call = runner.toolbox.call
+            await call("write_spreadsheet", {"path": "plexecute/partners.xlsx", "sheets": _contact_book()})
+            first = await call("fill_contacts", {"path": "plexecute/partners.xlsx"})
+            again = await call("fill_contacts", {"path": "plexecute/partners.xlsx"})
+            one = await call("find_contacts", {"url": "https://www.luigis.co.uk"})
+            return first, again, one, list(runtime.calls)
+
+    first, again, one, calls = _run(go())
+    rows = xlsx_read(book.read_bytes())[0]["rows"]
+    today = datetime.now(timezone.utc).date().isoformat()
+
+    def cell(row, heading):
+        index = CONTACT_HEAD.index(heading)
+        return str(rows[row][index]) if index < len(rows[row]) else ""
+
+    # Only rows with a website and an empty contact cell were tried, each site once.
+    assert sorted(read[:3]) == ["https://down.com", "https://quiet.com", "https://www.luigis.co.uk"]
+    assert first["success"] and first["rows_tried"] == 3 and first["phone_filled"] == 1
+    assert first["email_filled"] == 1 and first["channel_filled"] == 2 and first["rows_left"] == 0
+    assert first["sites_publishing_neither"] == ["Quiet Co"] and "Down Ltd" in first["could_not_be_read"][0]
+    assert cell(1, "published phone") == "0161 234 5678" and cell(1, "published email") == "partnerships@luigis.co.uk"
+    assert cell(1, "official partnership/contact channel") == "https://www.luigis.co.uk/partners"
+    assert cell(1, "source links").startswith("https://old | https://www.luigis.co.uk/contact")
+    assert cell(1, "verification date") == today and cell(1, "still to check") == "count to confirm"
+    assert cell(2, "published phone") == "020 1" and cell(2, "published email") == "a@hasall.com"   # never changed
+    assert cell(4, "published phone") == "" and "not published on its own site: phone or email" in cell(4, "still to check")
+    assert cell(5, "published email") == "keep@down.com" and "could not be read" in cell(5, "still to check")
+    assert "published phone 2 of 5" in first["facts"]
+    assert again["rows_tried"] == 0                                    # a row that was tried is not tried again
+    assert one["success"] and one["phone"] == "0161 234 5678"
+    assert list((Path(root) / ".jai" / "backups").glob("partners-*.xlsx"))
+    searches = [c for c in calls if c.get("tool") == "find_contacts"]
+    assert len(searches) == 4 and "1 phone(s), 1 email(s)" in " ".join(c["summary"] for c in searches)
+    saved = [c for c in calls if c.get("tool") == "write_file"][-1]
+    assert "contacts for 3 businesses from their own sites: phone filled in 1" in saved["summary"]
+    for tool in ("fill_contacts", "find_contacts"):
+        assert tool in role_tools("partnerships")
+
+
+def test_a_roles_agent_ends_cleanly_only_when_it_names_everything_left_and_the_report_says_so():
+    from app.core.command.agent_executor import AgentExecutor, evidence_calls
+    from app.core.command.continuation import settled_reason
+    from app.core.synthesis.report import build_ledger, check
+
+    executor = _role_executor([{"id": "R1", "status": "done"}, {"id": "R19", "status": "open", "text": "contacts"},
+                               {"id": "R10", "status": "waiting", "text": "people"}], 40)
+    ruled_out = "Needs contact research, which this request ruled out."
+    assert not executor._settles({"success": False})                                   # stopping short, as before
+    assert not executor._settles({"remaining": [{"id": "R19", "why": ruled_out}]})     # R10 is not accounted for
+    assert not executor._settles({"remaining": [{"id": "R19", "why": "hard"}, {"id": "R10", "why": ruled_out}]})
+    assert executor._settles({"remaining": [{"id": "r19", "why": ruled_out}, {"id": "R10", "why": ruled_out}]})
+    assert executor.requirements[1]["left"] == ruled_out and "left" not in executor.requirements[0]
+    assert AgentExecutor._settles(executor, {"remaining": [{"id": "R19", "why": ruled_out}]}) is False
+    reason = settled_reason(executor.requirements)
+    assert reason.startswith("Finished what this request covers (1 requirements done). 2 left open")
+    assert "R19: Needs contact research" in reason
+    # The report: a check of the workbook is evidence, in full; what was left is reported open, with its reason.
+    passed = ("2 of 3 checks passed; not passed: 7 of 124 rows have published phone filled in. PASSED: 124 of 124 "
+              "rows have country as one of UK, US; 27 rows where country is UK (at least 20 asked)" + " x" * 300)
+    earlier = {"tool": "check_spreadsheet", "inputs": {"path": "p.xlsx"}, "success": True, "summary": "1 of 1 passed"}
+    latest = {"tool": "check_spreadsheet", "inputs": {"path": "p.xlsx"}, "success": True, "summary": passed}
+    trail = evidence_calls([earlier], [latest])
+    assert len(trail) == 2                                              # each different check stays as evidence
+    ledger = build_ledger(trail)
+    assert "PASSED: 124 of 124 rows have country" in ledger[1]["summary"] and len(ledger[1]["summary"]) > 600
+    requirements = [{"id": "R6", "text": "country", "status": "done", "evidence": "check passed"},
+                    dict(executor.requirements[1]), {"id": "R7", "text": "priority", "status": "open"}]
+    report = check({"overall": "", "items": [
+        {"requirement": "R6", "status": "done", "statement": "All 124 rows are UK or US.", "evidence": ["E2"]},
+        {"requirement": "R19", "status": "open", "statement": "", "evidence": []},
+        {"requirement": "R7", "status": "open", "statement": "", "evidence": []}]}, requirements, ledger, None, None)
+    by_id = {item["id"]: item for item in report["items"]}
+    assert by_id["R6"]["status"] == "done"
+    assert by_id["R19"]["status"] == "open" and by_id["R19"]["note"] == f"Left open: {ruled_out}"
+    assert by_id["R7"]["status"] == "not shown"                         # no evidence and no reason: still not shown

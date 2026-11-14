@@ -180,6 +180,15 @@ def round_progressed(before, after, calls) -> bool:
     return round_changed_workspace(calls)
 
 
+def settled_reason(requirements) -> str:
+    """Why a mission that ended by naming what is left is not complete, in a line Richard can act on."""
+    left = [r for r in requirements or [] if isinstance(r, dict) and r.get("status") != "done"]
+    done = len([r for r in requirements or [] if isinstance(r, dict)]) - len(left)
+    named = "; ".join(f"{r.get('id')}: {str(r.get('left') or 'left open')[:110]}" for r in left[:6])
+    return (f"Finished what this request covers ({done} requirements done). {len(left)} left open, each with its "
+            f"reason: {named}" + (" ..." if len(left) > 6 else "") + ". Ask for what is left as its own request.")
+
+
 def after_round(outcome: str, reason, changed: bool, idle_before: int):
     """The outcome of a round once idle rounds are counted: (outcome, reason, idle rounds so far)."""
     idle = 0 if changed else int(idle_before or 0) + 1
@@ -341,6 +350,8 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
         outcome, reason = lifecycle.BLOCKED, sign_off.reason(sign_off.waiting(result))
     elif result["success"]:
         outcome, reason = lifecycle.COMPLETED, None
+    elif result.get("settled"):
+        outcome, reason = lifecycle.PARTIAL, settled_reason(result.get("requirements"))
     elif result.get("answer"):
         outcome, reason = lifecycle.PARTIAL, "Continued and produced output but could not verify full success."
     else:
@@ -372,6 +383,9 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
         "final_status_reason": reason,
         "idle_rounds": idle,
         "verification": result.get("verification"),
+        "settled": bool(result.get("settled")),
+        "role": result.get("role") or res.get("role"),
+        "learning": result.get("learning") or res.get("learning"),
         "requirements": result.get("requirements") or res.get("requirements"),
         "report": result.get("report"),
         "agent_summary": result.get("agent_summary"),

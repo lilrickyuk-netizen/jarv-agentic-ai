@@ -102,6 +102,7 @@ TOOL_POLICIES: Dict[str, ToolPolicy] = {p.tool_id: p for p in [
                hard_boundary_reason=("Sending real (non-dry-run) messages from Richard's "
                                      "accounts is a hard boundary.")),
     ToolPolicy("fetch_url", "network_read", RISK_LOW, 1),
+    ToolPolicy("find_contacts", "network_read", RISK_LOW, 1),
     ToolPolicy("web_search", "network_read", RISK_LOW, 1),
     ToolPolicy("research_web", "network_read", RISK_LOW, 1),
     ToolPolicy("generate_image", "write", RISK_LOW, 2, workspace_scope_required=True),

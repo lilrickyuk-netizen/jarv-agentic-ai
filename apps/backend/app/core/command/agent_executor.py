@@ -87,6 +87,12 @@ _FINISH = {
             "summary": {"type": "string"},
             "success": {"type": "boolean",
                         "description": "true only when every part of the mission is done and verified"},
+            "remaining": {"type": "array", "description": (
+                "With success false, when you have done everything this request covers: every requirement still "
+                "open, each with why it is left (it needs work this request ruled out, a decision or access only "
+                "Richard can give, or a fact that is not published anywhere you may look)."),
+                "items": {"type": "object", "properties": {"id": {"type": "string"}, "why": {"type": "string"}},
+                          "required": ["id", "why"]}},
         },
         "required": ["summary", "success"],
     },
@@ -242,6 +248,8 @@ def evidence_calls(earlier: Optional[List[Dict[str, Any]]], current: List[Dict[s
         target = inputs.get("command") or inputs.get("path") or inputs.get("destination") or inputs.get("query")
         if str(call.get("summary") or "").startswith("paused for approval"):
             return None
+        if call.get("tool") == "check_spreadsheet":  # each different check of a workbook is its own evidence
+            return (call.get("tool"), str(target)[:300], str(call.get("summary") or "")[:400])
         return (call.get("tool"), str(target)[:300]) if target else None
 
     calls = [c for c in list(earlier or []) + list(current or []) if isinstance(c, dict)]
@@ -462,6 +470,12 @@ class AgentExecutor:
         reply ends the mission (the base mission; a role's agent is sent back to work, see role_mission)."""
         return None
 
+    def _settles(self, args: Dict[str, Any]) -> bool:
+        """Whether a finish that does not claim success ends the mission cleanly: the agent did all the request
+        covers and named what is left, with reasons. The base mission never does (it works until done or blocked);
+        a role's agent can (see role_mission)."""
+        return False
+
     def _not_finished(self, remaining: int) -> str:
         """What the agent is told when it stops short with nothing in its way (a role's agent is told in its own
         trade's terms; see role_mission)."""
@@ -562,6 +576,7 @@ class AgentExecutor:
         final_summary = ""
         success = True
         finished = False
+        settled = False  # the agent did all the request covers and named, with reasons, what is left
         last_tool = None
         continuation = start_continuation
         total_budget = steps_per_round * (max_continuations + 1)
@@ -656,7 +671,8 @@ class AgentExecutor:
                 elif call["name"] == "finish":
                     gave_up = call["args"].get("success") is not True
                     remaining = total_budget - self.iterations
-                    if gave_up and remaining > 0 and refused_stops < MAX_REFUSED_STOPS \
+                    settled = gave_up and self._settles(call["args"])
+                    if gave_up and not settled and remaining > 0 and refused_stops < MAX_REFUSED_STOPS \
                             and not _blocked_or_waiting(self.runtime.calls):
                         # Stopping short with nothing in the way is not an outcome: carry on.
                         refused_stops += 1
@@ -692,7 +708,7 @@ class AgentExecutor:
 
         # A mission never accepts itself: when it says it is done, an independent check decides.
         verification: Optional[Dict[str, Any]] = None
-        if finished and success and verify:
+        if finished and verify and (success or settled):
             await self._progress("independent check", continuation, total_budget)
             verification = await self.verify(mission, final_summary)
             if not verification["verified"]:
@@ -700,8 +716,10 @@ class AgentExecutor:
                 unmet = verification.get("unmet") or ["The independent check did not confirm the mission."]
                 final_summary += ("\n\n**Independent check: not complete yet.**\n"
                                   + "\n".join(f"- {item}" for item in unmet))
-                # The mission goes on to fix what the check found (within the automatic-round cap).
-                needs_continuation = True
+                # The mission goes on to fix what the check found (within the automatic-round cap). A mission
+                # that ended by naming what is left does not: another round would only repeat this one (14
+                # November: 204 steps and 133 minutes re-running a clean-up that was finished after 40).
+                needs_continuation = not settled
 
         # Upgrade 4: the report Richard sees is built from numbered evidence only; the agent's own words are kept
         # beside it but no longer shown as the result.
@@ -727,6 +745,7 @@ class AgentExecutor:
             "iterations": self.iterations,
             "success": success and finished,
             "finished": finished,
+            "settled": settled and finished,
             "needs_continuation": needs_continuation,
             "step_limit_reached": needs_continuation and not finished,
             "verification": verification,

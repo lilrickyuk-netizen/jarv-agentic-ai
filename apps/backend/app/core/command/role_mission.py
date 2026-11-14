@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 # What every specialist works with: files and spreadsheets in the product's folder, the web, documents, memory and
 # knowledge. No shell, builds, installs, deletes or pushes: those are the software builder's.
 TRADE_TOOLS = (
-    "list_files", "read_file", "search_files", "get_file_metadata", "write_file", "edit_file", "write_spreadsheet", "tidy_spreadsheet", "check_spreadsheet",
+    "list_files", "read_file", "search_files", "get_file_metadata", "write_file", "edit_file", "write_spreadsheet", "tidy_spreadsheet", "check_spreadsheet", "fill_contacts", "find_contacts",
     "create_folder", "move_file", "copy_file", "read_document", "web_search", "research_web", "fetch_url",
     "use_browser", "memory_search", "memory_add", "knowledge_graph_search", "knowledge_graph_add", "recall_richard",
     "read_mission_report", "consult_specialist_knowledge", "read_skill", "git_status", "git_log",
@@ -180,7 +180,10 @@ class RoleExecutor(AgentExecutor):
             "the way they say, and when part of the job is what another of your skills is for, open that skill "
             "with read_skill before doing that part. Read the product's own description in the folder first. To build a list, find "
             "round-up, directory and 'best of' pages first, take the names from them, then look each one up for "
-            "its own page and published contact. FINISH EACH ENTRY BEFORE THE NEXT: a list of names is not a "
+            "its own page and published contact. For phone numbers, email addresses and contact or partnership "
+            "pages use fill_contacts on the workbook (it reads every business's own site, many at once, and "
+            "fills the empty cells) and find_contacts for a single business: they read the menus and footers "
+            "where contact details are, which fetch_url leaves out. FINISH EACH ENTRY BEFORE THE NEXT: a list of names is not a "
             "contact list. For every business or person you add, open its own contact page (and its leadership, "
             "press or investor page when a named person is asked for) and record what it publishes (the phone "
             "number, the email address, the contact or partnership form's address, the person's name and title) "
@@ -200,6 +203,11 @@ class RoleExecutor(AgentExecutor):
             "evidence you give to requirement_status. When you change a workbook that has a Read Me or notes "
             "sheet, rewrite that sheet from the workbook as it now is (its facts and your checks), so the notes "
             "never contradict the file. "
+            "ENDING: when everything is done, call finish with success true. When you have done all that this "
+            "request covers and some requirements stay open for a reason outside it (the request ruled that work "
+            "out, only Richard can decide or give access, or no page publishes the fact), do not go round again: "
+            "call finish with success false and remaining, giving each open requirement's id and why it is left. "
+            "Repeating a step that changed nothing is never progress. "
             "Contact, send, post, publish and spend nothing: drafts and lists are for Richard to use. Never claim "
             "something was done unless a tool result in this conversation shows it. Mark each requirement with "
             "requirement_status as you meet it, and call finish when the whole job is done.")
@@ -233,6 +241,24 @@ class RoleExecutor(AgentExecutor):
                 "Finish the job instead: fix what the facts show (sheet names, duplicates, blank cells, rows "
                 "without a source), mark every requirement, and call finish. Otherwise carry on.")
 
+    def _settles(self, args: Dict[str, Any]) -> bool:
+        """A role's agent may end its mission without claiming success when it has done all this request covers
+        and gives, for EVERY requirement still open, why it is left. Each reason is kept on the requirement, the
+        independent check still runs, and the mission is reported as not finished with exactly what is left: it
+        is never shown as complete. Before this the only endings were "all done" or working until the rounds ran
+        out (14 November: a clean-up that was finished after 40 steps ran for 204)."""
+        left = args.get("remaining")
+        if not isinstance(left, list) or not left:
+            return False
+        reasons = {str(item.get("id") or "").strip().upper(): " ".join(str(item.get("why") or "").split())
+                   for item in left if isinstance(item, dict)}
+        still_open = [r for r in (self.requirements or []) if r.get("status") != "done"]
+        if not still_open or any(len(reasons.get(str(r["id"]).upper(), "")) < 15 for r in still_open):
+            return False  # an open requirement with no real reason: it is not an ending, it is stopping short
+        for requirement in still_open:
+            requirement["left"] = reasons[str(requirement["id"]).upper()][:400]
+        return True
+
     def _words_only(self, remaining: int) -> Optional[str]:
         still_open = [r["id"] for r in (self.requirements or []) if r.get("status") != "done"]
         if not still_open or remaining <= 0:
@@ -249,9 +275,10 @@ class RoleExecutor(AgentExecutor):
         return (f"Not accepted yet: nothing is blocked or waiting for approval, and you have {remaining} steps "
                 "left" + (f"; still open: {', '.join(still_open[:40])}" if still_open else "") + ". Go through "
                 "what is open against what is saved in the folder: mark what is already met with its evidence, "
-                "and do the rest (find what is missing, or fix what is there). If something truly stops you (a "
-                "hard boundary, or a sign-in, payment or decision only Richard can give), call finish again and "
-                "name it; then the rest is reported as waiting on him.")
+                "and do the rest (find what is missing, or fix what is there). If you have done everything this "
+                "request covers and what is open needs work it ruled out, a decision or access only Richard can "
+                "give, or facts no page publishes, call finish again with success false and remaining: every open "
+                "requirement's id with why it is left. That ends the mission cleanly, with what is left reported.")
 
     async def _notes(self) -> Optional[str]:
         """Richard's words about this mission, left while it works (command/steer): given to the agent once, at

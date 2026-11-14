@@ -62,6 +62,7 @@ _TOOL_AUTHORITY = {
     "write_file": 2,
     "send_notification": 4,
     "fetch_url": 1,
+    "find_contacts": 1,
     "web_search": 1,
     "research_web": 1,
     "generate_image": 2,
@@ -1259,6 +1260,32 @@ class ToolRuntime:
             await self._source_record(res.get("url", url), res.get("title", ""), "web_page",
                                       (res.get("text") or "")[:200])
         return res
+
+    async def find_contacts(self, url: str) -> Dict[str, Any]:
+        """A business's published phone numbers, email addresses and contact, partnership, leadership and press
+        pages, read from its own website (internet/contacts): the raw pages, in code, nothing guessed. Read-only,
+        gated and recorded like a page read."""
+        denied = await self._enforce("fetch_url", content=url)
+        if denied:
+            return denied
+        from app.core.internet.contacts import site_contacts
+
+        found = await site_contacts(url)
+        await self.record_contacts(url, found)
+        return {**found, "success": bool(found.get("ok"))}
+
+    async def record_contacts(self, url: str, found: Dict[str, Any]) -> None:
+        """The record of one site's contact search: what was found and every page that was read."""
+        ok = bool(found.get("ok"))
+        summary = (f"{found.get('site')}: {len(found.get('phones') or [])} phone(s), "
+                   f"{len(found.get('emails') or [])} email(s), contact page "
+                   f"{'found' if found.get('contact_page') else 'not found'}; "
+                   f"{len(found.get('pages_read') or [])} page(s) read" if ok
+                   else f"{found.get('site') or url}: {str(found.get('reason') or 'could not be read')[:120]}")
+        await self._record("find_contacts", {"url": url}, ok, summary,
+                           output={"pages_read": found.get("pages_read"), "pages_failed": found.get("pages_failed")})
+        for page in (found.get("pages_read") or [])[:6]:
+            await self._source_record(page, str(found.get("site") or ""), "web_page", "published contact details")
 
     async def check_package_registry(self, name: str, ecosystem: str = "npm") -> Dict[str, Any]:
         denied = await self._enforce("check_package_registry")

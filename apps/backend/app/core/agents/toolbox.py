@@ -76,7 +76,7 @@ ALIASES: Dict[str, str] = {
 
 CONSULT_TOOL = "consult_specialist_knowledge"
 CREATIVE_TOOLS = ("generate_image", "make_voiceover", "make_video", "social_channels", "social_draft")
-WEB_TOOLS = ("web_search", "research_web", "fetch_url", "read_mission_report")
+WEB_TOOLS = ("web_search", "research_web", "fetch_url", "find_contacts", "read_mission_report")
 TRACE_TOOL = "trace_artifact"
 # Wave 5: understanding code through Serena's language servers (read-only), offered in a folder when Serena runs.
 CODE_TOOLS = ("code_overview", "code_find_symbol", "code_references", "code_implementations", "code_diagnostics")
@@ -208,6 +208,26 @@ WORKSPACE_TOOLS: Dict[str, ToolSpec] = {
                                                              '"Website"]}]',
                              "items": {"type": "object"}}},
                 ["path", "changes"]),
+        "workspace"),
+    "find_contacts": ToolSpec(
+        "find_contacts",
+        "A business's published contact details from its own website: its phone numbers and email addresses (each "
+        "with the page it is on), its contact page, its partnership page, and its leadership, press and investor "
+        "pages. Give the business's website address. It reads the raw home page and contact pages, including the "
+        "menus and footers that fetch_url leaves out, so use this, not fetch_url, when you need a phone number or "
+        "an email. Nothing is guessed: an empty answer means the site publishes none. Read-only.",
+        _schema({"url": {"type": "string"}}, ["url"]), "workspace"),
+    "fill_contacts": ToolSpec(
+        "fill_contacts",
+        "Fill the contact columns of a workbook for many businesses at once. For every row that has a website and "
+        "an empty phone, email or contact-channel cell, it reads that business's own site (several sites side by "
+        "side) and writes in what the site publishes: phone, email, its partnership or contact page, the pages used "
+        "as sources, and today's date as the verification date; a row whose site publishes none is noted so it is "
+        "not tried again. Only empty cells are filled; nothing is guessed; the earlier copy is kept. Give path, "
+        "optionally sheets, and limit (rows this call, default 40, up to 150): call it again until its answer says "
+        "none is left. Use it before looking businesses up one by one.",
+        _schema({"path": _PATH_PROP, "sheets": {"type": "array", "items": {"type": "string"}},
+                 "limit": {"type": "integer"}, "again": {"type": "boolean"}}, ["path"]),
         "workspace"),
     "check_spreadsheet": ToolSpec(
         "check_spreadsheet",
@@ -437,7 +457,7 @@ WORKSPACE_TOOLS.update({
                                             ["memory_id"]), "workspace"),
 })
 
-_FILESYSTEM_TOOLS = {"generate_image", "make_voiceover", "make_video", "list_files", "read_file", "search_files", "scan_workspace", "write_file", "write_spreadsheet", "tidy_spreadsheet", "check_spreadsheet",
+_FILESYSTEM_TOOLS = {"generate_image", "make_voiceover", "make_video", "list_files", "read_file", "search_files", "scan_workspace", "write_file", "write_spreadsheet", "tidy_spreadsheet", "check_spreadsheet", "fill_contacts",
                      "run_command", "git_status", "git_diff", "git_log", "edit_file", "create_folder",
                      "move_file", "copy_file", "delete_file_with_boundary", "get_file_metadata",
                      "detect_workspace_type", "detect_stack", "detect_commands", "find_missing_files",
@@ -806,6 +826,8 @@ class AgentToolbox:
         if name == "fetch_url":
             return await rt.fetch_url(str(args.get("url", "")), args.get("render") if isinstance(args.get("render"),
                                                                                               bool) else None)
+        if name == "find_contacts":
+            return await rt.find_contacts(str(args.get("url", "")))
         if name == "read_mission_report":
             return await rt.read_mission_report(args.get("mission"))
         if name == "read_skill":

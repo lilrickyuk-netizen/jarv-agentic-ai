@@ -1160,6 +1160,12 @@ class CommandService:
                 "continuation_count": extra.get("continuation_count"),
                 "resume_from_step": extra.get("resume_from_step"),
                 "next": "Resume the task (POST /api/tasks/{id}/resume) to continue from the checkpoint."})
+        if intent == "agent_task" and extra.get("agent_success") is False and extra.get("settled"):
+            from app.core.command.continuation import settled_reason
+
+            return ("partial", {"reason": settled_reason(extra.get("requirements")),
+                                 "iterations": extra.get("agent_iterations"),
+                                 "next": "Ask for what is left as its own request."})
         if intent == "agent_task" and extra.get("agent_success") is False:
             return ("partial", {"reason": "Agent could not verify success.",
                                  "iterations": extra.get("agent_iterations"),
@@ -2361,6 +2367,9 @@ class CommandService:
             "metrics": result.get("metrics"),
             "agent_iterations": result["iterations"],
             "agent_success": result["success"],
+            "settled": bool(result.get("settled")),
+            "role": result.get("role"),
+            "learning": result.get("learning"),
             "agent_needs_continuation": result["needs_continuation"],
             "step_limit_reached": result["step_limit_reached"],
             "continuation_required": result["needs_continuation"],

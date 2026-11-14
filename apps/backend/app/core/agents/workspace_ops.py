@@ -1337,12 +1337,219 @@ async def check_spreadsheet(tb, args: Dict[str, Any]) -> Dict[str, Any]:
         return {"success": False, "error": f"{host} could not be read as a workbook."}
     results = check_sheets(sheets, checks[:60])
     passed = sum(1 for r in results if r["passed"])
-    failing = "; ".join(r["found"] for r in results if not r["passed"])[:500]
+    failing = "; ".join(r["found"] for r in results if not r["passed"])[:700]
+    passing = "; ".join(r["found"] for r in results if r["passed"])[:900]
+    # The record names what passed as well as what did not: it is the evidence the report and the independent
+    # check cite for a requirement about every row (14 November: only the failures were kept, so a requirement the
+    # check had confirmed was still reported as "not shown").
     await tb.runtime._record("check_spreadsheet", {"path": host, "checks": len(results)}, True,
-                             f"{passed} of {len(results)} checks passed" + (f"; not passed: {failing}" if failing
-                                                                           else ""))
+                             f"{passed} of {len(results)} checks passed"
+                             + (f"; not passed: {failing}" if failing else "")
+                             + (f". PASSED: {passing}" if passing else ""))
     return {"success": True, "path": host, "passed": passed, "not_passed": len(results) - passed,
             "results": results, "facts": xlsx_facts(sheets)}
+
+
+CONTACT_COLUMNS = {
+    "website": re.compile(r"^(?:company\s+)?(?:web\s?site|url|web\s?address|domain)\b", re.I),
+    "phone": re.compile(r"phone|telephone|\btel\b", re.I),
+    "email": re.compile(r"e-?mail", re.I),
+    "channel": re.compile(r"contact\s+channel|partnership.*(?:channel|page|contact)|contact\s+(?:page|form)", re.I),
+    "sources": re.compile(r"^source\s+links?$|^sources?$|^source\s+urls?$", re.I),
+    "date": re.compile(r"verif\w*\s+date|date\s+verified|last\s+checked|checked\s+on", re.I),
+    "gaps": re.compile(r"still\s+to\s+check", re.I),
+}
+# Written under "still to check" once a row's site has been tried, so the row is not tried again on every call.
+_TRIED = re.compile(r"own site[^;]*\(checked \d{4}-\d{2}-\d{2}\)", re.I)
+CONTACT_ROWS, CONTACT_ROWS_MOST, CONTACT_SITES_AT_ONCE, CONTACT_SITE_SECONDS = 40, 150, 6, 60
+
+
+def contact_columns(header: List[Any]) -> Dict[str, int]:
+    """Which columns of a sheet hold the website and the contact details, by their headings."""
+    found: Dict[str, int] = {}
+    for index, heading in enumerate(header):
+        text = str(heading or "").strip()
+        for kind, pattern in CONTACT_COLUMNS.items():
+            if kind not in found and pattern.search(text):
+                found[kind] = index
+                break
+    return found
+
+
+def rows_wanting_contacts(sheets: List[Dict[str, Any]], names: List[str], again: bool = False) -> List[Dict[str, Any]]:
+    """Every row that has a website and an empty phone, email or contact-channel cell: {"sheet", "row" (its index
+    in the sheet's rows), "columns", "site" (the website), "name"}. A row whose site was already found to publish
+    none is left out unless again."""
+    wanted = {_key(n) for n in names or []}
+    out: List[Dict[str, Any]] = []
+    for sheet in sheets:
+        rows = sheet["rows"]
+        if not rows or (wanted and _key(sheet["name"]) not in wanted):
+            continue
+        columns = contact_columns(rows[0])
+        if "website" not in columns or not {"phone", "email", "channel"} & set(columns):
+            continue
+        named = next((i for i, h in enumerate(rows[0]) if _NAMED.search(str(h))), 0)
+        for index, row in enumerate(rows[1:], start=1):
+            cell = lambda kind: _Tidy._cell(row, columns[kind]) if kind in columns else ""  # noqa: E731
+            site = cell("website")
+            if unfilled(site) or "." not in site or " " in site.strip():
+                continue
+            if not again and _TRIED.search(cell("gaps")):
+                continue
+            if any(kind in columns and unfilled(cell(kind)) for kind in ("phone", "email", "channel")):
+                out.append({"sheet": sheet["name"], "row": index, "columns": columns, "site": site.strip(),
+                            "name": _Tidy._cell(row, named)})
+    return out
+
+
+def write_contacts(row: List[Any], columns: Dict[str, int], found: Dict[str, Any], today: str) -> List[str]:
+    """Put what a business's site publishes into the row's EMPTY contact cells, with the pages as sources and
+    today as the verification date. Returns what was filled ("phone", "email", "channel"); when the site was read
+    and publishes neither a phone nor an email, that is noted under still to check. A cell that already holds a
+    value is never changed."""
+    from app.core.internet.contacts import source_of
+
+    filled: List[str] = []
+    used: List[str] = []
+
+    def put(kind: str, value: str, source: str) -> None:
+        if value and kind in columns and unfilled(_Tidy._cell(row, columns[kind])):
+            _Tidy._put(row, columns[kind], value)
+            filled.append(kind)
+            if source:
+                used.append(source)
+
+    put("phone", found.get("phone") or "", source_of(found, "phones", found.get("phone") or ""))
+    put("email", found.get("email") or "", source_of(found, "emails", found.get("email") or ""))
+    page = found.get("partnership_page") or found.get("contact_page") or ""
+    put("channel", page, page)
+    if filled:
+        if "sources" in columns:
+            have = _Tidy._cell(row, columns["sources"])
+            extra = [u for u in dict.fromkeys(used) if u and u not in have]
+            if extra:
+                _Tidy._put(row, columns["sources"], " | ".join(([] if unfilled(have) else [have]) + extra))
+        if "date" in columns:
+            _Tidy._put(row, columns["date"], today)
+    if "gaps" in columns:
+        still = [kind for kind in ("phone", "email") if kind in columns and unfilled(_Tidy._cell(row, columns[kind]))]
+        tried = (f"its own site could not be read (checked {today})" if not found.get("ok") else
+                 f"not published on its own site: {' or '.join(still)} (checked {today})" if still else "")
+        note = _TRIED.sub("", _Tidy._cell(row, columns["gaps"])).strip(" ;")
+        if tried:
+            _Tidy._put(row, columns["gaps"], "; ".join(part for part in ("" if unfilled(note) else note, tried)
+                                                      if part))
+    return filled
+
+
+async def fill_contacts(tb, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Fill a workbook's contact columns from each business's own website, many businesses at once.
+
+    14 November: 124 businesses, a phone number for 7 of them. Looking each one up by hand through the page reader
+    took a step a page and found nothing, because that reader drops the menus and footers where contact details
+    are; thousands of businesses were out of reach. Here the rows that lack a phone, an email or a contact channel
+    are found in code, their sites are read side by side (internet/contacts: raw pages, nothing guessed), and what
+    each site publishes is written into the row's empty cells with the pages as sources and today's date.
+
+    Each site is cleared by the same gate as a page read and recorded; the workbook write goes through the
+    file-write gate, with the earlier copy kept. Cells that already hold a value are never changed."""
+    import asyncio
+
+    from app.core.internet.contacts import site_contacts, site_of, tidy_url
+
+    host, path, refused = await _resolve(tb, args.get("path"))
+    if refused:
+        return refused
+    if path.suffix.lower() != ".xlsx" or not path.exists():
+        return {"success": False, "error": f"{host} is not an existing .xlsx workbook."}
+    denied = await _gate(tb, "write_file", host, description=f"Fill contact details in {host}")
+    if denied:
+        return denied
+    old = path.read_bytes()
+    try:
+        sheets = xlsx_read(old)
+    except Exception:  # noqa: BLE001
+        return {"success": False, "error": f"{host} could not be read as a workbook, so it was not changed."}
+    names = args.get("sheets") or []
+    names = [names] if isinstance(names, str) else list(names)
+    wanting = rows_wanting_contacts(sheets, names, bool(args.get("again")))
+    if not wanting:
+        columns = [s["name"] for s in sheets if s["rows"] and "website" in contact_columns(s["rows"][0])]
+        return {"success": True, "path": host, "rows_tried": 0, "rows_left": 0, "facts": xlsx_facts(sheets),
+                "note": ("No row with a website still has an empty phone, email or contact-channel cell." if columns
+                         else "No sheet has a website column beside a phone, email or contact-channel column.")}
+    try:
+        limit = max(1, min(int(args.get("limit") or CONTACT_ROWS), CONTACT_ROWS_MOST))
+    except (TypeError, ValueError):
+        limit = CONTACT_ROWS
+    batch = wanting[:limit]
+    for name in {item["sheet"] for item in batch}:  # a row that was tried is noted, so every sheet needs the column
+        sheet = next(s for s in sheets if s["name"] == name)
+        if "gaps" not in contact_columns(sheet["rows"][0]):
+            sheet["rows"][0].append("still to check")
+    for item in batch:
+        item["columns"] = contact_columns(next(s for s in sheets if s["name"] == item["sheet"])["rows"][0])
+    # Each site is cleared by the page-read gate, one at a time, before any is read.
+    cleared: Dict[str, str] = {}
+    refused_sites: List[str] = []
+    for item in batch:
+        site = site_of(item["site"])
+        if site in cleared or site in refused_sites:
+            continue
+        if await tb.runtime._enforce("fetch_url", content=tidy_url(item["site"])):
+            refused_sites.append(site)
+        else:
+            cleared[site] = tidy_url(item["site"])
+    gate = asyncio.Semaphore(CONTACT_SITES_AT_ONCE)
+
+    async def read(site: str, url: str):
+        async with gate:
+            try:
+                return site, await asyncio.wait_for(site_contacts(url), timeout=CONTACT_SITE_SECONDS)
+            except Exception as exc:  # noqa: BLE001 - one site that hangs does not stop the others
+                return site, {"ok": False, "site": site, "reason": f"not read: {type(exc).__name__}",
+                              "pages_read": [], "pages_failed": [url]}
+
+    found = dict(await asyncio.gather(*(read(site, url) for site, url in cleared.items())))
+    for site, url in cleared.items():  # recorded one after another: every site searched is in the mission's log
+        await tb.runtime.record_contacts(url, found[site])
+    by_name = {s["name"]: s for s in sheets}
+    today = datetime.now(timezone.utc).date().isoformat()
+    counts = {"phone": 0, "email": 0, "channel": 0}
+    nothing: List[str] = []
+    unread: List[str] = []
+    for item in batch:
+        got = found.get(site_of(item["site"])) or {"ok": False, "reason": "reading it was not allowed"}
+        if not got.get("ok"):
+            unread.append(f"{item['name']} ({str(got.get('reason') or 'could not be read')[:60]})")
+        filled = write_contacts(by_name[item["sheet"]]["rows"][item["row"]], item["columns"], got, today)
+        if not got.get("ok"):
+            continue
+        for kind in filled:
+            counts[kind] += 1
+        if not got.get("phone") and not got.get("email"):
+            nothing.append(item["name"])
+    _backup_workbook(path, old)
+    data = xlsx_bytes(sheets)
+    path.write_bytes(data)
+    left = len(rows_wanting_contacts(sheets, names))
+    rows = {s["name"]: max(0, len(s["rows"]) - 1) for s in sheets}
+    summary = (f"contacts for {len(batch)} businesses from their own sites: phone filled in {counts['phone']}, "
+               f"email in {counts['email']}, contact channel in {counts['channel']}; {len(nothing)} sites publish "
+               f"neither; {len(unread)} could not be read")
+    await tb.runtime._record("write_file", {"path": host}, True,
+                             "spreadsheet updated: " + ", ".join(f"{n} {c} rows" for n, c in rows.items())
+                             + f"; {summary}")
+    await tb.runtime._graph("record_file", host, None, operation="modified")
+    return {"success": True, "path": host, "rows_tried": len(batch), "phone_filled": counts["phone"],
+            "email_filled": counts["email"], "channel_filled": counts["channel"],
+            "sites_publishing_neither": nothing[:40], "could_not_be_read": unread[:40],
+            "rows_left": left,
+            "next": ("Call fill_contacts again for the next rows." if left > 0 else
+                     "Every row with a website has been tried. What is still empty is not published on the "
+                     "business's own site, or its site could not be read: say so, do not guess."),
+            "facts": xlsx_facts(sheets)}
 
 
 def _backup_workbook(path, old: bytes) -> None:
@@ -1414,7 +1621,7 @@ async def tidy_spreadsheet(tb, args: Dict[str, Any]) -> Dict[str, Any]:
 
 HANDLERS = {
     "write_spreadsheet": write_spreadsheet, "tidy_spreadsheet": tidy_spreadsheet,
-    "check_spreadsheet": check_spreadsheet,
+    "check_spreadsheet": check_spreadsheet, "fill_contacts": fill_contacts,
     "edit_file": edit_file, "create_folder": create_folder, "move_file": move_file, "copy_file": copy_file,
     "delete_file_with_boundary": delete_file_with_boundary, "get_file_metadata": get_file_metadata,
     "detect_workspace_type": detect_workspace_type, "detect_stack": detect_stack,

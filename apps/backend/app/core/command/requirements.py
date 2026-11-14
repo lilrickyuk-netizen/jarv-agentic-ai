@@ -162,6 +162,8 @@ def render(requirements: List[Dict[str, Any]]) -> str:
                 f"({r.get('source') or 'mission'})")
         if r.get("evidence"):
             line += f" — evidence: {r['evidence'][:200]}"
+        if r.get("left") and r.get("status") != "done":
+            line += f" — left open because: {r['left'][:200]}"
         lines.append(line)
     return "\n".join(lines)
 

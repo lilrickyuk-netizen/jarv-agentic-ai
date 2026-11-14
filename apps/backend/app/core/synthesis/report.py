@@ -59,7 +59,10 @@ _SYSTEM = (
     "requirement give its status, one plain sentence, and the ledger ids that show it. Cite only entries that "
     "really show the statement: a failed command or refused action does not show that something is done. If "
     "nothing in the ledger shows a requirement, say so and leave the evidence empty. Do not claim anything the "
-    "ledger does not show. Call write_report once.")
+    "ledger does not show. A check_spreadsheet entry checked every row of the workbook in code: a check it lists "
+    "under PASSED shows a requirement about those rows or counts is met, and one under \"not passed\" shows it is "
+    "not; cite that entry. A requirement left open with a reason is reported as open with that reason. Call "
+    "write_report once.")
 
 
 def _target(entry: Dict[str, Any]) -> str:
@@ -84,7 +87,9 @@ def build_ledger(mission_calls: Sequence[Dict[str, Any]],
                 "id": f"E{len(ledger) + 1}", "by": who, "tool": str(call.get("tool") or ""),
                 "target": _target(call), "success": bool(call.get("success")),
                 "exit_code": exit_code if isinstance(exit_code, int) else None,
-                "summary": str(call.get("summary") or "")[:200],
+                # A check of a workbook's rows says in its summary what passed and what did not: kept whole, because
+                # it is the only evidence there is for a requirement about every row.
+                "summary": str(call.get("summary") or "")[:1600 if call.get("tool") == "check_spreadsheet" else 300],
             })
     return ledger
 
@@ -161,6 +166,10 @@ def check(draft: Dict[str, Any], requirements: Sequence[Dict[str, Any]], ledger:
             status = "open"
         if r.get("status") == "waiting" and status != "done":
             status = "waiting"
+        if r.get("left") and status != "done":
+            # The agent ended the mission naming this as left, with why: that reason is what Richard is told.
+            status, note = "open", f"Left open: {str(r['left'])[:300]}"
+            statement = statement or str(r["left"])[:400]
         items.append({"id": r["id"], "text": r["text"], "source": r.get("source", ""), "status": status,
                       "statement": statement, "evidence": known if status != NOT_SHOWN else [], "note": note})
     failures = [dict(f) for f in ((hard or {}).get("findings") or [])]
@@ -241,7 +250,8 @@ async def synthesize(router, model: str, mission: str, requirements: Sequence[Di
     tokens = 0
     prompt = (f"MISSION:\n{mission[:3000]}\n\nREQUIREMENTS:\n"
               + "\n".join(f"- {r['id']} [{r.get('status', 'open')}] {r['text']}"
-                          + (f" (agent's evidence: {r['evidence'][:200]})" if r.get("evidence") else "")
+                          + (f" (agent's evidence: {r['evidence'][:400]})" if r.get("evidence") else "")
+                          + (f" (left open because: {r['left'][:300]})" if r.get("left") else "")
                           for r in requirements)
               + "\n\nEVIDENCE LEDGER:\n" + "\n".join(_spell(e) + (f" — {e['summary']}" if e["summary"] else "")
                                                    for e in ledger)
