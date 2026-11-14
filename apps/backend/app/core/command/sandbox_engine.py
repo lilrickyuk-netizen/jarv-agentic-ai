@@ -250,7 +250,7 @@ class SandboxSpecialist:
             # The playbooks and field knowledge in full, not a list it may or may not open: the specialist's, and
             # the Lead Builder's for software (Richard, 10 November: "as long as the one builder is using the
             # knowledge and skills").
-            trade = job.brief_for_specialist()
+            trade = job.brief_for_specialist(sandbox=True)
             if trade:
                 brief += "\n\n" + trade
         if requirements:

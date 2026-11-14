@@ -31,8 +31,59 @@ from app.models.task import Task
 logger = logging.getLogger(__name__)
 
 MAX_AUTO_CONTINUATIONS = 6
-PROGRESS_CHARS = 14000
+PROGRESS_CHARS = 30000
 PROGRESS_CALLS = 300
+
+
+RESEARCH_SEARCHES = 60   # the latest searches named to the next round
+RESEARCH_PAGES = 90      # and the latest pages
+
+
+def research_record(calls: Any) -> list:
+    """What a mission's earlier rounds looked up, for the agent that carries on: its searches, the pages it read
+    and the ones that refused it, the skills it opened and what each save of a workbook reported.
+
+    14 November: the record a new round was given counted only files written and shell commands, so a specialist
+    (who searches, reads pages and fills a workbook) started every round not knowing which companies and sites it
+    had already been through, searched them again and went on adding rows past its targets."""
+    calls = [c for c in (calls or []) if isinstance(c, dict)][-PROGRESS_CALLS * 3:]
+    searches: Dict[str, bool] = {}
+    pages: Dict[str, bool] = {}
+    skills: Dict[str, bool] = {}
+    saves: Dict[str, str] = {}
+    for call in calls:
+        inputs = call.get("inputs") if isinstance(call.get("inputs"), dict) else {}
+        tool, ok = call.get("tool"), bool(call.get("success"))
+        if tool in ("web_search", "research_web"):
+            asked = " ".join(str(inputs.get("query") or inputs.get("question") or "").split())[:160]
+            if asked:
+                searches.pop(asked, None)
+                searches[asked] = ok
+        elif tool in ("fetch_url", "use_browser") and inputs.get("url"):
+            url = str(inputs["url"])[:200]
+            pages[url] = pages.get(url, False) or ok
+        elif tool == "read_skill" and ok and inputs.get("name"):
+            skills[str(inputs["name"]) + (f" ({inputs['file']})" if inputs.get("file") else "")] = True
+        elif tool == "write_file" and ok and "spreadsheet" in str(call.get("summary") or ""):
+            saves[str(inputs.get("path") or "")] = " ".join(str(call.get("summary") or "").split())[:900]
+    lines: list = []
+    for path, summary in saves.items():
+        lines.append(f"The workbook {path} as last saved: {summary}")
+    if searches:
+        recent = list(searches)[-RESEARCH_SEARCHES:]
+        lines.append(f"Searches already run ({len(searches)}; do not repeat them, search something new):")
+        lines += [f"- {asked}" for asked in recent]
+    read = [url for url, ok in pages.items() if ok][-RESEARCH_PAGES:]
+    refused = [url for url, ok in pages.items() if not ok][-40:]
+    if read:
+        lines.append(f"Pages already read ({len(read)}; what they gave is in the saved files):")
+        lines += [f"- {url}" for url in read]
+    if refused:
+        lines.append("Pages that refused or failed (do not try them again; find the fact elsewhere):")
+        lines += [f"- {url}" for url in refused]
+    if skills:
+        lines.append("Skills already opened: " + ", ".join(skills))
+    return lines
 
 
 def progress_note(result: Dict[str, Any]) -> str:
@@ -62,6 +113,7 @@ def progress_note(result: Dict[str, Any]) -> str:
     if commands:
         lines.append("Commands run (latest last):")
         lines += commands[-80:]
+    lines += research_record(result.get("tool_calls"))
     verification = result.get("verification") if isinstance(result.get("verification"), dict) else {}
     if verification.get("unmet"):
         lines.append("THE INDEPENDENT CHECK FOUND THESE REQUIREMENTS NOT MET (fix each one, then verify):")
@@ -262,7 +314,11 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
     # A round that completed nothing hands the software work to Opus for the next one.
     executor = mission_executor(runtime, model, root, stuck=int(res.get("idle_rounds") or 0) >= 1)
     note = progress_note(res)
-    from app.core.command import sign_off
+    from app.core.command import sign_off, steer
+
+    said = await steer.said(task.id)
+    if said:  # what Richard told this mission while it worked still stands in its next round
+        note = (f"{note}\n\n" if note else "") + steer.standing(said)
 
     requirements = res.get("requirements") or None
     meta = dict(task.meta_data or {})

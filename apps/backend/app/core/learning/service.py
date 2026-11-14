@@ -248,6 +248,7 @@ class LearningService:
         method: str,
         evidence: List[str],
         approver: Optional[str] = None,
+        reason: Optional[str] = None,
     ) -> SelfEvolutionRecord:
         version = await self._next_version(db, key)
         for record in cluster:
@@ -273,8 +274,8 @@ class LearningService:
                        "experience_id": str(canonical.id)},
             changes=[{"field": "agent_guidance", "action": "add", "lesson_key": key}],
             trigger=method,
-            reasoning=(f"{len(evidence)} agreeing experience(s) in this workspace"
-                       if method == "evidence" else f"approved by {approver}"),
+            reasoning=reason or (f"{len(evidence)} agreeing experience(s) in this workspace"
+                                 if method == "evidence" else f"approved by {approver}"),
             expected_benefit="Agent reuses an approach that verifiably worked, or avoids one that failed.",
             requires_verification=True,
             verification_status="verified",
@@ -287,6 +288,24 @@ class LearningService:
         db.add(evolution)
         await db.flush()
         return evolution
+
+    async def verify_grounded(self, db: AsyncSession, workspace_id: UUID, record: ExperienceRecord, *,
+                              method: str, reason: str) -> bool:
+        """Activate a lesson an agent wrote after a mission (command/debrief) when it is grounded: the mission
+        passed its independent check, or the evidence the lesson names is in the mission's own tool record. The
+        same guard, versioning and rollback as every lesson: an unsafe lesson was already rejected when it was
+        recorded and never reaches here; activation is a versioned SelfEvolutionRecord, and a lesson that stops
+        working is retired by its own results. True when it was activated now."""
+        workspace_id = _as_uuid(workspace_id)
+        if record.lesson_status != "candidate" or classify_change(record.lesson_learned)[0]:
+            return False
+        cluster = [r for r in await self._cluster(db, workspace_id, record.lesson_key)
+                   if r.lesson_status != "rejected"]
+        if not cluster or any(r.lesson_status in ("verified", "retired") for r in cluster):
+            return False  # this lesson is already in use, or was retired: its own results decide, not a new copy
+        await self._activate(db, workspace_id, record.lesson_key, cluster, record, method=method,
+                             evidence=[str(record.id)], reason=reason)
+        return True
 
     async def _next_version(self, db: AsyncSession, key: str) -> int:
         rows = (await db.execute(

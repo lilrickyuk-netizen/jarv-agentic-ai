@@ -306,6 +306,12 @@ WORKSPACE_TOOLS: Dict[str, ToolSpec] = {
                                     "workspace (its findings, recommendations and evidence): give its id or its first "
                                     "eight characters, or nothing for the latest finished mission.",
                                     _schema({"mission": {"type": "string"}}), "workspace"),
+    "read_skill": ToolSpec("read_skill", "Open one of your skills in full: the playbook for a kind of work (how a "
+                           "professional does it, step by step), or one of its reference files (templates, "
+                           "checklists, worked examples). Give the skill's name; add file for a reference file "
+                           "it lists; add start to read on from where a long one stopped. Read-only.",
+                           _schema({"name": {"type": "string"}, "file": {"type": "string"},
+                                    "start": {"type": "integer"}}, ["name"]), "workspace"),
     "generate_image": ToolSpec("generate_image", "Make an image on JAI's own GPU (FLUX.1-schnell, Apache-2.0, "
                                "commercial use allowed) and save it in the workspace (assets/images/ by default), "
                                "recorded in ASSET_LICENCES.md. Describe it fully: subject, setting, style, light, "
@@ -414,7 +420,8 @@ def _offset(value: Any) -> int:
 
 def result_limit(tool: str) -> int:
     # A file or document part, and a browser page, are passed back whole.
-    return READ_RESULT_CHARS if tool in ("read_file", "read_document", "use_browser") else _RESULT_CHARS
+    whole = ("read_file", "read_document", "use_browser", "read_skill")
+    return READ_RESULT_CHARS if tool in whole else _RESULT_CHARS
 
 
 def _clip(value: Any, limit: int = _RESULT_CHARS) -> str:
@@ -759,6 +766,10 @@ class AgentToolbox:
                                                                                               bool) else None)
         if name == "read_mission_report":
             return await rt.read_mission_report(args.get("mission"))
+        if name == "read_skill":
+            role = getattr(self.agent, "role", None) or getattr(self.agent, "name", "") or ""
+            return await rt.read_skill(str(role), str(args.get("name") or ""), str(args.get("file") or ""),
+                                       int(args.get("start") or 0))
         if name == "web_search":
             return await rt.web_search(str(args.get("query", "")), int(args.get("limit") or 8),
                                        args.get("category"), args.get("time_range"))

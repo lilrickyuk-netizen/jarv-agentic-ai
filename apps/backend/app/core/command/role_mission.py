@@ -43,7 +43,7 @@ TRADE_TOOLS = (
     "list_files", "read_file", "search_files", "get_file_metadata", "write_file", "edit_file", "write_spreadsheet",
     "create_folder", "move_file", "copy_file", "read_document", "web_search", "research_web", "fetch_url",
     "use_browser", "memory_search", "memory_add", "knowledge_graph_search", "knowledge_graph_add", "recall_richard",
-    "read_mission_report", "consult_specialist_knowledge", "git_status", "git_log",
+    "read_mission_report", "consult_specialist_knowledge", "read_skill", "git_status", "git_log",
 )
 # Making images, voiceovers, videos and social drafts (drafts only: JAI never publishes).
 CREATIVE_TOOLS = ("generate_image", "make_voiceover", "make_video", "social_channels", "social_draft")
@@ -51,6 +51,7 @@ CREATIVE_ROLES = ("marketing", "content", "growth", "community")
 # The business tool groups of roles that have no business mode of their own.
 EXTRA_GROUPS = {"customer_support": ("support",), "research": (), "legal": ()}
 SAVE_EVERY = 12  # steps between reminders to save what has been found
+UNMARKED_STEPS = 18  # steps with no requirement marked before the agent is sent back to its checklist
 # Tools that act on the world from Richard's name (send, post, publish, moderate): never in a specialist's mission.
 _ACTS = ("send", "publish", "moderate", "post_")
 
@@ -156,11 +157,15 @@ class RoleExecutor(AgentExecutor):
               "entries with mode \"append\", and sheets you do not name are kept), read_file to see a workbook's "
               "rows, write_file "
               "and edit_file for documents, memory_search, recall_richard and knowledge_graph_search for what JAI "
-              "and Richard already know, consult_specialist_knowledge for your field's reference material"
+              "and Richard already know, consult_specialist_knowledge for your field's reference material, "
+              "read_skill to open any of your skills in full (its whole playbook, or one of its templates, "
+              "checklists and examples)"
             + (", generate_image, make_voiceover, make_video and social_draft for drafts (never published)"
                if self.role in CREATIVE_ROLES else "")
             + (f", and your own role's tools: {', '.join(own)}" if own else "") + ". "
-            "HOW YOU WORK: read the product's own description in the folder first. To build a list, find "
+            "HOW YOU WORK: your playbooks for this job are in your brief: they are your trade's method, so work "
+            "the way they say, and when part of the job is what another of your skills is for, open that skill "
+            "with read_skill before doing that part. Read the product's own description in the folder first. To build a list, find "
             "round-up, directory and 'best of' pages first, take the names from them, then look each one up for "
             "its own page and published contact. Open only web addresses that a search result or a page you read "
             "gave you; never type an address from memory (made-up addresses fail and waste the mission). Keep an "
@@ -176,6 +181,21 @@ class RoleExecutor(AgentExecutor):
     def _reminder(self) -> Optional[str]:
         """Every SAVE_EVERY steps: save what has been found and mark what is met (10 November: a list mission found
         a dozen creators and saved once in about 200 steps)."""
+        done = sum(1 for r in (self.requirements or []) if r.get("status") == "done")
+        if done != getattr(self, "_done_seen", None):
+            self._done_seen, self._done_step = done, self.iterations
+        quiet = self.iterations - getattr(self, "_done_step", self.iterations)
+        still_open = [r["id"] for r in (self.requirements or []) if r.get("status") != "done"]
+        if still_open and quiet and quiet % UNMARKED_STEPS == 0:
+            # 14 November: a database mission passed its row targets and went on adding rows for ten rounds with
+            # 20 of its 30 requirements still marked open; nothing made it go back to its list.
+            return (f"[YOUR CHECKLIST] You have worked {quiet} steps without marking a requirement, and "
+                    f"{len(still_open)} are still open: {', '.join(still_open[:40])}. Stop adding to the work and "
+                    "go through them now, one by one, against what is saved (read_file shows a workbook's facts: "
+                    "its sheets, row counts per country and type, rows without a source, duplicates). Mark every "
+                    "one that is already met with requirement_status and its evidence. Then do only what is still "
+                    "unmet: usually fixing what is there (sheet names, columns, duplicates, blank cells), not "
+                    "finding more. When none is open, call finish.")
         if self.iterations <= 1 or self.iterations % SAVE_EVERY:
             return None
         return ("[SAVE NOW] Before searching further, save every entry you have found since your last save "
@@ -184,6 +204,26 @@ class RoleExecutor(AgentExecutor):
                 "that each save reports with the requirements' targets: once the targets are met, stop searching. "
                 "Finish the job instead: fix what the facts show (sheet names, duplicates, blank cells, rows "
                 "without a source), mark every requirement, and call finish. Otherwise carry on.")
+
+    def _not_finished(self, remaining: int) -> str:
+        still_open = [r["id"] for r in (self.requirements or []) if r.get("status") != "done"]
+        return (f"Not accepted yet: nothing is blocked or waiting for approval, and you have {remaining} steps "
+                "left" + (f"; still open: {', '.join(still_open[:40])}" if still_open else "") + ". Go through "
+                "what is open against what is saved in the folder: mark what is already met with its evidence, "
+                "and do the rest (find what is missing, or fix what is there). If something truly stops you (a "
+                "hard boundary, or a sign-in, payment or decision only Richard can give), call finish again and "
+                "name it; then the rest is reported as waiting on him.")
+
+    async def _notes(self) -> Optional[str]:
+        """Richard's words about this mission, left while it works (command/steer): given to the agent once, at
+        its next step."""
+        from app.core.command import steer
+
+        notes = await steer.take(self.runtime.task_id)
+        if not notes:
+            return None
+        self.told = getattr(self, "told", []) + notes
+        return steer.as_message(notes)
 
     async def _over_allowance(self) -> Optional[str]:
         cap = float(getattr(settings, "ROLE_MISSION_MAX_COST_USD", 0) or 0)

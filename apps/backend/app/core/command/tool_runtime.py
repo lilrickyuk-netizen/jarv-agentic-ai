@@ -66,6 +66,7 @@ _TOOL_AUTHORITY = {
     "research_web": 1,
     "generate_image": 2,
     "read_mission_report": 1,
+    "read_skill": 1,
     "make_voiceover": 2,
     "make_video": 2,
     "social_channels": 1,
@@ -1044,6 +1045,23 @@ class ToolRuntime:
         limit = 30000
         await self._record(tool, inputs, True, f"{len(answer)} characters from the language server")
         return {"success": True, "answer": answer[:limit], "truncated": len(answer) > limit}
+
+    async def read_skill(self, role: str, name: str, file: str = "", start: int = 0) -> Dict[str, Any]:
+        """One of the agent's skills in full, or one of its reference files (command/expertise.open_skill).
+        Read-only, inside the skill packs folder, never a blocked skill; logged like every tool."""
+        denied = await self._enforce("read_skill", content=f"{name} {file}".strip())
+        if denied:
+            return denied
+        from app.core.command import expertise
+
+        try:
+            out = expertise.open_skill(role, name, file, start)
+        except Exception as exc:  # noqa: BLE001
+            out = {"success": False, "error": f"Could not open the skill: {exc}"}
+        await self._record("read_skill", {"name": name, "file": file, "start": start}, bool(out.get("success")),
+                           (f"read {out.get('skill')}/{out.get('file')} ({out.get('characters', 0):,} characters)"
+                            if out.get("success") else str(out.get("error") or "")[:200]))
+        return out
 
     async def read_mission_report(self, mission: Optional[str] = None) -> Dict[str, Any]:
         """Another mission's whole report in this workspace: the one whose id (or its first eight characters) is

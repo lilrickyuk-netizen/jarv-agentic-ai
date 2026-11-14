@@ -160,6 +160,29 @@ async def last_state(db: AsyncSession, workspace_id: Optional[UUID], current_tas
             "workspace_id": task.workspace_id}
 
 
+async def state_of(db: AsyncSession, task_id: Any, current_task_id: Optional[UUID] = None
+                   ) -> Optional[Dict[str, Any]]:
+    """The state of one named mission to carry on from, in last_state's shape, or None when it kept no requirement
+    list. Used when JAI has read the request as more work on that mission (command/understanding): a change asked
+    for after the mission finished verified still carries its list, so the finished work is kept and checked."""
+    try:
+        wanted = UUID(str(task_id))
+    except (TypeError, ValueError):
+        return None
+    if current_task_id is not None and wanted == current_task_id:
+        return None
+    task = (await db.execute(select(Task).where(Task.id == wanted))).scalar_one_or_none()
+    if task is None:
+        return None
+    result = await _state(task)
+    requirements = [r for r in (result.get("requirements") or []) if isinstance(r, dict) and r.get("id")]
+    if not requirements:
+        return None
+    return {"task_id": str(task.id), "requirements": carried(requirements, task),
+            "known": left_off(task, result, requirements), "brief": task.description or task.title or "",
+            "workspace_id": task.workspace_id}
+
+
 async def _state(task: Task) -> Dict[str, Any]:
     """A mission's final record; for one stopped or cancelled before it finished, its live progress (kept for a
     week): the requirement list with statuses and evidence, and every package's state."""
@@ -211,4 +234,10 @@ def left_off(task: Task, result: Dict[str, Any], requirements: List[Dict[str, An
         lines.append("- The Verifier found unmet: " + "; ".join(" ".join(str(u).split())[:200] for u in unmet[:8]))
     if task.error_message:
         lines.append(f"- It stopped because: {' '.join(task.error_message.split())[:300]}")
+    try:  # what it had already looked up, so the work carries on and does not start its research again
+        from app.core.command.continuation import research_record
+
+        lines += research_record(result.get("tool_calls"))
+    except Exception:  # noqa: BLE001 - the requirement list alone still carries the mission on
+        pass
     return "\n".join(lines)

@@ -8,6 +8,7 @@ the workbook reader. No model is called.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from app.core.agents.workspace_ops import xlsx_bytes, xlsx_facts, xlsx_read, xlsx_text
@@ -46,14 +47,14 @@ def test_carry_on_takes_over_the_mission_it_names_in_its_own_folder():
             db.add(Workspace(id=acceptance, owner_id=owner, name="_jai_acceptance",
                              slug=f"acc-{acceptance.hex[:8]}", description="", workspace_type="test",
                              authority_level=6, is_active=True))
+            now = datetime.now(timezone.utc)
             booking = Task(id=uuid4(), title="Booking partners", description=BOOKING, task_type="command",
-                           workspace_id=plexecute, status="partial", result=OPEN)
-            await db.commit()
+                           workspace_id=plexecute, status="partial", result=OPEN,
+                           created_at=now - timedelta(hours=2), updated_at=now - timedelta(hours=2))
             investors = Task(id=uuid4(), title="Investors", description=INVESTORS, task_type="command",
-                             workspace_id=acceptance, status="partial", result=OPEN)  # newer, other work
-            db.add_all([booking])
-            await db.commit()
-            db.add(investors)
+                             workspace_id=acceptance, status="partial", result=OPEN,  # newer, other work
+                             created_at=now - timedelta(hours=1), updated_at=now - timedelta(hours=1))
+            db.add_all([booking, investors])
             await db.commit()
             found = await last_state(db, acceptance, None, FOLLOW_UP)
             bare = await last_state(db, acceptance, None, "Carry on")

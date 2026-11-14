@@ -323,10 +323,22 @@ class CommandService:
 
         # 2) Resolve a workspace the operator owns: the one the brief is about (its folder, or its name), else the
         # one selected.
-        from app.core.command.workspace_choice import choose
+        from app.core.command import understanding
+        from app.core.command.workspace_choice import choose, folders_in
 
-        choice = await choose(db, command_text, workspace_id,
-                              user_id if isinstance(user_id, UUID) else _maybe_uuid(self.operator))
+        owner = user_id if isinstance(user_id, UUID) else _maybe_uuid(self.operator)
+        # JAI reads the request first, with Richard's workspaces and recent missions in front of it: what kind of
+        # request it is and which mission, workspace and agent it is about (14 November: a follow-up that named no
+        # folder ran in whichever workspace was selected, on another mission's checklist).
+        understood = await understanding.understand(db, command_text, owner, workspace_id)
+        choice = await choose(db, command_text, workspace_id, owner)
+        if (understood is not None and understood.sure and understood.workspace_id
+                and not folders_in(command_text)):
+            # A folder Richard types still wins; otherwise the work goes where it belongs, not where his screen is.
+            read_as = _maybe_uuid(understood.workspace_id)
+            if read_as is not None and read_as != choice.workspace_id:
+                choice.workspace_id = read_as
+                choice.note = f"This is {understood.workspace} work ({understood.why})".strip()
         ws_id = await self._resolve_workspace(db, choice.workspace_id, operator=self.operator)
 
         # 3) Create the real Task record (pending)
@@ -343,6 +355,7 @@ class CommandService:
                 "requires_approval": safety.requires_approval,
                 "safety_reason": safety.reason,
                 **({"workspace_choice": choice.note} if choice.note else {}),
+                **({"understanding": understood.as_dict()} if understood is not None else {}),
             },
             meta_data={"channel": "dashboard", "operator": self.operator,
                        "user_id": str(user_id) if user_id else None,
@@ -459,7 +472,12 @@ class CommandService:
         try:
             system_context = await self._gather_system_context(db)
 
-            intent = self._detect_intent(command_text)
+            from app.core.command import understanding
+
+            # What JAI read the request as when it came in (command/understanding); the word lists are the backup.
+            self._understood = understanding.Understanding.from_dict(
+                (task.context or {}).get("understanding") if isinstance(task.context, dict) else None)
+            intent = understanding.intent(self._detect_intent(command_text), self._understood)
             result_extra: Dict[str, Any] = {}
 
             # Retrieve relevant persistent memory BEFORE planning (BLOCKER 1).
@@ -1515,6 +1533,42 @@ class CommandService:
         except Exception as exc:  # noqa: BLE001 - it runs where it started
             logger.warning(f"mission not moved to the workspace it carries on: {exc}")
 
+    async def _tell_working_mission(self, db: AsyncSession, runtime: ToolRuntime, understood, command_text: str
+                                    ) -> Optional[tuple[str, List[str], List[str], Dict[str, Any]]]:
+        """When the mission Richard is talking about is working right now on a role's own agent: his words go to
+        that agent at its next step (command/steer), logged and audited, and no second mission starts beside it.
+        None when the mission cannot be told (it has stopped, or the software builder runs it): it is carried on."""
+        from app.core.command import steer, understanding
+        from app.models.task import Task
+
+        if not understood.mission_running:
+            return None
+        try:
+            mission = (await db.execute(select(Task).where(Task.id == UUID(str(understood.mission_id))))
+                       ).scalar_one_or_none()
+            if not await steer.can_tell(mission) or not await steer.tell(mission.id, command_text):
+                return None
+        except Exception as exc:  # noqa: BLE001 - it is carried on as a mission instead
+            logger.warning(f"the working mission could not be told: {exc}")
+            return None
+        title = understanding.agent_title(understood.specialist or "")
+        short = str(mission.id)[:8]
+        await self._feed(db, mission.workspace_id, mission.id, item_type="command", severity="info",
+                         title=f"Richard's instruction passed to the {title}",
+                         message=command_text[:500])
+        await self._audit(db, mission.workspace_id, action="mission_told", category="command",
+                          description=f"Richard's instruction given to working mission {short}",
+                          success=True, target_id=str(mission.id),
+                          metadata={"from_task": str(runtime.task_id), "understanding": understood.as_dict()})
+        answer = (f"**Passed to JAI's {title}, who is working on that mission right now (mission {short}).**\n\n"
+                  f"It reads your words at its next step and follows them from there; no second mission was "
+                  f"started. {understood.line()}\n\nAsk \u201chow is it going?\u201d to see what it does with "
+                  "them.")
+        steps = ["Understanding: " + understood.line(),
+                 f"Orchestrator: give Richard's words to the {title} on mission {short}."]
+        return answer, steps, self._validate_agents(["orchestrator", understood.specialist or "orchestrator"]), {
+            "told_mission": str(mission.id), "understanding": understood.as_dict()}
+
     async def _orchestrate(self, db: AsyncSession, runtime: ToolRuntime, command_text: str
                            ) -> Optional[tuple[str, List[str], List[str], Dict[str, Any]]]:
         """When the mission needs several agents: the Orchestrator's plan, started on the workflow engine, and the
@@ -2215,8 +2269,21 @@ class CommandService:
         from app.core.command.work_type import specialist_for
         from app.core.knowledge.skill_packs import named_skill
 
-        kind = (specialist_for(command_text) if getattr(settings, "ROLE_AGENTS_ENABLED", True)
-                and named_skill(command_text) is None and not PARALLEL_ASKED.search(command_text) else None)
+        from app.core.command import understanding
+
+        # What JAI read the request as (kept on the mission's record when it came in). When it is sure, it decides
+        # the agent and the mission carried on; the word lists are the backup.
+        understood = await understanding.of_task(db, runtime.task_id)
+        if understood is not None and not understood.sure:
+            understood = None
+        read_route = understanding.route(understood)
+        if (not getattr(settings, "ROLE_AGENTS_ENABLED", True) or named_skill(command_text) is not None
+                or PARALLEL_ASKED.search(command_text)):
+            kind = None
+        elif read_route is not None:
+            kind = read_route["route"]
+        else:
+            kind = specialist_for(command_text)
         if kind and kind.get("specialist") in SPECIALISTS:
             title = SPECIALISTS[kind["specialist"]]["title"]
             agents = self._validate_agents(["orchestrator", kind["specialist"], "verifier"])
@@ -2226,15 +2293,27 @@ class CommandService:
                 "product's folder.",
                 "Verifier: check the result against every requirement.",
             ]
-        from app.core.command.resume import last_state
+        from app.core.command.resume import last_state, state_of
 
         max_cont = 4
         known = _known_for_mission(system_context)
         carried = None
         try:  # carry on from the unfinished mission this brief is about instead of starting again
-            carried = await last_state(db, runtime.workspace_id, runtime.task_id, command_text)
+            if understood is not None and understood.kind == "follow_up" and understood.mission_id:
+                # More work on a mission that is working right now goes to its agent, in Richard's words.
+                told = await self._tell_working_mission(db, runtime, understood, command_text)
+                if told is not None:
+                    return told
+                carried = await state_of(db, understood.mission_id, runtime.task_id)
+            elif understood is None or understood.kind != "mission":
+                carried = await last_state(db, runtime.workspace_id, runtime.task_id, command_text)
         except Exception as exc:  # noqa: BLE001 - the mission starts fresh rather than not at all
             logger.warning(f"could not read the last mission's state: {exc}")
+        if carried:
+            # ...with the job as its specialist set it out and the same playbooks (command/expertise.copy_job).
+            from app.core.command import expertise
+
+            await expertise.copy_job(carried["task_id"], runtime.task_id)
         if carried and carried.get("workspace_id") and carried["workspace_id"] != runtime.workspace_id:
             # Carrying on keeps the mission's own folder (14 November: a typed "carry on" with no folder ran in
             # another workspace and could not find the workbook).
@@ -2243,8 +2322,9 @@ class CommandService:
         if carried:
             # ...and its own agent: the brief being carried on decides who does the work, not the follow-up's
             # wording (the same morning, "carry on with the booking-partners database" went to the Sales Lead).
-            original = specialist_for(carried.get("brief") or "") if getattr(
-                settings, "ROLE_AGENTS_ENABLED", True) else None
+            original = kind if read_route is not None else (
+                specialist_for(carried.get("brief") or "") if getattr(settings, "ROLE_AGENTS_ENABLED", True)
+                else None)
             if original and original.get("specialist") in SPECIALISTS:
                 title = SPECIALISTS[original["specialist"]]["title"]
                 agents = self._validate_agents(["orchestrator", original["specialist"], "verifier"])
@@ -2257,6 +2337,8 @@ class CommandService:
             steps.insert(0, f"Resume: carry on from mission {carried['task_id'][:8]} "
                             f"({sum(1 for r in carried['requirements'] if r.get('status') == 'done')} of "
                             f"{len(carried['requirements'])} requirements already done).")
+        if understood is not None:
+            steps.insert(0, "Understanding: " + understood.line())
         if not carried:
             # A mission that needs several agents is split by the Orchestrator and run step by step, each step by
             # its own agent (councils/planner); one agent's job goes on below as before.
@@ -2319,13 +2401,17 @@ class CommandService:
                               metadata={"checkpoint_id": checkpoint_id, "resume_from_step": result["resume_from_step"]})
 
         verification = result.get("verification") or {}
+        # Whose mission the report says it was: the specialist's own, or the builder's engineering run (14
+        # November: a partnerships database was reported as an "Autonomous engineering run").
+        ran = (f"{result['role'].get('title') or 'Specialist'}'s mission"
+               if isinstance(result.get("role"), dict) else "Autonomous engineering run")
         if result["needs_continuation"] and result.get("finished"):
-            head = (f"**Autonomous engineering run — the agent finished, but the independent check found "
+            head = (f"**{ran} — the agent finished, but the independent check found "
                     f"work still to do** ({result['iterations']} steps, {len(runtime.calls)} tool calls). "
                     f"JAI carries on with it automatically; checkpoint `{extra['checkpoint_id'][:8]}`.\n\n"
                     f"- Workspace: `{root}`\n\n**Progress so far:**\n")
         elif result["needs_continuation"]:
-            head = (f"**Autonomous engineering run — NEEDS CONTINUATION** "
+            head = (f"**{ran} — NEEDS CONTINUATION** "
                     f"(not complete; {result['iterations']} steps, "
                     f"{result['continuation_count']} continuations, {len(runtime.calls)} tool calls).\n\n"
                     f"- Checkpoint saved: `{extra['checkpoint_id'][:8]}` at step {result['resume_from_step']}\n"
@@ -2333,7 +2419,7 @@ class CommandService:
                     f"in the same workspace (no restart, prior work preserved).\n"
                     f"- Workspace: `{root}`\n\n**Progress so far:**\n")
         else:
-            head = (f"**Autonomous engineering run "
+            head = (f"**{ran} "
                     f"({'succeeded and independently verified' if result['success'] and verification.get('verified') else 'succeeded' if result['success'] else 'incomplete'}, "
                     f"{result['iterations']} steps, {result['continuation_count']} continuations, "
                     f"{len(runtime.calls)} tool calls).**\n\n"

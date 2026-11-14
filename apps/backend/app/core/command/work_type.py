@@ -91,7 +91,8 @@ _KINDS: List[Tuple[str, Pattern[str], Tuple[str, ...]]] = [
 # What JAI adds to Richard's brief on a later round: its own progress (the commands it ran, such as `python ...`)
 # and Richard's sign-off. On 9 November a Sales Lead mission's second round read "python" in that progress and went
 # back to the Lead Builder; only Richard's own words decide whose work it is.
-_JAI_NOTES = ("PROGRESS FROM EARLIER ROUNDS", "RICHARD HAS APPROVED THE SIGN-OFF")
+_JAI_NOTES = ("PROGRESS FROM EARLIER ROUNDS", "RICHARD HAS APPROVED THE SIGN-OFF",
+              "WHAT RICHARD SAID ABOUT THIS MISSION WHILE IT WORKED")
 
 
 def richard_brief(text: str) -> str:

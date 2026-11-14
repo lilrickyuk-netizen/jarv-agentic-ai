@@ -61,6 +61,21 @@ async def lifespan(app: FastAPI):
         except Exception as exc:  # noqa: BLE001 - startup must not fail on recovery
             logger.error(f"Mission recovery at startup failed: {exc}", exc_info=True)
 
+    # Every registered skill must have its file on this machine: say which do not, so a skill pack that did not
+    # download is seen at start-up and not found out mid-mission.
+    try:
+        from app.core.command.expertise import missing_skills
+        from app.core.knowledge.skill_packs import SKILLS
+
+        absent = missing_skills()
+        if absent:
+            logger.warning(f"Skills registered but not installed ({len(absent)} of {len(SKILLS)}): "
+                           f"{', '.join(absent[:40])}. Run scripts/skill-packs.sh to install the packs.")
+        else:
+            logger.info(f"Skills: all {len(SKILLS)} registered skills are installed")
+    except Exception as exc:  # noqa: BLE001 - startup must not fail on the check
+        logger.error(f"Skill check at startup failed: {exc}")
+
     # Log feature status
     logger.info(f"Swarm enabled: {settings.SWARM_ENABLED}")
     logger.info(f"Self-evolution enabled: {settings.SELF_EVOLUTION_ENABLED}")

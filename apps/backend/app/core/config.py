@@ -152,6 +152,11 @@ class Settings(BaseSettings):
     LIGHT_MODEL: str = "gpt-6-luna"
     # The small model that chooses a specialist when no rule matches a brief (command/work_type.classify).
     ROUTER_MODEL: str = "claude-haiku-5-5"
+    # The model that reads Richard's request before anything is decided: what kind of request it is, which mission,
+    # workspace and agent it is about (command/understanding). If it cannot be reached the router model is asked,
+    # and after that the word lists decide as before.
+    UNDERSTANDING_ENABLED: bool = True
+    UNDERSTANDING_MODEL: str = "gpt-6-luna"
     # The small model that writes the result card at the top of every mission report (command/result_card).
     CARD_MODEL: str = "claude-haiku-5-5"
     # How often (seconds) workflows are moved on when a step's mission has finished (core/councils, Celery beat).
@@ -456,6 +461,10 @@ class Settings(BaseSettings):
     ROLE_AGENT_MODEL: str = "gpt-6-luna"
     ROLE_AGENT_STUCK_MODEL: str = "claude-sonnet-5-5"
     ROLE_MISSION_MAX_COST_USD: float = Field(default=2.5, ge=0, le=100)
+    # After each round of a role's mission the agent that did it writes what it learned (command/debrief): filed
+    # under its own role, used once grounded, through the self-evolution safety guard.
+    MISSION_DEBRIEF_ENABLED: bool = True
+    DEBRIEF_MODEL: str = ""  # empty: the role agents' own model
     ROLE_STEPS_PER_ROUND: int = Field(default=15, ge=4, le=60)
     MISSION_PARALLEL_AGENTS: int = Field(default=4, ge=1, le=16)
     MISSION_MAX_PACKAGES: int = Field(default=10, ge=2, le=40)

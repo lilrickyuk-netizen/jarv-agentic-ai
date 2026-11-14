@@ -450,6 +450,20 @@ class AgentExecutor:
         """A word to the agent between steps (a role's agent is reminded to save what it has found), or None."""
         return None
 
+    def _not_finished(self, remaining: int) -> str:
+        """What the agent is told when it stops short with nothing in its way (a role's agent is told in its own
+        trade's terms; see role_mission)."""
+        return (f"Not accepted yet: nothing is blocked or waiting for approval, and you have "
+                f"{remaining} steps left. Reading is not progress: make the changes the mission "
+                f"asks for, verify them with real commands, then call finish. If something truly "
+                f"stops you (a hard boundary, or a credential or decision only Richard can give), "
+                f"call finish again and name it; then the rest is reported as waiting on him.")
+
+    async def _notes(self) -> Optional[str]:
+        """What Richard has said about this mission since the last step (command/steer), or None. A role's agent
+        reads its notes; the base mission has none."""
+        return None
+
     async def _over_allowance(self) -> Optional[str]:
         """Why the mission must stop spending now (its allowance is used), or None. The base mission has no allowance
         of its own here: its team and the daily limit guard it."""
@@ -562,7 +576,13 @@ class AgentExecutor:
                 reminder = self._reminder()
                 if reminder:
                     messages.append(Message(role="user", content=reminder))
-            self.context_trimmed += compact_messages(messages)
+            told = await self._notes()
+            if told:
+                messages.append(Message(role="user", content=told))
+            # The brief (the mission, the job, the playbooks) is not what fills a conversation: only the room the
+            # tool results take is limited, so a specialist's full playbooks do not push its findings out early.
+            brief_chars = len(messages[0].content) if messages and isinstance(messages[0].content, str) else 0
+            self.context_trimmed += compact_messages(messages, budget=CONTEXT_BUDGET_CHARS + brief_chars)
             resp = await self._model_step(router, CompletionRequest(
                 model=self.model, messages=messages, system=system,
                 tools=tools, max_tokens=settings.AGENT_MAX_OUTPUT_TOKENS, temperature=0.0,
@@ -616,12 +636,7 @@ class AgentExecutor:
                             and not _blocked_or_waiting(self.runtime.calls):
                         # Stopping short with nothing in the way is not an outcome: carry on.
                         refused_stops += 1
-                        out = {"acknowledged": False, "reason": (
-                            f"Not accepted yet: nothing is blocked or waiting for approval, and you have "
-                            f"{remaining} steps left. Reading is not progress: make the changes the mission "
-                            f"asks for, verify them with real commands, then call finish. If something truly "
-                            f"stops you (a hard boundary, or a credential or decision only Richard can give), "
-                            f"call finish again and name it; then the rest is reported as waiting on him.")}
+                        out = {"acknowledged": False, "reason": self._not_finished(remaining)}
                     else:
                         final_summary = call["args"].get("summary", "Mission complete.")
                         # A finish that does not say it succeeded is not a success.

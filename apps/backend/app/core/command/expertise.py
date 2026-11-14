@@ -34,7 +34,13 @@ from uuid import UUID, uuid4
 logger = logging.getLogger(__name__)
 
 PLAYBOOKS = 3              # skills loaded in full into the specialist's brief
-PLAYBOOK_CHARS = 7000      # of each one (its opening sections: when to use it and how the work is done)
+# How much of each one. 14 November: at 7,000 characters, 67 of the 84 playbooks installed were cut before the part
+# that says how the work is done, and the cut pointed a role's agent at a tool only the software builder has. Now
+# all but the very longest arrive whole, and the rest of any skill opens with read_skill.
+PLAYBOOK_CHARS = 24000
+SKILL_PART_CHARS = 30000   # one read_skill result
+SKILL_FILES = 40           # reference files listed for a skill
+_SKILL_TEXT = (".md", ".txt", ".csv", ".json", ".yaml", ".yml")
 FIELD_TOPICS = 4           # field-knowledge topics given in full
 MAX_RULES = 25             # standing rules shown for a workspace (most recent first)
 HISTORY_BRIEFS = 12        # recent briefs read once per workspace to learn its rules from
@@ -43,15 +49,19 @@ _LEARNED_FROM_HISTORY = "__learned_from_recent_briefs"
 
 # The fields of knowledge each specialist draws on (its own first).
 FIELDS: Dict[str, Sequence[str]] = {
-    "marketing": ("marketing", "growth", "content", "community", "partnerships"),
-    "sales": ("sales", "partnerships", "business"),
-    "partnerships": ("partnerships", "sales", "marketing"),
+    "marketing": ("marketing", "growth", "content", "community", "partnerships", "research"),
+    "sales": ("sales", "partnerships", "business", "research"),
+    "partnerships": ("partnerships", "sales", "marketing", "research"),
     "research": ("research", "business", "analytics"),
     "finance": ("finance", "business", "analytics"),
     "business": ("business", "finance", "research"),
-    "legal": ("legal",),
-    "customer_support": ("customer_support", "onboarding"),
+    "legal": ("legal", "business"),
+    "customer_support": ("customer_support", "onboarding", "content"),
     "content": ("content", "marketing", "creation"),
+    "onboarding": ("onboarding", "customer_support", "growth", "content"),
+    "community": ("community", "marketing", "content"),
+    "analytics": ("analytics", "growth", "business", "research"),
+    "growth": ("growth", "marketing", "analytics", "research"),
     # The Lead Builder takes on every engineering role, so it draws on all of their fields.
     "builder": ("coding_agent", "debugging_agent", "qa", "devops", "security", "infrastructure", "documentation",
                 "creation"),
@@ -103,24 +113,47 @@ def _skill_text(entry: Dict[str, Any]) -> str:
         return ""
 
 
-def trade_skills(specialist: str) -> List[Dict[str, Any]]:
-    """Every skill of the specialist's trade that is installed and not blocked, one per name (the ones made for its
-    missions first)."""
-    from app.core.knowledge.skill_packs import SKILLS, blocked, skill_path
+def own_skills(specialist: str) -> List[Dict[str, Any]]:
+    """The skills tagged for the specialist itself, installed and not blocked (the ones made for its missions
+    first)."""
+    from app.core.knowledge.skill_packs import SKILLS
+
+    if specialist == "builder":  # the one builder is offered every skill made for missions
+        return _usable([e for e in SKILLS if e["sandbox"]])
+    return _usable([e for e in SKILLS if specialist in e["sandbox"]] + [
+        e for e in SKILLS if specialist in e["agents"] and specialist not in e["sandbox"]])
+
+
+def _usable(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    from app.core.knowledge.skill_packs import blocked, skill_path
 
     refused = blocked()
-    if specialist == "builder":  # the one builder is offered every skill made for missions
-        mine = [e for e in SKILLS if e["sandbox"]]
-    else:
-        mine = [e for e in SKILLS if specialist in e["sandbox"]] + [
-            e for e in SKILLS if specialist in e["agents"] and specialist not in e["sandbox"]]
     out, seen = [], set()
-    for entry in mine:
+    for entry in entries:
         if entry["skill"] in seen or f"{entry['pack']}/{skill_path(entry)}" in refused:
             continue
         seen.add(entry["skill"])
         out.append(entry)
     return out
+
+
+def trade_skills(specialist: str) -> List[Dict[str, Any]]:
+    """Every skill the specialist can work from, one per name: its own first, then the skills of the trades next
+    to its own (FIELDS). 14 November: the Partnerships Lead built a contact database of businesses with five
+    skills, none of them for finding and qualifying contacts; prospecting and lead-intelligence were installed and
+    tagged for Sales only."""
+    from app.core.knowledge.skill_packs import SKILLS
+
+    mine = own_skills(specialist)
+    if specialist == "builder":
+        return mine
+    nearby = [e for field in FIELDS.get(specialist, ())[1:] for e in SKILLS
+              if field in e["sandbox"] or field in e["agents"]]
+    return _usable(mine + nearby)
+
+
+def is_own(specialist: str, name: str) -> bool:
+    return any(e["skill"] == name for e in own_skills(specialist))
 
 
 def _phrases(description: str) -> List[str]:
@@ -157,6 +190,8 @@ def choose_skills(specialist: str, work: str, starting: Sequence[str] = (), k: i
     for entry in entries:
         description = _front(_skill_text(entry)).get("description", "")
         points = score(entry, wanted, description) + (0.5 if entry["skill"] in starting else 0.0)
+        if points and specialist != "builder" and is_own(specialist, entry["skill"]):
+            points += 0.25  # between two that fit equally, the specialist's own trade
         ranked.append((points, entry["skill"]))
     ranked.sort(key=lambda item: -item[0])
     chosen = [name for points, name in ranked if points >= minimum][:k]
@@ -175,16 +210,122 @@ def catalogue(specialist: str) -> str:
     return "\n".join(lines)
 
 
-def playbook(name: str, specialist: str, chars: int = PLAYBOOK_CHARS) -> str:
+def playbook(name: str, specialist: str, chars: int = PLAYBOOK_CHARS, sandbox: Optional[bool] = None) -> str:
+    """A skill's method for the specialist's brief. sandbox says where the agent works: in the builder's sandbox the
+    rest of a skill opens with invoke_skill, on a role's own agent with read_skill (the builder is always in the
+    sandbox)."""
+    sandbox = specialist == "builder" if sandbox is None else sandbox
     for entry in trade_skills(specialist):
         if entry["skill"] == name:
             body = _body(_skill_text(entry))
             if len(body) > chars:
                 cut = body.rfind("\n## ", 0, chars)
+                # The software builder opens the rest in its sandbox; a role's agent with read_skill.
+                rest = (f"invoke_skill {name}" if sandbox
+                        else f"read_skill with name \"{name}\" and start {cut if cut > chars // 2 else chars}")
                 body = body[: cut if cut > chars // 2 else chars].rstrip() + (
-                    f"\n\n(The rest of this playbook: invoke_skill {name}.)")
+                    f"\n\n(The rest of this playbook: {rest}.)")
+            files = [] if sandbox else skill_files(entry)
+            if files:
+                body += ("\n\nThis playbook's reference files (templates, checklists, worked examples; open one "
+                         f"with read_skill, name \"{name}\" and file): " + ", ".join(files))
             return body
     return ""
+
+
+def _skill_folder(entry: Dict[str, Any]):
+    from app.core.knowledge.skill_packs import packs_dir, skill_path
+
+    return packs_dir() / entry["pack"] / skill_path(entry)
+
+
+def skill_files(entry: Dict[str, Any]) -> List[str]:
+    """A skill's reference files (its templates, checklists and examples), as paths inside the skill's folder."""
+    from app.core.knowledge.skill_packs import _SKIP_PARTS
+
+    folder = _skill_folder(entry)
+    out = []
+    try:
+        for path in sorted(folder.rglob("*")):
+            relative = path.relative_to(folder)
+            if (path.is_file() and path.name != "SKILL.md" and path.suffix.lower() in _SKILL_TEXT
+                    and not _SKIP_PARTS & set(relative.parts)):
+                out.append(relative.as_posix())
+    except OSError:
+        return []
+    return out[:SKILL_FILES]
+
+
+def others(specialist: str, loaded: Sequence[str]) -> str:
+    """The specialist's other skills, one line each (the ones not already given in full)."""
+    lines = []
+    for entry in trade_skills(specialist):
+        if entry["skill"] in loaded:
+            continue
+        description = _front(_skill_text(entry)).get("description", "")
+        if not description:
+            continue  # not installed: nothing to open
+        first = re.split(r"(?<=[.!?])\s", description, maxsplit=1)[0]
+        lines.append(f"- {entry['skill']}: {first[:160]}")
+    return "\n".join(lines)
+
+
+def open_skill(specialist: str, name: str, file: str = "", start: int = 0) -> Dict[str, Any]:
+    """A skill in full, or one of its reference files, for the specialist doing a mission (the read_skill tool).
+    Read-only, inside the skill's own folder, never a blocked skill."""
+    wanted = (name or "").strip().lower()
+    entry = next((e for e in trade_skills(specialist) if e["skill"] == wanted), None)
+    if entry is None:
+        from app.core.knowledge.skill_packs import FIELD_ROLES, SKILLS
+
+        entry = next((e for e in _usable([e for e in SKILLS if set(FIELD_ROLES) & (set(e["agents"])
+                                                                                    | set(e["sandbox"]))])
+                      if e["skill"] == wanted), None)
+    if entry is None:
+        names = ", ".join(e["skill"] for e in trade_skills(specialist))
+        return {"success": False, "error": f"No skill named {name!r}. Yours are: {names}"}
+    folder = _skill_folder(entry).resolve()
+    files = skill_files(entry)
+    if file:
+        target = (folder / file).resolve()
+        try:
+            relative = target.relative_to(folder).as_posix()
+        except ValueError:
+            return {"success": False, "error": "That file is outside the skill's folder."}
+        if relative not in files:
+            return {"success": False, "error": f"No reference file {file!r} in {wanted}. Its files: "
+                                               + (", ".join(files) or "none")}
+        try:
+            text = target.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            return {"success": False, "error": f"Could not read {relative}: {exc}"}
+    else:
+        relative = "SKILL.md"
+        text = _body(_skill_text(entry))
+        if not text:
+            return {"success": False, "error": f"The skill {wanted} is registered but its file is not installed "
+                                               "on this machine (scripts/skill-packs.sh installs the packs)."}
+    start = max(0, int(start or 0))
+    part = text[start:start + SKILL_PART_CHARS]
+    more = start + len(part) < len(text)
+    return {"success": True, "skill": wanted, "file": relative, "content": part, "characters": len(text),
+            **({"more_from": start + len(part)} if more else {}),
+            "reference_files": files}
+
+
+def missing_skills() -> List[str]:
+    """Registered skills whose SKILL.md is not on this machine, as "pack/skill" (checked when JAI starts, so a pack
+    that did not download is seen and not guessed at)."""
+    from app.core.knowledge.skill_packs import SKILLS
+
+    out = []
+    for entry in SKILLS:
+        try:
+            if not (_skill_folder(entry) / "SKILL.md").is_file():
+                out.append(f"{entry['pack']}/{entry['skill']}")
+        except OSError:
+            out.append(f"{entry['pack']}/{entry['skill']}")
+    return out
 
 
 # ----- field knowledge --------------------------------------------------------------------------------------------
@@ -417,14 +558,22 @@ class Job:
         """For everyone on the mission, the Verifier included."""
         return self.requirement_guidance()
 
-    def brief_for_specialist(self) -> str:
-        """The specialist's own playbooks and field knowledge, in full."""
+    def brief_for_specialist(self, sandbox: bool = False) -> str:
+        """The specialist's own playbooks and field knowledge, in full. sandbox: the specialist works in the
+        builder's sandbox (its skills open with invoke_skill there), not on a role's own agent (read_skill)."""
         parts = []
-        books = [(name, playbook(name, self.specialist)) for name in self.skills]
+        sandbox = sandbox or self.specialist == "builder"
+        books = [(name, playbook(name, self.specialist, sandbox=sandbox)) for name in self.skills]
         books = [(name, text) for name, text in books if text]
         if books:
             parts.append("YOUR PLAYBOOKS FOR THIS JOB (your trade's method: follow them):\n" + "\n\n".join(
                 f"=== {name} ===\n{text}" for name, text in books))
+        if not sandbox:
+            rest = others(self.specialist, [name for name, _ in books])
+            if rest:
+                parts.append("YOUR OTHER SKILLS (each is a full playbook with reference files; when part of this "
+                             "job is what one of them is for, open it with read_skill before doing that part):\n"
+                             + rest)
         if self.knowledge:
             parts.append("YOUR FIELD KNOWLEDGE THAT BEARS ON THIS JOB:\n" + "\n".join(
                 f"- {t['title']} ({t['source_title']}, {t['url']}): {t['content']}" for t in self.knowledge))
@@ -450,11 +599,21 @@ async def job_for(router, model: str, mission: str, specialist: str, *, starting
         logger.info(f"standing rules unavailable: {exc}")
     from app.core.config import settings
 
+    role = SPECIALISTS.get(specialist, {}).get("title", "specialist")
+    if not set_out:
+        # A later round, or a carry-on, of a job already set out: the same job and the same playbooks, not a new
+        # choice (14 November: every round after the first chose its playbooks again, by matching words).
+        kept = await load_job(task_id)
+        if kept and kept.get("specialist") == specialist:
+            names = {e["skill"] for e in trade_skills(specialist)}
+            job.skills = [s for s in kept.get("skills") or [] if s in names][:PLAYBOOKS]
+            job.text = str(kept.get("text") or "")
+        if not job.skills and specialist != "builder" and not getattr(settings, "TESTING", False):
+            job.skills = await _pick_skills(router, model, request, specialist, role)
     if set_out and not getattr(settings, "TESTING", False):
         try:
             from app.core.providers.base import CompletionRequest, Message
 
-            role = SPECIALISTS.get(specialist, {}).get("title", "specialist")
             facts = product_file(workspace_root, workspace_name)
             recent = await _recent_requests(db, workspace_id, task_id)
             prompt = (f"RICHARD'S REQUEST:\n{request[:6000]}\n\n"
@@ -483,4 +642,89 @@ async def job_for(router, model: str, mission: str, specialist: str, *, starting
         job.knowledge = field_knowledge(specialist, work)
     except Exception as exc:  # noqa: BLE001
         logger.info(f"field knowledge unavailable: {exc}")
+    await save_job(task_id, job)
     return job
+
+
+JOB_TTL_SECONDS = 21 * 24 * 3600
+
+
+def _job_key(task_id: Any) -> str:
+    return f"mission:job:{task_id}"
+
+
+async def _job_redis():
+    import asyncio
+
+    from app.core.redis import get_redis
+
+    return await asyncio.wait_for(get_redis(), timeout=2)
+
+
+async def save_job(task_id: Any, job: "Job") -> None:
+    """Keep a mission's job (who does it, the job as set out, its playbooks) so its later rounds and any mission
+    that carries it on work from the same ones. Never raises."""
+    if task_id is None or not (job.skills or job.text):
+        return
+    try:
+        import asyncio
+
+        redis = await _job_redis()
+        data = json.dumps({"specialist": job.specialist, "skills": list(job.skills), "text": job.text})
+        await asyncio.wait_for(redis.set(_job_key(task_id), data, ex=JOB_TTL_SECONDS), timeout=2)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"mission job not kept: {exc}")
+
+
+async def load_job(task_id: Any) -> Optional[Dict[str, Any]]:
+    if task_id is None:
+        return None
+    try:
+        import asyncio
+
+        redis = await _job_redis()
+        raw = await asyncio.wait_for(redis.get(_job_key(task_id)), timeout=2)
+        data = json.loads(raw) if raw else None
+        return data if isinstance(data, dict) else None
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"mission job not read: {exc}")
+        return None
+
+
+async def copy_job(from_task: Any, to_task: Any) -> bool:
+    """A mission that carries another on takes that mission's job and playbooks with it."""
+    kept = await load_job(from_task)
+    if not kept or to_task is None:
+        return False
+    try:
+        import asyncio
+
+        redis = await _job_redis()
+        await asyncio.wait_for(redis.set(_job_key(to_task), json.dumps(kept), ex=JOB_TTL_SECONDS), timeout=2)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(f"mission job not carried: {exc}")
+        return False
+
+
+async def _pick_skills(router, model: str, request: str, specialist: str, role: str) -> List[str]:
+    """The playbooks a job needs when it was set out before playbooks were kept with it: the specialist's model
+    chooses from its skills by what the work is. [] when it cannot be asked (the word match chooses then)."""
+    try:
+        from app.core.providers.base import CompletionRequest, Message
+
+        prompt = (f"THE WORK:\n{request[:5000]}\n\nYOUR SKILLS:\n{catalogue(specialist)}\n\n"
+                  f"Which of your skills, at most {PLAYBOOKS}, have the method this work needs? Choose by what the "
+                  "work actually is, not by shared words. Answer with JSON only: "
+                  '{"skills": ["<exact skill name>", ...]}')
+        response = await router.complete(CompletionRequest(
+            model=model, messages=[Message(role="user", content=prompt)],
+            system=f"You are JAI's {role}, a senior professional choosing the playbooks for a piece of work.",
+            temperature=0.0, max_tokens=200))
+        found = re.search(r"\{.*\}", response.content or "", re.S)
+        data = json.loads(found.group(0)) if found else {}
+        names = {e["skill"] for e in trade_skills(specialist)}
+        return [s for s in (data.get("skills") or []) if s in names][:PLAYBOOKS]
+    except Exception as exc:  # noqa: BLE001
+        logger.info(f"playbooks not chosen by the model: {exc}")
+        return []

@@ -1258,6 +1258,19 @@ class MissionTeam:
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"mission not recorded in the knowledge graph: {exc}")
 
+    async def _read_route(self) -> Optional[Dict[str, Any]]:
+        """The agent JAI read this mission's request as belonging to when it came in (command/understanding), kept
+        on the mission's record so every round and every carry-on of it goes to the same agent. None when the
+        request was not read, or not surely: the word lists and the routing model decide then."""
+        try:
+            from app.core.command import understanding
+
+            return understanding.route(await understanding.of_task(getattr(self.runtime, "db", None),
+                                                                    getattr(self.runtime, "task_id", None)))
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(f"no reading for the mission's route: {exc}")
+            return None
+
     async def _role(self, mission: str) -> Optional[str]:
         """The specialist whose own agent runs this mission (command/role_mission), or None for the builder:
         software, a named skill and work Richard asks to split "in parallel" stay with the builder."""
@@ -1269,7 +1282,8 @@ class MissionTeam:
         try:
             if named_skill(mission) is not None or PARALLEL_ASKED.search(mission or ""):
                 return None
-            self.route = self.route or await classify(getattr(self, "route_from", None) or mission)
+            self.route = self.route or await self._read_route() or await classify(
+                    getattr(self, "route_from", None) or mission)
         except Exception as exc:  # noqa: BLE001 - the builder runs it
             logger.info(f"mission not routed to a role: {exc}")
             return None
@@ -1291,7 +1305,8 @@ class MissionTeam:
                "learned": "your earlier correction of a brief like this",
                "model": f"the routing model chose it, {self.route.get('confidence', 0):.0%} sure",
                "document": "it is a document to make or change, with nothing about software",
-               "workflow": "this step of a workflow is that specialist's in its council"
+               "workflow": "this step of a workflow is that specialist's in its council",
+               "understood": f"JAI read your request that way: {self.route.get('matched')}",
                }.get(str(self.route.get("source")), "")
         self.approach = (f"This is {title} work" + (f" ({why})" if why else "") + f", so JAI's {title} does it "
                          "with its own tools, playbooks and your standing rules; the independent check reviews "
@@ -1299,11 +1314,24 @@ class MissionTeam:
         model = await role_model(stuck=self.stuck)
         executor = RoleExecutor(self.runtime, model, self.workspace_root, role=role, job=self.job, team=self)
         executor.usage = self.lead.usage  # one account of the mission's spend
+        # What this role learned on its earlier jobs for this product (command/debrief), under its playbooks.
+        from app.core.command import debrief
+
+        learned, applied = await debrief.lessons_for(getattr(self.runtime, "db", None),
+                                                     getattr(self.runtime, "workspace_id", None), role, mission)
+        if learned:
+            known = (f"{known}\n\n" if known else "") + learned
         result = await executor.run(
             mission, steps_per_round=max(int(steps_per_round), int(settings.ROLE_STEPS_PER_ROUND)),
             max_continuations=max_continuations, prior_messages=None, start_continuation=start_continuation,
             known=known, verify=verify, requirements=self.lead.requirements, prior_calls=prior_calls)
         result["approach"] = self.approach
+        # The agent is debriefed on the round it has just done: what to repeat and what to avoid next time.
+        result["learning"] = await debrief.debrief(
+            getattr(self.runtime, "db", None), workspace_id=getattr(self.runtime, "workspace_id", None),
+            task_id=getattr(self.runtime, "task_id", None), role=role, title=title, mission=mission,
+            result=result, calls=list(getattr(self.runtime, "calls", []) or []), applied=applied,
+            router=router.as_role("planning"))
         return result
 
     async def _builder_job(self, router, mission: str):
@@ -1332,7 +1360,8 @@ class MissionTeam:
         try:
             if named_skill(mission) is not None or PARALLEL_ASKED.search(mission or ""):
                 return None
-            self.route = self.route or await classify(getattr(self, "route_from", None) or mission)
+            self.route = self.route or await self._read_route() or await classify(
+                    getattr(self, "route_from", None) or mission)
             kind = self.route.get("route")
             if not kind:
                 return None
@@ -1561,7 +1590,8 @@ class MissionTeam:
                 from app.core.command import alarms
                 from app.core.command.work_type import DESCRIBED, classify
 
-                self.route = self.route or await classify(getattr(self, "route_from", None) or mission)
+                self.route = self.route or await self._read_route() or await classify(
+                    getattr(self, "route_from", None) or mission)
                 kind = self.route["route"]
                 if kind and self.job is None:
                     # Carrying on: the requirements stand, the playbooks and Richard's rules still come with it.
