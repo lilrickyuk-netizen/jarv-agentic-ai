@@ -144,6 +144,10 @@ _VERDICT = {
                 "requirement": {"type": "string"}, "met": {"type": "boolean"},
                 "evidence": {"type": "string", "description": "What you read or ran that shows it"}},
                 "required": ["requirement", "met", "evidence"]}},
+            "outside_request": {"type": "array", "items": {"type": "string"}, "description": (
+                "Only when you are told the agent left requirements open: the ids of those that Richard's request "
+                "(the MISSION) does not ask for, because they belong to an earlier job it carries on from or to "
+                "work the request rules out. Never one the request does ask for.")},
             "unmet": {"type": "array", "items": {"type": "string"},
                       "description": "Each requirement not met, with what is wrong and where"},
         },
@@ -710,8 +714,17 @@ class AgentExecutor:
         verification: Optional[Dict[str, Any]] = None
         if finished and verify and (success or settled):
             await self._progress("independent check", continuation, total_budget)
-            verification = await self.verify(mission, final_summary)
-            if not verification["verified"]:
+            verification = await self.verify(mission, final_summary, settled=settled)
+            if settled and (verification.get("request_done") or verification["verified"]):
+                # Everything Richard's request asked for is done and independently checked: the mission is
+                # complete. What is left belongs to the job it carries on from, and is listed, never hidden.
+                success = True
+                still = [r for r in self.requirements if r.get("outside_request")]
+                final_summary += "\n\n**Everything this request asked for is done and independently checked.**"
+                if still:
+                    final_summary += (" Still open from the earlier job, for a request of their own:\n"
+                                      + "\n".join(f"- {r['id']}: {str(r.get('left') or '')[:200]}" for r in still))
+            elif not verification["verified"]:
                 success = False
                 unmet = verification.get("unmet") or ["The independent check did not confirm the mission."]
                 final_summary += ("\n\n**Independent check: not complete yet.**\n"
@@ -973,9 +986,13 @@ class AgentExecutor:
                              for f in known))
         return "\n\n".join(parts)
 
-    async def verify(self, mission: str, summary: str) -> Dict[str, Any]:
+    async def verify(self, mission: str, summary: str, settled: bool = False) -> Dict[str, Any]:
         """Check the mission with a separate agent that did not do the work: fresh conversation, its own
-        runtime and log entries (operator agent:verifier), look-and-test tools only, no approval requests."""
+        runtime and log entries (operator agent:verifier), look-and-test tools only, no approval requests.
+
+        settled: the agent ended by naming requirements it left open, each with why (see role_mission._settles).
+        The Verifier, not the agent, then decides which of those Richard's request did not ask for; the answer
+        carries "request_done": every requirement the request does ask for is met with evidence."""
         from app.core.command.tool_runtime import ToolRuntime
 
         runtime = ToolRuntime(self.runtime.db, self.runtime.workspace_id, self.runtime.task_id,
@@ -1011,6 +1028,12 @@ class AgentExecutor:
             + (f"THE MISSION'S REQUIREMENTS (give one check per requirement, naming its id, with the evidence you "
                f"saw; a requirement without evidence is unmet):\n{render_requirements(self.requirements)}\n\n"
                if self._listed() else "")
+            + (("THE AGENT ENDED BY LEAVING THESE OPEN, each with its reason:\n" + "\n".join(
+                f"- {r['id']}: {r.get('left')}" for r in self.requirements if r.get("left") and r.get("status") != "done")
+                + "\nFor each of them decide, from the MISSION above (Richard's request), whether the request asks "
+                "for it. List in outside_request only the ids it does not ask for (they belong to the earlier job "
+                "this one carries on from, or to work the request rules out). One the request asks for stays unmet, "
+                "whatever reason the agent gave. Check every other requirement as usual.\n\n") if settled else "")
             + "Check every requirement yourself, then call verdict."))]
         router = MeteredRouter(get_router(), self.usage, "verifier", self._cache_key())
         tokens = steps = 0
@@ -1081,8 +1104,34 @@ class AgentExecutor:
         unmet = hard_failures + [u for u in unmet if u not in hard_failures]
         verified = verified and not hard_failures
         await self._graph_verification(checks, hard)
+        outside, request_done = self._request_done(verdict, checks, hard_failures) if settled else ([], False)
         return {"verified": verified, "checks": checks, "unmet": unmet, "tokens": tokens, "steps": steps,
-                "hard_checks": hard, "calls": list(runtime.calls)}
+                "hard_checks": hard, "calls": list(runtime.calls), "outside_request": outside,
+                "request_done": request_done}
+
+    def _request_done(self, verdict: Dict[str, Any], checks: List[Dict[str, Any]], hard_failures: List[str]):
+        """(the requirements the Verifier found to be outside Richard's request, whether everything the request
+        does ask for is met). Outside can only be a requirement the agent left open with a reason; every other
+        requirement needs a met check, with evidence, from the Verifier itself; a failed hard check is never
+        outside. 14 November: Richard asked for a clean-up, the whole clean-up was done, and the mission was still
+        "not finished" because it was judged against every requirement of the job it carried on from."""
+        import re
+
+        left = {str(r["id"]).upper() for r in self.requirements if r.get("left") and r.get("status") != "done"}
+        named = {str(i).strip().upper() for i in (verdict.get("outside_request") or [])}
+        outside = sorted(left & named, key=lambda i: (len(i), i))
+
+        def met(requirement_id: str) -> bool:
+            pattern = re.compile(rf"\b{re.escape(requirement_id)}\b", re.I)
+            return any(c.get("met") is True and str(c.get("evidence") or "").strip()
+                       and pattern.search(str(c.get("requirement") or "")) for c in checks)
+
+        asked = [r for r in self.requirements if str(r["id"]).upper() not in outside]
+        done = bool(asked) and all(met(str(r["id"])) for r in asked) and not hard_failures
+        for requirement in self.requirements:
+            if str(requirement["id"]).upper() in outside:
+                requirement["outside_request"] = True
+        return outside, done
 
     def _host(self, value: Any) -> str:
         """A tool path as a host path: relative paths ("docs/x.md", "/docs/x.md" under a Windows folder)

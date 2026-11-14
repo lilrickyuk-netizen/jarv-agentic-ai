@@ -168,7 +168,8 @@ def check(draft: Dict[str, Any], requirements: Sequence[Dict[str, Any]], ledger:
             status = "waiting"
         if r.get("left") and status != "done":
             # The agent ended the mission naming this as left, with why: that reason is what Richard is told.
-            status, note = "open", f"Left open: {str(r['left'])[:300]}"
+            status, note = "open", ("Not part of this request, left for its own: " if r.get("outside_request")
+                                    else "Left open: ") + str(r["left"])[:300]
             statement = statement or str(r["left"])[:400]
         items.append({"id": r["id"], "text": r["text"], "source": r.get("source", ""), "status": status,
                       "statement": statement, "evidence": known if status != NOT_SHOWN else [], "note": note})

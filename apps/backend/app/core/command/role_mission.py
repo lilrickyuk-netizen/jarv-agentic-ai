@@ -207,6 +207,8 @@ class RoleExecutor(AgentExecutor):
             "request covers and some requirements stay open for a reason outside it (the request ruled that work "
             "out, only Richard can decide or give access, or no page publishes the fact), do not go round again: "
             "call finish with success false and remaining, giving each open requirement's id and why it is left. "
+            "The independent Verifier then decides: when everything Richard's request asked for is done, the "
+            "mission is complete, and what is left from the earlier job is listed for a request of its own. "
             "Repeating a step that changed nothing is never progress. "
             "Contact, send, post, publish and spend nothing: drafts and lists are for Richard to use. Never claim "
             "something was done unless a tool result in this conversation shows it. Mark each requirement with "

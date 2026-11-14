@@ -903,3 +903,52 @@ def test_a_roles_agent_ends_cleanly_only_when_it_names_everything_left_and_the_r
     assert by_id["R6"]["status"] == "done"
     assert by_id["R19"]["status"] == "open" and by_id["R19"]["note"] == f"Left open: {ruled_out}"
     assert by_id["R7"]["status"] == "not shown"                         # no evidence and no reason: still not shown
+
+
+def test_a_mission_is_complete_when_everything_the_request_asked_for_is_done_and_checked():
+    """Richard, 14 November: "so it won't loop for two hours but still won't complete a mission successfully?" He
+    had asked for a clean-up, the whole clean-up was done, and the mission was judged against every requirement
+    of the job it carried on from. The independent Verifier now says which of the requirements left open the
+    request did not ask for; when all it did ask for are met, the mission is complete."""
+    from app.core.synthesis.report import check
+
+    def executor_with():
+        ex = _role_executor([
+            {"id": "R3", "status": "done", "text": "no duplicates"},
+            {"id": "R4", "status": "done", "text": "sheet names"},
+            {"id": "R19", "status": "open", "text": "published contacts", "left": "Needs research the request ruled out."},
+            {"id": "R10", "status": "open", "text": "decision-makers", "left": "Needs research the request ruled out."},
+        ], 40)
+        return ex
+
+    met = [{"requirement": "R3", "met": True, "evidence": "check_spreadsheet: 0 rows repeat"},
+           {"requirement": "R4 sheet names", "met": True, "evidence": "check_spreadsheet: the sheets are ..."}]
+    not_met = [{"requirement": "R19", "met": False, "evidence": "7 of 124 phones"},
+               {"requirement": "R10", "met": False, "evidence": "19 of 35 names"}]
+    # The clean-up Richard asked for: both things he asked for are met, and the Verifier puts the rest outside it.
+    ex = executor_with()
+    outside, done = ex._request_done({"outside_request": ["r19", "R10", "R3"]}, met + not_met, [])
+    assert outside == ["R10", "R19"] and done is True          # R3 was not left open, so it cannot be "outside"
+    assert [r.get("outside_request") for r in ex.requirements] == [None, None, True, True]
+    # The Verifier says the request did ask for the contacts: the mission is not complete.
+    ex = executor_with()
+    assert ex._request_done({"outside_request": ["R10"]}, met + not_met, []) == (["R10"], False)
+    # Something he asked for is not met, or was met without evidence, or a hard check fails: not complete.
+    ex = executor_with()
+    assert ex._request_done({"outside_request": ["R19", "R10"]}, met[:1] + not_met, [])[1] is False
+    ex = executor_with()
+    unevidenced = [dict(met[0]), {"requirement": "R4", "met": True, "evidence": " "}]
+    assert ex._request_done({"outside_request": ["R19", "R10"]}, unevidenced + not_met, [])[1] is False
+    ex = executor_with()
+    assert ex._request_done({"outside_request": ["R19", "R10"]}, met + not_met, ["a hard check failed"])[1] is False
+    # The agent cannot decide it for itself: with no word from the Verifier nothing is outside the request.
+    ex = executor_with()
+    assert ex._request_done({}, met + not_met, []) == ([], False)
+    # And the report says so, requirement by requirement.
+    ex = executor_with()
+    ex._request_done({"outside_request": ["R19", "R10"]}, met + not_met, [])
+    report = check({"overall": "", "items": [{"requirement": r["id"], "status": "open", "statement": "",
+                                              "evidence": []} for r in ex.requirements]},
+                   ex.requirements, [], None, None)
+    notes = {item["id"]: item["note"] for item in report["items"]}
+    assert notes["R19"].startswith("Not part of this request, left for its own: Needs research")
