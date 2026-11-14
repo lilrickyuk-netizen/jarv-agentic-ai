@@ -100,7 +100,7 @@ _EDITS = ("write_file", "edit_file", "move_file", "copy_file", "create_folder", 
 VERIFIER_TOOLS = ("list_files", "read_file", "search_files", "scan_workspace", "get_file_metadata",
                   "detect_stack", "detect_commands", "find_missing_files", "check_installed", "run_command",
                   "run_build", "run_tests", "git_status", "git_diff", "git_log", "get_command_log",
-                  "consult_specialist_knowledge", "trace_artifact")
+                  "consult_specialist_knowledge", "trace_artifact", "check_spreadsheet")
 # What JAI's machine has, given to every mission and every round, so no step is spent finding out and no tool is
 # mistaken for missing. Keep it in step with apps/backend/Dockerfile.
 TOOLCHAIN = (
@@ -150,7 +150,10 @@ _VERIFIER_SYSTEM = (
     "the work and you do not take its word for anything: check every requirement of the mission against the "
     "workspace yourself, with the tools, and decide whether it is really done. Read the files the mission "
     "names. For .xlsx files use read_file to inspect sheets and rows; never use head, cat or other commands "
-    "to dump raw workbook bytes. Run the project's real checks (build, tests, lint, type-check, the project's own verify task) "
+    "to dump raw workbook bytes. A requirement about every row of a workbook, or about how many rows it has, is "
+    "judged with check_spreadsheet, which checks the whole file in code and says how many rows pass and which "
+    "fail (a cell that only says \"not recorded\" or \"to verify\" is not a filled cell): its answer is your "
+    "evidence, and reading a page of a long workbook is not evidence about all of it. Run the project's real checks (build, tests, lint, type-check, the project's own verify task) "
     "and read their output. A command that exits 0 but does nothing (an echo, a script that only prints "
     "that it passed, an empty test suite) is not evidence. A file that exists but holds stand-in content "
     "is not done. A requirement the mission states that you cannot find evidence for is unmet. Do not "
@@ -400,8 +403,11 @@ class AgentExecutor:
 
     def _system_prompt(self, full: bool) -> str:
         """Who the mission's agent is and how it works (a role's agent says its own; see role_mission)."""
+        from datetime import datetime, timezone
+
         return (
             "You are JAI, an autonomous software engineer operating a real machine. " + TOOLCHAIN + " "
+            f"Today's date is {datetime.now(timezone.utc):%Y-%m-%d}. "
             "You complete the operator's mission by USING TOOLS — inspect files, edit "
             "code, run builds and tests — iterating until the mission is genuinely done. "
             f"You operate ONLY inside the approved workspace"

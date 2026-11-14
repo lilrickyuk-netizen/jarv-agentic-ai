@@ -409,7 +409,7 @@ def test_an_agent_that_goes_on_working_without_marking_anything_is_sent_back_to_
     executor.iterations = 5 + UNMARKED_STEPS
     nudge = executor._reminder()
     assert nudge.startswith("[YOUR CHECKLIST]") and "R4, R12" in nudge and "call finish" in nudge
-    assert "not finding more" in nudge
+    assert "check_spreadsheet" in nudge and "Do not add new entries" in nudge
     requirements[1]["status"] = "done"                        # it marks one: the count starts again
     executor.iterations += 2
     assert executor._reminder() is None
@@ -605,3 +605,106 @@ def test_a_reply_in_words_sends_a_roles_agent_back_to_work_and_the_base_mission_
     assert executor._words_only(0) is None                              # no steps left: the round ends
     assert _role_executor([{"id": "R1", "status": "done"}], 14)._words_only(61) is None   # nothing open: it is done
     assert AgentExecutor._words_only(executor, 61) is None and MAX_WORDS_ONLY == 3
+
+
+# ----- 7. the work is proved: every row is checked in code, and an empty cell is called empty ----------------------
+
+COLS = ["country", "company", "website", "published phone", "source links", "verification date", "priority"]
+FAULTY = [
+    {"name": "National Chains", "rows": [
+        COLS,
+        ["UK", "Greggs", "https://www.greggs.co.uk", "Not recorded; check official page",
+         "https://corporate.greggs.co.uk", "2026-06-15", "1"],
+        ["UK", "Nando's", "https://www.nandos.co.uk", "020 7946 0000", "https://www.nandos.co.uk/contact",
+         "2026-11-14", "2"],
+        ["US", "Hilton", "https://www.hilton.com", "", "see site", "2026-11-15", "4"]]},
+    {"name": "Regional Chains", "rows": [
+        COLS,
+        ["UK", "Loungers", "https://loungers.co.uk", "TBC", "https://loungers.co.uk/news", "2", "3"],
+        ["FR", "Greggs Local", "greggs.co.uk/shops", "01 23", "https://x.y", "2026-11-01", "2"]]},
+    {"name": "Decision-Makers", "rows": [["Company", "Decision-maker name"], ["Greggs", "Roisin Currie"],
+                                         ["Loungers plc", "Not recorded; decision-maker to verify."]]},
+]
+COMPANY = ["National Chains", "Regional Chains"]
+RULES = [
+    ({"check": "sheets", "are": ["National Chains", "Regional Chains", "Independents", "Decision-Makers"]}, False),
+    ({"check": "columns", "sheets": COMPANY, "have": ["country", "company", "published email"]}, False),
+    ({"check": "filled", "sheets": COMPANY, "column": "published phone"}, False),
+    ({"check": "filled", "sheets": COMPANY, "column": "published phone", "at_least": 2}, True),
+    ({"check": "values", "sheets": COMPANY, "column": "country", "in": ["UK", "US"]}, False),
+    ({"check": "values", "sheets": COMPANY, "column": "priority", "in": ["1", "2", "3"]}, False),
+    ({"check": "links", "sheets": COMPANY, "column": "source links"}, False),
+    ({"check": "dates", "sheets": COMPANY, "column": "verification date"}, False),
+    ({"check": "count", "sheet": "National Chains", "where": {"country": "UK"}, "at_least": 2}, True),
+    ({"check": "count", "sheet": "National Chains", "where": {"country": "US"}, "at_least": 20}, False),
+    ({"check": "unique", "sheets": COMPANY, "by": ["company", "website"]}, False),
+    ({"check": "absent", "sheets": COMPANY, "words": ["podcast"]}, True),
+    ({"check": "refers", "sheet": "Decision-Makers", "column": "Company", "to_sheets": COMPANY,
+      "to_column": "company"}, False),
+    ({"check": "filled", "sheet": "Decision-Makers", "column": "Decision-maker name"}, False),
+    ({"check": "sorted", "sheets": ["National Chains"], "column": "country", "order": ["UK", "US"]}, True),
+    ({"check": "filled", "sheet": "No such sheet", "column": "x"}, False),
+    ({"check": "explode"}, False),
+]
+
+
+def test_every_row_of_a_workbook_is_checked_in_code_and_a_cell_that_says_not_recorded_is_empty():
+    from datetime import date
+
+    from app.core.agents.workspace_ops import check_sheets, unfilled, xlsx_facts
+
+    for empty in ("", "Not recorded; check official published contact page", "TBC", "unknown", "N/A",
+                  "to be verified", "To verify", "-", "?", "Not confirmed; national estate", "pending"):
+        assert unfilled(empty), empty
+    for real in ("0161 234 5678", "hello@x.com", "Nando's", "None of the sites", "2,700+ shops", "Notting Hill"):
+        assert not unfilled(real), real
+    answers = check_sheets(FAULTY, [rule for rule, _ in RULES], today=date(2026, 11, 14))
+    assert [a["passed"] for a in answers] == [passes for _, passes in RULES]
+    phone, dates, unique, refers = answers[2], answers[7], answers[10], answers[12]
+    # The booking database's own faults, each named with its rows: 14 November.
+    assert "2 of 5 rows have published phone filled in" in phone["found"]
+    assert "National Chains row 2 (Greggs): Not recorded" in phone["examples"][0]
+    assert any("2026-11-15" in e for e in dates["examples"])           # a date after today
+    assert any("row 2 (Loungers): 2" in e for e in dates["examples"])  # and one that is no date
+    assert "repeats National Chains row 2 (Greggs)" in unique["examples"][0]    # the same website
+    assert "Loungers plc" in refers["examples"][0]
+    assert "could not be checked" in answers[-2]["found"] and "must be one of" in answers[-1]["found"]
+    facts = xlsx_facts(FAULTY)
+    assert "published phone 1 of 3" in facts and "Decision-maker name 1 of 2" in facts
+    assert "Duplicate names: none found" in facts      # a person's company is not a duplicate of the company's row
+
+
+@pytest.mark.integration
+def test_the_agent_and_the_independent_verifier_both_have_the_check_and_the_agent_is_told_the_date(project):  # noqa: F811
+    from datetime import datetime, timezone
+
+    from app.core.command.agent_executor import _VERIFIER_SYSTEM, VERIFIER_TOOLS
+    from app.core.command.tool_runtime import ToolRuntime
+    from tests.test_repair12e3a_workspace_tools import _seed as seed_workspace
+
+    host, _ = project
+
+    async def go():
+        async with AsyncTestingSessionLocal() as db:
+            user_id, ws_id = await seed_workspace(db, host)
+            runtime = ToolRuntime(db, ws_id, None, operator="agent:partnerships", authority_level=3,
+                                  user_id=user_id)
+            runner = RoleExecutor(runtime, "gpt-6-luna", host, role="partnerships")
+            await runner._prepare_tools()
+            call = runner.toolbox.call
+            await call("write_spreadsheet", {"path": "plexecute/partners.xlsx", "sheets": FAULTY})
+            checked = await call("check_spreadsheet", {"path": "plexecute/partners.xlsx", "checks": [
+                {"check": "filled", "sheets": COMPANY, "column": "published phone"},
+                {"check": "count", "sheet": "National Chains", "where": {"country": "UK"}, "at_least": 2}]})
+            missing = await call("check_spreadsheet", {"path": "plexecute/none.xlsx", "checks": [{"check": "x"}]})
+            return checked, missing, runner._system_prompt(True), list(runtime.calls)
+
+    checked, missing, prompt, calls = _run(go())
+    assert checked["success"] and checked["passed"] == 1 and checked["not_passed"] == 1
+    assert "WORKBOOK FACTS" in checked["facts"] and missing["success"] is False
+    recorded = [c for c in calls if c.get("tool") == "check_spreadsheet"][-1]
+    assert "1 of 2 checks passed" in recorded["summary"] and "published phone" in recorded["summary"]
+    assert "check_spreadsheet" in VERIFIER_TOOLS and "check_spreadsheet" in _VERIFIER_SYSTEM
+    assert not {"write_spreadsheet", "tidy_spreadsheet", "write_file"} & set(VERIFIER_TOOLS)   # it still only looks
+    assert f"{datetime.now(timezone.utc):%Y-%m-%d}" in prompt
+    assert "FINISH EACH ENTRY BEFORE THE NEXT" in prompt and "PROVE IT BEFORE YOU FINISH" in prompt

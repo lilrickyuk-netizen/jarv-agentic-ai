@@ -699,6 +699,20 @@ _NAMED = re.compile(r"\b(company|name|chain|business|organisation|organization|b
 _SOURCED = re.compile(r"\b(source|url|link|website)\b", re.I)
 
 
+# A cell that says the fact is still missing is not a filled cell ("Not recorded; check the official contact
+# page", "TBC", "unknown", "to verify"): the mission of 14 November reported a contact database with a phone number
+# in 5 of 124 rows as having no blank cells, because every empty one held a sentence like these.
+_UNFILLED = re.compile(
+    r"^\s*(?:$|not\s+(?:recorded|confirmed|stated|found|available|published|known|verified|yet|given|listed)\b"
+    r"|n\s*/?\s*a\b|tbc\b|tbd\b|unknown\b|none(?:\s+found)?\s*$|to\s+(?:be\s+)?(?:verif|confirm|check|establish)"
+    r"|\?+\s*$|[-\u2013\u2014]+\s*$|pending\b|missing\b)", re.I)
+
+
+def unfilled(value: Any) -> bool:
+    """The cell is blank or only says its fact is still to find."""
+    return bool(_UNFILLED.match(str(value if value is not None else "")))
+
+
 def xlsx_facts(sheets: List[Dict[str, Any]]) -> str:
     """What a workbook holds, worked out from the file, not taken from whoever wrote it (14 November: a list
     mission kept adding rows for ten rounds after its targets were met, because it could not see its own totals,
@@ -727,16 +741,26 @@ def xlsx_facts(sheets: List[Dict[str, Any]]) -> str:
         if named is not None:
             for row in body:
                 key = str(row[named]).strip().lower() if named < len(row) else ""
-                if key:
-                    seen_names.setdefault(key, []).append(sheet["name"])
+                if key:  # the same name in two lists of the same kind (a people sheet naming a company is not one)
+                    seen_names.setdefault(f"{'|'.join(h.lower() for h in header)}\n{key}", []).append(sheet["name"])
         sourced = [i for i, h in enumerate(header) if _SOURCED.search(h)]
         if sourced and body:
             missing = sum(1 for row in body if not any(i < len(row) and str(row[i]).strip() for i in sourced))
             if missing:
                 lines.append(f"    rows with no source or link: {missing}")
+        gaps = []
+        for index, heading in enumerate(header):
+            if not heading or re.search(r"still to check|to check|notes?$|gaps?$", heading, re.I):
+                continue
+            empty = sum(1 for row in body if unfilled(row[index] if index < len(row) else ""))
+            if empty:
+                gaps.append(f"{heading} {len(body) - empty} of {len(body)}")
+        if gaps and body:
+            lines.append("    filled in (a cell saying \"not recorded\" or \"to verify\" is not filled): "
+                         + ", ".join(gaps)[:700])
     twice = {k: v for k, v in seen_names.items() if len(v) > 1}
     if twice:
-        sample = "; ".join(f"{k} ({', '.join(v)})" for k, v in list(twice.items())[:8])
+        sample = "; ".join(f"{k.split(chr(10))[-1]} ({', '.join(v)})" for k, v in list(twice.items())[:8])
         lines.append(f"- Duplicate names: {len(twice)} (for example {sample})")
     else:
         lines.append("- Duplicate names: none found")
@@ -1072,6 +1096,255 @@ def tidy_sheets(sheets: List[Dict[str, Any]], changes: List[Dict[str, Any]]) -> 
     return tidy.sheets, tidy.done
 
 
+CHECKS = ("sheets", "columns", "filled", "values", "count", "unique", "links", "dates", "absent", "refers",
+          "sorted")
+_DATE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})")
+
+
+class _Check:
+    """The checks check_spreadsheet runs on a workbook's sheets: each looks at every row and answers passed or
+    not, with the count and the first rows that fail. ValueError when a check names a sheet or column that is
+    not there (the answer says what is)."""
+
+    def __init__(self, sheets: List[Dict[str, Any]], today):
+        self.sheets = [{"name": s["name"], "rows": [r for r in s["rows"] if any(str(v or "").strip() for v in r)]}
+                       for s in sheets]
+        self.today = today
+        self._tidy = _Tidy(self.sheets)
+
+    def _named(self, check, key="sheets") -> List[Dict[str, Any]]:
+        names = check.get(key) or ([check["sheet"]] if check.get("sheet") else [])
+        names = [names] if isinstance(names, str) else list(names)
+        return [self._tidy._sheet(n) for n in names] if names else [s for s in self._tidy.sheets if s["rows"]]
+
+    def _rows(self, check, column=None, needed=True):
+        """(sheet name, row number as Excel shows it, row, the column's cell) for every row of the sheets named."""
+        for sheet in self._named(check):
+            index = _Tidy._column(sheet, column, needed=needed and bool(check.get("sheets") or check.get("sheet"))
+                                  ) if column is not None else -1
+            if column is not None and index < 0:
+                continue
+            for number, row in enumerate(sheet["rows"][1:], start=2):
+                yield sheet, number, row, (_Tidy._cell(row, index) if column is not None else "")
+
+    @staticmethod
+    def _label(sheet, number, row) -> str:
+        name = next((i for i, h in enumerate(sheet["rows"][0]) if _NAMED.search(str(h))), 0)
+        return f"{sheet['name']} row {number} ({_Tidy._cell(row, name)[:40]})"
+
+    def _all(self, check, column, ok, what) -> Dict[str, Any]:
+        seen = bad = 0
+        examples: List[str] = []
+        for sheet, number, row, cell in self._rows(check, column):
+            seen += 1
+            if not ok(cell):
+                bad += 1
+                if len(examples) < 12:
+                    examples.append(f"{self._label(sheet, number, row)}: {cell[:60] or '(blank)'}")
+        if not seen:
+            raise ValueError(f"no sheet named has a column {column!r}")
+        least = check.get("at_least")
+        passed = (seen - bad) >= int(least) if least is not None else bad == 0
+        return {"passed": passed, "found": f"{seen - bad} of {seen} rows {what}"
+                + (f" (at least {least} asked)" if least is not None else ""), "examples": examples}
+
+    def sheets_(self, check):
+        want = [str(n) for n in (check.get("are") or [])]
+        if not want:
+            raise ValueError('"sheets" needs "are": the sheet names the workbook must have')
+        have = [s["name"] for s in self._tidy.sheets]
+        missing = [n for n in want if n not in have]
+        extra = [n for n in have if n not in want]
+        return {"passed": not missing and not extra, "found": "the sheets are: " + ", ".join(have),
+                "examples": ([f"missing (exact name): {n}" for n in missing] + [f"not asked for: {n}" for n in extra])}
+
+    def columns(self, check):
+        want = [str(c) for c in (check.get("have") or [])]
+        if not want:
+            raise ValueError('"columns" needs "have": the headings every sheet named must have')
+        examples = [f"{sheet['name']}: no column {column!r}" for sheet in self._named(check) for column in want
+                    if _Tidy._column(sheet, column, needed=False) < 0]
+        return {"passed": not examples, "found": f"{len(want)} headings checked in {len(self._named(check))} sheet(s)",
+                "examples": examples[:12]}
+
+    def filled(self, check):
+        return self._all(check, check.get("column"), lambda cell: not unfilled(cell),
+                         f"have {check.get('column')} filled in (a cell saying it is still to find is not filled)")
+
+    def values(self, check):
+        allowed = {_key(v) for v in (check.get("in") or [])}
+        if not allowed:
+            raise ValueError('"values" needs "in": the values allowed')
+        return self._all(check, check.get("column"), lambda cell: _key(cell) in allowed,
+                         f"have {check.get('column')} as one of {', '.join(str(v) for v in check['in'])}")
+
+    def links(self, check):
+        return self._all(check, check.get("column"), lambda cell: bool(re.search(r"https?://\S+\.\S+", cell)),
+                         f"have a web link in {check.get('column')}")
+
+    def dates(self, check):
+        from datetime import date
+
+        def real(cell: str) -> bool:
+            found = _DATE.match(cell.strip())
+            try:
+                return bool(found) and date(*map(int, found.groups())) <= self.today
+            except ValueError:
+                return False
+
+        return self._all(check, check.get("column"), real,
+                         f"have a real date (YYYY-MM-DD, not after today, {self.today.isoformat()}) in "
+                         f"{check.get('column')}")
+
+    def count(self, check):
+        where = check.get("where") if isinstance(check.get("where"), dict) else {}
+        total = 0
+        for sheet in self._named(check):
+            tests = [(_Tidy._column(sheet, column), _key(value)) for column, value in where.items()]
+            total += sum(1 for row in sheet["rows"][1:] if all(_key(_Tidy._cell(row, i)) == v for i, v in tests))
+        least, most = check.get("at_least"), check.get("at_most")
+        if least is None and most is None:
+            raise ValueError('"count" needs "at_least" or "at_most"')
+        passed = (least is None or total >= int(least)) and (most is None or total <= int(most))
+        wanted = " and ".join(part for part in (f"at least {least}" if least is not None else "",
+                                                f"at most {most}" if most is not None else "") if part)
+        return {"passed": passed, "found": f"{total} rows" + (" where " + ", ".join(
+            f"{c} is {v}" for c, v in where.items()) if where else "") + f" ({wanted} asked)", "examples": []}
+
+    def unique(self, check):
+        by = check.get("by") or []
+        by = [by] if isinstance(by, str) else list(by)
+        if not by:
+            raise ValueError('"unique" needs "by": the column or columns that identify a row')
+        seen: Dict[str, str] = {}
+        examples: List[str] = []
+        bad = 0
+        for sheet in self._named(check):
+            columns = [(c, _Tidy._column(sheet, c, needed=False)) for c in by]
+            for number, row in enumerate(sheet["rows"][1:], start=2):
+                keys = []
+                for column, index in columns:
+                    value = _Tidy._cell(row, index)
+                    web = bool(re.search(r"web|url|link|domain|site", str(column), re.I))
+                    key = _domain(value) if web else _key(value)
+                    if key and not unfilled(value):
+                        keys.append(f"{_key(column)}={key}")
+                first = next((seen[k] for k in keys if k in seen), None)
+                if first:
+                    bad += 1
+                    if len(examples) < 12:
+                        examples.append(f"{self._label(sheet, number, row)} repeats {first}")
+                for k in keys:
+                    seen.setdefault(k, self._label(sheet, number, row))
+        return {"passed": bad == 0, "found": f"{bad} rows repeat an earlier one by {', '.join(by)}",
+                "examples": examples}
+
+    def absent(self, check):
+        words = [str(w).lower() for w in (check.get("words") or []) if str(w).strip()]
+        if not words:
+            raise ValueError('"absent" needs "words": the words that must not appear')
+        examples: List[str] = []
+        bad = 0
+        for sheet in self._named(check):
+            for number, row in enumerate(sheet["rows"], start=1):
+                text = " ".join(str(c or "") for c in row).lower()
+                hit = next((w for w in words if re.search(rf"\b{re.escape(w)}", text)), None)
+                if hit:
+                    bad += 1
+                    if len(examples) < 12:
+                        examples.append(f"{sheet['name']} row {number} mentions {hit!r}")
+        return {"passed": bad == 0, "found": f"{bad} rows mention {', '.join(words)}", "examples": examples}
+
+    def refers(self, check):
+        targets = self._named(check, "to_sheets")
+        to_column = check.get("to_column") or check.get("column")
+        known = {_Tidy._cell(row, index) for sheet in targets
+                 for index in [_Tidy._column(sheet, to_column, needed=False)] if index >= 0
+                 for row in sheet["rows"][1:]}
+        return self._all({"sheet": check.get("sheet")}, check.get("column"), lambda cell: cell in known,
+                         f"have a {check.get('column')} that exactly matches a {to_column} in "
+                         + ", ".join(s["name"] for s in targets))
+
+    def sorted_(self, check):
+        order = [_key(v) for v in (check.get("order") or [])]
+        if not order:
+            raise ValueError('"sorted" needs "order": the values in the order wanted, for example ["UK", "US"]')
+        examples = []
+        for sheet in self._named(check):
+            index = _Tidy._column(sheet, check.get("column"), needed=False)
+            if index < 0:
+                continue
+            ranks = [order.index(_key(_Tidy._cell(row, index))) if _key(_Tidy._cell(row, index)) in order
+                     else len(order) for row in sheet["rows"][1:]]
+            if ranks != sorted(ranks):
+                examples.append(f"{sheet['name']}: {check.get('column')} is not in the order "
+                                + ", ".join(str(v) for v in check["order"]))
+        return {"passed": not examples, "found": f"order of {check.get('column')} checked", "examples": examples}
+
+
+def check_sheets(sheets: List[Dict[str, Any]], checks: List[Dict[str, Any]], today=None) -> List[Dict[str, Any]]:
+    """Each check's answer, in order: {"check": the check as asked, "passed", "found", "examples"}. A check that
+    cannot be run (an unknown kind, a sheet or column that is not there) is answered as not passed, with why."""
+    from datetime import date
+
+    checker = _Check(sheets, today or date.today())
+    out = []
+    for check in checks:
+        kind = str((check or {}).get("check") or "").strip().lower() if isinstance(check, dict) else ""
+        asked = json.dumps(check, ensure_ascii=False, default=str)[:300]
+        if kind not in CHECKS:
+            out.append({"check": asked, "passed": False, "found": f'"check" must be one of {", ".join(CHECKS)}',
+                        "examples": []})
+            continue
+        try:
+            answer = getattr(checker, {"sheets": "sheets_", "sorted": "sorted_"}.get(kind, kind))(check)
+        except ValueError as exc:
+            answer = {"passed": False, "found": f"could not be checked: {exc}", "examples": []}
+        out.append({"check": asked, **answer})
+    return out
+
+
+async def check_spreadsheet(tb, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Check every row of a workbook against stated rules, in code, and say what passes and what does not.
+
+    14 November: a database mission could not be finished or verified, because its requirements were about every
+    row ("every row has a source link", "country is UK or US", "no podcasts") and the only way to check was to read
+    a 220,000-character workbook a page at a time. The agent marked requirements it could not show, the Verifier
+    could not see the rows, and a workbook with a phone number in 5 of 124 rows was reported as having no blanks.
+    Here the agent, and the independent Verifier, ask the question and the code answers it from the whole file.
+    Read-only; recorded like every tool."""
+    host, path, refused = await _resolve(tb, args.get("path"))
+    if refused:
+        return refused
+    denied = await _gate(tb, "read_file", host)
+    if denied:
+        return denied
+    if path.suffix.lower() != ".xlsx" or not path.exists():
+        return {"success": False, "error": f"{host} is not an existing .xlsx workbook."}
+    checks = args.get("checks")
+    if isinstance(checks, str):
+        try:
+            checks = json.loads(checks)
+        except ValueError:
+            checks = None
+    if not isinstance(checks, list) or not checks:
+        return {"success": False, "error": 'checks must be a list like [{"check": "filled", "sheets": ["National '
+                                           'Chains"], "column": "published phone"}, {"check": "values", "column": '
+                                           '"country", "in": ["UK", "US"]}].'}
+    try:
+        sheets = xlsx_read(path.read_bytes())
+    except Exception:  # noqa: BLE001
+        return {"success": False, "error": f"{host} could not be read as a workbook."}
+    results = check_sheets(sheets, checks[:60])
+    passed = sum(1 for r in results if r["passed"])
+    failing = "; ".join(r["found"] for r in results if not r["passed"])[:500]
+    await tb.runtime._record("check_spreadsheet", {"path": host, "checks": len(results)}, True,
+                             f"{passed} of {len(results)} checks passed" + (f"; not passed: {failing}" if failing
+                                                                           else ""))
+    return {"success": True, "path": host, "passed": passed, "not_passed": len(results) - passed,
+            "results": results, "facts": xlsx_facts(sheets)}
+
+
 def _backup_workbook(path, old: bytes) -> None:
     """Keep the workbook as it was in .jai/backups/ (the latest ten copies) before it is changed."""
     from datetime import datetime, timezone
@@ -1141,6 +1414,7 @@ async def tidy_spreadsheet(tb, args: Dict[str, Any]) -> Dict[str, Any]:
 
 HANDLERS = {
     "write_spreadsheet": write_spreadsheet, "tidy_spreadsheet": tidy_spreadsheet,
+    "check_spreadsheet": check_spreadsheet,
     "edit_file": edit_file, "create_folder": create_folder, "move_file": move_file, "copy_file": copy_file,
     "delete_file_with_boundary": delete_file_with_boundary, "get_file_metadata": get_file_metadata,
     "detect_workspace_type": detect_workspace_type, "detect_stack": detect_stack,

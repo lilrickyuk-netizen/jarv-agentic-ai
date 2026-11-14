@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 # What every specialist works with: files and spreadsheets in the product's folder, the web, documents, memory and
 # knowledge. No shell, builds, installs, deletes or pushes: those are the software builder's.
 TRADE_TOOLS = (
-    "list_files", "read_file", "search_files", "get_file_metadata", "write_file", "edit_file", "write_spreadsheet", "tidy_spreadsheet",
+    "list_files", "read_file", "search_files", "get_file_metadata", "write_file", "edit_file", "write_spreadsheet", "tidy_spreadsheet", "check_spreadsheet",
     "create_folder", "move_file", "copy_file", "read_document", "web_search", "research_web", "fetch_url",
     "use_browser", "memory_search", "memory_add", "knowledge_graph_search", "knowledge_graph_add", "recall_richard",
     "read_mission_report", "consult_specialist_knowledge", "read_skill", "git_status", "git_log",
@@ -54,6 +54,14 @@ SAVE_EVERY = 12  # steps between reminders to save what has been found
 UNMARKED_STEPS = 18  # steps with no requirement marked before the agent is sent back to its checklist
 # Tools that act on the world from Richard's name (send, post, publish, moderate): never in a specialist's mission.
 _ACTS = ("send", "publish", "moderate", "post_")
+
+
+def today() -> str:
+    """Today's date as an agent is told it (14 November: agents were never told the date, and a workbook's
+    verification dates were five months old or a day ahead)."""
+    from datetime import datetime, timezone
+
+    return f"{datetime.now(timezone.utc):%A %-d %B %Y} ({datetime.now(timezone.utc):%Y-%m-%d})"
 
 
 def role_tools(role: str) -> List[str]:
@@ -148,6 +156,8 @@ class RoleExecutor(AgentExecutor):
             "You work the way a senior professional in your field works, with a browser, a search engine and a "
             "spreadsheet; you are not a software engineer and this is not a software build: no scripts, tests, "
             "builds or check files. "
+            f"Today's date is {today()}: every date you record (a verification date, a \"checked on\") is the day "
+            "you actually checked, never a date from memory and never a later one. "
             "You work ONLY inside the product's folder"
             + (f" (`{self.workspace_root}`); paths may be relative to it. " if self.workspace_root else ". ")
             + "YOUR TOOLS: web_search (run several searches, each a different angle; search a name to find its "
@@ -156,7 +166,9 @@ class RoleExecutor(AgentExecutor):
               "write_spreadsheet for any list (one sheet per kind of entry, headings in the first row; add new "
               "entries with mode \"append\", and sheets you do not name are kept), tidy_spreadsheet to change a "
               "workbook that exists without retyping it (rename, remove or merge sheets, remove duplicate rows, "
-              "fill blank cells, update a row, sort), read_file to see a workbook's rows and facts, write_file "
+              "fill blank cells, update a row, sort), check_spreadsheet to check every row of a workbook against "
+              "rules in code (which rows lack a phone number, a source link, a real date; the counts per country; "
+              "duplicates), read_file to see a workbook's rows and facts, write_file "
               "and edit_file for documents, memory_search, recall_richard and knowledge_graph_search for what JAI "
               "and Richard already know, consult_specialist_knowledge for your field's reference material, "
               "read_skill to open any of your skills in full (its whole playbook, or one of its templates, "
@@ -168,13 +180,26 @@ class RoleExecutor(AgentExecutor):
             "the way they say, and when part of the job is what another of your skills is for, open that skill "
             "with read_skill before doing that part. Read the product's own description in the folder first. To build a list, find "
             "round-up, directory and 'best of' pages first, take the names from them, then look each one up for "
-            "its own page and published contact. Open only web addresses that a search result or a page you read "
+            "its own page and published contact. FINISH EACH ENTRY BEFORE THE NEXT: a list of names is not a "
+            "contact list. For every business or person you add, open its own contact page (and its leadership, "
+            "press or investor page when a named person is asked for) and record what it publishes (the phone "
+            "number, the email address, the contact or partnership form's address, the person's name and title) "
+            "with the page as the source, before you look for another name. A cell is filled only by the fact "
+            "itself: when the page really publishes none, leave the cell blank and say what you looked at under "
+            "still to check; a sentence like \"not recorded\" in a contact cell is an empty cell. Ten entries with "
+            "their contacts are worth more than fifty without. Open only web addresses that a search result or a page you read "
             "gave you; never type an address from memory (made-up addresses fail and waste the mission). Keep an "
             "entry you could not fully confirm, marked with what is "
             "still to check, rather than dropping it; never pad a list and never guess a detail or an email. "
             "Save the deliverable after every ten or so entries, and mark each requirement with requirement_status "
             "as soon as it is met, so a stopped round keeps its progress. Work until every requirement and target "
             "is met: do not stop early to report a short list. "
+            "PROVE IT BEFORE YOU FINISH: for a workbook, run check_spreadsheet with a check for each requirement "
+            "about its rows, counts, sheets and columns; what does not pass is your remaining work (fill it in or "
+            "fix it with tidy_spreadsheet and write_spreadsheet, then check again), and what passes is the "
+            "evidence you give to requirement_status. When you change a workbook that has a Read Me or notes "
+            "sheet, rewrite that sheet from the workbook as it now is (its facts and your checks), so the notes "
+            "never contradict the file. "
             "Contact, send, post, publish and spend nothing: drafts and lists are for Richard to use. Never claim "
             "something was done unless a tool result in this conversation shows it. Mark each requirement with "
             "requirement_status as you meet it, and call finish when the whole job is done.")
@@ -192,11 +217,13 @@ class RoleExecutor(AgentExecutor):
             # 20 of its 30 requirements still marked open; nothing made it go back to its list.
             return (f"[YOUR CHECKLIST] You have worked {quiet} steps without marking a requirement, and "
                     f"{len(still_open)} are still open: {', '.join(still_open[:40])}. Stop adding to the work and "
-                    "go through them now, one by one, against what is saved (read_file shows a workbook's facts: "
-                    "its sheets, row counts per country and type, rows without a source, duplicates). Mark every "
-                    "one that is already met with requirement_status and its evidence. Then do only what is still "
-                    "unmet: usually fixing what is there (sheet names, columns, duplicates, blank cells), not "
-                    "finding more. When none is open, call finish.")
+                    "go through them now against what is saved. For a workbook, run check_spreadsheet with one "
+                    "check per requirement about its rows, counts, sheets or columns: it checks every row in code. "
+                    "Mark each requirement whose check passes with requirement_status, giving the check's answer "
+                    "as the evidence. Then do only what did not pass: fill the cells that are still empty (open "
+                    "each business's own contact page), or fix what is there with tidy_spreadsheet (sheet names, "
+                    "duplicates, order). Do not add new entries while existing ones are incomplete. When none is "
+                    "open, call finish.")
         if self.iterations <= 1 or self.iterations % SAVE_EVERY:
             return None
         return ("[SAVE NOW] Before searching further, save every entry you have found since your last save "

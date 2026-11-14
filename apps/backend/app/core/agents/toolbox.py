@@ -209,6 +209,26 @@ WORKSPACE_TOOLS: Dict[str, ToolSpec] = {
                              "items": {"type": "object"}}},
                 ["path", "changes"]),
         "workspace"),
+    "check_spreadsheet": ToolSpec(
+        "check_spreadsheet",
+        "Check EVERY row of an Excel workbook against rules, in code, and get back what passes and what does not, "
+        "with the count and the first rows that fail. Use it to find what is still wrong, and as the evidence for "
+        "any requirement about every row or about counts (reading a long workbook page by page proves nothing "
+        "about all of it). Read-only. checks is a list, each with \"check\": sheets {are: [exact names]} | columns "
+        "{sheets, have: [headings]} | filled {sheets, column, at_least?} (a cell that is blank or only says \"not "
+        "recorded\", \"TBC\", \"to verify\" is not filled) | values {sheets, column, in: [\"UK\", \"US\"]} | "
+        "links {sheets, column} | dates {sheets, column} (a real date, not after today) | count {sheet, where: "
+        "{\"country\": \"UK\"}, at_least?, at_most?} | unique {sheets, by: [\"company\", \"website\"]} | absent "
+        "{sheets, words: [\"podcast\"]} | refers {sheet, column, to_sheets, to_column} (each value exactly matches "
+        "one there) | sorted {sheets, column, order: [\"UK\", \"US\"]}.",
+        _schema({"path": _PATH_PROP,
+                 "checks": {"type": "array", "description": 'For example [{"check": "filled", "sheets": ["National '
+                                                            'Chains"], "column": "published phone"}, {"check": '
+                                                            '"count", "sheet": "National Chains", "where": '
+                                                            '{"country": "UK"}, "at_least": 20}]',
+                            "items": {"type": "object"}}},
+                ["path", "checks"]),
+        "workspace"),
     "run_command": ToolSpec(
         "run_command",
         "Run ONE command in the workspace (no &&, ;, |, > or $(...)). Read-only, build and test commands "
@@ -417,7 +437,7 @@ WORKSPACE_TOOLS.update({
                                             ["memory_id"]), "workspace"),
 })
 
-_FILESYSTEM_TOOLS = {"generate_image", "make_voiceover", "make_video", "list_files", "read_file", "search_files", "scan_workspace", "write_file", "write_spreadsheet", "tidy_spreadsheet",
+_FILESYSTEM_TOOLS = {"generate_image", "make_voiceover", "make_video", "list_files", "read_file", "search_files", "scan_workspace", "write_file", "write_spreadsheet", "tidy_spreadsheet", "check_spreadsheet",
                      "run_command", "git_status", "git_diff", "git_log", "edit_file", "create_folder",
                      "move_file", "copy_file", "delete_file_with_boundary", "get_file_metadata",
                      "detect_workspace_type", "detect_stack", "detect_commands", "find_missing_files",
