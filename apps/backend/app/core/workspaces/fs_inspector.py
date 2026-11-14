@@ -362,6 +362,25 @@ def is_env_template(name: str) -> bool:
     return ".env" in low and low.endswith(_ENV_TEMPLATE_SUFFIXES)
 
 
+def no_nul(value):
+    """The value with every NUL character removed (PostgreSQL text and JSON refuse it), recursively."""
+    if isinstance(value, str):
+        return value.replace("\x00", "") if "\x00" in value else value
+    if isinstance(value, dict):
+        return {k: no_nul(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [no_nul(v) for v in value]
+    return value
+
+
+def _binary(p: Path) -> bool:
+    try:
+        with open(p, "rb") as fh:
+            return b"\x00" in fh.read(8192)
+    except OSError:
+        return False
+
+
 def read_file(host_path: str, max_bytes: int = 20000, offset: int = 0) -> FsResult:
     """
     Real read-only file read (scope + banned enforced). Secret-bearing files
@@ -395,6 +414,15 @@ def read_file(host_path: str, max_bytes: int = 20000, offset: int = 0) -> FsResu
             workbook_text = xlsx_text(p.read_bytes(), limit=2_000_000)
             content = workbook_text[start:start + max_bytes]
             more = start + len(content) < len(workbook_text)
+        elif _binary(p):
+            # Any other binary file read as text would carry NUL bytes into the mission's record, which
+            # PostgreSQL refuses: it is described, and the document reader named for it.
+            note = (f"[{p.name} is a binary file ({p.suffix or 'no extension'}, {_safe_size(p)} bytes), not "
+                    "text. Use read_document to read a PDF, Word or PowerPoint file.]")
+            return FsResult(accessible=True, host_path=host_path, container_path=chk.container_path,
+                            exists=True, is_dir=False,
+                            data={"redacted": False, "binary": True, "size_bytes": _safe_size(p),
+                                  "content": note, "offset": 0, "next_offset": None, "truncated": False})
         else:
             with open(p, "r", encoding="utf-8", errors="replace") as fh:
                 if start:

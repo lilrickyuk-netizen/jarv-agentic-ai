@@ -255,8 +255,10 @@ class ToolRuntime:
     ) -> None:
         required = _TOOL_AUTHORITY.get(tool, 1)
         # Secrets never reach the task record, the feed, or the audit trail.
-        safe_inputs = redact_secrets(inputs)
-        safe_summary = redact_text(str(summary))
+        from app.core.workspaces.fs_inspector import no_nul
+
+        safe_inputs = no_nul(redact_secrets(inputs))
+        safe_summary = no_nul(redact_text(str(summary)))
         entry = {
             "tool": tool,
             "inputs": safe_inputs,
@@ -267,7 +269,7 @@ class ToolRuntime:
             "ts": datetime.now(timezone.utc).isoformat(),
         }
         if output is not None:
-            entry["output"] = redact_secrets(output)
+            entry["output"] = no_nul(redact_secrets(output))
         self.calls.append(entry)
         # Operations feed
         try:

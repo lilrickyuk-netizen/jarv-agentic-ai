@@ -589,6 +589,9 @@ class AgentToolbox:
             except Exception as exc:  # noqa: BLE001 - reported to the agent, logged here
                 logger.warning(f"{self.agent.name} tool {name} failed: {exc}", exc_info=True)
                 result = {"success": False, "error": f"{type(exc).__name__}: {exc}"}
+        from app.core.workspaces.fs_inspector import no_nul
+
+        result = no_nul(result)  # a NUL from any tool would fail the mission's record in PostgreSQL
         self.calls.append(ToolCallRecord(
             name=name, args={k: (v if len(str(v)) < 200 else str(v)[:200] + "…") for k, v in args.items()},
             success=bool(result.get("success")), blocked=bool(result.get("blocked")),
