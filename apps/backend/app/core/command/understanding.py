@@ -178,6 +178,34 @@ async def recent_missions(db: AsyncSession, workspaces: List[Any], current: Opti
     return out
 
 
+_MISSION_ID = re.compile(r"\b[0-9a-f]{8}\b(?:-[0-9a-f]{4}){0,3}(?:-[0-9a-f]{12})?", re.I)
+
+
+async def named_mission(db: AsyncSession, workspaces: List[Any], text: str, current: Optional[UUID] = None
+                        ) -> Optional[Understanding]:
+    """When Richard names a mission by its id ("finish mission 0bd089e9"), that mission is the one: no model is
+    asked and nothing is guessed. Its workspace and its agent come from its own record."""
+    from app.core.command import resume
+    from app.models.task import Task
+
+    wanted = [found.group(0).lower()[:8] for found in _MISSION_ID.finditer(text or "")]
+    names = {w.id: w.name for w in workspaces}
+    if not wanted or not names:
+        return None
+    rows = (await db.execute(
+        select(Task).where(Task.task_type == "command", Task.workspace_id.in_(list(names)))
+        .order_by(Task.created_at.desc()).limit(400))).scalars().all()
+    for task in rows:
+        if str(task.id)[:8] in wanted and (current is None or task.id != current):
+            result = await resume._state(task)
+            return Understanding(
+                kind="follow_up", mission_id=str(task.id), workspace_id=str(task.workspace_id),
+                workspace=names.get(task.workspace_id, ""), specialist=await _agent_of(task, result),
+                confidence=1.0, why=f"You named mission {str(task.id)[:8]}.",
+                mission_running=task.status in ("running", "resuming"), model="named by Richard")
+    return None
+
+
 def prompt_for(text: str, workspaces: List[Any], missions: List[Dict[str, Any]], selected: str) -> str:
     from app.core.command.work_type import DESCRIBED
 
@@ -302,6 +330,10 @@ async def understand(db: AsyncSession, text: str, owner: Optional[UUID], selecte
             return None  # a workflow's step already names its agent and runs where its workflow runs
         async with db.begin_nested():  # reading only; a failed read never spoils the request's own transaction
             workspaces = await _workspaces(db, owner)
+            named = await named_mission(db, workspaces, text, current)
+            if named is not None:
+                logger.info(f"understood: {named.line()}")
+                return named
             missions = await recent_missions(db, workspaces, current)
         chosen = next((w.name for w in workspaces if selected is not None and w.id == selected), "")
         answer = await _ask(prompt_for(text, workspaces, missions, chosen))

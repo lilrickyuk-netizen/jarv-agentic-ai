@@ -165,6 +165,24 @@ def test_a_failed_attempt_to_carry_a_mission_on_is_not_taken_for_the_mission_its
 
 
 @pytest.mark.integration
+def test_a_mission_richard_names_by_its_id_is_the_mission_with_no_model_asked(monkeypatch):
+    async def run():
+        async with AsyncTestingSessionLocal() as db:
+            owner, plexecute, acceptance, booking, _ = await _richards_work(db)
+            reading = Reading({"kind": "mission", "confidence": 0.99, "why": "never asked"})
+            monkeypatch.setattr(understanding, "_ask", reading)
+            named = await understanding.understand(db, f"Finish mission {str(booking.id)[:8]}", owner, acceptance)
+            unknown = await understanding.understand(db, "Finish mission 0123abcd", owner, acceptance)
+            return plexecute, booking, reading.prompts, named, unknown
+
+    plexecute, booking, prompts, named, unknown = _run(run())
+    assert named.kind == "follow_up" and named.mission_id == str(booking.id) and named.confidence == 1.0
+    assert named.workspace_id == str(plexecute) and named.specialist == "partnerships" and named.sure
+    assert len(prompts) == 1                      # only the id that names no mission went to the model
+    assert unknown.kind == "mission" and unknown.mission_id is None
+
+
+@pytest.mark.integration
 def test_the_request_is_filed_in_the_workspace_it_is_about_not_the_one_on_screen(monkeypatch):
     async def run():
         async with AsyncTestingSessionLocal() as db:
