@@ -388,11 +388,19 @@ def read_file(host_path: str, max_bytes: int = 20000, offset: int = 0) -> FsResu
                             data={"redacted": True, "size_bytes": _safe_size(p),
                                   "content": "[REDACTED — secret-bearing file; values never read]"})
         start = max(0, int(offset or 0))
-        with open(p, "r", encoding="utf-8", errors="replace") as fh:
-            if start:
-                fh.read(start)
-            content = fh.read(max_bytes)
-            more = bool(fh.read(1))
+        if p.suffix.lower() == ".xlsx":
+            # XLSX is a ZIP archive, not UTF-8 text. Reuse JAI's existing
+            # workbook parser and preserve read_file's offset/pagination contract.
+            from app.core.agents.workspace_ops import xlsx_text
+            workbook_text = xlsx_text(p.read_bytes(), limit=2_000_000)
+            content = workbook_text[start:start + max_bytes]
+            more = start + len(content) < len(workbook_text)
+        else:
+            with open(p, "r", encoding="utf-8", errors="replace") as fh:
+                if start:
+                    fh.read(start)
+                content = fh.read(max_bytes)
+                more = bool(fh.read(1))
         return FsResult(accessible=True, host_path=host_path, container_path=chk.container_path,
                         exists=True, is_dir=False,
                         data={"redacted": False, "size_bytes": _safe_size(p), "content": content,

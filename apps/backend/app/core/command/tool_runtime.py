@@ -185,6 +185,24 @@ def _stop_group(proc) -> None:
             pass
 
 
+def _decode_command_output(data: bytes, limit: int) -> str:
+    """Never pass raw binary subprocess output into the LLM or PostgreSQL TEXT columns.
+
+    XLSX files are ZIP containers; the read_file tool already understands workbook
+    rows. A command may inspect a binary file without poisoning the mission log.
+    """
+    if b"\x00" in data or data.startswith(b"PK\x03\x04"):
+        return (f"[Binary output omitted ({len(data)} bytes). Use read_file to inspect "
+                "Excel .xlsx workbooks as sheets and rows.]")
+    return data.decode("utf-8", errors="replace")[:limit]
+
+
+def _safe_command_log_text(value: str, limit: Optional[int] = None) -> str:
+    """Keep an unexpected NUL out of PostgreSQL text fields, even if input bypasses decoding."""
+    clean = redact_text(str(value or "").replace("\x00", r"\0"))
+    return clean[:limit] if limit is not None else clean
+
+
 class ToolRuntime:
     """Executes named tools, recording each call on the task + feed + audit.
 
@@ -253,28 +271,30 @@ class ToolRuntime:
         self.calls.append(entry)
         # Operations feed
         try:
-            self.db.add(LiveOperationsFeedItem(
-                id=uuid4(), workspace_id=self.workspace_id, item_type="tool",
-                severity="info" if success else "error",
-                title=f"Tool: {tool}", message=safe_summary,
-                related_task_id=self.task_id, requires_action=False,
-                created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
-            ))
-            await self.db.flush()
+            async with self.db.begin_nested():
+                self.db.add(LiveOperationsFeedItem(
+                    id=uuid4(), workspace_id=self.workspace_id, item_type="tool",
+                    severity="info" if success else "error",
+                    title=f"Tool: {tool}", message=safe_summary,
+                    related_task_id=self.task_id, requires_action=False,
+                    created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
+                ))
+                await self.db.flush()
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"tool feed write failed: {exc}")
         # Audit
         try:
-            self.db.add(AuditLog(
-                id=uuid4(), workspace_id=self.workspace_id, actor_type="tool",
-                action=f"tool:{tool}", action_category="tool_execution",
-                description=safe_summary, target_type="task",
-                target_id=str(self.task_id) if self.task_id else None,
-                after_state={"tool": tool, "inputs": safe_inputs, "operator": self.operator},
-                success=success, authority_level=required,
-                created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
-            ))
-            await self.db.flush()
+            async with self.db.begin_nested():
+                self.db.add(AuditLog(
+                    id=uuid4(), workspace_id=self.workspace_id, actor_type="tool",
+                    action=f"tool:{tool}", action_category="tool_execution",
+                    description=safe_summary, target_type="task",
+                    target_id=str(self.task_id) if self.task_id else None,
+                    after_state={"tool": tool, "inputs": safe_inputs, "operator": self.operator},
+                    success=success, authority_level=required,
+                    created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
+                ))
+                await self.db.flush()
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"tool audit write failed: {exc}")
 
@@ -725,8 +745,8 @@ class ToolRuntime:
             )
             out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
             exit_code = proc.returncode
-            stdout = out.decode("utf-8", errors="replace")[:8000]
-            stderr = err.decode("utf-8", errors="replace")[:4000]
+            stdout = _decode_command_output(out, 8000)
+            stderr = _decode_command_output(err, 4000)
         except (asyncio.TimeoutError, asyncio.CancelledError) as stopped:
             _stop_group(proc)
             if isinstance(stopped, asyncio.CancelledError):
@@ -760,22 +780,23 @@ class ToolRuntime:
                                    dangerous=False):
         try:
             agent_id = await memory_service._agent_id(self.db, self.workspace_id)
-            self.db.add(CommandRun(
-                id=uuid4(), agent_id=agent_id, command=redact_text(command or ""),
-                command_type="readonly",
-                working_directory=cwd,
-                started_at=datetime.now(timezone.utc),
-                completed_at=datetime.now(timezone.utc),
-                exit_code=exit_code if isinstance(exit_code, int) else None,
-                stdout=redact_text((stdout or ""))[:8000],
-                stderr=redact_text((stderr or ""))[:4000], success=success,
-                authority_level_used=_TOOL_AUTHORITY["run_safe_readonly_command"],
-                required_approval=False, is_dangerous=dangerous,
-                meta_data={"task_id": str(self.task_id) if self.task_id else None,
-                           "operator": self.operator},
-                created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
-            ))
-            await self.db.flush()
+            async with self.db.begin_nested():
+                self.db.add(CommandRun(
+                    id=uuid4(), agent_id=agent_id, command=_safe_command_log_text(command),
+                    command_type="readonly",
+                    working_directory=_safe_command_log_text(cwd) if cwd else None,
+                    started_at=datetime.now(timezone.utc),
+                    completed_at=datetime.now(timezone.utc),
+                    exit_code=exit_code if isinstance(exit_code, int) else None,
+                    stdout=_safe_command_log_text(stdout, 8000),
+                    stderr=_safe_command_log_text(stderr, 4000), success=success,
+                    authority_level_used=_TOOL_AUTHORITY["run_safe_readonly_command"],
+                    required_approval=False, is_dangerous=dangerous,
+                    meta_data={"task_id": str(self.task_id) if self.task_id else None,
+                               "operator": self.operator},
+                    created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
+                ))
+                await self.db.flush()
         except Exception as exc:  # noqa: BLE001
             logger.warning(f"CommandRun write failed: {exc}")
         await self._graph("record_command", redact_text(command or ""),
