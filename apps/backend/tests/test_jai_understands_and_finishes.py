@@ -48,6 +48,10 @@ OPEN = {"requirements": [{"id": "R1", "text": "40 national chains", "status": "d
         "verification": {"verified": False}}
 
 
+SAVED = {"tool": "write_file", "inputs": {"path": "plexecute/plexecute-booking-partners.xlsx"}, "success": True,
+         "summary": "spreadsheet updated: National chains 65 rows"}
+
+
 def _run(coro):
     return asyncio.run(coro)
 
@@ -63,10 +67,12 @@ async def _richards_work(db):
     now = datetime.now(timezone.utc)
     booking = Task(id=uuid4(), title="Booking partners", description=BOOKING, task_type="command",
                    workspace_id=plexecute, status="partial",
-                   result={**OPEN, "role": {"specialist": "partnerships", "title": "Partnerships Lead"}},
+                   result={**OPEN, "role": {"specialist": "partnerships", "title": "Partnerships Lead"},
+                           "tool_calls": [SAVED]},
                    created_at=now - timedelta(hours=2), updated_at=now - timedelta(hours=2))
     investors = Task(id=uuid4(), title="Investors", description=INVESTORS, task_type="command",
-                     workspace_id=acceptance, status="partial", result=OPEN,
+                     workspace_id=acceptance, status="partial",
+                     result=OPEN,
                      created_at=now - timedelta(hours=1), updated_at=now - timedelta(hours=1))
     db.add_all([booking, investors])
     await db.commit()
@@ -109,6 +115,7 @@ def test_the_booking_follow_up_is_read_as_that_mission_in_its_own_workspace_with
     assert "- Plexecute" in prompt and "- _jai_acceptance" in prompt
     assert str(booking.id)[:8] in prompt and str(investors.id)[:8] in prompt
     assert "agent partnerships" in prompt and "1 of 2 requirements done" in prompt
+    assert "files it wrote: plexecute/plexecute-booking-partners.xlsx" in prompt
     assert "- partnerships:" in prompt and "- builder:" in prompt
     assert "workspace selected on his screen: _jai_acceptance" in prompt
     # And its reading is the booking mission, where it lives, on the agent that was doing it.
@@ -122,6 +129,39 @@ def test_the_booking_follow_up_is_read_as_that_mission_in_its_own_workspace_with
     # The mission carried on is that one: its checklist, its brief, its workspace.
     assert carried["task_id"] == str(booking.id) and carried["workspace_id"] == plexecute
     assert [r["status"] for r in carried["requirements"]] == ["done", "open"] and carried["brief"] == BOOKING
+
+
+@pytest.mark.integration
+def test_a_failed_attempt_to_carry_a_mission_on_is_not_taken_for_the_mission_itself(monkeypatch):
+    """14 November, 16:58: the model chose mission ae4655c8, a failed carry-on that had found no workbook and
+    written nothing, because its words were almost Richard's; the mission that built the workbook was passed over."""
+    async def run():
+        async with AsyncTestingSessionLocal() as db:
+            owner, plexecute, acceptance, booking, investors = await _richards_work(db)
+            now = datetime.now(timezone.utc)
+            attempt = Task(id=uuid4(), title="Carry on", description=FOLLOW_UP, task_type="command",
+                           workspace_id=acceptance, status="partial", created_at=now, updated_at=now,
+                           result={**OPEN, "plan_steps": [f"Resume: carry on from mission {str(investors.id)[:8]} "
+                                                          "(6 of 10 requirements already done)."],
+                                   "tool_calls": [{"tool": "list_files", "inputs": {}, "success": True}],
+                                   "team": {"packages": [{"id": "B1", "steps": 19}]}})
+            never_ran = Task(id=uuid4(), title="Carry on", description=FOLLOW_UP, task_type="command",
+                             workspace_id=acceptance, status="partial", created_at=now, updated_at=now,
+                             result={**OPEN, "plan_steps": [f"Resume: carry on from mission {str(attempt.id)[:8]} "
+                                                            "(7 of 15 requirements already done)."]})
+            db.add_all([attempt, never_ran])
+            await db.commit()
+            # The model, as it did, names the failed attempt: it is not among the missions, so it cannot be chosen.
+            reading = Reading({**_booking_reading(str(attempt.id)[:8]), "agent": "builder"})
+            monkeypatch.setattr(understanding, "_ask", reading)
+            wrong = await understanding.understand(db, FOLLOW_UP, owner, acceptance)
+            return booking, investors, attempt, never_ran, reading.prompts[0], wrong
+
+    booking, investors, attempt, never_ran, prompt, wrong = _run(run())
+    assert str(attempt.id)[:8] not in prompt and str(never_ran.id)[:8] not in prompt
+    assert str(booking.id)[:8] in prompt and str(investors.id)[:8] in prompt   # missions that did work stay
+    assert "not by which mission's wording is closest" in prompt
+    assert wrong is None                                                        # the backup rules decide
 
 
 @pytest.mark.integration

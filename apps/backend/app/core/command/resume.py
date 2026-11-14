@@ -147,6 +147,8 @@ async def last_state(db: AsyncSession, workspace_id: Optional[UUID], current_tas
         requirements = [r for r in (result.get("requirements") or []) if isinstance(r, dict) and r.get("id")]
         if not requirements:
             continue  # a short command, or a mission that stopped before it had a requirement list
+        if task.status not in ("running", "resuming") and not (await work_of(task, result))[2]:
+            continue  # a failed attempt to carry a mission on: the work is in the mission it tried to carry
         best = (rank, task, result, requirements)
         if not mine:
             break  # "carry on" alone: the most recent unfinished mission
@@ -181,6 +183,39 @@ async def state_of(db: AsyncSession, task_id: Any, current_task_id: Optional[UUI
     return {"task_id": str(task.id), "requirements": carried(requirements, task),
             "known": left_off(task, result, requirements), "brief": task.description or task.title or "",
             "workspace_id": task.workspace_id}
+
+
+async def _files_of(task: Task, result: Dict[str, Any]) -> List[str]:
+    """The files a mission wrote: from its final record, else from its live progress (kept a week after it stops
+    or is cancelled)."""
+    files: List[str] = []
+    for call in result.get("tool_calls") or []:
+        if isinstance(call, dict) and call.get("tool") == "write_file" and call.get("success"):
+            path = str((call.get("inputs") or {}).get("path") or "")
+            if path and path not in files:
+                files.append(path)
+    for path in result.get("files_changed") or []:
+        if isinstance(path, str) and path not in files:
+            files.append(path)
+    if not files:
+        from app.core.command import progress
+
+        live = await progress.load(task.id) or {}
+        files = [str(path) for path in (live.get("files_changed") or []) if path]
+    return files
+
+
+CARRIED_ON = "Resume: carry on from mission "
+
+
+async def work_of(task: Task, result: Dict[str, Any]) -> tuple:
+    """(the files a mission wrote, the mission it was itself a carry-on of or "", whether it holds work to carry
+    on). An attempt to carry another mission on that wrote nothing holds none: it is not the mission a later request is about (14 November: a failed attempt, with almost Richard's words, was
+    taken for the mission that had built the workbook)."""
+    files = await _files_of(task, result)
+    step = next((str(s) for s in (result.get("plan_steps") or []) if str(s).startswith(CARRIED_ON)), "")
+    carried_on = step[len(CARRIED_ON):][:8]
+    return files, carried_on, bool(files) or not carried_on
 
 
 async def _state(task: Task) -> Dict[str, Any]:

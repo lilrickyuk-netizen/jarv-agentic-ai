@@ -156,6 +156,13 @@ async def recent_missions(db: AsyncSession, workspaces: List[Any], current: Opti
         running = task.status in ("running", "resuming")
         if not requirements and not running:
             continue  # a question or a one-off command: nothing to follow up
+        files, carried_on, holds = await resume.work_of(task, result)
+        if not holds and not running:
+            # An attempt to carry another mission on that wrote nothing holds no work to carry on. 14 November: a
+            # failed attempt to carry the booking database on (it found no workbook and wrote nothing) had almost
+            # the same words as Richard's next request, and was taken for the mission he meant, over the one that
+            # had built the workbook.
+            continue
         done = sum(1 for r in requirements if r.get("status") == "done")
         verified = (result.get("verification") or {}).get("verified") is True
         out.append({
@@ -164,6 +171,7 @@ async def recent_missions(db: AsyncSession, workspaces: List[Any], current: Opti
             "agent": await _agent_of(task, result), "status": "finished and verified" if verified else task.status,
             "running": running, "progress": f"{done} of {len(requirements)} requirements done" if requirements else "",
             "when": f"{task.created_at:%d %b %H:%M}" if task.created_at else "",
+            "files": files[-6:], "carried_on": carried_on,
         })
         if len(out) >= MISSIONS_SHOWN:
             break
@@ -178,6 +186,8 @@ def prompt_for(text: str, workspaces: List[Any], missions: List[Dict[str, Any]],
     recent = "\n".join(
         f"- {m['short']}: “{m['brief']}” | workspace {m['workspace']} | agent {m['agent']} | "
         f"{m['status']}" + (f" | {m['progress']}" if m["progress"] else "") + f" | started {m['when']}"
+        + (f" | files it wrote: {', '.join(m['files'])}" if m.get("files") else " | no files recorded")
+        + (f" | it was itself a carry-on of mission {m['carried_on']}" if m.get("carried_on") else "")
         for m in missions) or "- (none)"
     agents = "\n".join(f"- {name}: {what}" for name, what in DESCRIBED.items())
     return (
@@ -199,8 +209,10 @@ def prompt_for(text: str, workspaces: List[Any], missions: List[Dict[str, Any]],
         "\"mission\" when it is a new piece of work. \"direct\" when it is a single built-in instruction to JAI "
         "itself (remember or recall something, register or scan a workspace, run one named command, start a named "
         "workflow, a self-healing or self-evolution instruction).\n"
-        "- mission: for a follow_up, the id of the recent mission he means; otherwise null. Choose it by what the "
-        "work is about, not by which is newest. If no recent mission fits, it is not a follow_up.\n"
+        "- mission: for a follow_up, the id of the recent mission he means; otherwise null. It is the mission "
+        "that holds the work he is talking about: the one that was asked to make it and wrote its files, in that "
+        "product's workspace. Choose it by what the work is, not by which is newest and not by which mission's "
+        "wording is closest to his. If no recent mission fits, it is not a follow_up.\n"
         "- workspace: the name of the workspace the work belongs to. For a follow_up it is that mission's "
         "workspace. For new work it is the product he is talking about. null when he names no product and nothing "
         "tells you.\n"
