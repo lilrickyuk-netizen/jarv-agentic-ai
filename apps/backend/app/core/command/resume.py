@@ -79,35 +79,85 @@ def wants_to_carry_on(brief: str, earlier_brief: str) -> bool:
     return bool(shared)
 
 
+# Words that say what to do, not what the work is about: they do not tie a "carry on" to an earlier mission.
+_NOT_TOPIC = set("""carry continue continuing resume pick left finish complete rest mission missions work please with
+from that this then them they their there here into each every stop adding add rows row rename remove fill mark
+check checks still requirement requirements status done open last where what which when should would could also
+have about make sure keep just only more less after before again""".split())
+SAME_TOPIC = 2       # shared topic words for a "carry on" to take over a mission in the same workspace
+OTHER_WORKSPACE = 3  # and in another of Richard's workspaces, when the brief names no folder
+
+
+def topic(text: str) -> set:
+    """The words that say what a brief is about (four letters or more, plural folded)."""
+    words = set()
+    for word in re.findall(r"[a-z][a-z-]{3,}", (text or "").lower()):
+        for part in word.split("-"):
+            part = part[:-1] if len(part) > 4 and part.endswith("s") else part
+            if len(part) >= 4 and part not in _NOT_TOPIC:
+                words.add(part)
+    return words
+
+
 async def last_state(db: AsyncSession, workspace_id: Optional[UUID], current_task_id: Optional[UUID],
                      brief: str) -> Optional[Dict[str, Any]]:
-    """The state to carry on from: {"task_id", "requirements", "known"}, or None when this mission starts fresh."""
+    """The state to carry on from: {"task_id", "requirements", "known", "brief", "workspace_id"}, or None when this
+    mission starts fresh.
+
+    The mission carried on is the one the brief is about, not just the most recent (14 November: "carry on with
+    the booking-partners database" took over an investors mission that happened to be newer, in the wrong
+    folder). A "carry on" that names its subject takes over the unfinished mission sharing the most topic words
+    with it; one that names nothing ("carry on") takes over the most recent. A brief that names no folder may
+    carry on a mission in another of the same owner's workspaces when it is plainly about that work."""
     if workspace_id is None:
         return None
+    from app.models.workspace import Workspace
+
     since = datetime.now(timezone.utc) - timedelta(days=LOOK_BACK_DAYS)
     # Earlier work on the same project may have run in another workspace (MYCO's first missions ran in the
     # Command Center before missions went to the workspace their brief is about): those count only when they are
-    # plainly the same project, by its folder or by this workspace's name.
+    # plainly the same project, by its folder or by this workspace's name, or by what the brief is about.
     name = await _workspace_name(db, workspace_id)
-    query = (select(Task).where(Task.task_type == "command", Task.created_at >= since)
-             .order_by(Task.created_at.desc()).limit(80))
-    for task in (await db.execute(query)).scalars().all():
+    owner = (await db.execute(select(Workspace.owner_id).where(Workspace.id == workspace_id))).scalar_one_or_none()
+    mine = topic(brief)
+    asked = bool(CARRY_ON.search(brief or ""))
+    no_folder = not _folders(brief)
+    query = (select(Task, Workspace.owner_id).outerjoin(Workspace, Workspace.id == Task.workspace_id)
+             .where(Task.task_type == "command", Task.created_at >= since)
+             .order_by(Task.created_at.desc()).limit(120))
+    best: Optional[tuple] = None
+    for order, (task, task_owner) in enumerate((await db.execute(query)).all()):
         if current_task_id is not None and task.id == current_task_id:
             continue
         earlier = task.description or task.title or ""
-        if task.workspace_id != workspace_id and not same_project(brief, earlier, name):
-            continue  # another workspace's work
+        shared = len(mine & topic(earlier))
+        here = task.workspace_id == workspace_id
+        if not here and not same_project(brief, earlier, name):
+            if not (asked and no_folder and owner is not None and task_owner == owner and shared >= OTHER_WORKSPACE):
+                continue  # another workspace's work
         if not wants_to_carry_on(brief, earlier):
             continue  # another piece of work in the same workspace
+        if asked and mine and shared < SAME_TOPIC and not _phases(brief) & _phases(earlier) \
+                and not _folders(brief) & _folders(earlier):
+            continue  # it says carry on, but with something else
+        rank = (shared, -order)
+        if best is not None and rank <= best[0]:
+            continue
         result = await _state(task)
         requirements = [r for r in (result.get("requirements") or []) if isinstance(r, dict) and r.get("id")]
         if not requirements:
             continue  # a short command, or a mission that stopped before it had a requirement list
-        if (result.get("verification") or {}).get("verified") is True:
-            return None  # the last mission on this work finished verified: this one is new work
-        return {"task_id": str(task.id), "requirements": carried(requirements, task),
-                "known": left_off(task, result, requirements)}
-    return None
+        best = (rank, task, result, requirements)
+        if not mine:
+            break  # "carry on" alone: the most recent unfinished mission
+    if best is None:
+        return None
+    _, task, result, requirements = best
+    if (result.get("verification") or {}).get("verified") is True:
+        return None  # the mission on this work finished verified: this one is new work
+    return {"task_id": str(task.id), "requirements": carried(requirements, task),
+            "known": left_off(task, result, requirements), "brief": task.description or task.title or "",
+            "workspace_id": task.workspace_id}
 
 
 async def _state(task: Task) -> Dict[str, Any]:

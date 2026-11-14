@@ -180,7 +180,10 @@ class RoleExecutor(AgentExecutor):
             return None
         return ("[SAVE NOW] Before searching further, save every entry you have found since your last save "
                 "(write_spreadsheet with mode \"append\" for a list, write_file or edit_file for a document), "
-                "then mark each requirement that is now met with requirement_status. Then carry on.")
+                "then mark each requirement that is now met with requirement_status. Compare the WORKBOOK FACTS "
+                "that each save reports with the requirements' targets: once the targets are met, stop searching. "
+                "Finish the job instead: fix what the facts show (sheet names, duplicates, blank cells, rows "
+                "without a source), mark every requirement, and call finish. Otherwise carry on.")
 
     async def _over_allowance(self) -> Optional[str]:
         cap = float(getattr(settings, "ROLE_MISSION_MAX_COST_USD", 0) or 0)

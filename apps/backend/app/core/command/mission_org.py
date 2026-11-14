@@ -662,6 +662,8 @@ class MissionTeam:
         # A specialist's job: Richard's standing rules, the job set out to a professional standard, its playbooks
         # and field knowledge (expertise.job_for); None for software, a named skill or parallel work.
         self.job = None
+        # The brief of the mission this one carries on: it decides the agent (service, resume.last_state).
+        self.route_from: Optional[str] = None
         # The last round of this mission completed nothing: its software work moves up to Opus (OPENHANDS_STUCK_MODEL).
         self.stuck = stuck
         self.model = model
@@ -1267,7 +1269,7 @@ class MissionTeam:
         try:
             if named_skill(mission) is not None or PARALLEL_ASKED.search(mission or ""):
                 return None
-            self.route = self.route or await classify(mission)
+            self.route = self.route or await classify(getattr(self, "route_from", None) or mission)
         except Exception as exc:  # noqa: BLE001 - the builder runs it
             logger.info(f"mission not routed to a role: {exc}")
             return None
@@ -1330,7 +1332,7 @@ class MissionTeam:
         try:
             if named_skill(mission) is not None or PARALLEL_ASKED.search(mission or ""):
                 return None
-            self.route = self.route or await classify(mission)
+            self.route = self.route or await classify(getattr(self, "route_from", None) or mission)
             kind = self.route.get("route")
             if not kind:
                 return None
@@ -1559,7 +1561,7 @@ class MissionTeam:
                 from app.core.command import alarms
                 from app.core.command.work_type import DESCRIBED, classify
 
-                self.route = self.route or await classify(mission)
+                self.route = self.route or await classify(getattr(self, "route_from", None) or mission)
                 kind = self.route["route"]
                 if kind and self.job is None:
                     # Carrying on: the requirements stand, the playbooks and Richard's rules still come with it.

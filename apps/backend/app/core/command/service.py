@@ -1500,6 +1500,21 @@ class CommandService:
                     "approve. Progress shows in the Live Operations feed, or ask \u201chow's the workflow going?\u201d.")
         return answer, steps, agents, {"workflow": described}
 
+    async def _move_mission(self, db: AsyncSession, runtime: ToolRuntime, workspace_id) -> None:
+        """Run this mission in the workspace of the mission it carries on (its task row, runtime and folder)."""
+        from app.models.task import Task
+
+        try:
+            if runtime.task_id is not None:
+                task = (await db.execute(select(Task).where(Task.id == runtime.task_id))).scalar_one_or_none()
+                if task is not None:
+                    task.workspace_id = workspace_id
+            runtime.workspace_id = workspace_id
+            self._mission_workspace_id = workspace_id
+            await db.flush()
+        except Exception as exc:  # noqa: BLE001 - it runs where it started
+            logger.warning(f"mission not moved to the workspace it carries on: {exc}")
+
     async def _orchestrate(self, db: AsyncSession, runtime: ToolRuntime, command_text: str
                            ) -> Optional[tuple[str, List[str], List[str], Dict[str, Any]]]:
         """When the mission needs several agents: the Orchestrator's plan, started on the workflow engine, and the
@@ -2213,15 +2228,31 @@ class CommandService:
             ]
         from app.core.command.resume import last_state
 
-        root = await self._resolve_ws_root(db, command_text)
         max_cont = 4
         known = _known_for_mission(system_context)
         carried = None
-        try:  # carry on from the last unfinished mission in this workspace instead of starting again
+        try:  # carry on from the unfinished mission this brief is about instead of starting again
             carried = await last_state(db, runtime.workspace_id, runtime.task_id, command_text)
         except Exception as exc:  # noqa: BLE001 - the mission starts fresh rather than not at all
             logger.warning(f"could not read the last mission's state: {exc}")
+        if carried and carried.get("workspace_id") and carried["workspace_id"] != runtime.workspace_id:
+            # Carrying on keeps the mission's own folder (14 November: a typed "carry on" with no folder ran in
+            # another workspace and could not find the workbook).
+            await self._move_mission(db, runtime, carried["workspace_id"])
+        root = await self._resolve_ws_root(db, command_text)
         if carried:
+            # ...and its own agent: the brief being carried on decides who does the work, not the follow-up's
+            # wording (the same morning, "carry on with the booking-partners database" went to the Sales Lead).
+            original = specialist_for(carried.get("brief") or "") if getattr(
+                settings, "ROLE_AGENTS_ENABLED", True) else None
+            if original and original.get("specialist") in SPECIALISTS:
+                title = SPECIALISTS[original["specialist"]]["title"]
+                agents = self._validate_agents(["orchestrator", original["specialist"], "verifier"])
+                steps = [
+                    f"Orchestrator: give the work back to JAI's {title}, who started it.",
+                    f"{title}: carry on from where the mission left off, with the role's own tools.",
+                    "Verifier: check the result against every requirement.",
+                ]
             known = (f"{known}\n\n" if known else "") + carried["known"]
             steps.insert(0, f"Resume: carry on from mission {carried['task_id'][:8]} "
                             f"({sum(1 for r in carried['requirements'] if r.get('status') == 'done')} of "
@@ -2233,6 +2264,8 @@ class CommandService:
             if split is not None:
                 return split
         executor = mission_executor(runtime, self.model, root)
+        if carried and hasattr(executor, "route_from"):
+            executor.route_from = carried.get("brief") or None
         mission_started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         result = await executor.run(command_text, steps_per_round=8, max_continuations=max_cont, known=known,
                                     requirements=carried["requirements"] if carried else None)

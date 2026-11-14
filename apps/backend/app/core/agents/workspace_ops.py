@@ -694,10 +694,61 @@ def xlsx_read(data: bytes) -> List[Dict[str, Any]]:
     return sheets
 
 
+_COUNTED = re.compile(r"\b(country|region|type|sector|industry|category|priority|platform|status)\b", re.I)
+_NAMED = re.compile(r"\b(company|name|chain|business|organisation|organization|brand|outlet|creator|site)\b", re.I)
+_SOURCED = re.compile(r"\b(source|url|link|website)\b", re.I)
+
+
+def xlsx_facts(sheets: List[Dict[str, Any]]) -> str:
+    """What a workbook holds, worked out from the file, not taken from whoever wrote it (14 November: a list
+    mission kept adding rows for ten rounds after its targets were met, because it could not see its own totals,
+    and its report could not say how many rows were UK or US): each sheet's rows and headings, the counts of
+    every country, type, priority or similar column, duplicate names, and rows without a source."""
+    lines = ["WORKBOOK FACTS (worked out from the file):"]
+    seen_names: Dict[str, List[str]] = {}
+    for sheet in sheets:
+        rows = [r for r in sheet["rows"] if any(str(v).strip() for v in r)]
+        if not rows:
+            lines.append(f"- {sheet['name']}: empty")
+            continue
+        header = [str(h).strip() for h in rows[0]]
+        body = rows[1:]
+        lines.append(f"- {sheet['name']}: {len(body)} rows; columns: {', '.join(h for h in header if h)[:400]}")
+        for index, heading in enumerate(header):
+            if _COUNTED.search(heading):
+                counts: Dict[str, int] = {}
+                for row in body:
+                    value = str(row[index]).strip() if index < len(row) else ""
+                    counts[value or "(blank)"] = counts.get(value or "(blank)", 0) + 1
+                if 1 < len(counts) <= 12 or (len(counts) == 1 and len(body) > 1):
+                    lines.append(f"    {heading}: " + ", ".join(f"{k} {v}" for k, v in
+                                                            sorted(counts.items(), key=lambda kv: -kv[1])))
+        named = next((i for i, h in enumerate(header) if _NAMED.search(h)), None)
+        if named is not None:
+            for row in body:
+                key = str(row[named]).strip().lower() if named < len(row) else ""
+                if key:
+                    seen_names.setdefault(key, []).append(sheet["name"])
+        sourced = [i for i, h in enumerate(header) if _SOURCED.search(h)]
+        if sourced and body:
+            missing = sum(1 for row in body if not any(i < len(row) and str(row[i]).strip() for i in sourced))
+            if missing:
+                lines.append(f"    rows with no source or link: {missing}")
+    twice = {k: v for k, v in seen_names.items() if len(v) > 1}
+    if twice:
+        sample = "; ".join(f"{k} ({', '.join(v)})" for k, v in list(twice.items())[:8])
+        lines.append(f"- Duplicate names: {len(twice)} (for example {sample})")
+    else:
+        lines.append("- Duplicate names: none found")
+    return "\n".join(lines)
+
+
 def xlsx_text(data: bytes, limit: int = 60000) -> str:
-    """A workbook as text an agent or the Verifier can read: each sheet with its row count, then its rows."""
-    parts = []
-    for sheet in xlsx_read(data):
+    """A workbook as text an agent or the Verifier can read: the facts worked out from it, then each sheet with its
+    row count and its rows."""
+    sheets = xlsx_read(data)
+    parts = [xlsx_facts(sheets), ""]
+    for sheet in sheets:
         rows = sheet["rows"]
         parts.append(f"## Sheet: {sheet['name']} ({max(0, len(rows) - 1)} rows under the header)")
         parts += [" | ".join(str(v) for v in row) for row in rows]
@@ -787,7 +838,7 @@ async def write_spreadsheet(tb, args: Dict[str, Any]) -> Dict[str, Any]:
                              + (f"; kept unchanged: {', '.join(kept)}" if kept else ""))
     await tb.runtime._graph("record_file", host, None, operation="modified" if existed else "created")
     return {"success": True, "path": host, "rows_per_sheet": counts, "written": added, "kept_unchanged": kept,
-            "bytes": len(data)}
+            "bytes": len(data), "facts": xlsx_facts(merged)}
 
 
 HANDLERS = {
