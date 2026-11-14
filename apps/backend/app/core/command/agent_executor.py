@@ -219,6 +219,7 @@ def compact_messages(messages: List[Any], budget: int = CONTEXT_BUDGET_CHARS,
 
 # How many times one run sends back a finish that gives up with nothing blocking it.
 MAX_REFUSED_STOPS = 2
+MAX_WORDS_ONLY = 3  # replies in words, with work open, that a role's agent is sent back to work from
 
 
 def _blocked_or_waiting(runtime_calls: List[Dict[str, Any]]) -> bool:
@@ -450,6 +451,11 @@ class AgentExecutor:
         """A word to the agent between steps (a role's agent is reminded to save what it has found), or None."""
         return None
 
+    def _words_only(self, remaining: int) -> Optional[str]:
+        """What the agent is told when it replies in words, without a tool, while work is open; None when such a
+        reply ends the mission (the base mission; a role's agent is sent back to work, see role_mission)."""
+        return None
+
     def _not_finished(self, remaining: int) -> str:
         """What the agent is told when it stops short with nothing in its way (a role's agent is told in its own
         trade's terms; see role_mission)."""
@@ -554,6 +560,7 @@ class AgentExecutor:
         continuation = start_continuation
         total_budget = steps_per_round * (max_continuations + 1)
         refused_stops = 0
+        words_only = 0
         stuck = StuckDetector()
         await self._progress("working", continuation, total_budget)
 
@@ -598,6 +605,17 @@ class AgentExecutor:
             self.tokens += (resp.usage or {}).get("total_tokens", 0)
 
             if not resp.tool_calls:
+                # A reply in words with work still open is not the end of a role's mission: the agent is told so
+                # and works on (14 November: the Partnerships Lead read the workbook, described what it would do
+                # in words, and the mission ended there after 14 of its 75 steps with nothing changed).
+                nudge = self._words_only(total_budget - self.iterations) if words_only < MAX_WORDS_ONLY else None
+                if nudge:
+                    words_only += 1
+                    if (resp.content or "").strip():
+                        self._agent_said = resp.content.strip()[:800]
+                        messages.append(Message(role="assistant", content=resp.content))
+                    messages.append(Message(role="user", content=nudge))
+                    continue
                 # Model produced a final answer without finish -> treat as done.
                 final_summary = resp.content.strip() or "(no further action)"
                 finished = True

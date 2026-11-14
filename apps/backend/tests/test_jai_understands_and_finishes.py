@@ -37,6 +37,7 @@ from app.models.task import Task
 from app.models.workspace import Workspace
 from tests.conftest import AsyncTestingSessionLocal
 from tests.test_repair11_memory_learning import _seed
+from tests.test_repair12e3a_workspace_tools import project  # noqa: F401
 
 BOOKING = ("JAI, your mission is to build a comprehensive UK and USA business partnership contact database for "
            "Plexecute: national chains, regional chains and independent businesses that take bookings.")
@@ -489,3 +490,118 @@ def test_a_lesson_is_grounded_only_by_evidence_that_is_in_the_record():
     assert not debrief.grounded("403", record)                           # too slight to count as evidence
     assert _run(debrief._ask("Partnerships Lead", record)) is None       # TESTING: no provider is called
     assert _run(debrief.lessons_for(None, None, "partnerships", "x")) == ("", [])
+
+
+# ----- 6. the tools to finish: tidy a workbook, and a reply in words does not end the mission ----------------------
+
+HEAD = ["Country", "Company", "Website", "Still to check"]
+BOOK = [
+    {"name": "National chains", "rows": [HEAD, ["US", "Olive Garden", "https://www.olivegarden.com/home", ""],
+                                         ["UK", "Nando's", "https://www.nandos.co.uk", "count"],
+                                         ["UK", "Pizza Express", "https://www.pizzaexpress.com", ""],
+                                         ["UK", "NANDOS", "nandos.co.uk/contact", ""]]},
+    {"name": "Regional chains", "rows": [HEAD, ["UK", "Pizza  Express", "", ""],
+                                         ["UK", "Loungers", "https://thelounges.co.uk", ""],
+                                         ["US", "Other Garden", "http://olivegarden.com", ""]]},
+    {"name": "Contacts", "rows": [["Company", "Name", "Title"], ["Nando's", "A B", "Head of Partnerships"]]},
+    {"name": "Decision-Makers", "rows": [["Company", "Name", "Job title", "Source"],
+                                         ["Loungers", "C D", "COO", "https://x"]]},
+    {"name": "Sources & notes", "rows": [["Note"], ["x"]]},
+    {"name": "Read Me", "rows": [["About"], ["Plexecute"]]},
+]
+TIDY = [
+    {"do": "rename_sheet", "sheet": "National chains", "to": "National Chains"},
+    {"do": "rename_sheet", "sheet": "regional chains", "to": "Regional Chains"},
+    {"do": "rename_column", "sheet": "Contacts", "column": "Title", "to": "Job title"},
+    {"do": "move_rows", "sheet": "Contacts", "to": "Decision-Makers"},
+    {"do": "remove_sheet", "sheet": "Sources & notes"},
+    {"do": "remove_duplicates", "sheets": ["National Chains", "Regional Chains"], "by": ["Company", "Website"]},
+    {"do": "fill_blank", "column": "Still to check", "value": "nothing outstanding"},
+    {"do": "sort", "column": "Country", "order": ["UK", "US"]},
+    {"do": "set_cells", "sheet": "National Chains", "column": "Company", "equals": "olive garden",
+     "set": {"Still to check": "email"}},
+    {"do": "order_sheets", "sheets": ["National Chains", "Regional Chains", "Decision-Makers", "Read Me"]},
+]
+
+
+def test_a_workbook_is_tidied_exactly_as_asked_and_every_other_cell_is_left_alone():
+    import copy
+
+    from app.core.agents.workspace_ops import tidy_sheets
+
+    before = copy.deepcopy(BOOK)
+    after, done = tidy_sheets(BOOK, TIDY)
+    assert BOOK == before                                              # the sheets given are not changed
+    assert [s["name"] for s in after] == ["National Chains", "Regional Chains", "Decision-Makers", "Read Me"]
+    national, regional, people = after[0]["rows"], after[1]["rows"], after[2]["rows"]
+    # Duplicates go by company name or by website (compared as a site), across the sheets, the first kept; UK first.
+    assert [row[1] for row in national[1:]] == ["Nando's", "Pizza Express", "Olive Garden"]
+    assert [row[1] for row in regional[1:]] == ["Loungers"]
+    assert national[1][3] == "count" and national[2][3] == "nothing outstanding" and national[3][3] == "email"
+    assert national[1][2] == "https://www.nandos.co.uk"                 # untouched cells stay as they were
+    assert people[2][:3] == ["Nando's", "A B", "Head of Partnerships"] and len(people) == 3
+    assert any("3 duplicate rows removed" in line for line in done) and len(done) == len(TIDY)
+    # A change that cannot be made names what exists, and nothing is changed.
+    for bad, said in (([{"do": "rename_sheet", "sheet": "Nope", "to": "X"}], "the sheets are: National chains"),
+                      ([{"do": "explode"}], "must be one of"),
+                      ([{"do": "rename_sheet", "sheet": "Read Me", "to": "Contacts"}], "already a sheet named"),
+                      ([TIDY[0], {"do": "fill_blank", "sheet": "National Chains", "column": "Zed", "value": "x"}],
+                       "change 2 (fill_blank): no column 'Zed'")):
+        with pytest.raises(ValueError, match=None) as refused:
+            tidy_sheets(BOOK, bad)
+        assert said in str(refused.value)
+    assert BOOK == before
+
+
+@pytest.mark.integration
+def test_the_partnerships_lead_tidies_the_booking_workbook_with_its_own_tool(project):  # noqa: F811
+    from pathlib import Path
+
+    from app.core.agents.workspace_ops import xlsx_read
+    from app.core.command.tool_runtime import ToolRuntime
+    from tests.test_repair12e3a_workspace_tools import _seed as seed_workspace
+
+    host, root = project
+    book = Path(root) / "plexecute" / "partners.xlsx"
+
+    async def go():
+        async with AsyncTestingSessionLocal() as db:
+            user_id, ws_id = await seed_workspace(db, host)
+            runtime = ToolRuntime(db, ws_id, None, operator="agent:partnerships", authority_level=3,
+                                  user_id=user_id)
+            runner = RoleExecutor(runtime, "gpt-6-luna", host, role="partnerships")
+            await runner._prepare_tools()
+            call = runner.toolbox.call
+            await call("write_spreadsheet", {"path": "plexecute/partners.xlsx", "sheets": BOOK})
+            refused = await call("tidy_spreadsheet", {"path": "plexecute/partners.xlsx", "changes": [
+                TIDY[0], {"do": "remove_sheet", "sheet": "No such sheet"}]})
+            untouched = [s["name"] for s in xlsx_read(book.read_bytes())]
+            tidied = await call("tidy_spreadsheet", {"path": "plexecute/partners.xlsx", "changes": TIDY})
+            missing = await call("tidy_spreadsheet", {"path": "plexecute/none.xlsx", "changes": TIDY})
+            return refused, untouched, tidied, missing, list(runtime.calls)
+
+    refused, untouched, tidied, missing, calls = _run(go())
+    saved = xlsx_read(book.read_bytes())
+    assert refused["success"] is False and "Nothing was changed" in refused["error"]
+    assert untouched[0] == "National chains"                            # all the changes, or none
+    assert tidied["success"] and tidied["rows_per_sheet"] == {
+        "National Chains": 3, "Regional Chains": 1, "Decision-Makers": 2, "Read Me": 1}
+    assert "WORKBOOK FACTS" in tidied["facts"] and len(tidied["changes_made"]) == len(TIDY)
+    assert [s["name"] for s in saved] == ["National Chains", "Regional Chains", "Decision-Makers", "Read Me"]
+    assert list((Path(root) / ".jai" / "backups").glob("partners-*.xlsx"))   # the copy before the change is kept
+    assert missing["success"] is False
+    assert "tidy_spreadsheet" in role_tools("partnerships")
+    last = [c for c in calls if c.get("tool") == "write_file"][-1]      # recorded as a file write, like every save
+    assert last["success"] and "tidied:" in last["summary"]
+
+
+def test_a_reply_in_words_sends_a_roles_agent_back_to_work_and_the_base_mission_is_unchanged():
+    from app.core.command.agent_executor import MAX_WORDS_ONLY, AgentExecutor
+
+    executor = _role_executor([{"id": "R3", "status": "open"}, {"id": "R4", "status": "open"}], 14)
+    nudge = executor._words_only(61)
+    assert nudge.startswith("[A REPLY IN WORDS DOES NOT DO THE WORK]") and "R3, R4" in nudge and "61 steps" in nudge
+    assert "tidy_spreadsheet" in nudge
+    assert executor._words_only(0) is None                              # no steps left: the round ends
+    assert _role_executor([{"id": "R1", "status": "done"}], 14)._words_only(61) is None   # nothing open: it is done
+    assert AgentExecutor._words_only(executor, 61) is None and MAX_WORDS_ONLY == 3

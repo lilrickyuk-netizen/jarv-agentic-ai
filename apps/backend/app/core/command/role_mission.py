@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 # What every specialist works with: files and spreadsheets in the product's folder, the web, documents, memory and
 # knowledge. No shell, builds, installs, deletes or pushes: those are the software builder's.
 TRADE_TOOLS = (
-    "list_files", "read_file", "search_files", "get_file_metadata", "write_file", "edit_file", "write_spreadsheet",
+    "list_files", "read_file", "search_files", "get_file_metadata", "write_file", "edit_file", "write_spreadsheet", "tidy_spreadsheet",
     "create_folder", "move_file", "copy_file", "read_document", "web_search", "research_web", "fetch_url",
     "use_browser", "memory_search", "memory_add", "knowledge_graph_search", "knowledge_graph_add", "recall_richard",
     "read_mission_report", "consult_specialist_knowledge", "read_skill", "git_status", "git_log",
@@ -154,8 +154,9 @@ class RoleExecutor(AgentExecutor):
               "page), fetch_url to read a page, research_web for a cited answer to a question, use_browser for a "
               "page that needs clicking through, read_document for PDFs, Word, PowerPoint and Excel files, "
               "write_spreadsheet for any list (one sheet per kind of entry, headings in the first row; add new "
-              "entries with mode \"append\", and sheets you do not name are kept), read_file to see a workbook's "
-              "rows, write_file "
+              "entries with mode \"append\", and sheets you do not name are kept), tidy_spreadsheet to change a "
+              "workbook that exists without retyping it (rename, remove or merge sheets, remove duplicate rows, "
+              "fill blank cells, update a row, sort), read_file to see a workbook's rows and facts, write_file "
               "and edit_file for documents, memory_search, recall_richard and knowledge_graph_search for what JAI "
               "and Richard already know, consult_specialist_knowledge for your field's reference material, "
               "read_skill to open any of your skills in full (its whole playbook, or one of its templates, "
@@ -204,6 +205,17 @@ class RoleExecutor(AgentExecutor):
                 "that each save reports with the requirements' targets: once the targets are met, stop searching. "
                 "Finish the job instead: fix what the facts show (sheet names, duplicates, blank cells, rows "
                 "without a source), mark every requirement, and call finish. Otherwise carry on.")
+
+    def _words_only(self, remaining: int) -> Optional[str]:
+        still_open = [r["id"] for r in (self.requirements or []) if r.get("status") != "done"]
+        if not still_open or remaining <= 0:
+            return None
+        return ("[A REPLY IN WORDS DOES NOT DO THE WORK] Nobody reads a reply in the middle of a mission, and it does "
+                f"not end the mission: {len(still_open)} requirements are still open ({', '.join(still_open[:40])}) "
+                f"and you have {remaining} steps left. Do not describe a plan and do not ask for permission: use "
+                "your tools now to do the next piece of the work (tidy_spreadsheet changes a workbook that exists: "
+                "its sheet names, its duplicates, its blank cells; write_spreadsheet adds rows), mark each requirement with requirement_status as it is met, and "
+                "call finish when all are done or something only Richard can give truly stops you.")
 
     def _not_finished(self, remaining: int) -> str:
         still_open = [r["id"] for r in (self.requirements or []) if r.get("status") != "done"]

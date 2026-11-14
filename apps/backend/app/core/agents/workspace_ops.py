@@ -796,18 +796,7 @@ async def write_spreadsheet(tb, args: Dict[str, Any]) -> Dict[str, Any]:
         except Exception:  # noqa: BLE001 - never overwrite what cannot be read back
             return {"success": False, "error": f"{host} exists but could not be read as a workbook, so it was not "
                                                "changed. Write to a new file name instead."}
-        backups = path.parent
-        for _ in range(8):  # the workspace root holds .jai/
-            if (backups / ".jai").is_dir() or (backups / ".git").exists():
-                break
-            backups = backups.parent
-        folder = backups / ".jai" / "backups"
-        folder.mkdir(parents=True, exist_ok=True)
-        from datetime import datetime, timezone
-
-        (folder / f"{path.stem}-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}.xlsx").write_bytes(old)
-        for stale in sorted(folder.glob(f"{path.stem}-*.xlsx"))[:-10]:
-            stale.unlink(missing_ok=True)
+        _backup_workbook(path, old)
     merged = [{"name": s["name"], "rows": list(s["rows"])} for s in before]
     by_name = {s["name"].strip().lower(): s for s in merged}
     added: Dict[str, int] = {}
@@ -841,8 +830,317 @@ async def write_spreadsheet(tb, args: Dict[str, Any]) -> Dict[str, Any]:
             "bytes": len(data), "facts": xlsx_facts(merged)}
 
 
+def _key(text: Any) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(text or "").lower())
+
+
+def _domain(text: Any) -> str:
+    """A web address as its site: no scheme, no www., no path ("https://www.Nandos.co.uk/contact" -> nandos.co.uk)."""
+    value = re.sub(r"^[a-z]+://", "", str(text or "").strip().lower())
+    return re.sub(r"^www\.", "", value).split("/")[0].split("?")[0].strip()
+
+
+class _Tidy:
+    """The changes tidy_spreadsheet makes to a workbook's sheets, in memory. Each change either applies in full
+    or raises ValueError naming what it could not find and what exists, so nothing is half done."""
+
+    def __init__(self, sheets: List[Dict[str, Any]]):
+        self.sheets = [{"name": s["name"], "rows": [list(r) for r in s["rows"]]} for s in sheets]
+        self.done: List[str] = []
+
+    def _sheet(self, name: Any) -> Dict[str, Any]:
+        for sheet in self.sheets:
+            if _key(sheet["name"]) == _key(name) and _key(name):
+                return sheet
+        raise ValueError(f"no sheet named {name!r}; the sheets are: " + ", ".join(s["name"] for s in self.sheets))
+
+    def _some(self, name: Any) -> List[Dict[str, Any]]:
+        return [self._sheet(name)] if str(name or "").strip() else [s for s in self.sheets if s["rows"]]
+
+    @staticmethod
+    def _column(sheet: Dict[str, Any], column: Any, needed: bool = True) -> int:
+        header = sheet["rows"][0] if sheet["rows"] else []
+        for index, cell in enumerate(header):
+            if _key(cell) == _key(column) and _key(column):
+                return index
+        if needed:
+            raise ValueError(f"no column {column!r} in sheet {sheet['name']!r}; its columns are: "
+                             + ", ".join(str(c) for c in header))
+        return -1
+
+    @staticmethod
+    def _cell(row: List[Any], index: int) -> str:
+        return str(row[index]).strip() if 0 <= index < len(row) and row[index] is not None else ""
+
+    @staticmethod
+    def _put(row: List[Any], index: int, value: Any) -> None:
+        while len(row) <= index:
+            row.append("")
+        row[index] = value
+
+    def rename_sheet(self, change):
+        sheet = self._sheet(change.get("sheet"))
+        new = str(change.get("to") or "").strip()
+        if not new:
+            raise ValueError("rename_sheet needs \"to\": the new name")
+        if any(s is not sheet and _key(s["name"]) == _key(new) for s in self.sheets):
+            raise ValueError(f"there is already a sheet named {new!r}; use move_rows to put the rows together")
+        self.done.append(f"sheet {sheet['name']!r} renamed {new!r}")
+        sheet["name"] = new
+
+    def remove_sheet(self, change):
+        sheet = self._sheet(change.get("sheet"))
+        self.sheets.remove(sheet)
+        self.done.append(f"sheet {sheet['name']!r} removed ({max(0, len(sheet['rows']) - 1)} rows; the copy made "
+                         "before this change still has them)")
+
+    def move_rows(self, change):
+        source, target = self._sheet(change.get("sheet")), self._sheet(change.get("to"))
+        if source is target:
+            raise ValueError("move_rows needs two different sheets")
+        if not target["rows"]:
+            target["rows"] = [list(source["rows"][0])] if source["rows"] else []
+        header = target["rows"][0] if target["rows"] else []
+        moved = 0
+        for row in source["rows"][1:]:
+            placed = [""] * len(header)
+            for index, cell in enumerate(source["rows"][0]):
+                at = self._column(target, cell, needed=False)
+                if at < 0:  # a column the target does not have yet is added, so nothing is lost
+                    header.append(cell)
+                    placed.append("")
+                    at = len(header) - 1
+                self._put(placed, at, row[index] if index < len(row) else "")
+            target["rows"].append(placed)
+            moved += 1
+        self.sheets.remove(source)
+        self.done.append(f"{moved} rows moved from {source['name']!r} into {target['name']!r}; {source['name']!r} "
+                         "removed")
+
+    def remove_duplicates(self, change):
+        names = change.get("sheets") or ([change["sheet"]] if change.get("sheet") else [])
+        sheets = [self._sheet(n) for n in names] if names else [s for s in self.sheets if s["rows"]]
+        by = change.get("by") or []
+        by = [by] if isinstance(by, str) else list(by)
+        if not by:
+            raise ValueError("remove_duplicates needs \"by\": the column or columns that identify a row, for "
+                             "example [\"Company\", \"Website\"]")
+        if not any(self._column(s, c, needed=False) >= 0 for s in sheets for c in by):
+            raise ValueError(f"none of the columns {by} is in the sheets named; "
+                             + "; ".join(f"{s['name']}: {', '.join(str(c) for c in (s['rows'][0] if s['rows'] else []))}"
+                                         for s in sheets))
+        seen: Dict[str, str] = {}
+        removed: List[str] = []
+        for sheet in sheets:
+            columns = [(c, self._column(sheet, c, needed=False)) for c in by]
+            kept = sheet["rows"][:1]
+            for row in sheet["rows"][1:]:
+                keys = []
+                for column, index in columns:
+                    value = self._cell(row, index)
+                    web = bool(re.search(r"web|url|link|domain|site", str(column), re.I))
+                    key = _domain(value) if web else _key(value)
+                    if key:
+                        keys.append(f"{_key(column)}={key}")
+                first = next((seen[k] for k in keys if k in seen), None)
+                if first is not None:
+                    label = next((self._cell(row, i) for _, i in columns if self._cell(row, i)), "a row")
+                    removed.append(f"{label} ({sheet['name']}; first in {first})")
+                    continue
+                for k in keys:
+                    seen[k] = sheet["name"]
+                kept.append(row)
+            sheet["rows"] = kept
+        self.done.append(f"{len(removed)} duplicate rows removed by {', '.join(by)} (the first of each kept)"
+                         + (": " + "; ".join(removed[:40]) if removed else ""))
+
+    def fill_blank(self, change):
+        value, filled = str(change.get("value") or ""), 0
+        if not value:
+            raise ValueError("fill_blank needs \"value\": what to put in the blank cells")
+        found = False
+        for sheet in self._some(change.get("sheet")):
+            index = self._column(sheet, change.get("column"), needed=bool(str(change.get("sheet") or "").strip()))
+            if index < 0:
+                continue
+            found = True
+            for row in sheet["rows"][1:]:
+                if not self._cell(row, index) and any(str(c or "").strip() for c in row):
+                    self._put(row, index, value)
+                    filled += 1
+        if not found:
+            raise ValueError(f"no sheet has a column {change.get('column')!r}")
+        self.done.append(f"{filled} blank {change.get('column')!r} cells filled with {value!r}")
+
+    def rename_column(self, change):
+        new, count = str(change.get("to") or "").strip(), 0
+        if not new:
+            raise ValueError("rename_column needs \"to\": the new heading")
+        for sheet in self._some(change.get("sheet")):
+            index = self._column(sheet, change.get("column"), needed=bool(str(change.get("sheet") or "").strip()))
+            if index >= 0:
+                sheet["rows"][0][index] = new
+                count += 1
+        if not count:
+            raise ValueError(f"no sheet has a column {change.get('column')!r}")
+        self.done.append(f"column {change.get('column')!r} renamed {new!r} in {count} sheet(s)")
+
+    def add_column(self, change):
+        column, value, count = str(change.get("column") or "").strip(), str(change.get("value") or ""), 0
+        if not column:
+            raise ValueError("add_column needs \"column\": the heading")
+        for sheet in self._some(change.get("sheet")):
+            if not sheet["rows"] or self._column(sheet, column, needed=False) >= 0:
+                continue
+            width = max(len(r) for r in sheet["rows"])
+            for number, row in enumerate(sheet["rows"]):
+                self._put(row, width, column if number == 0 else value)
+            count += 1
+        self.done.append(f"column {column!r} added to {count} sheet(s)")
+
+    def remove_rows(self, change):
+        sheet = self._sheet(change.get("sheet"))
+        index, wanted = self._column(sheet, change.get("column")), _key(change.get("equals"))
+        if not wanted:
+            raise ValueError("remove_rows needs \"equals\": the value that marks the rows to remove")
+        before = len(sheet["rows"])
+        sheet["rows"] = sheet["rows"][:1] + [r for r in sheet["rows"][1:] if _key(self._cell(r, index)) != wanted]
+        self.done.append(f"{before - len(sheet['rows'])} rows removed from {sheet['name']!r} where "
+                         f"{change.get('column')} is {change.get('equals')!r}")
+
+    def set_cells(self, change):
+        sheet = self._sheet(change.get("sheet"))
+        index, wanted = self._column(sheet, change.get("column")), _key(change.get("equals"))
+        values = change.get("set") if isinstance(change.get("set"), dict) else {}
+        if not wanted or not values:
+            raise ValueError("set_cells needs \"column\" and \"equals\" to find the row, and \"set\": "
+                             "{\"Heading\": \"value\"}")
+        targets = {heading: self._column(sheet, heading) for heading in values}
+        count = 0
+        for row in sheet["rows"][1:]:
+            if _key(self._cell(row, index)) == wanted:
+                for heading, at in targets.items():
+                    self._put(row, at, str(values[heading]))
+                count += 1
+        if not count:
+            raise ValueError(f"no row in {sheet['name']!r} has {change.get('column')} = {change.get('equals')!r}")
+        self.done.append(f"{count} row(s) in {sheet['name']!r} updated ({', '.join(values)})")
+
+    def sort(self, change):
+        order = [_key(v) for v in (change.get("order") or [])]
+        count = 0
+        for sheet in self._some(change.get("sheet")):
+            index = self._column(sheet, change.get("column"), needed=bool(str(change.get("sheet") or "").strip()))
+            if index < 0:
+                continue
+
+            def rank(row, index=index):
+                value = _key(self._cell(row, index))
+                return (order.index(value) if value in order else len(order), "" if order else value)
+
+            sheet["rows"] = sheet["rows"][:1] + sorted(sheet["rows"][1:], key=rank)
+            count += 1
+        if not count:
+            raise ValueError(f"no sheet has a column {change.get('column')!r}")
+        self.done.append(f"{count} sheet(s) sorted by {change.get('column')!r}"
+                         + (f" in the order {', '.join(str(v) for v in change.get('order'))}" if order else ""))
+
+    def order_sheets(self, change):
+        wanted = [self._sheet(n) for n in (change.get("sheets") or [])]
+        if not wanted:
+            raise ValueError("order_sheets needs \"sheets\": the sheet names in the order wanted")
+        self.sheets = wanted + [s for s in self.sheets if not any(s is w for w in wanted)]
+        self.done.append("sheets put in the order " + ", ".join(s["name"] for s in self.sheets))
+
+
+TIDY_CHANGES = ("rename_sheet", "remove_sheet", "move_rows", "remove_duplicates", "fill_blank", "rename_column",
+                "add_column", "remove_rows", "set_cells", "sort", "order_sheets")
+
+
+def tidy_sheets(sheets: List[Dict[str, Any]], changes: List[Dict[str, Any]]) -> tuple:
+    """The sheets with the changes made, and one line per change saying what it did. ValueError (naming the change
+    and what exists) when any change cannot be made: nothing is changed then."""
+    tidy = _Tidy(sheets)
+    for number, change in enumerate(changes, start=1):
+        do = str((change or {}).get("do") or "").strip().lower() if isinstance(change, dict) else ""
+        if do not in TIDY_CHANGES:
+            raise ValueError(f"change {number}: \"do\" must be one of {', '.join(TIDY_CHANGES)}")
+        try:
+            getattr(tidy, do)(change)
+        except ValueError as exc:
+            raise ValueError(f"change {number} ({do}): {exc}") from None
+    return tidy.sheets, tidy.done
+
+
+def _backup_workbook(path, old: bytes) -> None:
+    """Keep the workbook as it was in .jai/backups/ (the latest ten copies) before it is changed."""
+    from datetime import datetime, timezone
+
+    backups = path.parent
+    for _ in range(8):  # the workspace root holds .jai/
+        if (backups / ".jai").is_dir() or (backups / ".git").exists():
+            break
+        backups = backups.parent
+    folder = backups / ".jai" / "backups"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{path.stem}-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}.xlsx").write_bytes(old)
+    for stale in sorted(folder.glob(f"{path.stem}-*.xlsx"))[:-10]:
+        stale.unlink(missing_ok=True)
+
+
+async def tidy_spreadsheet(tb, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Change an existing workbook in place without retyping it: rename, remove, merge and order sheets, remove
+    duplicate rows, fill blank cells, rename and add columns, update or remove rows by a value, sort.
+
+    14 November: Richard asked for the booking database's sheets to be renamed and its duplicates removed, and
+    the only spreadsheet tool could add rows or replace a whole sheet, so the agent would have had to retype 156
+    rows to remove a handful (and could not rename or remove a sheet at all). Here the agent says what to change
+    and the code changes exactly that: every other cell stays as it is. All the changes are made, or none is. The
+    previous copy is kept in .jai/backups/ first. Gated and recorded as a file write."""
+    host, path, refused = await _resolve(tb, args.get("path"))
+    if refused:
+        return refused
+    if path.suffix.lower() != ".xlsx":
+        return {"success": False, "error": "tidy_spreadsheet changes .xlsx files; give a path ending in .xlsx."}
+    if not path.exists():
+        return {"success": False, "error": f"{host} does not exist. write_spreadsheet creates a workbook."}
+    changes = args.get("changes")
+    if isinstance(changes, str):
+        try:
+            changes = json.loads(changes)
+        except ValueError:
+            changes = None
+    if not isinstance(changes, list) or not changes:
+        return {"success": False, "error": 'changes must be a list like [{"do": "rename_sheet", "sheet": '
+                                           '"National chains", "to": "National Chains"}, {"do": '
+                                           '"remove_duplicates", "sheets": ["National Chains"], "by": '
+                                           '["Company", "Website"]}].'}
+    denied = await _gate(tb, "write_file", host, description=f"Tidy spreadsheet {host}")
+    if denied:
+        return denied
+    old = path.read_bytes()
+    try:
+        before = xlsx_read(old)
+    except Exception:  # noqa: BLE001 - never change what cannot be read back
+        return {"success": False, "error": f"{host} could not be read as a workbook, so it was not changed."}
+    try:
+        after, done = tidy_sheets(before, changes)
+    except ValueError as exc:
+        return {"success": False, "error": f"Nothing was changed: {exc}", "facts": xlsx_facts(before)}
+    _backup_workbook(path, old)
+    data = xlsx_bytes(after)
+    path.write_bytes(data)
+    counts = {s["name"]: max(0, len(s["rows"]) - 1) for s in after}
+    await tb.runtime._record("write_file", {"path": host}, True,
+                             "spreadsheet updated: " + ", ".join(f"{n} {c} rows" for n, c in counts.items())
+                             + "; tidied: " + "; ".join(done)[:600])
+    await tb.runtime._graph("record_file", host, None, operation="modified")
+    return {"success": True, "path": host, "changes_made": done, "rows_per_sheet": counts, "bytes": len(data),
+            "facts": xlsx_facts(after)}
+
+
 HANDLERS = {
-    "write_spreadsheet": write_spreadsheet,
+    "write_spreadsheet": write_spreadsheet, "tidy_spreadsheet": tidy_spreadsheet,
     "edit_file": edit_file, "create_folder": create_folder, "move_file": move_file, "copy_file": copy_file,
     "delete_file_with_boundary": delete_file_with_boundary, "get_file_metadata": get_file_metadata,
     "detect_workspace_type": detect_workspace_type, "detect_stack": detect_stack,

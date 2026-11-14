@@ -187,6 +187,28 @@ WORKSPACE_TOOLS: Dict[str, ToolSpec] = {
                                          "named sheets, keeping the others)"}},
                 ["path", "sheets"]),
         "workspace"),
+    "tidy_spreadsheet": ToolSpec(
+        "tidy_spreadsheet",
+        "Change an existing Excel workbook in place without retyping it: you say what to change and exactly that "
+        "is changed, every other cell stays as it is (all the changes are made, or none; the previous copy is kept). "
+        "Use it to rename, remove, merge or order sheets, remove duplicate rows, fill blank cells, rename or add "
+        "columns, update or remove rows by a value, and sort. changes is a list, applied in order, each with "
+        "\"do\": rename_sheet {sheet, to} | remove_sheet {sheet} | move_rows {sheet, to} (puts one sheet's rows "
+        "into another by matching headings, then removes it) | remove_duplicates {sheets: [...], by: [\"Company\", "
+        "\"Website\"]} (a row matching an earlier row on any of those columns goes; across the sheets named, in "
+        "that order; websites compared by site) | fill_blank {column, value, sheet?} | rename_column {column, to, "
+        "sheet?} | add_column {column, value?, sheet?} | remove_rows {sheet, column, equals} | set_cells {sheet, "
+        "column, equals, set: {\"Heading\": \"value\"}} | sort {column, order?: [\"UK\", \"US\"], sheet?} | "
+        "order_sheets {sheets: [...]}. The result reports each change and the workbook's facts afterwards.",
+        _schema({"path": _PATH_PROP,
+                 "changes": {"type": "array", "description": 'For example [{"do": "rename_sheet", "sheet": '
+                                                             '"National chains", "to": "National Chains"}, '
+                                                             '{"do": "remove_duplicates", "sheets": ["National '
+                                                             'Chains", "Regional Chains"], "by": ["Company", '
+                                                             '"Website"]}]',
+                             "items": {"type": "object"}}},
+                ["path", "changes"]),
+        "workspace"),
     "run_command": ToolSpec(
         "run_command",
         "Run ONE command in the workspace (no &&, ;, |, > or $(...)). Read-only, build and test commands "
@@ -395,7 +417,7 @@ WORKSPACE_TOOLS.update({
                                             ["memory_id"]), "workspace"),
 })
 
-_FILESYSTEM_TOOLS = {"generate_image", "make_voiceover", "make_video", "list_files", "read_file", "search_files", "scan_workspace", "write_file", "write_spreadsheet",
+_FILESYSTEM_TOOLS = {"generate_image", "make_voiceover", "make_video", "list_files", "read_file", "search_files", "scan_workspace", "write_file", "write_spreadsheet", "tidy_spreadsheet",
                      "run_command", "git_status", "git_diff", "git_log", "edit_file", "create_folder",
                      "move_file", "copy_file", "delete_file_with_boundary", "get_file_metadata",
                      "detect_workspace_type", "detect_stack", "detect_commands", "find_missing_files",
