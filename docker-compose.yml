@@ -329,6 +329,10 @@ services:
       POSTGRES_SEEDS: postgres
       DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
       TEMPORAL_NAMESPACE: default
+      SQL_MAX_CONNS: "8"
+      SQL_MAX_IDLE_CONNS: "2"
+      SQL_VIS_MAX_CONNS: "2"
+      SQL_VIS_MAX_IDLE_CONNS: "1"
     volumes:
       - ./services/postiz/dynamicconfig:/etc/temporal/config/dynamicconfig:ro
     depends_on:

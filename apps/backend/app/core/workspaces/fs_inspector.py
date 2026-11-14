@@ -407,31 +407,28 @@ def read_file(host_path: str, max_bytes: int = 20000, offset: int = 0) -> FsResu
                             data={"redacted": True, "size_bytes": _safe_size(p),
                                   "content": "[REDACTED — secret-bearing file; values never read]"})
         start = max(0, int(offset or 0))
-        if _binary(p):
-            # A binary file read as text carried NUL bytes into the mission's record, which PostgreSQL refuses,
-            # and failed the whole mission (13 November). A workbook is shown as its sheets and rows; anything
-            # else points to the document reader.
-            content = ""
-            if p.suffix.lower() == ".xlsx":
-                try:
-                    from app.core.agents.workspace_ops import xlsx_text
-
-                    content = xlsx_text(p.read_bytes())
-                except Exception:  # noqa: BLE001
-                    content = ""
-            if not content:
-                content = (f"[{p.name} is a binary file ({p.suffix or 'no extension'}, {_safe_size(p)} bytes), not "
-                           "text. Use read_document to read a PDF, Word, PowerPoint or Excel file.]")
+        if p.suffix.lower() == ".xlsx":
+            # XLSX is a ZIP archive, not UTF-8 text. Reuse JAI's existing
+            # workbook parser and preserve read_file's offset/pagination contract.
+            from app.core.agents.workspace_ops import xlsx_text
+            workbook_text = xlsx_text(p.read_bytes(), limit=2_000_000)
+            content = workbook_text[start:start + max_bytes]
+            more = start + len(content) < len(workbook_text)
+        elif _binary(p):
+            # Any other binary file read as text would carry NUL bytes into the mission's record, which
+            # PostgreSQL refuses: it is described, and the document reader named for it.
+            note = (f"[{p.name} is a binary file ({p.suffix or 'no extension'}, {_safe_size(p)} bytes), not "
+                    "text. Use read_document to read a PDF, Word or PowerPoint file.]")
             return FsResult(accessible=True, host_path=host_path, container_path=chk.container_path,
                             exists=True, is_dir=False,
                             data={"redacted": False, "binary": True, "size_bytes": _safe_size(p),
-                                  "content": content[:max_bytes], "offset": 0, "next_offset": None,
-                                  "truncated": len(content) > max_bytes})
-        with open(p, "r", encoding="utf-8", errors="replace") as fh:
-            if start:
-                fh.read(start)
-            content = fh.read(max_bytes)
-            more = bool(fh.read(1))
+                                  "content": note, "offset": 0, "next_offset": None, "truncated": False})
+        else:
+            with open(p, "r", encoding="utf-8", errors="replace") as fh:
+                if start:
+                    fh.read(start)
+                content = fh.read(max_bytes)
+                more = bool(fh.read(1))
         return FsResult(accessible=True, host_path=host_path, container_path=chk.container_path,
                         exists=True, is_dir=False,
                         data={"redacted": False, "size_bytes": _safe_size(p), "content": content,
