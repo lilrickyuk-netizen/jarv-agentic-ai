@@ -168,7 +168,9 @@ def test_the_work_runs_on_the_engine_through_jais_own_tools_gates_and_checklist(
     outside = dict(session.results)[f"{PREFIX}write_file"]
     assert outside["is_error"] is True
     assert [r["status"] for r in runner.requirements] == ["done", "done"]
-    assert any(c.get("tool") == "write_spreadsheet" and c.get("success") for c in runtime.calls)   # JAI's evidence trail
+    saves = [c for c in runtime.calls if c.get("tool") == "write_file" and c.get("success")]   # every save is a
+    assert saves and "partners.xlsx" in str(saves[-1].get("inputs"))                              # file write
+    assert any(c.name == "write_spreadsheet" and c.success for c in runner.toolbox.calls)           # JAI's trail
     assert runner.iterations == 5 and runner.engine_cost_usd == pytest.approx(0.04)
     assert runner.usage.cost_usd == pytest.approx(0.04) and runner.usage.totals["cached"] == 900
     # The session itself: JAI's tools only, its skills, its colleagues, no shell, and the allowance.
