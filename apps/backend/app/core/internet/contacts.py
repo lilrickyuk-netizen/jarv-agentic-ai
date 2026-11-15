@@ -33,8 +33,19 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 MAX_HTML = 600_000
-PAGES_AFTER_HOME = 3
+PAGES_AFTER_HOME = 5
 USUAL_PAGES = ("/contact", "/contact-us", "/about")
+# Where a large chain publishes an address when its contact page is a form (15 November, from Richard's 50-business
+# run: press@leon.co, media@itsu.com and franchise@paul-uk.com on press and franchise pages; PizzaExpress's press
+# releases are PDFs on its own site): its press, franchise, partnership, property and events pages, found from its
+# own links or its sitemap (sitemaps.org), and the PDFs it links from them, read through Docling.
+_WHERE_CHAINS_PUBLISH = re.compile(r"press|media|news[- ]?room|franchis|partner|contact|enquir|propert|landlord|"
+                                   r"site[- ]?(?:finder|search)|acquisition|private[- ]?dining|events?\b|corporate|"
+                                   r"customer[- ]?(?:care|service)|get[- ]?in[- ]?touch|help", re.I)
+SITEMAP_PAGES = 4
+BROWSER_SECONDS, FURTHER_SECONDS = 45, 70
+PDFS_READ = 2
+MAX_PDF = 15_000_000
 _TWO_PART = ("co.uk", "org.uk", "ac.uk", "gov.uk", "ltd.uk", "plc.uk", "me.uk", "com.au", "co.nz", "co.za")
 
 _EMAIL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._%+-]{0,63}@[A-Za-z0-9][A-Za-z0-9.-]{0,251}\.[A-Za-z]{2,24}")
@@ -174,6 +185,7 @@ def extract(page: str, url: str) -> Dict[str, Any]:
         add_phone(value)
 
     links: Dict[str, List[str]] = {kind: [] for kind in KINDS}
+    pdfs: List[str] = []
     anchors = re.findall(r"(?is)<a\b[^>]*?href\s*=\s*[\"']([^\"'#]+)[^\"']*[\"'][^>]*>(.*?)</a>", page)
     anchors += [(href, label) for label, href in re.findall(r"\[([^\]]{1,80})\]\((https?://[^)\s]+)\)", page)]
     for href, label in anchors:
@@ -183,14 +195,20 @@ def extract(page: str, url: str) -> Dict[str, Any]:
         address = urllib.parse.urljoin(url, href).split("#")[0]
         if not address.startswith("http") or site_of(address) != site:
             continue
-        if re.search(r"(?i)\.(?:pdf|jpe?g|png|gif|zip|docx?|xlsx?)(?:\?|$)", address):
+        if re.search(r"(?i)\.pdf(?:\?|$)|/pdfs?/", address):
+            words = f"{urllib.parse.urlparse(address).path} {_visible(label)}"
+            if re.search(r"(?i)press|release|media|brochure|event|dining|partner|franchis|contact", words) and \
+                    address not in pdfs and len(pdfs) < 6:
+                pdfs.append(address)
+            continue
+        if re.search(r"(?i)\.(?:jpe?g|png|gif|zip|docx?|xlsx?|ashx)(?:\?|$)", address):
             continue
         words = f"{urllib.parse.urlparse(address).path} {_visible(label)}"
         for kind, pattern in KINDS.items():
             if pattern.search(words) and address not in links[kind] and len(links[kind]) < 4:
                 links[kind].append(address)
                 break
-    return {"emails": emails, "phones": phones, "links": links}
+    return {"emails": emails, "phones": phones, "links": links, "pdfs": pdfs}
 
 
 def best_email(emails: List[str], site: str) -> str:
@@ -314,6 +332,7 @@ async def site_contacts(url: str, fetch: Optional[Fetch] = None) -> Dict[str, An
         site = out["site"] = site_of(home_url)
     found = extract(home["html"], home_url)
     links: Dict[str, List[str]] = {kind: list(found["links"][kind]) for kind in KINDS}
+    links["pdfs"] = list(found.get("pdfs") or [])
 
     def take(page_url: str, got: Dict[str, Any]) -> None:
         out["pages_read"].append(page_url)
@@ -326,7 +345,7 @@ async def site_contacts(url: str, fetch: Optional[Fetch] = None) -> Dict[str, An
                     have.add(key)
 
     take(home_url, found)
-    follow = (links["partnership"][:1] + links["contact"][:2])[:PAGES_AFTER_HOME]
+    follow = (links["partnership"][:2] + links["contact"][:2] + links["press"][:1])[:PAGES_AFTER_HOME]
     if not links["contact"]:  # the home page links no contact page: try the usual addresses
         follow += [urllib.parse.urljoin(home_url, path) for path in USUAL_PAGES][:PAGES_AFTER_HOME - len(follow)]
     follow = [page for page in dict.fromkeys(follow) if page.rstrip("/") != home_url.rstrip("/")]
@@ -338,6 +357,7 @@ async def site_contacts(url: str, fetch: Optional[Fetch] = None) -> Dict[str, An
             take(str(page.get("url") or page_url), got)
             for kind in KINDS:
                 links[kind] += [link for link in got["links"][kind] if link not in links[kind]]
+            links["pdfs"] += [link for link in got.get("pdfs") or [] if link not in links["pdfs"]]
             if not links["contact"] and KINDS["contact"].search(urllib.parse.urlparse(page_url).path):
                 links["contact"].append(str(page.get("url") or page_url))  # a usual address that was really there
         else:
@@ -346,16 +366,27 @@ async def site_contacts(url: str, fetch: Optional[Fetch] = None) -> Dict[str, An
         # The plain pages carried no phone or email: a page whose details JavaScript puts in (a shell of menus in the
         # plain HTML) is read again as the browser shows it.
         again = [page for page in [home_url] + out["pages_read"][1:] if page][:PAGES_AFTER_HOME + 1]
-        shown = await asyncio.gather(*(fetch_rendered(page) for page in dict.fromkeys(again)), return_exceptions=True)
+        try:  # what the browser shows within 45 seconds; a page it is still loading is left
+            shown = await asyncio.wait_for(asyncio.gather(*(fetch_rendered(page) for page in dict.fromkeys(again)),
+                                                          return_exceptions=True), timeout=BROWSER_SECONDS)
+        except asyncio.TimeoutError:
+            shown = []
+            out["browser"] = f"the browser took longer than {BROWSER_SECONDS} seconds"
         for page_url, page in zip(dict.fromkeys(again), shown):
             if isinstance(page, dict) and page.get("ok") and site_of(str(page.get("url") or page_url)) == site:
                 got = extract(page["html"], str(page.get("url") or page_url))
                 take(str(page.get("url") or page_url), got)
                 for kind in KINDS:
                     links[kind] += [link for link in got["links"][kind] if link not in links[kind]]
+                links["pdfs"] += [link for link in got.get("pdfs") or [] if link not in links["pdfs"]]
             elif isinstance(page, dict) and page.get("reason"):
                 out.setdefault("browser", str(page["reason"])[:200])
         out["read_by_browser"] = True
+    if fetch is fetch_raw and not out["emails"]:
+        try:  # what is found in the time is kept (take() records each page as it is read)
+            await asyncio.wait_for(_where_chains_publish(home_url, site, out, links, take), timeout=FURTHER_SECONDS)
+        except asyncio.TimeoutError:
+            out["further"] = f"the press, franchise and PDF pages took longer than {FURTHER_SECONDS} seconds"
     # On a contact or partnership page the details beside the form come first; the home page's come after.
     for kind in ("phones", "emails"):
         out[kind].sort(key=lambda entry: 0 if entry["source"].rstrip("/") != home_url.rstrip("/") else 1)
@@ -367,6 +398,115 @@ async def site_contacts(url: str, fetch: Optional[Fetch] = None) -> Dict[str, An
     out["investor_pages"] = links["investors"][:2]
     out["ok"] = True
     return out
+
+
+async def fetch_text(url: str) -> Dict[str, Any]:
+    """A plain file of the site (robots.txt, a sitemap) as it is sent, never through the browser."""
+    import httpx
+
+    from app.core import internet
+
+    if not internet._ssrf_ok(url)[0]:
+        return {"ok": False, "url": url}
+    try:
+        async with httpx.AsyncClient(timeout=internet.FETCH_TIMEOUT, follow_redirects=True) as client:
+            answer = await client.get(url, headers={"User-Agent": "JAI-Research/1.0"})
+        if not internet._ssrf_ok(str(answer.url))[0]:
+            return {"ok": False, "url": url}
+        return {"ok": answer.status_code < 400, "url": str(answer.url), "html": answer.text[:MAX_HTML]}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "url": url, "reason": str(exc)[:200]}
+
+
+async def sitemap_pages(home_url: str, fetch: Fetch, wanted: "re.Pattern[str]", most: int) -> List[str]:
+    """Pages of the site's own sitemap (the sitemaps.org protocol: robots.txt names it, /sitemap.xml by default; a
+    sitemap index lists further sitemaps) whose address matches ``wanted``, up to ``most``."""
+    from xml.etree import ElementTree
+
+    site = site_of(home_url)
+    queue = [urllib.parse.urljoin(home_url, "/sitemap.xml")]
+    robots = await fetch(urllib.parse.urljoin(home_url, "/robots.txt"))
+    if robots.get("ok") and not robots.get("rendered"):
+        named = re.findall(r"(?im)^\s*sitemap:\s*(\S+)", str(robots.get("html") or ""))
+        queue = [u for u in named if site_of(u) == site][:3] or queue
+    found: List[str] = []
+    seen = 0
+    while queue and seen < 6 and len(found) < most:
+        url = queue.pop(0)
+        seen += 1
+        page = await fetch(url)
+        text = str(page.get("html") or "") if page.get("ok") and not page.get("rendered") else ""
+        try:
+            root = ElementTree.fromstring(text.encode("utf-8")) if text.lstrip().startswith("<") else None
+        except ElementTree.ParseError:
+            root = None
+        if root is None:
+            continue
+        locs = [el.text.strip() for el in root.iter() if el.tag.endswith("loc") and el.text]
+        if root.tag.endswith("sitemapindex"):
+            queue += [u for u in locs if site_of(u) == site and wanted.search(u + " pages")][:2] + [
+                u for u in locs if site_of(u) == site][:2]
+            continue
+        for loc in locs:
+            path = urllib.parse.urlparse(loc).path
+            if site_of(loc) == site and wanted.search(path) and loc not in found:
+                found.append(loc)
+                if len(found) >= most:
+                    break
+    return found
+
+
+async def fetch_pdf(url: str) -> Dict[str, Any]:
+    """A PDF on the business's own site, read through Docling (JAI's document reader, IBM's open-source converter):
+    {"ok", "url", "html": its Markdown}."""
+    import httpx
+
+    from app.core import documents, internet
+
+    ok, reason = internet._ssrf_ok(url)
+    if not ok:
+        return {"ok": False, "url": url, "reason": reason}
+    try:
+        async with httpx.AsyncClient(timeout=internet.FETCH_TIMEOUT * 2, follow_redirects=True) as client:
+            answer = await client.get(url, headers={"User-Agent": "JAI-Research/1.0"})
+        if answer.status_code >= 400 or len(answer.content) > MAX_PDF or not internet._ssrf_ok(str(answer.url))[0]:
+            return {"ok": False, "url": url, "reason": f"the PDF answered {answer.status_code}"}
+        name = urllib.parse.urlparse(str(answer.url)).path.rsplit("/", 1)[-1] or "page.pdf"
+        name = name if name.lower().endswith(".pdf") else f"{name}.pdf"
+        converted = await documents.convert(name, answer.content)
+        return {"ok": True, "url": str(answer.url), "html": str(converted.get("markdown") or "")[:MAX_HTML]}
+    except Exception as exc:  # noqa: BLE001 - one PDF that cannot be read leaves the others
+        return {"ok": False, "url": url, "reason": str(exc)[:200]}
+
+
+async def _where_chains_publish(home_url: str, site: str, out: Dict[str, Any], links: Dict[str, List[str]],
+                                take: Callable[[str, Dict[str, Any]], None]) -> None:
+    """No email on the home, contact and partnership pages: the site's own press, franchise, partnership and
+    events pages from its sitemap, then the PDFs (press releases, brochures) its pages link, read for the address
+    the business publishes there."""
+    read = {page.rstrip("/") for page in out["pages_read"]}
+    try:
+        more = [page for page in await sitemap_pages(home_url, fetch_text, _WHERE_CHAINS_PUBLISH, SITEMAP_PAGES * 2)
+                if page.rstrip("/") not in read][:SITEMAP_PAGES]
+    except Exception as exc:  # noqa: BLE001
+        more = []
+        out["sitemap"] = f"not read: {type(exc).__name__}"
+    pages = await asyncio.gather(*(fetch_raw(page) for page in more), return_exceptions=True)
+    pdfs: List[str] = []
+    for page_url, page in zip(more, pages):
+        if isinstance(page, dict) and page.get("ok") and site_of(str(page.get("url") or page_url)) == site:
+            got = extract(page["html"], str(page.get("url") or page_url))
+            take(str(page.get("url") or page_url), got)
+            pdfs += got.get("pdfs") or []
+    out["sitemap_pages"] = more
+    if out["emails"]:
+        return
+    pdfs = [p for p in dict.fromkeys(list(links.get("pdfs") or []) + pdfs)][:PDFS_READ]
+    found = await asyncio.gather(*(fetch_pdf(p) for p in pdfs), return_exceptions=True)
+    for pdf_url, got in zip(pdfs, found):
+        if isinstance(got, dict) and got.get("ok"):
+            take(str(got.get("url") or pdf_url), extract(got["html"], str(got.get("url") or pdf_url)))
+    out["pdfs_read"] = pdfs
 
 
 def source_of(found: Dict[str, Any], kind: str, value: str) -> str:

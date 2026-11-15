@@ -1367,7 +1367,7 @@ CONTACT_COLUMNS = {
 }
 # Written under "still to check" once a row's site has been tried, so the row is not tried again on every call.
 _TRIED = re.compile(r"own site[^;]*\(checked \d{4}-\d{2}-\d{2}\)", re.I)
-CONTACT_ROWS, CONTACT_ROWS_MOST, CONTACT_SITES_AT_ONCE, CONTACT_SITE_SECONDS = 40, 150, 6, 90
+CONTACT_ROWS, CONTACT_ROWS_MOST, CONTACT_SITES_AT_ONCE, CONTACT_SITE_SECONDS = 40, 150, 10, 200
 
 
 def contact_columns(header: List[Any]) -> Dict[str, int]:
@@ -1540,6 +1540,7 @@ async def fill_contacts(tb, args: Dict[str, Any]) -> Dict[str, Any]:
         if not got.get("phone") and not got.get("email"):
             seen = len(dict.fromkeys(got.get("pages_read") or []))
             note = f"{seen} page{'s' if seen != 1 else ''} read" + (
+                f", {len(got.get('pdfs_read') or [])} PDF(s)" if got.get("pdfs_read") is not None else "") + (
                 f", browser: {str(got['browser'])[:60]}" if got.get("browser") else
                 ", also read as the browser shows it" if got.get("read_by_browser") else "")
             nothing.append(f"{item['name']} ({note})")

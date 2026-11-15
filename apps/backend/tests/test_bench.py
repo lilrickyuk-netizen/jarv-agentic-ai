@@ -41,13 +41,22 @@ def test_a_booking_workbook_is_scored_from_its_cells(tmp_path, monkeypatch):
     assert good["at least 7 in 10 have a published email address"].detail == "40 of 50"   # emails count, not phones
 
     rows = _rows()
-    rows[2][3] = "info@gmail.com"                    # an address not on the business's own domain
+    rows[2][3] = "info@gmail.com"                    # an address from a data broker's page, not the business's
+    rows[2][5] = "https://prospeo.io/c/chain2"
     rows[3][1] = "https://madeup-chain.co.uk"        # a site that does not exist
     rows[4][5] = ""                                  # no source
     _book(tmp_path, rows)
     failed = {k for k, c in _scores(bench.score_booking(outcome)).items() if not c.passed}
-    assert failed == {"no email is guessed: each is on the business's own domain",
+    assert failed == {"no email is guessed: each is published on the business's own site",
                       "every website is real (it answers on the web)", "every entry has its source page"}
+
+    rows = _rows()
+    rows[6][3], rows[7][3] = "guestexperience@trgplc.com", "pressemea@chain7.com"   # published by the business itself
+    _book(tmp_path, rows)
+    assert _scores(bench.score_booking(outcome))["no email is guessed: each is published on the business's own site"].passed
+    rows[8][2] = ""                                  # an email and its source, no phone: still sourced
+    _book(tmp_path, rows)
+    assert _scores(bench.score_booking(outcome))["every entry has its source page"].passed
 
     _book(tmp_path, _rows(6))
     assert not _scores(bench.score_booking(outcome))["partners.xlsx lists at least 50"].passed

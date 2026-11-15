@@ -128,8 +128,9 @@ async def derive(router, model: str, mission: str, *, spec: str = "",
         logger.warning(f"requirements step failed: {exc}")
     if not items:
         items = [{"text": " ".join(mission.split())[:500], "source": "mission"}]
-    if job:  # a specialist's checklist stays one the result can show
-        items = [item for item in items if not unshowable(item["text"])][:MAX_SPECIALIST_REQUIREMENTS] or items[:1]
+    if job:  # a specialist's checklist stays one the result can show, and asks only what Richard asked
+        items = [item for item in items if not unshowable(item["text"]) and not unasked(item["text"], mission)
+                 ][:MAX_SPECIALIST_REQUIREMENTS] or items[:1]
     items += [{"text": f"Resolve: {finding}"[:500], "source": "hard check"} for finding in (findings or [])]
     return {"requirements": number(items), "tokens": tokens}
 
@@ -144,6 +145,20 @@ _UNSHOWABLE = re.compile(
     r"invented|made up)|^\s*nothing is (?:fabricated|invented|guessed)|\bno (?:email|phone|contact)s? (?:is|are) "
     r"guessed\b|^\s*(?:do not|don't|never) (?:contact|email|send|post|publish|guess|fabricate|invent)"
     r"|\bthe only things left out are\b", re.I)
+
+
+# A fact about each entry that a list's request did not ask to be proved (15 November: "every business is still
+# trading" was added to Richard's request for 50 booking partners; JAI's independent check could not see it proved
+# for most rows and the mission failed on it). Kept only when Richard's own request names it.
+_UNASKED = {
+    "trading": re.compile(r"\b(?:still |currently |actively )?trading\b|\bin business\b|\bnot (?:closed|dissolved)"
+                          r"|\b(?:still|currently) (?:open|operating|active)\b|\bclosure\b", re.I),
+}
+
+
+def unasked(text: str, mission: str) -> bool:
+    """A requirement to prove something about every entry that Richard's request does not mention."""
+    return any(pattern.search(text or "") and not pattern.search(mission or "") for pattern in _UNASKED.values())
 
 
 def unshowable(text: str) -> bool:

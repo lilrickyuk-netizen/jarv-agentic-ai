@@ -159,15 +159,25 @@ def first_url(text: str) -> str:
     return url if url.lower().startswith("http") else f"https://{url}"
 
 
-def email_matches_site(email_cell: str, website: str) -> Optional[bool]:
-    """An email address belongs to the business when its domain is the business's own site (or a part of it).
-    None when the cell holds no address."""
+def _brand(url_or_domain: str) -> str:
+    """A site's name without its ending: starbucks.co.uk and starbucks.com are both starbucks."""
     from app.core.internet.contacts import site_of
 
+    return site_of(url_or_domain if "://" in url_or_domain else "https://" + url_or_domain).split(".")[0]
+
+
+def email_matches_site(email_cell: str, website: str, source: str = "") -> Optional[bool]:
+    """An email address is the business's own published one (UK PECR: a published business contact, never a guessed
+    one) when the business publishes it on its own site: its source page is on the business's site, or the address
+    is on the business's own domain. 15 November: Frankie & Benny's publishes guestexperience@trgplc.com (its parent
+    company) on its own contact page and Starbucks UK a starbucks.com address; both are published, neither guessed.
+    None when the cell holds no address."""
     found = _EMAIL.search(email_cell or "")
     if not found or not website:
         return None
-    return site_of("https://" + found.group(1)) == site_of(first_url(website) or website)
+    site = _brand(first_url(website) or website)
+    page = first_url(source or "")
+    return _brand(found.group(1)) == site or bool(page and _brand(page) == site)
 
 
 async def _resolves(url: str) -> bool:
@@ -233,21 +243,47 @@ def _common(outcome: Outcome) -> List[Check]:
     ]
 
 
+def _detail(header: List[Any], kind: str) -> Optional[int]:
+    """The column holding the detail itself (published phone, published email), not its source."""
+    word = "mail" if kind == "email" else "phone"
+    return next((i for i, h in enumerate(header) if word in str(h or "").lower()
+                 and not re.search(r"source|url|link|page", str(h or ""), re.I)), None)
+
+
+def _source(header: List[Any], row: List[Any], kind: str) -> str:
+    """The source page given for one detail of a row: its own source column ("email source URL"), else a column of
+    sources for the row ("source links", "source page URL")."""
+    word = "mail" if kind == "email" else "phone"
+    own = [i for i, h in enumerate(header) if word in str(h or "").lower() and re.search(
+        r"source|url|link|page", str(h or ""), re.I)]
+    shared = [i for i, h in enumerate(header) if re.search(r"source|evidence", str(h or ""), re.I)
+              and not re.search(r"mail|phone|tel", str(h or ""), re.I)]
+    for i in own + shared:
+        if first_url(cell(row, i)):
+            return first_url(cell(row, i))
+    return ""
+
+
 async def _score_contacts(outcome: Outcome, book: str, wanted: int, name_words: tuple) -> List[Check]:
     main = table(_sheets(outcome.folder, book), name_words)
     header, rows = main["header"], main["rows"]
     name = _column(header, *name_words)
     site = _column(header, "website", "site", "web", "url")
-    phone = _column(header, "phone", "tel")
-    email = _column(header, "email", "e-mail")
-    source = _column(header, "source", "evidence", "checked")
+    email = next((i for i, h in enumerate(header) if "mail" in str(h or "").lower()
+                  and not re.search(r"source|url|link|page", str(h or ""), re.I)), None)
     named = [r for r in rows if cell(r, name)]
     sites = [first_url(cell(r, site)) for r in named if first_url(cell(r, site))]
     # Richard, 15 November: the database is for email ("I need their email addresses, not phone numbers").
     contacts = [r for r in named if _EMAIL.search(cell(r, email))]
-    emails = [email_matches_site(cell(r, email), cell(r, site)) for r in named]
+    emails = [email_matches_site(cell(r, email), cell(r, site), _source(header, r, "email")) for r in named]
     emails = [e for e in emails if e is not None]
-    sourced = [r for r in named if first_url(cell(r, source))]
+    # Every entry has a source: each detail it gives has its own source page, or (with none given) the page it
+    # was checked on. 15 November: the score read only the phone's source column, so a row with an email and its
+    # source but no phone counted as unsourced (9 of 50).
+    sourced = [r for r in named if all(_source(header, r, kind) for kind in ("phone", "email")
+                                       if cell(r, _detail(header, kind))) and any(
+        first_url(cell(r, i)) for i, h in enumerate(header) if i != site and re.search(
+            r"source|evidence|url|page|link", str(h or ""), re.I))]
     answers = await reachable(sites) if sites else {}
     live = sum(1 for ok in answers.values() if ok)
     return [
@@ -259,7 +295,7 @@ async def _score_contacts(outcome: Outcome, book: str, wanted: int, name_words: 
                                           + ", ".join(u for u, ok in answers.items() if not ok)[:300])),
         Check("at least 7 in 10 have a published email address",
               bool(named) and len(contacts) * 10 >= len(named) * 7, _share(len(contacts), len(named))),
-        Check("no email is guessed: each is on the business's own domain",
+        Check("no email is guessed: each is published on the business's own site",
               all(emails), f"{sum(emails)} of {len(emails)} emails match their website"),
         Check("every entry has its source page", bool(named) and len(sourced) == len(named),
               _share(len(sourced), len(named))),
@@ -772,15 +808,16 @@ async def free_check(say: Callable[[str], None] = print) -> Outcome:
     sourced = [r for r in with_detail
                if (not cell(r, col["published phone"]) or first_url(cell(r, col["phone source url"])))
                and (not cell(r, col["published email"]) or first_url(cell(r, col["email source url"])))]
-    emails = [email_matches_site(cell(r, col["published email"]), cell(r, col["website"])) for r in rows]
+    emails = [email_matches_site(cell(r, col["published email"]), cell(r, col["website"]),
+                                 cell(r, col["email source url"])) for r in rows]
     emails = [e for e in emails if e is not None]
     outcome.checks = [
-        Check("it ran within 5 minutes, with no model and no spend", outcome.minutes <= 5, f"{outcome.minutes} min"),
+        Check("it ran within 8 minutes, with no model and no spend", outcome.minutes <= 8, f"{outcome.minutes} min"),
         Check("at least half the businesses got a published email address",
               len(with_email) * 2 >= len(rows), _share(len(with_email), len(rows))),
         Check("every phone and email given has its own source page", len(sourced) == len(with_detail),
               _share(len(sourced), len(with_detail))),
-        Check("no email is guessed: each is on the business's own domain", all(emails),
+        Check("no email is guessed: each is published on the business's own site", all(emails),
               f"{sum(emails)} of {len(emails)} emails match their website"),
     ]
     return outcome

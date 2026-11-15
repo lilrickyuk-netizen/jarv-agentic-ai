@@ -313,7 +313,8 @@ class ClaudeRoleExecutor(RoleExecutor):
             f"JAI's own tools (names starting {PREFIX}) do what Claude Code's do not: {PREFIX}write_spreadsheet, "
             f"{PREFIX}tidy_spreadsheet and {PREFIX}check_spreadsheet for Excel workbooks, {PREFIX}find_contacts and "
             f"{PREFIX}fill_contacts for the contact details a business publishes on its own pages, and JAI's memory "
-            "and knowledge graph.",
+            f"and knowledge graph. Claude Code's Read cannot open an Excel, Word or PDF file: open one with "
+            f"{PREFIX}read_document (15 November: four steps of a mission were lost to Read on .xlsx files).",
             f"For a list or database of businesses, work at machine speed, not one business at a time: "
             f"{PREFIX}discover_prospect_companies gives every business of a type in an area from OpenStreetMap (free "
             f"open data) with its website; save them with {PREFIX}write_spreadsheet; {PREFIX}fill_contacts then reads "
