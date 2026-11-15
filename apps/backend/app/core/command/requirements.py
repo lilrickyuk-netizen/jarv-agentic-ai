@@ -74,13 +74,27 @@ def number(items: List[Dict[str, str]]) -> List[Dict[str, Any]]:
             for i, item in enumerate(items[:MAX_REQUIREMENTS], start=1)]
 
 
+# 15 November: a specialist mission was given 31 requirements, 12 of them about how the work was done ("research
+# works from largest reach downwards", "no data is fabricated", "no business is contacted"). No file can show those,
+# a requirement without evidence is unmet, so no specialist mission could ever pass: the agent could not claim
+# success, the independent check never reached a verdict, and every one ended "partial" whatever it delivered.
+# Requirements are now only what the finished deliverable must show; the method and the standing rules stay in the
+# job the specialist follows, and become requirements only where the deliverable itself can show them.
+MAX_SPECIALIST_REQUIREMENTS = 15
+
 _PROFESSIONAL = (
     " The mission is a specialist's work and comes with the job as JAI's specialist set it out and Richard's "
-    "standing rules for the product: list requirements for the professional standard the job sets (its "
-    "deliverable, targets, method and exclusions) and one for every standing rule that applies, citing 'the job' "
-    "or 'standing rule' as the source. Richard's own words win where they differ. A target is met by a list "
-    "that reaches it; never write a requirement that leaves an entry out for not being fully confirmed (an "
-    "entry goes in with what is still to check).")
+    "standing rules for the product. Write requirements ONLY for what the finished deliverable must contain or "
+    "show, each one checkable by looking at the result itself (the file, its sheets and columns, how many entries "
+    "of what kind, what every entry must hold, what a document must say), citing 'the job' or 'standing rule' as "
+    "the source to the professional standard the job sets. A standing rule becomes a requirement only when the "
+    "deliverable can show it (\"no podcasts in the list\", \"the Read Me says Plexecute has not launched\"). "
+    "Never write a requirement about how the work was done or what was not done along the way (the order of the "
+    "research, where to look, not contacting anyone, not guessing, not fabricating): the specialist follows those "
+    "as rules, and no file can prove them. Richard's own words win where they differ. A target is met by a list "
+    f"that reaches it; never write a requirement that leaves an entry out for not being fully confirmed (an "
+    f"entry goes in with what is still to check). At most {MAX_SPECIALIST_REQUIREMENTS} requirements: merge "
+    "ones that are checked together (the columns every row has; the counts per sheet).")
 
 
 async def derive(router, model: str, mission: str, *, spec: str = "",
@@ -112,8 +126,27 @@ async def derive(router, model: str, mission: str, *, spec: str = "",
         logger.warning(f"requirements step failed: {exc}")
     if not items:
         items = [{"text": " ".join(mission.split())[:500], "source": "mission"}]
+    if job:  # a specialist's checklist stays one the result can show
+        items = [item for item in items if not unshowable(item["text"])][:MAX_SPECIALIST_REQUIREMENTS] or items[:1]
     items += [{"text": f"Resolve: {finding}"[:500], "source": "hard check"} for finding in (findings or [])]
     return {"requirements": number(items), "tokens": tokens}
+
+
+# A requirement about how the work was done, which no file can show: kept out of a specialist's checklist (the
+# specialist still follows it as a rule). Conservative: a requirement that also names something the deliverable
+# holds ("no podcasts are included as entries") is kept.
+_UNSHOWABLE = re.compile(
+    r"^\s*(?:research|the research|work|the work|searching|research work)s?\s+(?:works?|proceeds?|starts?|goes|is done)"
+    r"|\bno (?:business|company|one|person|creator|investor|prospect)s? (?:is|are|was|were) (?:contacted|emailed|"
+    r"called|messaged)|\b(?:is|are) not (?:contacted|emailed|called|messaged)\b|^\s*no data is (?:fabricated|"
+    r"invented|made up)|^\s*nothing is (?:fabricated|invented|guessed)|\bno (?:email|phone|contact)s? (?:is|are) "
+    r"guessed\b|^\s*(?:do not|don't|never) (?:contact|email|send|post|publish|guess|fabricate|invent)"
+    r"|\bthe only things left out are\b", re.I)
+
+
+def unshowable(text: str) -> bool:
+    """A requirement about how the work was done that no result can show."""
+    return bool(_UNSHOWABLE.search(text or ""))
 
 
 _NEW_ONLY = (

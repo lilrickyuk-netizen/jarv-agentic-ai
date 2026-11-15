@@ -237,9 +237,13 @@ async def _state(task: Task) -> Dict[str, Any]:
 def carried(requirements: List[Dict[str, Any]], task: Task) -> List[Dict[str, Any]]:
     """The earlier requirements as this mission's own: done ones stay done with their evidence (the Verifier checks
     them again), everything else is open for the team."""
+    from app.core.command.requirements import unshowable
+
     when = f"{task.created_at:%d %b}" if task.created_at else "earlier"
     out = []
     for r in requirements:
+        if unshowable(str(r.get("text") or "")):
+            continue  # a requirement no result can show is not carried on: it is a rule, and it would never pass
         item = dict(r)
         if item.get("status") == "done":
             evidence = str(item.get("evidence") or "").strip()

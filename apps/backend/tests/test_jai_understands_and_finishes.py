@@ -20,6 +20,7 @@ guard, the skill files written for the test. Stood in: the models' replies (test
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
@@ -952,3 +953,61 @@ def test_a_mission_is_complete_when_everything_the_request_asked_for_is_done_and
                    ex.requirements, [], None, None)
     notes = {item["id"]: item["note"] for item in report["items"]}
     assert notes["R19"].startswith("Not part of this request, left for its own: Needs research")
+
+
+# ----- 9. the overlooked wire: a specialist's checklist holds only what the result can show ---------------------------
+
+BOOKING_REQUIREMENTS = [
+    ("The workbook has these sheets: National Chains, Regional Chains, Independents, Decision-Makers and Read Me.", True),
+    ("Country is either UK or US in every company row, so the database covers both countries.", True),
+    ("National Chains contains at least 20 UK and at least 20 US national chains.", True),
+    ("No podcasts are included as entries or channels.", True),
+    ("Nothing in the workbook or the summary says Plexecute has customers or partners. Plexecute has not launched.",
+     True),
+    ("Research works from largest reach downwards: largest national chains first, then regional chains.", False),
+    ("The only things left out are closed businesses, businesses that take no bookings.", False),
+    ("No data is fabricated. Every name, title, contact, count and headquarters can be traced to a source link.",
+     False),
+    ("No business is contacted, emailed or negotiated with. The work is database research only.", False),
+]
+
+
+def test_a_specialists_checklist_keeps_only_what_the_finished_work_can_show():
+    """15 November: the booking mission's 31 requirements included 12 about how the work was done. A requirement
+    without evidence is unmet and no file can show those, so no specialist mission could ever pass."""
+    from app.core.command import requirements
+    from app.core.command.agent_executor import verifier_steps
+
+    for text, kept in BOOKING_REQUIREMENTS:
+        assert requirements.unshowable(text) is not kept, text
+    assert "Never write a requirement about how the work was done" in requirements._PROFESSIONAL
+    assert f"At most {requirements.MAX_SPECIALIST_REQUIREMENTS}" in requirements._PROFESSIONAL
+
+    class Analyst:
+        async def complete(self, request):
+            from types import SimpleNamespace
+
+            listed = [{"text": text, "source": "the job"} for text, _ in BOOKING_REQUIREMENTS] + [
+                {"text": f"Every company row has column {n} filled in", "source": "the job"} for n in range(20)]
+            return SimpleNamespace(usage={}, content="", tool_calls=[{"function": {
+                "name": "record_requirements", "arguments": json.dumps({"requirements": listed})}}])
+
+    specialist = _run(requirements.derive(Analyst(), "m", "Build the booking database", job="THE JOB: ..."))
+    texts = [r["text"] for r in specialist["requirements"]]
+    assert len(texts) == requirements.MAX_SPECIALIST_REQUIREMENTS
+    assert not any(requirements.unshowable(t) for t in texts) and texts[0].startswith("The workbook has these sheets")
+    builder = _run(requirements.derive(Analyst(), "m", "Build MYCO Phase 0"))   # software: the list as written
+    assert len(builder["requirements"]) == len(BOOKING_REQUIREMENTS) + 20
+    # The independent check has room to reach a verdict on a full checklist.
+    assert verifier_steps(31) == 80 and verifier_steps(15) == 55
+
+
+def test_a_carried_checklist_drops_what_no_result_can_show():
+    from types import SimpleNamespace
+
+    from app.core.command.resume import carried
+
+    earlier = [{"id": f"R{i}", "text": text, "status": "done" if i % 2 else "open", "evidence": "rows"}
+               for i, (text, _) in enumerate(BOOKING_REQUIREMENTS, start=1)]
+    kept = carried(earlier, SimpleNamespace(created_at=datetime.now(timezone.utc)))
+    assert [r["text"] for r in kept] == [text for text, showable in BOOKING_REQUIREMENTS if showable]

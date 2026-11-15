@@ -53,7 +53,7 @@ def test_the_trail_stays_short_on_a_long_mission():
 
 def test_the_independent_check_has_steps_for_every_requirement():
     assert verifier_steps(0) == VERIFIER_STEPS and verifier_steps(2) == VERIFIER_STEPS
-    assert verifier_steps(9) == 35 and verifier_steps(40) == 48
+    assert verifier_steps(9) == 37 and verifier_steps(31) == 80 and verifier_steps(40) == 80
     assert "git log, git show --stat, git status and git diff" in _VERIFIER_SYSTEM
     assert "call verdict before you run out" in _VERIFIER_SYSTEM
 

@@ -130,7 +130,10 @@ def verifier_steps(requirement_count: int) -> int:
     """Steps for the independent check: enough to look at every requirement (about three each: read, run, read the
     output) and give its verdict; 16 at least, 48 at most. A fixed 16 ran out before a verdict on a nine-requirement
     mission, and a check with no verdict sent the mission round again for nothing."""
-    return min(48, max(VERIFIER_STEPS, 8 + 3 * max(0, int(requirement_count or 0))))
+    # 15 November: 31 requirements at three steps each needed about 100 steps and the check stopped at 48, so it
+    # never gave a verdict. A workbook's requirements are now checked many at a time (check_spreadsheet), and the
+    # ceiling leaves room for the rest.
+    return min(80, max(VERIFIER_STEPS, 10 + 3 * max(0, int(requirement_count or 0))))
 
 _VERDICT = {
     "name": "verdict",
