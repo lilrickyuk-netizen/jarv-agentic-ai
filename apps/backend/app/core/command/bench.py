@@ -513,6 +513,7 @@ async def run_job(job: Job, say: Callable[[str], None] = print) -> Outcome:
     seen: Dict[str, str] = {}
     last_change = clock()
     allowanced = {submitted.task_id}
+    told = 0
     while True:
         await asyncio.sleep(POLL_SECONDS)
         missions = await _missions(workspace_id, started)
@@ -533,6 +534,10 @@ async def run_job(job: Job, say: Callable[[str], None] = print) -> Outcome:
             seen = dict(states)
         cost = sum([await _live_cost(t) for t in states])
         minutes = (datetime.now(timezone.utc) - started).total_seconds() / 60
+        if minutes >= told + 5:
+            told = int(minutes // 5) * 5
+            say(f"   {datetime.now(timezone.utc):%H:%M:%S} still working: {minutes:.0f} min, ${cost:.2f} booked so far, "
+                f"missions {', '.join(f'{t[:8]} {s}' for t, s in states.items())}")
         working = [t for t, st in states.items() if st in (lifecycle.PENDING, lifecycle.QUEUED, lifecycle.RUNNING,
                                                             lifecycle.RECOVERING)]
         if job.cancel_after_seconds is not None and outcome.cancelled_at is None and working \
