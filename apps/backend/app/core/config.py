@@ -458,6 +458,11 @@ class Settings(BaseSettings):
     # A short request that needs several agents ("launch X: research, then the plan, then the posts") is split by
     # the Orchestrator into steps, each done by its own agent, on the workflow engine (councils/planner).
     ORCHESTRATED_MISSIONS_ENABLED: bool = True
+    # The engine a specialist's mission does its work on (command/claude_engine): "claude", the Claude Agent SDK
+    # (Claude Code's agent loop, skills, sub-agents and hooks, with JAI's own tools, gates and checks around it), or
+    # "jai", JAI's own loop. Without the SDK or an Anthropic key, JAI's own loop runs, whatever this says.
+    MISSION_ENGINE: str = "claude"
+    CLAUDE_ENGINE_MODEL: str = "claude-sonnet-5-5"
     ROLE_AGENT_MODEL: str = "gpt-6-luna"
     ROLE_AGENT_STUCK_MODEL: str = "claude-sonnet-5-5"
     ROLE_MISSION_MAX_COST_USD: float = Field(default=2.5, ge=0, le=100)

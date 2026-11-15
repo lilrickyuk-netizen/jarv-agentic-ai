@@ -48,6 +48,12 @@ COPY . .
 # Install the application
 RUN poetry install --no-interaction --no-ansi --only main
 
+# The Claude Agent SDK: the engine a specialist's mission does its work on (app/core/command/claude_engine.py). Its
+# platform wheel carries the Claude Code engine, so no separate install is needed. Installed beside Poetry's lock,
+# at a version range that has every option JAI uses (max_budget_usd, skills, dontAsk, sub-agent limits).
+ARG CLAUDE_AGENT_SDK_SPEC="claude-agent-sdk>=0.2.140,<0.3"
+RUN pip install --no-cache-dir "${CLAUDE_AGENT_SDK_SPEC}"
+
 
 # Test stage
 # Keeps development/test tooling out of the production runtime image while

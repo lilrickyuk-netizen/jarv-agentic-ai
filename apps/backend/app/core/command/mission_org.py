@@ -1312,7 +1312,11 @@ class MissionTeam:
                          "with its own tools, playbooks and your standing rules; the independent check reviews "
                          "the result.")
         model = await role_model(stuck=self.stuck)
-        executor = RoleExecutor(self.runtime, model, self.workspace_root, role=role, job=self.job, team=self)
+        from app.core.command import claude_engine
+
+        # The work runs on the Claude Agent SDK when it is on (command/claude_engine), on JAI's own loop otherwise.
+        engine = claude_engine.ClaudeRoleExecutor if claude_engine.enabled() else RoleExecutor
+        executor = engine(self.runtime, model, self.workspace_root, role=role, job=self.job, team=self)
         executor.usage = self.lead.usage  # one account of the mission's spend
         # What this role learned on its earlier jobs for this product (command/debrief), under its playbooks.
         from app.core.command import debrief

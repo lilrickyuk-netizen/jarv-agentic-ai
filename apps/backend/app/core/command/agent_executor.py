@@ -492,6 +492,12 @@ class AgentExecutor:
                 f"stops you (a hard boundary, or a credential or decision only Richard can give), "
                 f"call finish again and name it; then the rest is reported as waiting on him.")
 
+    async def _engine_loop(self, mission: str, messages: List[Message], system: str, tools: List[Dict[str, Any]],
+                           total_budget: int, steps_per_round: int, start_continuation: int) -> Optional[tuple]:
+        """The mission's work on another engine: (summary, success, finished, settled, continuation, last tool id),
+        or None for JAI's own loop. The base mission always uses JAI's own loop."""
+        return None
+
     async def _notes(self) -> Optional[str]:
         """What Richard has said about this mission since the last step (command/steer), or None. A role's agent
         reads its notes; the base mission has none."""
@@ -591,8 +597,15 @@ class AgentExecutor:
         words_only = 0
         stuck = StuckDetector()
         await self._progress("working", continuation, total_budget)
+        # The work itself may run on another engine (a role's mission on the Claude Agent SDK, command/claude_engine):
+        # everything around it (the checklist, the independent check, the report, the rounds and the allowance)
+        # stays JAI's. None means JAI's own loop below does the work.
+        engine = await self._engine_loop(mission, messages, system, tools, total_budget, steps_per_round,
+                                         start_continuation)
+        if engine is not None:
+            final_summary, success, finished, settled, continuation, last_tool = engine
 
-        while self.iterations < total_budget and not finished:
+        while engine is None and self.iterations < total_budget and not finished:
             stop = await self._over_allowance()
             if stop:
                 final_summary = stop
