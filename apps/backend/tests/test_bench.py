@@ -19,8 +19,8 @@ def _book(folder, rows, name="partners.xlsx"):
 
 
 def _rows(n=50):
-    return [[f"Chain {i}", f"https://chain{i}.co.uk", f"020 7{i:03d} 0000" if i < 40 else "Not recorded",
-             f"hello@chain{i}.co.uk" if i < 5 else "", f"https://chain{i}.co.uk/partners",
+    return [[f"Chain {i}", f"https://chain{i}.co.uk", f"020 7{i:03d} 0000" if i < 5 else "Not recorded",
+             f"hello@chain{i}.co.uk" if i < 40 else "", f"https://chain{i}.co.uk/partners",
              f"https://chain{i}.co.uk/contact"] for i in range(n)]
 
 
@@ -38,7 +38,7 @@ def test_a_booking_workbook_is_scored_from_its_cells(tmp_path, monkeypatch):
     _book(tmp_path, _rows())
     good = _scores(bench.score_booking(outcome))
     assert all(c.passed for c in good.values()), {k: c.detail for k, c in good.items() if not c.passed}
-    assert good["at least 7 in 10 have a published phone or email"].detail == "40 of 50"   # "Not recorded" is empty
+    assert good["at least 7 in 10 have a published email address"].detail == "40 of 50"   # emails count, not phones
 
     rows = _rows()
     rows[2][3] = "info@gmail.com"                    # an address not on the business's own domain

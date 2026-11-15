@@ -243,7 +243,8 @@ async def _score_contacts(outcome: Outcome, book: str, wanted: int, name_words: 
     source = _column(header, "source", "evidence", "checked")
     named = [r for r in rows if cell(r, name)]
     sites = [first_url(cell(r, site)) for r in named if first_url(cell(r, site))]
-    contacts = [r for r in named if cell(r, phone) or _EMAIL.search(cell(r, email))]
+    # Richard, 15 November: the database is for email ("I need their email addresses, not phone numbers").
+    contacts = [r for r in named if _EMAIL.search(cell(r, email))]
     emails = [email_matches_site(cell(r, email), cell(r, site)) for r in named]
     emails = [e for e in emails if e is not None]
     sourced = [r for r in named if first_url(cell(r, source))]
@@ -256,7 +257,7 @@ async def _score_contacts(outcome: Outcome, book: str, wanted: int, name_words: 
         Check("every website is real (it answers on the web)", bool(sites) and live == len(sites),
               _share(live, len(sites)) + ("" if live == len(sites) else ": not answering "
                                           + ", ".join(u for u, ok in answers.items() if not ok)[:300])),
-        Check("at least 7 in 10 have a published phone or email",
+        Check("at least 7 in 10 have a published email address",
               bool(named) and len(contacts) * 10 >= len(named) * 7, _share(len(contacts), len(named))),
         Check("no email is guessed: each is on the business's own domain",
               all(emails), f"{sum(emails)} of {len(emails)} emails match their website"),
@@ -304,8 +305,8 @@ def _folder_line(folder: str) -> str:
 def _booking(folder: str) -> str:
     return (f"{_folder_line(folder)} Build partners.xlsx: 50 UK restaurants, cafés or restaurant groups that "
             "could become booking partners for Plexecute (a productivity app that books time for what matters). For each: the "
-            "company, its website, its published phone number, its published email address, its official contact "
-            "or partnership page, and the source page for each detail. Only details the business publishes itself; "
+            "company, its website, its published email address (the one that matters), its official contact or "
+            "partnership page, and the source page for each detail. Only addresses the business publishes itself; "
             "never guess an email address.")
 
 
@@ -754,7 +755,7 @@ async def free_check(say: Callable[[str], None] = print) -> Outcome:
     outcome.answer = json.dumps({k: answer.get(k) for k in ("rows_tried", "phone_filled", "email_filled",
                                                             "channel_filled")}, default=str)
     say(f"   fill_contacts: {outcome.answer}")
-    # Why each one without a phone or email has none: what Claude reads to fix the reader without a paid run.
+    # Why each one without an email has none: what Claude reads to fix the reader without a paid run.
     say(f"   sites read with no phone or email on them: {', '.join(answer.get('sites_publishing_neither') or []) or '-'}")
     say(f"   sites that could not be read: {', '.join(answer.get('could_not_be_read') or []) or '-'}")
     from app.core.internet.contacts import fetch_rendered
@@ -766,6 +767,8 @@ async def free_check(say: Callable[[str], None] = print) -> Outcome:
     rows = main["rows"]
     col = {k: _column(header, k) for k in header}
     with_detail = [r for r in rows if cell(r, col["published phone"]) or cell(r, col["published email"])]
+    with_email = [r for r in rows if cell(r, col["published email"])]
+    say(f"   no email found for: {', '.join(cell(r, col['company']) for r in rows if not cell(r, col['published email'])) or '-'}")
     sourced = [r for r in with_detail
                if (not cell(r, col["published phone"]) or first_url(cell(r, col["phone source url"])))
                and (not cell(r, col["published email"]) or first_url(cell(r, col["email source url"])))]
@@ -773,8 +776,8 @@ async def free_check(say: Callable[[str], None] = print) -> Outcome:
     emails = [e for e in emails if e is not None]
     outcome.checks = [
         Check("it ran within 5 minutes, with no model and no spend", outcome.minutes <= 5, f"{outcome.minutes} min"),
-        Check("at least half the businesses got a published phone or email",
-              len(with_detail) * 2 >= len(rows), _share(len(with_detail), len(rows))),
+        Check("at least half the businesses got a published email address",
+              len(with_email) * 2 >= len(rows), _share(len(with_email), len(rows))),
         Check("every phone and email given has its own source page", len(sourced) == len(with_detail),
               _share(len(sourced), len(with_detail))),
         Check("no email is guessed: each is on the business's own domain", all(emails),

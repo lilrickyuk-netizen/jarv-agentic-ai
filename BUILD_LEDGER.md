@@ -14803,3 +14803,16 @@ TESTS RUN: a site whose plain page is a menu shell is read again through Crawl4A
 RESULT: Richard's free check, 21:11: ECC's learning hook PASS inside the worker; JAI's contact reader 10 of 25 businesses with a phone or email (every one sourced, every email on the business's own domain). In the code: a site that turned the plain reader away or built its page with JavaScript was read through internet.render_page, which asks Crawl4AI for its "fit" Markdown (the main content: the footer pruned away) cut to 8,000 characters, and the reader then looked for a "markdown" key that answer does not carry; the details the reader looks for were thrown away before it saw them. contacts.fetch_rendered asks Crawl4AI (unclecode/crawl4ai, JAI's browser) for the whole rendered HTML from its /crawl endpoint, then its /md with the "raw" filter. A site whose plain pages carry no phone or email is read again that way. Each site has 90 seconds (it was 60). The free check now lists the businesses with no details and those that could not be read, with the reason, and whether the browser answers.
 BLOCKERS: None
 NEXT TASK: install-browser-read.sh on Richard's machine (free check only)
+
+---
+
+TASK ID: THE-DATABASE-IS-FOR-EMAIL
+TASK NAME: The bench and the free check score published email addresses, not phone numbers
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/bench.py, apps/backend/tests/test_bench.py, BUILD_LEDGER.md
+COMMANDS RUN: the bench's booking scorer on Claude's side
+TESTS RUN: a booking workbook with 40 of 50 published emails and 5 phones passes "at least 7 in 10 have a published email address"
+RESULT: Richard, 21:35: "it's an email database; I need their email addresses, not phone numbers". Claude had written the booking test's brief and both scores to count a phone or an email. The booking brief now asks for the published email address (the one that matters), the contact or partnership page and the source of each; the booking score counts emails only (7 in 10); the free check counts emails only (half) and lists every business it found no email for.
+BLOCKERS: None
+NEXT TASK: install-browser-read.sh on Richard's machine (free check only)
