@@ -76,6 +76,6 @@ alembic/versions/*.pyc
 
 # The bench's run record (app/core/command/bench.py): written on Richard's machine, never committed
 .jai-bench/
-# The Claude engine's session folders and JAI's own playbooks (command/claude_engine, command/learning_loop)
+# The Claude engine's session folders and what ECC's learning system keeps (command/claude_engine)
 .jai-sessions/
 .jai-learned/

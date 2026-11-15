@@ -54,9 +54,9 @@ PACKS: Dict[str, Dict[str, str]] = {
     "ecc": {"repo": "affaan-m/ECC", "commit": "d2ef2680594f9a17526a6e1a2e18b3d242c5d17b", "root": "skills",
             "title": "ECC", "publisher": "Affaan Mustafa (affaan-m/ECC)",
             "copyright": "Copyright (c) 2026 Affaan Mustafa",
-            # A Claude Code plugin: its agents and commands (its hooks run Node scripts against code repositories and
-            # are not part of a specialist's session, which has no shell).
-            "plugin": "agents,commands"},
+            # A Claude Code plugin: its agents, commands and hooks with the scripts they run (Node, Bash, Python 3),
+            # so its own learning system (continuous-learning-v2) and session memory run in the engine's session.
+            "plugin": "agents,commands,hooks,scripts"},
     "brag": {"repo": "latent-spaces/brag", "commit": "669ab9286aa28b6c3ee30e75f181ee74319d012a", "root": "skills",
              "title": "BRAG", "publisher": "Shunit Haviv Hakimi (latent-spaces/brag)",
              "copyright": "Copyright (c) 2026 Shunit Haviv Hakimi"},
@@ -202,6 +202,8 @@ SKILLS: List[Dict] = [
     _s("ecc", "git-workflow", (CODING, DEVOPS)),
     _s("ecc", "documentation-lookup", (CODING, RESEARCH, DOCS)),
     _s("ecc", "context-budget", (ORCH, SWARM, EVOLVE)),
+    # ECC's learning system: its hooks run skills/continuous-learning-v2/hooks/observe.sh from the plugin.
+    _s("ecc", "continuous-learning-v2", (EVOLVE, ORCH, "memory")),
     _s("ecc", "cost-aware-llm-pipeline", (ORCH, FINANCE, EVOLVE)),
     _s("ecc", "prompt-caching-strategy", (ORCH, EVOLVE)),
     _s("ecc", "deep-research", (RESEARCH,), (RESEARCH,)),

@@ -469,12 +469,21 @@ class Settings(BaseSettings):
     CLAUDE_LIGHT_MODEL: str = "claude-haiku-5-5"
     # The independent check has this long, all its calls together, before the work is reported unchecked.
     VERIFIER_MAX_SECONDS: int = 600
-    # Each engine mission's Claude Code folder (session transcripts, skill links) and JAI's own playbooks, kept
-    # beside the code so a restart keeps them (both git-ignored). LEARNING_LOOP_ENABLED: Hermes' review after a
-    # passed mission writes or improves a playbook (command/learning_loop).
+    # Each engine mission's Claude Code folder (session transcripts, skill links), kept beside the code so a restart
+    # keeps it (git-ignored).
     JAI_SESSIONS_DIR: str = "/app/.jai-sessions"
-    LEARNED_SKILLS_DIR: str = "/app/.jai-learned"
-    LEARNING_LOOP_ENABLED: bool = True
+    # ECC's own learning system, unchanged from affaan-m/ECC: its hooks record each session, its continuous-learning-v2
+    # observer (Haiku, in the background) turns what it sees into instincts, and its session-start hook hands each new
+    # session the workspace's instincts and the last sessions' summaries. Kept here (git-ignored) so a restart keeps it.
+    ECC_LEARNING_ENABLED: bool = True
+    ECC_LEARNING_DIR: str = "/app/.jai-learned"
+    # ECC hooks made for a developer at a desk that do not fit an unattended mission (switched off by ECC's own
+    # ECC_DISABLED_HOOKS): its formatter and type check at every stop, its plan canvas, desktop notifications, its
+    # fact-forcing edit gate and its health check of MCP servers (JAI's tools run inside the session).
+    ECC_DISABLED_HOOKS: str = ("stop:format-typecheck,post:quality-gate,stop:check-console-log,stop:desktop-notify,"
+                               "session-start:plan-canvas-sessions,stop:plan-canvas-pending,"
+                               "pre:edit-write:gateguard-fact-force,pre:powershell:gateguard-fact-force,"
+                               "pre:mcp-health-check,post:mcp-health-check,pre:write:doc-file-warning")
     ROLE_AGENT_MODEL: str = "gpt-6-luna"
     ROLE_AGENT_STUCK_MODEL: str = "claude-sonnet-5-5"
     ROLE_MISSION_MAX_COST_USD: float = Field(default=2.5, ge=0, le=100)

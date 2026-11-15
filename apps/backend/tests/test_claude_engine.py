@@ -408,10 +408,11 @@ def _packs(root: Path) -> Path:
     sp, ecc = root / "superpowers", root / "ecc"
     for folder in (sp / "skills" / "brainstorming", sp / "skills" / "writing-plans", sp / "agents", sp / "commands",
                    sp / "hooks", ecc / "skills" / "fastapi-patterns", ecc / "skills" / "not-chosen", ecc / "agents",
-                   ecc / "commands", ecc / "hooks"):
+                   ecc / "commands", ecc / "hooks", ecc / "scripts" / "hooks",
+                   ecc / "skills" / "continuous-learning-v2" / "hooks"):
         folder.mkdir(parents=True, exist_ok=True)
     for skill in (sp / "skills" / "brainstorming", sp / "skills" / "writing-plans", ecc / "skills" / "fastapi-patterns",
-                  ecc / "skills" / "not-chosen"):
+                  ecc / "skills" / "not-chosen", ecc / "skills" / "continuous-learning-v2"):
         (skill / "SKILL.md").write_text("---\nname: x\n---\n")
     (sp / "agents" / "code-reviewer.md").write_text("agent")
     (sp / "commands" / "brainstorm.md").write_text("command")
@@ -419,6 +420,8 @@ def _packs(root: Path) -> Path:
     (ecc / "agents" / "planner.md").write_text("agent")
     (ecc / "agents" / "flagged.md").write_text("agent")
     (ecc / "hooks" / "hooks.json").write_text("{}")
+    (ecc / "scripts" / "hooks" / "observe-runner.js").write_text("// ECC's")
+    (ecc / "skills" / "continuous-learning-v2" / "hooks" / "observe.sh").write_text("# ECC's")
     (ecc / ".jai-blocked-parts").write_text("agents/flagged.md\n")
     return root
 
@@ -437,10 +440,31 @@ def test_superpowers_and_ecc_load_as_the_plugins_their_authors_ship(tmp_path, mo
     assert (sp / "agents" / "code-reviewer.md").is_file() and (sp / "commands" / "brainstorm.md").is_file()
     assert {p.name for p in (sp / "skills").iterdir()} == {"brainstorming", "writing-plans"}   # the whole workflow
     assert (ecc / "agents" / "planner.md").is_file() and not (ecc / "agents" / "flagged.md").exists()
-    assert not (ecc / "hooks").exists()                              # ECC's hooks run Node scripts: not here
-    assert {p.name for p in (ecc / "skills").iterdir()} == {"fastapi-patterns"}                # the chosen ones
+    # ECC's hooks and the scripts they run, and its learning skill whose observe.sh the hooks call
+    assert (ecc / "hooks" / "hooks.json").is_file() and (ecc / "scripts" / "hooks" / "observe-runner.js").is_file()
+    assert (ecc / "skills" / "continuous-learning-v2" / "hooks" / "observe.sh").is_file()
+    assert {p.name for p in (ecc / "skills").iterdir()} == {"fastapi-patterns", "continuous-learning-v2"}  # chosen
+    assert skill_packs.plugin_parts("ecc") == ["agents", "commands", "hooks", "scripts"]
     assert skill_packs.plugin_parts("superpowers") == ["agents", "commands", "hooks"]
     assert skill_packs.plugin_parts("marketingskills") == []
+
+
+def test_ecc_learning_runs_through_eccs_own_switches(tmp_path, monkeypatch):
+    """ECC's learning system is configured, never rewritten: only the switches ECC's own scripts read."""
+    import json as _json
+
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "ECC_LEARNING_DIR", str(tmp_path / "learned"))
+    env = claude_engine.ecc_learning_env(tmp_path / "Projects" / "pubs")
+    assert env["CLAUDE_CODE_ENTRYPOINT"] == "sdk-ts"           # an entrypoint ECC's observe.sh records
+    assert env["CLV2_HOMUNCULUS_DIR"] == str(tmp_path / "learned" / "homunculus")
+    assert env["ECC_AGENT_DATA_HOME"] == str(tmp_path / "learned" / "ecc")
+    assert "stop:format-typecheck" in env["ECC_DISABLED_HOOKS"] and "pre:observe" not in env["ECC_DISABLED_HOOKS"]
+    assert _json.loads(Path(env["CLV2_CONFIG"]).read_text())["observer"]["enabled"] is True
+    assert env["OBSERVER_MAX_IDLE_SECONDS"] == "0"            # a mission runs unattended at any hour
+    monkeypatch.setattr(settings, "ECC_LEARNING_ENABLED", False)
+    assert claude_engine.ecc_learning_env(None) == {"ECC_HOOK_PROFILE": "minimal", "ECC_SKIP_OBSERVE": "1"}
 
 
 def test_with_the_engine_on_every_model_call_of_a_mission_is_claude(monkeypatch):

@@ -100,9 +100,51 @@ def api_key() -> str:
 
 def sessions_root() -> Path:
     """Where each mission's Claude Code configuration (its skills and its session transcripts) lives, so a round
-    cut short can resume the same session, a playbook review can fork it, and a mission's record can be read after
-    the worker restarts (JAI_SESSIONS_DIR; it was the temporary folder before 15 November, which a restart wipes)."""
+    cut short can resume the same session and a mission's record can be read after the worker restarts (JAI_SESSIONS_DIR; it was the temporary folder before 15 November, which a restart wipes)."""
     return Path(str(getattr(settings, "JAI_SESSIONS_DIR", "") or Path(tempfile.gettempdir()) / "jai-claude"))
+
+
+def ecc_learning_env(folder: Optional[Path]) -> Dict[str, str]:
+    """The switches ECC itself reads (affaan-m/ECC: scripts/lib/hook-flags.js, scripts/lib/agent-data-home.js,
+    skills/continuous-learning-v2) so its learning system runs in the mission's session as its authors ship it:
+    where it keeps what it learns (kept across restarts), which of its hooks are off (settings.ECC_DISABLED_HOOKS),
+    its observer switched on in its own config file, the session marked as an Agent SDK session ECC observes
+    (CLAUDE_CODE_ENTRYPOINT: ECC's observe.sh records "sdk-ts" sessions and skips the Python SDK's default "sdk-py"
+    as automation), and the Claude Code program the observer runs. ECC keeps a workspace that is a git repository's
+    lessons to that repository, and lessons from other folders in its global store."""
+    if not getattr(settings, "ECC_LEARNING_ENABLED", True):
+        return {"ECC_HOOK_PROFILE": "minimal", "ECC_SKIP_OBSERVE": "1"}
+    root = Path(str(getattr(settings, "ECC_LEARNING_DIR", "") or "/app/.jai-learned"))
+    env = {"CLAUDE_CODE_ENTRYPOINT": "sdk-ts", "ECC_AGENT_DATA_HOME": str(root / "ecc"), "CLV2_HOMUNCULUS_DIR": str(root / "homunculus"),
+           "ECC_DISABLED_HOOKS": str(getattr(settings, "ECC_DISABLED_HOOKS", "") or ""),
+           "ECC_OBSERVER_MODEL": light_model(),
+           # A mission runs unattended at any hour: the observer's desk-hours and idle gates do not apply.
+           "OBSERVER_ACTIVE_HOURS_START": "0", "OBSERVER_ACTIVE_HOURS_END": "0", "OBSERVER_MAX_IDLE_SECONDS": "0"}
+    try:
+        config = root / "homunculus" / "config.json"
+        config.parent.mkdir(parents=True, exist_ok=True)
+        wanted = {"version": "2.1", "observer": {"enabled": True, "run_interval_minutes": 5,
+                                                 "min_observations_to_analyze": 20}}
+        if not config.is_file() or json.loads(config.read_text(encoding="utf-8")) != wanted:
+            config.write_text(json.dumps(wanted, indent=2), encoding="utf-8")
+        env["CLV2_CONFIG"] = str(config)
+    except (OSError, ValueError) as exc:
+        logger.info(f"ECC's observer stays off this session: {exc}")
+    try:  # the Claude Code program the SDK ships, for the observer's own short Haiku sessions
+        import claude_agent_sdk
+
+        bundled = Path(claude_agent_sdk.__file__).parent / "_bundled"
+        if (bundled / "claude").is_file():
+            env["PATH"] = f"{bundled}{os.pathsep}{os.environ.get('PATH', '')}"
+    except (ImportError, AttributeError, TypeError):
+        pass  # Claude Code on the PATH serves, or the observer logs that it found none
+    return env
+
+
+def light_model() -> str:
+    from app.core.config import light_model as chosen
+
+    return chosen()
 
 
 def _kind(message: Any) -> str:
@@ -239,13 +281,6 @@ class ClaudeRoleExecutor(RoleExecutor):
                 if (folder / "SKILL.md").is_file() and not (home / "skills" / entry["skill"]).exists():
                     os.symlink(folder, home / "skills" / entry["skill"], target_is_directory=True)
             out.append({"type": "local", "path": str(home)})
-        try:
-            from app.core.command import learning_loop
-
-            if learning_loop.playbooks():  # the playbooks JAI wrote from its own finished missions
-                out.append({"type": "local", "path": str(learning_loop.plugin_dir())})
-        except Exception as exc:  # noqa: BLE001 - the session runs without them
-            logger.info(f"JAI's own playbooks not loaded: {exc}")
         return out
 
     def _folder(self) -> Optional[Path]:
@@ -371,16 +406,6 @@ class ClaudeRoleExecutor(RoleExecutor):
     async def run(self, mission: str, *args, **kwargs) -> Dict[str, Any]:
         self._verify_on = bool(kwargs.get("verify", True))
         result = await super().run(mission, *args, **kwargs)
-        verification = result.get("verification") if isinstance(result.get("verification"), dict) else {}
-        if self.engine_note and self._verify_on and (verification.get("verified") or (
-                result.get("settled") and verification.get("request_done"))):
-            # Hermes' learning loop: a passed mission's way of working is kept as a playbook (command/learning_loop).
-            from app.core.command import learning_loop
-
-            try:
-                result["playbooks"] = await asyncio.wait_for(learning_loop.review(self, mission), timeout=240)
-            except asyncio.TimeoutError:
-                result["playbooks"] = {"reviewed": False, "error": "the review took longer than 4 minutes"}
         if self.engine_note:
             result["engine"] = {"name": "claude", "model": engine_model(), "cost_usd": round(self.engine_cost_usd, 4),
                                 "note": self.engine_note, "delegated": list(self.delegated),
@@ -551,7 +576,8 @@ class ClaudeRoleExecutor(RoleExecutor):
                  "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "1",
                  "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": str(SUB_AGENTS_AT_ONCE),
                  # Claude Code's own telemetry and other non-essential traffic stay off: JAI's work is Richard's.
-                 "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_TELEMETRY": "1"},
+                 "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_TELEMETRY": "1",
+                 **ecc_learning_env(folder)},
             stderr=lambda line: logger.debug(f"claude engine: {line}"),
         )
         self.engine_note = f"Claude Agent SDK, {engine_model()}"
