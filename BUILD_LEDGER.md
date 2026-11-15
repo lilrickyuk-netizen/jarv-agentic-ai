@@ -14751,3 +14751,16 @@ TESTS RUN: ToolSearch passes the gate and is in the lead's and every colleague's
 RESULT: The transcript of the 50-business test: the specialist's first move was ToolSearch "select: discover_prospect_companies, write_spreadsheet, fill_contacts, read_document, check_spreadsheet, WebFetch, WebSearch". Claude Code defers the definitions of a large tool set and loads them with ToolSearch; the engine's gate (ENGINE-AS-CLAUDE-CODE) refused it as "not part of a specialist's session", twice. So the specialist never had the open-data discovery or the bulk contact reader, and worked one business at a time: 123 find_contacts calls, 53 page fetches, no discover_prospect_companies, no fill_contacts; it wrote 50 businesses in three sheets with 4 phones, over its allowance. The bench counted only the largest sheet (20). ToolSearch only loads definitions and touches nothing: it is allowed. The bench now counts every sheet of the list. The session also showed Claude Code's own bundled plugins loading, one of them telemetry: CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC and DISABLE_TELEMETRY are set.
 BLOCKERS: None
 NEXT TASK: The booking test (£1)
+
+---
+
+TASK ID: SOURCES-PATHS-AND-THE-ALLOWANCE
+TASK NAME: fill_contacts fills each detail's own source column; a container path is the workspace folder; the engine's session keeps a quarter of the allowance for the check and the report; the bench counts a site that turns robots away as real
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/agents/workspace_ops.py, apps/backend/app/core/agents/toolbox.py, apps/backend/app/core/command/claude_engine.py, apps/backend/app/core/command/bench.py, apps/backend/tests/test_claude_engine.py, BUILD_LEDGER.md
+COMMANDS RUN: the 19:55 booking test's transcript read on Richard's machine; backend test suite on PostgreSQL (run by the installer)
+TESTS RUN: a sheet with phone, email and page source columns has each recognised and filled with the page that detail came from, and "date checked" is the verification date; a path given as the workspace's container path resolves to the same file as the relative path
+RESULT: The 19:55 test (after THE-TOOL-LOADER): 50 businesses in 11.5 minutes, 29 with a phone or email, but 9 with a source and $1.52 against $1.28. Its transcript: ToolSearch loaded discover_prospect_companies and fill_contacts; one fill_contacts call filled 13 phones, 27 emails and 50 contact pages for 60 businesses; the sheet's "phone source URL" and "email source URL" columns were not recognised (read as a second phone and email column), so they stayed empty and the agent made 78 look-ups one at a time to fill them. Its first look found a workbook from the run before: the specialist had passed /host/workspaces/_jai_bench/booking/partners.xlsx (Claude Code's path) to a JAI tool, which on a Windows workspace root wrote it to _jai_bench\host\workspaces\_jai_bench\booking. Both fixed. The session's own spending limit is now three quarters of the allowance, leaving the rest for the check and the report that run after it. Costa and Wahaca turn automated visitors away: a site that refuses the bench but whose domain resolves is real.
+BLOCKERS: None
+NEXT TASK: The booking test (£1)

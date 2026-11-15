@@ -1351,12 +1351,18 @@ async def check_spreadsheet(tb, args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 CONTACT_COLUMNS = {
+    # A source column for one detail ("phone source URL", "source of email", "that page's source URL") comes before
+    # the detail itself, or "phone source URL" would be read as a second phone column and left empty (15 November:
+    # 50 businesses, 9 with a source, and 78 look-ups one by one to fill the sources fill_contacts already had).
+    "phone_source": re.compile(r"(?:phone|telephone|\btel\b).*\bsource|\bsource.*(?:phone|telephone|\btel\b)", re.I),
+    "email_source": re.compile(r"e-?mail.*\bsource|\bsource.*e-?mail", re.I),
+    "channel_source": re.compile(r"(?:page|channel|contact|partnership)\b.*\bsource", re.I),
     "website": re.compile(r"^(?:company\s+)?(?:web\s?site|url|web\s?address|domain)\b", re.I),
     "phone": re.compile(r"phone|telephone|\btel\b", re.I),
     "email": re.compile(r"e-?mail", re.I),
     "channel": re.compile(r"contact\s+channel|partnership.*(?:channel|page|contact)|contact\s+(?:page|form)", re.I),
-    "sources": re.compile(r"^source\s+links?$|^sources?$|^source\s+urls?$", re.I),
-    "date": re.compile(r"verif\w*\s+date|date\s+verified|last\s+checked|checked\s+on", re.I),
+    "sources": re.compile(r"^source\s+links?$|^sources?$|^source\s+urls?$|^source\s+pages?(?:\s+urls?)?$", re.I),
+    "date": re.compile(r"verif\w*\s+date|date\s+verified|last\s+checked|checked\s+on|date\s+checked", re.I),
     "gaps": re.compile(r"still\s+to\s+check", re.I),
 }
 # Written under "still to check" once a row's site has been tried, so the row is not tried again on every call.
@@ -1419,6 +1425,9 @@ def write_contacts(row: List[Any], columns: Dict[str, int], found: Dict[str, Any
             filled.append(kind)
             if source:
                 used.append(source)
+                own = f"{kind}_source"  # the detail's own source column, when the sheet has one
+                if own in columns and unfilled(_Tidy._cell(row, columns[own])):
+                    _Tidy._put(row, columns[own], source)
 
     put("phone", found.get("phone") or "", source_of(found, "phones", found.get("phone") or ""))
     put("email", found.get("email") or "", source_of(found, "emails", found.get("email") or ""))

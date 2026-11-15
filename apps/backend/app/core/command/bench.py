@@ -170,6 +170,22 @@ def email_matches_site(email_cell: str, website: str) -> Optional[bool]:
     return site_of("https://" + found.group(1)) == site_of(first_url(website) or website)
 
 
+async def _resolves(url: str) -> bool:
+    """The address's domain exists (it has an address on the internet). A real business site that turns automated
+    visitors away (15 November: Costa, Wahaca) still resolves; a made-up domain does not."""
+    import socket
+    from urllib.parse import urlparse
+
+    host = urlparse(url).hostname or ""
+    if not host:
+        return False
+    try:
+        await asyncio.wait_for(asyncio.get_event_loop().run_in_executor(None, socket.getaddrinfo, host, 443), 10)
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 async def reachable(urls: List[str]) -> Dict[str, bool]:
     """Whether each address answers on the web: a site that exists answers, even with a refusal to robots; an
     address that was made up does not resolve, or its page is not found."""
@@ -183,9 +199,11 @@ async def reachable(urls: List[str]) -> Dict[str, bool]:
             return False
         try:
             response = await client.get(url)
-        except Exception:  # noqa: BLE001 - no answer is the answer
+        except Exception:  # noqa: BLE001 - the site refused or timed out: its domain may still be real
+            return await _resolves(url)
+        if response.status_code in (404, 410):
             return False
-        return response.status_code < 500 and response.status_code not in (404, 410)
+        return response.status_code < 500 or await _resolves(url)
 
     out: Dict[str, bool] = {}
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -500,6 +518,7 @@ async def run_job(job: Job, say: Callable[[str], None] = print) -> Outcome:
         outcome.checks = [Check("the bench folder is inside JAI's workspaces", False, host)]
         return outcome
     shutil.rmtree(folder, ignore_errors=True)  # the bench's own job folder, made fresh for each run
+    shutil.rmtree(folder.parent / "host", ignore_errors=True)  # a nested copy an earlier run wrote by mistake
     folder.mkdir(parents=True)
     outcome.folder = folder
     started = datetime.now(timezone.utc)

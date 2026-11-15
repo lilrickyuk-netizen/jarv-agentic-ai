@@ -519,3 +519,39 @@ def test_the_voice_reads_memories_without_writing_so_a_running_mission_never_hol
     monkeypatch.setattr(live, "_workspaces", workspaces)
     assert _run(live._memories(None, uuid4(), "how's the mission going?", None)) == []
     assert asked and all(kwargs.get("touch") is False for kwargs in asked)   # 15 November: 30 s behind a lock
+
+
+@pytest.mark.integration
+def test_a_path_as_claude_code_gives_it_is_the_workspace_folder_not_a_folder_inside_it(project):  # noqa: F811
+    host, root = project
+
+    async def go():
+        async with AsyncTestingSessionLocal() as db:
+            runner, _, _ = await _executor(db, host)
+            box = runner.toolbox
+            container = str(box.root_container).rstrip("/")
+            return box, box._resolve_host(f"{container}/plexecute/partners.xlsx"), box._resolve_host("plexecute/partners.xlsx")
+
+    box, (by_container, refused), (by_relative, _) = _run(go())
+    assert refused is None and by_container == by_relative        # 15 November: written to <root>/host/workspaces/...
+
+
+def test_each_contact_detail_gets_its_own_source_column():
+    from app.core.agents.workspace_ops import contact_columns, write_contacts
+
+    header = ["company", "website", "published phone", "phone source URL", "published email", "email source URL",
+              "contact or partnership page URL", "that page's source URL", "still to check", "date checked"]
+    columns = contact_columns(header)
+    assert {k: header[v] for k, v in columns.items()} == {
+        "website": "website", "phone": "published phone", "phone_source": "phone source URL",
+        "email": "published email", "email_source": "email source URL", "channel": "contact or partnership page URL",
+        "channel_source": "that page's source URL", "gaps": "still to check", "date": "date checked"}
+    row = ["Greggs", "https://www.greggs.co.uk", "", "", "", "", "", "", "", ""]
+    found = {"ok": True, "phone": "0191 281 7721", "email": "hello@greggs.co.uk",
+             "phones": [{"value": "0191 281 7721", "source": "https://www.greggs.co.uk/contact"}],
+             "emails": [{"value": "hello@greggs.co.uk", "source": "https://www.greggs.co.uk/help"}],
+             "partnership_page": "https://www.greggs.co.uk/partners"}
+    filled = write_contacts(row, columns, found, "2026-11-15")
+    assert set(filled) == {"phone", "email", "channel"}
+    assert row[3] == "https://www.greggs.co.uk/contact" and row[5] == "https://www.greggs.co.uk/help"
+    assert row[7] == "https://www.greggs.co.uk/partners" and row[9] == "2026-11-15"

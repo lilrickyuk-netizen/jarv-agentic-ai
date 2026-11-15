@@ -78,6 +78,7 @@ JAI_NAME = {"Read": "read_file", "Write": "write_file", "Edit": "edit_file", "Gl
             "Grep": "search_files", "WebFetch": "fetch_url", "WebSearch": "web_search"}
 WRITES = ("Write", "Edit")
 SUB_AGENTS_AT_ONCE = 3
+SESSION_SHARE = 0.75
 EXTRA_TURNS = 40
 TEXT_LIMIT = 30_000
 
@@ -505,7 +506,9 @@ class ClaudeRoleExecutor(RoleExecutor):
 
         allowance = float(self._cap or 0)  # the mission's allowance (role_mission.run sets it)
         spent = self._spent_before + float(self.usage.cost_usd or 0)
-        budget = max(0.05, allowance - spent) if allowance > 0 else None
+        # A quarter of the allowance is kept for what runs after the session (the independent check, the report):
+        # the session's own limit covers only the session (15 November: $1.52 against a $1.28 allowance).
+        budget = max(0.05, allowance * SESSION_SHARE - spent) if allowance > 0 else None
         resume = self._resumable()
         options = sdk.ClaudeAgentOptions(
             system_prompt={"type": "preset", "preset": "claude_code", "append": self._appended()},

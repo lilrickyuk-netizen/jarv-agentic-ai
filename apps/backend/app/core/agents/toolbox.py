@@ -680,6 +680,13 @@ class AgentToolbox:
         # A path copied out of a sentence keeps its punctuation: "(C:\\Users\\...\\MYCO)." is the folder itself.
         raw = (value or "").strip().strip('"').strip("'").strip("`").lstrip("([").rstrip(").,;:]").strip()
         windows_root = ":" in self.root_host[:3] or "\\" in self.root_host
+        # The workspace's own container path (/host/workspaces/...), as Claude Code's tools give it: the same folder,
+        # not a folder of that name inside it (15 November: "/host/workspaces/_jai_bench/booking/partners.xlsx" was
+        # written to _jai_bench\\host\\workspaces\\_jai_bench\\booking and found again by the next mission).
+        posix = raw.replace("\\", "/")
+        inside = os.path.normpath(str(self.root_container)).replace("\\", "/").rstrip("/")
+        if posix == inside or posix.startswith(inside + "/"):
+            raw = posix[len(inside):].lstrip("/") or "."
         if not raw or raw in (".", "./"):
             candidate = self.root_host
         elif (windows_root and ":" in raw[:3]) or (not windows_root and raw.startswith("/")):
