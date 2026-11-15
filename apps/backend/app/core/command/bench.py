@@ -798,6 +798,9 @@ async def free_check(say: Callable[[str], None] = print) -> Outcome:
 
     probe = await fetch_rendered(FREE_CHECK[0][1])
     say(f"   the browser (Crawl4AI): {'read ' + FREE_CHECK[0][0] + ' (' + str(len(probe.get('html') or '')) + ' characters)' if probe.get('ok') else 'did not read a page: ' + str(probe.get('reason'))}")
+    from app.core import documents
+
+    say(f"   the PDF reader (Docling): {'on at ' + documents.docling_url() if documents.docling_url() else 'off'}")
     main = table(_sheets(folder, "partners.xlsx"), ("company",))
     header = main["header"]
     rows = main["rows"]
