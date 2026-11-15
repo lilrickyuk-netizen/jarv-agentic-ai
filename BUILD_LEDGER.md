@@ -14621,3 +14621,16 @@ TESTS RUN: a Partnerships mission runs on the engine through the role's real too
 RESULT: Every business mission since 13 November ran on JAI's own agent loop and failed to finish; the missions that succeeded (MYCO Phase 0, the decks, the videos) ran on a mature engine. A specialist's mission now runs its work on the Claude Agent SDK (Claude Code as a library) with MISSION_ENGINE=claude and CLAUDE_ENGINE_MODEL (claude-sonnet-5-5 by default). JAI's tools are served to it as an in-process MCP server, so every call keeps JAI's authority levels, folder confinement, hard boundaries, approval pauses, audit log and evidence trail; the role's trade skills load natively through the Skill tool; JAI's other specialists are its sub-agents. The requirement list, the independent Verifier, the evidence report, the rounds and carry-on and the allowance are unchanged around it. The engine uses the Anthropic API key (Anthropic does not allow a claude.ai subscription sign-in for SDK products).
 BLOCKERS: None. The backend and worker images must be rebuilt for the SDK to be present; until then JAI's own loop runs missions as before.
 NEXT TASK: The bench: small fixed jobs from Richard's real missions run through the real path on the engine, scored in code, under a spending cap, before Richard runs a mission
+
+---
+
+TASK ID: ENGINE-IMAGE-HOLDS-ITS-PACKAGES
+TASK NAME: Installing the Claude Agent SDK never moves a package JAI's backend depends on; an image that cannot start is never built
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/Dockerfile, BUILD_LEDGER.md
+COMMANDS RUN: backend and worker images rebuilt; the web application and the SDK imported in the new image before it replaced the running one (run by the installer)
+TESTS RUN: the build stops unless FastAPI's router and app construct and the SDK imports; the new image loads app.main with Richard's settings before the backend is recreated; the backend answers /health after the restart
+RESULT: After CLAUDE-AGENT-SDK-ENGINE the backend could not start (15 November, 13:34): the SDK's install, unconstrained, upgraded Starlette 0.37.2 to 1.10.0 and Uvicorn to 0.54.0, and FastAPI 0.110.3 fails on that Starlette ("Router.__init__() got an unexpected keyword argument 'on_startup'"). The test suite passed because the test image reinstalls Poetry's locked versions. The SDK is now installed with every package Poetry installed held at its locked version except Uvicorn (the SDK's MCP library needs 0.31.1 or later; Uvicorn does not depend on Starlette), and the build itself proves the web framework and the SDK load. The installer also starts the real server from the new image and asks it for /health before the running backend is replaced.
+BLOCKERS: None
+NEXT TASK: The bench: small fixed jobs from Richard's real missions run on the engine, scored in code, at £1 a job

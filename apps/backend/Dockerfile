@@ -51,8 +51,15 @@ RUN poetry install --no-interaction --no-ansi --only main
 # The Claude Agent SDK: the engine a specialist's mission does its work on (app/core/command/claude_engine.py). Its
 # platform wheel carries the Claude Code engine, so no separate install is needed. Installed beside Poetry's lock,
 # at a version range that has every option JAI uses (max_budget_usd, skills, dontAsk, sub-agent limits).
+# Every package Poetry installed is held at its locked version (15 November: an unconstrained install moved
+# Starlette from 0.37 to 1.10, which FastAPI 0.110 cannot run on, and the backend could not start), except Uvicorn,
+# the server process, which the SDK's MCP library needs at 0.31.1 or later and which does not depend on Starlette.
+# The build then proves the web framework and the SDK both load, so an image that cannot start is never built.
 ARG CLAUDE_AGENT_SDK_SPEC="claude-agent-sdk>=0.2.140,<0.3"
-RUN pip install --no-cache-dir "${CLAUDE_AGENT_SDK_SPEC}"
+RUN pip freeze --exclude-editable | grep -v " @ " | grep -iv "^uvicorn==" > /tmp/locked.txt \
+    && pip install --no-cache-dir -c /tmp/locked.txt "${CLAUDE_AGENT_SDK_SPEC}" \
+    && python -c "from fastapi import APIRouter, FastAPI; APIRouter(); FastAPI(); import claude_agent_sdk" \
+    && rm /tmp/locked.txt
 
 
 # Test stage
