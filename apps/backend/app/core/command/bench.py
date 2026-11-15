@@ -516,7 +516,11 @@ async def run_job(job: Job, say: Callable[[str], None] = print) -> Outcome:
     told = 0
     while True:
         await asyncio.sleep(POLL_SECONDS)
-        missions = await _missions(workspace_id, started)
+        try:  # a look at the record never holds the bench (15 November: one poll waited 45 minutes)
+            missions = await asyncio.wait_for(_missions(workspace_id, started), timeout=60)
+        except asyncio.TimeoutError:
+            say(f"   {datetime.now(timezone.utc):%H:%M:%S} the mission record did not answer within a minute")
+            continue
         states = {str(t.id): lifecycle.normalise(t.status) for t in missions}
         for t in missions:
             if str(t.id) == submitted.task_id and isinstance(t.result, dict):
@@ -532,7 +536,10 @@ async def run_job(job: Job, say: Callable[[str], None] = print) -> Outcome:
                 if seen.get(task_id) != state:
                     say(f"   {datetime.now(timezone.utc):%H:%M:%S} mission {task_id[:8]} {state}")
             seen = dict(states)
-        cost = sum([await _live_cost(t) for t in states])
+        try:
+            cost = sum([await asyncio.wait_for(_live_cost(t), timeout=20) for t in states])
+        except asyncio.TimeoutError:
+            cost = 0.0
         minutes = (datetime.now(timezone.utc) - started).total_seconds() / 60
         if minutes >= told + 5:
             told = int(minutes // 5) * 5

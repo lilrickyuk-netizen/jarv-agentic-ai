@@ -102,8 +102,11 @@ class RoleAgent:
 async def role_model(stuck: bool = False) -> str:
     """GPT-6 Luna (ROLE_AGENT_MODEL), Sonnet 5.5 when a round completed nothing (ROLE_AGENT_STUCK_MODEL), and the
     other provider when one has no key or has run out of credit."""
+    from app.core.config import mission_model, missions_on_claude
     from app.core.providers.router import has_no_credit
 
+    if missions_on_claude() and not await has_no_credit("claude"):
+        return mission_model()  # the work runs on the Claude engine; its check and report run on Claude too
     wanted = str((settings.ROLE_AGENT_STUCK_MODEL if stuck else settings.ROLE_AGENT_MODEL) or "")
     claude_ok = bool(settings.CLAUDE_API_KEY or settings.ANTHROPIC_API_KEY) and not await has_no_credit("claude")
     openai_ok = bool(settings.OPENAI_API_KEY) and not await has_no_credit("openai")

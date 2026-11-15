@@ -18,6 +18,12 @@ Claude Agent SDK set-up, as Anthropic documents it (code.claude.com/docs/en/agen
   are served beside them as an MCP server. The shell is not part of a specialist's session.
 - EVERY SKILL JAI has installed is in the session, loaded the SDK's way (user setting source): Claude sees each
   skill's description and opens the one it needs with the Skill tool.
+- SUPERPOWERS AND ECC run as the Claude Code plugins their authors ship (the SDK's plugins option): their agents,
+  commands and workflows (Superpowers' brainstorm, plan, execute and verify-before-completion, with its own
+  session-start hook; ECC's agents and commands), assembled from the pinned clones AgentShield has scanned. Before 15
+  November only their skills were installed and JAI's own loop ran the missions.
+- EVERY MODEL CALL of the mission is Claude's (config.missions_on_claude): the check, the report, reading the
+  request, the debrief and the business tools' small steps, so no step waits on another provider.
 - JAI'S SAFETY RULES are applied with the SDK's documented mechanism for gating every tool call, a PreToolUse hook:
   each call goes through JAI's one permission gate (check_tool_permission: authority level, hard boundaries,
   approval pauses that open Richard's boundary chain) and the folder scope; a PostToolUse hook records every call in
@@ -132,21 +138,25 @@ class ClaudeRoleExecutor(RoleExecutor):
         self._verdict_calls = -1
         self.session_id: Optional[str] = None
         self.skills_seen: List[str] = []
+        self.plugins_seen: List[str] = []
         self._result_text = ""
         self._agent_said = ""
 
     # ----- the session's parts ------------------------------------------------------------------------------------
 
     def _config_dir(self) -> Path:
-        """The mission's Claude Code configuration folder, holding every installed JAI skill under skills/."""
-        from app.core.command.expertise import _skill_folder
+        """The mission's Claude Code configuration folder, holding every installed JAI skill under skills/ (the
+        skills of a pack that loads as a plugin come with its plugin instead). A skill AgentShield blocked is never
+        linked."""
+        from app.core.command.expertise import _skill_folder, _usable
         from app.core.knowledge.skill_packs import SKILLS
 
         key = str(getattr(self.runtime, "task_id", None) or f"session-{os.getpid()}-{id(self)}")
         base = sessions_root() / key
         target = base / "skills"
         target.mkdir(parents=True, exist_ok=True)
-        for entry in SKILLS:
+        plugged = set(self._plugins_on_disk())
+        for entry in _usable([e for e in SKILLS if e["pack"] not in plugged]):
             try:
                 folder = _skill_folder(entry)
             except Exception:  # noqa: BLE001 - a skill that cannot be placed is left out, the rest load
@@ -158,6 +168,67 @@ class ClaudeRoleExecutor(RoleExecutor):
                 except OSError:
                     continue
         return base
+
+    @staticmethod
+    def _plugins_on_disk() -> List[str]:
+        """The packs that load as Claude Code plugins (Superpowers, ECC) and whose plugin parts are installed."""
+        from app.core.knowledge.skill_packs import PACKS, packs_dir, plugin_parts
+
+        out = []
+        for name in PACKS:
+            parts = plugin_parts(name)
+            base = packs_dir() / name
+            if parts and any((base / part).is_dir() for part in parts):
+                out.append(name)
+        return out
+
+    def _plugins(self, config: Path) -> List[Dict[str, str]]:
+        """Superpowers and ECC as Claude Code plugins, as their authors ship them to Claude Code: their agents,
+        commands and (Superpowers') hooks, with their skills. Each is assembled in the mission's configuration folder
+        from the pinned, AgentShield-scanned clone: a part AgentShield blocked, and a skill it blocked, is left out.
+        ECC's skills are the ones JAI chose for its stack and goals (60 of its 314)."""
+        from app.core.command.expertise import _skill_folder, _usable
+        from app.core.knowledge.skill_packs import PACKS, SKILLS, packs_dir, plugin_parts
+
+        out: List[Dict[str, str]] = []
+        for name in self._plugins_on_disk():
+            pack, base = PACKS[name], packs_dir() / name
+            try:
+                refused = {line.strip().strip("/") for line in
+                           (base / ".jai-blocked-parts").read_text(encoding="utf-8").splitlines() if line.strip()}
+            except OSError:
+                refused = set()
+            home = config / "plugins" / name
+            shutil.rmtree(home, ignore_errors=True)
+            (home / ".claude-plugin").mkdir(parents=True)
+            (home / ".claude-plugin" / "plugin.json").write_text(json.dumps({
+                "name": name, "description": f"{pack.get('title', name)} by {pack.get('publisher', '')}",
+                "version": str(pack.get("commit", ""))[:7]}))
+            for part in plugin_parts(name):
+                source = base / part
+                if not source.is_dir() or part in refused:
+                    continue
+                if part == "hooks":
+                    os.symlink(source, home / "hooks", target_is_directory=True)
+                    continue
+                (home / part).mkdir()
+                for item in sorted(source.iterdir()):
+                    if f"{part}/{item.name}" not in refused and not item.name.startswith("."):
+                        os.symlink(item, home / part / item.name, target_is_directory=item.is_dir())
+            (home / "skills").mkdir()
+            chosen = [e for e in SKILLS if e["pack"] == name]
+            if name == "superpowers":  # the whole workflow: its skills hand on to one another by name
+                root = base / pack["root"]
+                listed = {e["skill"] for e in chosen}
+                chosen += [{"pack": name, "skill": d.name, "agents": (), "sandbox": ()} for d in sorted(
+                    root.iterdir()) if d.is_dir() and (d / "SKILL.md").is_file() and d.name not in listed] \
+                    if root.is_dir() else []
+            for entry in _usable(chosen):
+                folder = _skill_folder(entry)
+                if (folder / "SKILL.md").is_file() and not (home / "skills" / entry["skill"]).exists():
+                    os.symlink(folder, home / "skills" / entry["skill"], target_is_directory=True)
+            out.append({"type": "local", "path": str(home)})
+        return out
 
     def _folder(self) -> Optional[Path]:
         """The product's folder inside the container (the session's working directory)."""
@@ -180,6 +251,9 @@ class ClaudeRoleExecutor(RoleExecutor):
             f"Today's date is {datetime.now(timezone.utc):%d %B %Y}.",
             f"You work in the product's folder ({self.workspace_root}), your working directory. Save what you make "
             "there.",
+            "No one is watching this session as it runs: where a skill or workflow would stop to ask Richard a "
+            "question or for approval of a plan, take the most reasonable answer from his request and his rules, "
+            "write the assumption down in the work, and carry on to the finished deliverable.",
             "Richard's rules for all work: contact, send, post, publish and spend nothing (drafts only). Use only facts "
             "you found and can source; never guess a contact, an email address or a figure. Contact details are only "
             "those a business publishes itself (UK PECR).",
@@ -276,7 +350,8 @@ class ClaudeRoleExecutor(RoleExecutor):
         if self.engine_note:
             result["engine"] = {"name": "claude", "model": engine_model(), "cost_usd": round(self.engine_cost_usd, 4),
                                 "note": self.engine_note, "delegated": list(self.delegated),
-                                "session_id": self.session_id, "skills": len(self.skills_seen)}
+                                "session_id": self.session_id, "skills": len(self.skills_seen),
+                                "plugins": list(self.plugins_seen)}
             if isinstance(result.get("role"), dict):
                 result["role"]["model"] = engine_model()
                 result["role"]["engine"] = result["engine"]  # kept on the mission's record with the role
@@ -423,6 +498,7 @@ class ClaudeRoleExecutor(RoleExecutor):
             add_dirs=[str(p) for p in readable],
             setting_sources=["user"],              # the mission's config folder: every JAI skill
             skills="all",
+            plugins=self._plugins(config),         # Superpowers and ECC, as their authors ship them
             mcp_servers={SERVER: server},
             allowed_tools=list(OWN_TOOLS) + [f"{PREFIX}*"],
             disallowed_tools=list(REMOVED) + ([] if folder is not None else list(FILE_TOOLS[1:])),
@@ -508,7 +584,7 @@ class ClaudeRoleExecutor(RoleExecutor):
         if not self._verify_on or self._verdict is not None:
             return None
         await self._progress("independent check", 0, 0)
-        verdict = await RoleExecutor.verify(self, mission, self._result_text or self._agent_said)
+        verdict = await self.verify_in_time(mission, self._result_text or self._agent_said)
         self._verdict, self._verdict_calls = verdict, len(self.runtime.calls)
         if verdict.get("verified"):
             return None
@@ -530,8 +606,13 @@ class ClaudeRoleExecutor(RoleExecutor):
                 data = getattr(message, "data", None) or {}
                 self.session_id = str(data.get("session_id") or self.session_id or "") or None
                 self.skills_seen = [str(s) for s in (data.get("skills") or [])]
+                self.plugins_seen = [str((p or {}).get("name") if isinstance(p, dict) else p)
+                                     for p in (data.get("plugins") or [])]
+                agents = data.get("agents") or []
                 logger.info(f"Claude engine session {self.session_id}: {len(data.get('tools') or [])} tools, "
-                            f"{len(self.skills_seen)} skills")
+                            f"{len(self.skills_seen)} skills, {len(agents)} agents, plugins "
+                            f"{', '.join(self.plugins_seen) or 'none'}"
+                            + (f"; plugin errors: {data.get('plugin_errors')}" if data.get("plugin_errors") else ""))
             elif kind == "AssistantMessage" and not getattr(message, "parent_tool_use_id", None):
                 said = " ".join(str(getattr(block, "text", "") or "") for block in getattr(message, "content", [])
                                 if _kind(block) == "TextBlock").strip()

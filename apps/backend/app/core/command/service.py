@@ -438,8 +438,10 @@ class CommandService:
 
     def _light_model(self) -> str:
         """The model for light work (answers, drafts): LIGHT_MODEL when JAI's tiers are on."""
-        if getattr(settings, "MODEL_TIERS_ENABLED", False):
-            return str(getattr(settings, "LIGHT_MODEL", "") or self.model)
+        from app.core.config import light_model, missions_on_claude
+
+        if getattr(settings, "MODEL_TIERS_ENABLED", False) or missions_on_claude():
+            return light_model() or self.model
         return self.model
 
     async def run_task(self, db: AsyncSession, task: Task, *,

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path, PurePosixPath, PureWindowsPath
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -730,7 +731,7 @@ class AgentExecutor:
         verification: Optional[Dict[str, Any]] = None
         if finished and verify and (success or settled):
             await self._progress("independent check", continuation, total_budget)
-            verification = await self.verify(mission, final_summary, settled=settled)
+            verification = await self.verify_in_time(mission, final_summary, settled=settled)
             if settled and (verification.get("request_done") or verification["verified"]):
                 # Everything Richard's request asked for is done and independently checked: the mission is
                 # complete. What is left belongs to the job it carries on from, and is listed, never hidden.
@@ -1001,6 +1002,20 @@ class AgentExecutor:
                              f"- {f['fact']}" + (" (no longer true)" if f.get("no_longer_true") else "")
                              for f in known))
         return "\n\n".join(parts)
+
+    async def verify_in_time(self, mission: str, summary: str, settled: bool = False) -> Dict[str, Any]:
+        """The independent check within VERIFIER_MAX_SECONDS, all its calls together. 15 November: a dropped
+        provider connection held the check, and the mission with it, for 45 minutes. A check that does not finish
+        in time reports the work unchecked, saved where it is; it never stands as a pass."""
+        limit = float(getattr(settings, "VERIFIER_MAX_SECONDS", 600) or 600)
+        try:
+            return await asyncio.wait_for(self.verify(mission, summary, settled=settled), timeout=limit)
+        except asyncio.TimeoutError:
+            logger.warning(f"mission {getattr(self.runtime, 'task_id', '')}: independent check passed its "
+                           f"{limit:.0f}s limit")
+            return {"verified": False, "checks": [], "tokens": 0, "steps": 0, "timed_out": True,
+                    "unmet": [f"JAI's independent check did not finish within {limit / 60:.0f} minutes (the model "
+                              "provider stopped answering), so this work is saved but unchecked."]}
 
     async def verify(self, mission: str, summary: str, settled: bool = False) -> Dict[str, Any]:
         """Check the mission with a separate agent that did not do the work: fresh conversation, its own

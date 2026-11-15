@@ -463,6 +463,12 @@ class Settings(BaseSettings):
     # "jai", JAI's own loop. Without the SDK or an Anthropic key, JAI's own loop runs, whatever this says.
     MISSION_ENGINE: str = "claude"
     CLAUDE_ENGINE_MODEL: str = "claude-sonnet-5-5"
+    # With the Claude engine on, every step of a mission around the work (reading the request, the independent
+    # check, the report, the debrief, the business tools' small steps) runs on Claude too: this one for light work
+    # (15 November: the check on GPT-6 Luna hung for 45 minutes on a dropped OpenAI connection).
+    CLAUDE_LIGHT_MODEL: str = "claude-haiku-5-5"
+    # The independent check has this long, all its calls together, before the work is reported unchecked.
+    VERIFIER_MAX_SECONDS: int = 600
     ROLE_AGENT_MODEL: str = "gpt-6-luna"
     ROLE_AGENT_STUCK_MODEL: str = "claude-sonnet-5-5"
     ROLE_MISSION_MAX_COST_USD: float = Field(default=2.5, ge=0, le=100)
@@ -537,5 +543,29 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
+def missions_on_claude() -> bool:
+    """The Claude engine is on and has a key: a mission's every model call runs on Claude (never in tests, which
+    keep the models their tests name)."""
+    if getattr(settings, "TESTING", False):
+        return False
+    on = str(getattr(settings, "MISSION_ENGINE", "") or "").strip().lower() == "claude"
+    return on and bool(getattr(settings, "ANTHROPIC_API_KEY", "") or getattr(settings, "CLAUDE_API_KEY", ""))
+
+
+def light_model() -> str:
+    """The model for light work: CLAUDE_LIGHT_MODEL when missions run on Claude, LIGHT_MODEL otherwise."""
+    if missions_on_claude():
+        return str(getattr(settings, "CLAUDE_LIGHT_MODEL", "") or "claude-haiku-5-5")
+    return str(getattr(settings, "LIGHT_MODEL", "") or "gpt-6-luna")
+
+
+def mission_model() -> str:
+    """The model for a mission's own thinking (the check, the report, reading the request): CLAUDE_ENGINE_MODEL when
+    missions run on Claude, ROLE_AGENT_MODEL otherwise."""
+    if missions_on_claude():
+        return str(getattr(settings, "CLAUDE_ENGINE_MODEL", "") or "claude-sonnet-5-5")
+    return str(getattr(settings, "ROLE_AGENT_MODEL", "") or "gpt-6-luna")
+
+
 # Export for convenience
-__all__ = ["settings", "Settings"]
+__all__ = ["settings", "Settings", "missions_on_claude", "light_model", "mission_model"]

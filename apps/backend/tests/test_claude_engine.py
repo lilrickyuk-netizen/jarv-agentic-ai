@@ -395,3 +395,79 @@ def test_the_engine_is_off_in_tests_and_chosen_for_role_missions_when_on(monkeyp
     assert claude_engine.enabled() is False
     assert issubclass(ClaudeRoleExecutor, claude_engine.RoleExecutor)
     assert "Bash" in claude_engine.REMOVED and "Write" in claude_engine.OWN_TOOLS
+
+
+def _packs(root: Path) -> Path:
+    """Superpowers and ECC cloned as scripts/skill-packs.sh clones them, with one ECC agent AgentShield blocked."""
+    sp, ecc = root / "superpowers", root / "ecc"
+    for folder in (sp / "skills" / "brainstorming", sp / "skills" / "writing-plans", sp / "agents", sp / "commands",
+                   sp / "hooks", ecc / "skills" / "fastapi-patterns", ecc / "skills" / "not-chosen", ecc / "agents",
+                   ecc / "commands", ecc / "hooks"):
+        folder.mkdir(parents=True, exist_ok=True)
+    for skill in (sp / "skills" / "brainstorming", sp / "skills" / "writing-plans", ecc / "skills" / "fastapi-patterns",
+                  ecc / "skills" / "not-chosen"):
+        (skill / "SKILL.md").write_text("---\nname: x\n---\n")
+    (sp / "agents" / "code-reviewer.md").write_text("agent")
+    (sp / "commands" / "brainstorm.md").write_text("command")
+    (sp / "hooks" / "hooks.json").write_text("{}")
+    (ecc / "agents" / "planner.md").write_text("agent")
+    (ecc / "agents" / "flagged.md").write_text("agent")
+    (ecc / "hooks" / "hooks.json").write_text("{}")
+    (ecc / ".jai-blocked-parts").write_text("agents/flagged.md\n")
+    return root
+
+
+def test_superpowers_and_ecc_load_as_the_plugins_their_authors_ship(tmp_path, monkeypatch):
+    from app.core.knowledge import skill_packs
+
+    packs = _packs(tmp_path / "packs")
+    monkeypatch.setattr(skill_packs, "packs_dir", lambda: packs)
+    runner = SimpleNamespace(_plugins_on_disk=ClaudeRoleExecutor._plugins_on_disk)
+    config = tmp_path / "config"
+    plugins = {Path(p["path"]).name: Path(p["path"]) for p in ClaudeRoleExecutor._plugins(runner, config)}
+    assert set(plugins) == {"superpowers", "ecc"}
+    sp, ecc = plugins["superpowers"], plugins["ecc"]
+    assert (sp / ".claude-plugin" / "plugin.json").is_file() and (sp / "hooks" / "hooks.json").is_file()
+    assert (sp / "agents" / "code-reviewer.md").is_file() and (sp / "commands" / "brainstorm.md").is_file()
+    assert {p.name for p in (sp / "skills").iterdir()} == {"brainstorming", "writing-plans"}   # the whole workflow
+    assert (ecc / "agents" / "planner.md").is_file() and not (ecc / "agents" / "flagged.md").exists()
+    assert not (ecc / "hooks").exists()                              # ECC's hooks run Node scripts: not here
+    assert {p.name for p in (ecc / "skills").iterdir()} == {"fastapi-patterns"}                # the chosen ones
+    assert skill_packs.plugin_parts("superpowers") == ["agents", "commands", "hooks"]
+    assert skill_packs.plugin_parts("marketingskills") == []
+
+
+def test_with_the_engine_on_every_model_call_of_a_mission_is_claude(monkeypatch):
+    from app.core import config
+    from app.core.config import settings
+
+    assert config.missions_on_claude() is False                     # tests keep the models they name
+    assert config.light_model() == settings.LIGHT_MODEL
+    monkeypatch.setattr(settings, "TESTING", False)
+    monkeypatch.setattr(settings, "MISSION_ENGINE", "claude")
+    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "k")
+    monkeypatch.setattr(settings, "ROLE_AGENT_MODEL", "gpt-6-luna")
+    monkeypatch.setattr(settings, "LIGHT_MODEL", "gpt-6-luna")
+    assert config.missions_on_claude() is True
+    assert config.mission_model() == settings.CLAUDE_ENGINE_MODEL and config.light_model().startswith("claude")
+    from app.core.providers.router import tiered
+
+    monkeypatch.setattr(settings, "MODEL_TIERS_ENABLED", True)
+    assert tiered("claude-haiku-5-5").startswith("claude")
+    monkeypatch.setattr(settings, "MISSION_ENGINE", "jai")
+    assert config.missions_on_claude() is False and config.mission_model() == "gpt-6-luna"
+
+
+def test_an_independent_check_that_never_answers_reports_the_work_unchecked(monkeypatch):
+    from app.core.config import settings
+
+    from app.core.command.agent_executor import AgentExecutor
+
+    async def hangs(mission, summary, settled=False):
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(settings, "VERIFIER_MAX_SECONDS", 0.05)
+    runner = SimpleNamespace(verify=hangs, runtime=SimpleNamespace(task_id=None))
+    verdict = _run(AgentExecutor.verify_in_time(runner, "m", "done"))
+    assert verdict["verified"] is False and verdict["timed_out"] is True
+    assert "saved but unchecked" in verdict["unmet"][0]

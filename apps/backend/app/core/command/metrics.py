@@ -132,7 +132,9 @@ class MeteredRouter:
         from app.core.config import settings
 
         if self.role in LIGHT_ROLES and getattr(settings, "MODEL_TIERS_ENABLED", False):
-            request = replace(request, model=settings.LIGHT_MODEL)  # writing up is light work: Luna
+            from app.core.config import light_model
+
+            request = replace(request, model=light_model())  # writing up is light work
         if self.cache_key and getattr(request, "prompt_cache_key", None) is None:
             request = replace(request, prompt_cache_key=self.cache_key)
         response = await self._router.complete(request)

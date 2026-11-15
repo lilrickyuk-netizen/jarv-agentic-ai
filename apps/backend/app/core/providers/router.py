@@ -82,7 +82,9 @@ def tiered(model: str) -> str:
     heavy = {str(getattr(settings, "DEFAULT_MODEL", "") or ""), str(getattr(settings, "OPENAI_REASONING_MODEL", ""))}
     if model in heavy or _tier(model) == "top":
         return model
-    return str(getattr(settings, "LIGHT_MODEL", "") or model)
+    from app.core.config import light_model
+
+    return light_model() or model
 
 
 def _out_of_credit(exc: ProviderError) -> bool:

@@ -263,8 +263,11 @@ async def _ask(prompt: str) -> Optional[Dict[str, Any]]:
 
     if getattr(settings, "TESTING", False) or not getattr(settings, "UNDERSTANDING_ENABLED", True):
         return None
-    models = [str(getattr(settings, "UNDERSTANDING_MODEL", "") or ""), str(getattr(settings, "ROUTER_MODEL", "") or ""),
-              "claude-haiku-5-5"]
+    from app.core.config import mission_model, missions_on_claude
+
+    models = ([mission_model()] if missions_on_claude() else []) + [
+        str(getattr(settings, "UNDERSTANDING_MODEL", "") or ""), str(getattr(settings, "ROUTER_MODEL", "") or ""),
+        "claude-haiku-5-5"]
     for model in dict.fromkeys(m for m in models if m):
         try:
             response = await asyncio.wait_for(get_router().complete(CompletionRequest(

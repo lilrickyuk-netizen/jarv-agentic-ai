@@ -34,22 +34,29 @@ if not isinstance(report, dict) or "findings" not in report:
 blocking = {"injection", "secrets", "hooks", "mcp", "skills", "agents"}
 examples = {"docs-example", "template-example"}
 blocked = set()
+blocked_parts = set()
 for finding in report.get("findings") or []:
     if finding.get("severity") != "critical" or finding.get("category") not in blocking:
         continue
     if finding.get("runtimeConfidence") in examples:
         continue
     parts = PurePosixPath(str(finding.get("file") or "").replace("/scan/", "", 1).lstrip("/")).parts
-    # The skill folder that holds the file: the part before SKILL.md, or the folder two levels under the pack root.
+    # A plugin's agent, command or hook file (scripts/skill-packs.sh fetches them for Superpowers and ECC): that file,
+    # or the whole hooks folder, never reaches the engine's session.
+    if parts and parts[0] in ("agents", "commands", "hooks"):
+        blocked_parts.add("hooks" if parts[0] == "hooks" else "/".join(parts))
+        continue
     for i in range(len(parts) - 1, 0, -1):
         if (Path(folder) / PurePosixPath(*parts[:i]) / "SKILL.md").exists():
             blocked.add("/".join(parts[:i]))
             break
 open(f"{folder}/.jai-blocked", "w").write("".join(f"{b}\n" for b in sorted(blocked)))
+open(f"{folder}/.jai-blocked-parts", "w").write("".join(f"{b}\n" for b in sorted(blocked_parts)))
 summary = report.get("summary") or {}
 grade = (report.get("score") or {}).get("grade", "?")
 print(f"grade {grade}: {summary.get('critical', 0)} critical, {summary.get('high', 0)} high findings; "
-      f"{len(blocked)} skill(s) blocked" + (f" ({', '.join(sorted(blocked))})" if blocked else ""))
+      f"{len(blocked)} skill(s) blocked" + (f" ({', '.join(sorted(blocked))})" if blocked else "")
+      + (f"; plugin parts blocked: {', '.join(sorted(blocked_parts))}" if blocked_parts else ""))
 PY
   ); then
     echo "   $name: $verdict"

@@ -91,6 +91,12 @@ def http_client() -> httpx.AsyncClient:
     return httpx.AsyncClient(timeout=httpx.Timeout(40.0, connect=10.0), headers={"User-Agent": USER_AGENT})
 
 
+def _light() -> str:
+    from app.core.config import light_model
+
+    return light_model()
+
+
 async def fetch(url: str) -> Dict[str, Any]:
     """A public page, through JAI's SSRF guard (replaced by a recorder in tests)."""
     from app.core.knowledge.ingest import fetch_page
@@ -359,7 +365,7 @@ class ProspectingService:
                 return []
             complete = helpers.llm_complete
         joined = "\n\n".join(f"PAGE {url}\n{text[:6000]}" for url, text, _ in pages)
-        reply = await complete(str(settings.LIGHT_MODEL or "gpt-6-luna"),
+        reply = await complete(_light(),
                                "List the people these pages name as the owner, founder, director, partner or "
                                "manager of this business, one per line as `Name | Role | page URL`. Only people the "
                                "pages name; write NONE if there are none.\n\n" + joined,
@@ -419,7 +425,7 @@ class ProspectingService:
                       f"FACTS about the product (use only these, never invent numbers or customers):\n"
                       f"{facts.summary()}\nFormat exactly:\nSUBJECT: ...\nBODY:\n...\n=== between emails. No "
                       f"signature, no unsubscribe line (JAI adds both).")
-            reply = await complete(str(settings.LIGHT_MODEL or "gpt-6-luna"), prompt,
+            reply = await complete(_light(), prompt,
                                    system="You write short, specific B2B emails. " + editorial.rules(3000),
                                    temperature=0.4, max_tokens=1400)
             emails = _parse_sequence(str((reply or {}).get("text") or ""))[:steps]
@@ -623,7 +629,7 @@ class ProspectingService:
             if not helpers.provider_configured():
                 return "question"
             complete = helpers.llm_complete
-        reply = await complete(str(settings.LIGHT_MODEL or "gpt-6-luna"),
+        reply = await complete(_light(),
                                "Classify this reply to a sales email as exactly one word from: "
                                + ", ".join(REPLY_CLASSES) + f".\n\n{text[:4000]}",
                                system="You classify email replies. Answer with one word.", temperature=0.0,
@@ -637,7 +643,7 @@ class ProspectingService:
         footer, _missing = compliance_footer()
         complete = complete or (helpers.llm_complete if helpers.provider_configured() else None)
         if complete is not None:
-            reply = await complete(str(settings.LIGHT_MODEL or "gpt-6-luna"),
+            reply = await complete(_light(),
                                    f"Draft a short, helpful answer to this {kind} reply from {prospect.name}. Answer "
                                    f"what they asked; where a fact is needed write [confirm: ...]; propose one next "
                                    f"step. No signature.\n\n{body[:4000]}",

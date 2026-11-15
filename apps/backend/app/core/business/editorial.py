@@ -133,6 +133,12 @@ def facts_kept(original: str, revised: str) -> bool:
 Complete = Callable[..., Awaitable[Dict[str, Any]]]
 
 
+def _light() -> str:
+    from app.core.config import light_model
+
+    return light_model()
+
+
 async def revise(text: str, *, audience: str = "", complete: Optional[Complete] = None,
                  model: Optional[str] = None) -> Dict[str, Any]:
     """The final editorial pass: {"text", "revised", "findings_before", "findings_after", "reason"}. Only text the
@@ -159,7 +165,7 @@ async def revise(text: str, *, audience: str = "", complete: Optional[Complete] 
               + (f"Audience: {audience}\n" if audience else "")
               + f"\nFOUND:\n{listed}\n\nDRAFT:\n{text}")
     try:
-        reply = await complete(model or str(getattr(settings, "LIGHT_MODEL", "") or "gpt-6-luna"), prompt,
+        reply = await complete(model or _light(), prompt,
                                system=rules(), temperature=0.2, max_tokens=3000)
     except Exception as exc:  # noqa: BLE001 - the draft stands; the editor is an addition
         result["reason"] = f"editor unavailable ({type(exc).__name__})"

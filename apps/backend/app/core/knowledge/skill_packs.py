@@ -38,7 +38,9 @@ from app.models.knowledge_library import LICENCE_STORE
 PACKS: Dict[str, Dict[str, str]] = {
     "superpowers": {"repo": "obra/superpowers", "commit": "22f0b463e7a5e579904dd6211a520321035526f7",
                     "root": "skills", "title": "Superpowers", "publisher": "Jesse Vincent (obra/superpowers)",
-                    "copyright": "Copyright (c) 2025 Jesse Vincent"},
+                    "copyright": "Copyright (c) 2025 Jesse Vincent",
+                    # A Claude Code plugin: its agents, commands and hooks run its workflow in the engine's session.
+                    "plugin": "agents,commands,hooks"},
     "ui-ux-pro-max": {"repo": "nextlevelbuilder/ui-ux-pro-max-skill",
                       "commit": "4f2dbb67e64969a9a30ab00742f2d55d66ddec2b", "root": ".claude/skills",
                       "title": "UI/UX Pro Max", "publisher": "Next Level Builder",
@@ -51,7 +53,10 @@ PACKS: Dict[str, Dict[str, str]] = {
                    "copyright": "Copyright (c) 2026 Peter Yang"},
     "ecc": {"repo": "affaan-m/ECC", "commit": "d2ef2680594f9a17526a6e1a2e18b3d242c5d17b", "root": "skills",
             "title": "ECC", "publisher": "Affaan Mustafa (affaan-m/ECC)",
-            "copyright": "Copyright (c) 2026 Affaan Mustafa"},
+            "copyright": "Copyright (c) 2026 Affaan Mustafa",
+            # A Claude Code plugin: its agents and commands (its hooks run Node scripts against code repositories and
+            # are not part of a specialist's session, which has no shell).
+            "plugin": "agents,commands"},
     "brag": {"repo": "latent-spaces/brag", "commit": "669ab9286aa28b6c3ee30e75f181ee74319d012a", "root": "skills",
              "title": "BRAG", "publisher": "Shunit Haviv Hakimi (latent-spaces/brag)",
              "copyright": "Copyright (c) 2026 Shunit Haviv Hakimi"},
@@ -242,6 +247,12 @@ _SKIP_PARTS = {"evals", "tests", "node_modules", ".git"}
 MAX_SKILL_CHARS = 1_500_000
 
 
+def plugin_parts(pack: str) -> List[str]:
+    """The parts of a pack that run in the Claude engine as a Claude Code plugin (agents, commands, hooks), beside its
+    skills. Empty: the pack is skills only."""
+    return [p for p in str(PACKS.get(pack, {}).get("plugin", "") or "").split(",") if p]
+
+
 def packs_dir() -> Path:
     from app.core.config import settings
 
@@ -411,7 +422,8 @@ def installed() -> Dict[str, bool]:
     for name, pack in PACKS.items():
         marker = packs_dir() / name / ".jai-commit"
         try:
-            out[name] = marker.read_text(encoding="utf-8").strip() == pack["commit"]
+            # The marker is the commit, then the plugin parts when the pack is also a Claude Code plugin.
+            out[name] = (marker.read_text(encoding="utf-8").split() or [""])[0] == pack["commit"]
         except OSError:
             out[name] = False
     return out
