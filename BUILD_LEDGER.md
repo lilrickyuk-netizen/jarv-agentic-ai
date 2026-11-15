@@ -14699,3 +14699,16 @@ TESTS RUN: Sonnet, Haiku, Opus and Fable 5.x and Opus 4.7+ are sent no temperatu
 RESULT: With every model call of a mission on Claude (PROVEN-WORKFLOWS-AS-PLUGINS), the first booking test (15 November, 17:53) showed "Invalid request to Claude API: `temperature` is deprecated for this model" for claude-sonnet-5-5: the provider stripped sampling settings only for Opus. Reading the request fell back to another model; the independent check and the report, which send temperature 0, would have failed. Every generation-5 model is now sent none, and a model that refuses a temperature is asked again without it.
 BLOCKERS: None
 NEXT TASK: The booking test (£1)
+
+---
+
+TASK ID: FAST-ENOUGH-TO-BE-WORTH-IT
+TASK NAME: A specialist's checklist holds at most 8 items, an engine mission's check has 20 calls and 5 minutes, and the booking test is 50 businesses timed against 15 minutes
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/requirements.py, apps/backend/app/core/command/agent_executor.py, apps/backend/app/core/command/claude_engine.py, apps/backend/app/core/command/bench.py, apps/backend/tests/test_bench.py, BUILD_LEDGER.md
+COMMANDS RUN: backend test suite on PostgreSQL (run by the installer); the bench's scorers on Claude's side
+TESTS RUN: the booking job is scored on 50 businesses and fails past 15 minutes; a mission's own allowance and the earlier scorers unchanged
+RESULT: Richard, 15 November: "15 to 30 minutes to get 10 UK chains ... does it save me time, no; does it save me money, no." The log of the 16:25 booking run: the businesses' own sites were read several a second by JAI's own contact tools, and most of the 9 minutes went to work the 15-item checklist asked for (closure news, administration checks), then up to 80 model calls of checking. The checklist is now at most 8 items, only what the deliverable must show; an engine mission's independent check has at most 20 calls and 5 minutes; the booking test is 50 businesses and must finish within 15 minutes.
+BLOCKERS: None
+NEXT TASK: The booking test (£1)

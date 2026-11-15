@@ -80,7 +80,9 @@ def number(items: List[Dict[str, str]]) -> List[Dict[str, Any]]:
 # success, the independent check never reached a verdict, and every one ended "partial" whatever it delivered.
 # Requirements are now only what the finished deliverable must show; the method and the standing rules stay in the
 # job the specialist follows, and become requirements only where the deliverable itself can show them.
-MAX_SPECIALIST_REQUIREMENTS = 15
+# A specialist's checklist: only what the deliverable must show (15 November: 15 items had the agent checking
+# closure news and the check making 80 model calls on a 10-row workbook).
+MAX_SPECIALIST_REQUIREMENTS = 8
 
 _PROFESSIONAL = (
     " The mission is a specialist's work and comes with the job as JAI's specialist set it out and Richard's "

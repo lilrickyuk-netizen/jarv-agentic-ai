@@ -124,6 +124,10 @@ class ClaudeRoleExecutor(RoleExecutor):
     """A role's mission whose work runs on the Claude Agent SDK, set up as Claude Code is (see the module's notes)."""
 
     engine = "claude"
+    # The independent check of an engine mission: at most 20 model calls and 5 minutes (15 November: up to 80 calls
+    # on a 10-row workbook). The checklist it works from is at most 8 items (requirements.MAX_SPECIALIST_REQUIREMENTS).
+    verifier_cap = 20
+    verifier_seconds = 300
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

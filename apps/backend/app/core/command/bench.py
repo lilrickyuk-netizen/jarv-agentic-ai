@@ -275,8 +275,8 @@ def _folder_line(folder: str) -> str:
 
 
 def _booking(folder: str) -> str:
-    return (f"{_folder_line(folder)} Build partners.xlsx: 10 UK restaurant or café chains that could become "
-            "booking partners for Plexecute (a productivity app that books time for what matters). For each: the "
+    return (f"{_folder_line(folder)} Build partners.xlsx: 50 UK restaurants, cafés or restaurant groups that "
+            "could become booking partners for Plexecute (a productivity app that books time for what matters). For each: the "
             "company, its website, its published phone number, its published email address, its official contact "
             "or partnership page, and the source page for each detail. Only details the business publishes itself; "
             "never guess an email address.")
@@ -310,8 +310,9 @@ def _long(folder: str) -> str:
 
 
 async def score_booking(outcome: Outcome) -> List[Check]:
-    return _common(outcome) + await _score_contacts(outcome, "partners.xlsx", 10, ("company", "chain", "name",
-                                                                                   "business"))
+    return _common(outcome) + [Check("done within 15 minutes (faster than a person searching by hand)",
+                                     0 < outcome.minutes <= 15, f"{outcome.minutes} min")] + await _score_contacts(
+        outcome, "partners.xlsx", 50, ("company", "chain", "name", "business", "restaurant"))
 
 
 async def score_places(outcome: Outcome) -> List[Check]:
@@ -366,7 +367,7 @@ async def score_cancel(outcome: Outcome) -> List[Check]:
 
 
 JOBS: Dict[str, Job] = {
-    "booking": Job("booking", "Booking partners with published contacts", _booking, score_booking),
+    "booking": Job("booking", "50 booking partners with published contacts", _booking, score_booking),
     "places": Job("places", "Free places to market Plexecute", _places, score_places),
     "investors": Job("investors", "UK investors with their pitch routes", _investors, score_investors),
     "team": Job("team", "Partners found, emails drafted by a second specialist", _team, score_team),

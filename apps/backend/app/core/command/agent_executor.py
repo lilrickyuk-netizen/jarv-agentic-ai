@@ -1007,7 +1007,7 @@ class AgentExecutor:
         """The independent check within VERIFIER_MAX_SECONDS, all its calls together. 15 November: a dropped
         provider connection held the check, and the mission with it, for 45 minutes. A check that does not finish
         in time reports the work unchecked, saved where it is; it never stands as a pass."""
-        limit = float(getattr(settings, "VERIFIER_MAX_SECONDS", 600) or 600)
+        limit = float(getattr(self, "verifier_seconds", 0) or getattr(settings, "VERIFIER_MAX_SECONDS", 600) or 600)
         try:
             return await asyncio.wait_for(self.verify(mission, summary, settled=settled), timeout=limit)
         except asyncio.TimeoutError:
@@ -1069,7 +1069,7 @@ class AgentExecutor:
         router = MeteredRouter(get_router(), self.usage, "verifier", self._cache_key())
         tokens = steps = 0
         verdict: Optional[Dict[str, Any]] = None
-        limit = verifier_steps(len(self.requirements))
+        limit = min(verifier_steps(len(self.requirements)), int(getattr(self, "verifier_cap", 0) or 10 ** 6))
         while steps < limit and verdict is None:
             steps += 1
             compact_messages(messages)

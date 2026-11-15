@@ -18,8 +18,8 @@ def _book(folder, rows, name="partners.xlsx"):
                                             {"name": "Read Me", "rows": [["Notes"], ["about this workbook"]]}]))
 
 
-def _rows(n=10):
-    return [[f"Chain {i}", f"https://chain{i}.co.uk", f"020 7{i:03d} 0000" if i < 8 else "Not recorded",
+def _rows(n=50):
+    return [[f"Chain {i}", f"https://chain{i}.co.uk", f"020 7{i:03d} 0000" if i < 40 else "Not recorded",
              f"hello@chain{i}.co.uk" if i < 5 else "", f"https://chain{i}.co.uk/partners",
              f"https://chain{i}.co.uk/contact"] for i in range(n)]
 
@@ -34,11 +34,11 @@ def test_a_booking_workbook_is_scored_from_its_cells(tmp_path, monkeypatch):
 
     monkeypatch.setattr(bench, "reachable", answers)
     outcome = bench.Outcome(job="booking", folder=tmp_path, status="completed", verified=True, engine="claude",
-                            cost_usd=0.6)
+                            cost_usd=0.6, minutes=12.0)
     _book(tmp_path, _rows())
     good = _scores(bench.score_booking(outcome))
     assert all(c.passed for c in good.values()), {k: c.detail for k, c in good.items() if not c.passed}
-    assert good["at least 7 in 10 have a published phone or email"].detail == "8 of 10"   # "Not recorded" is empty
+    assert good["at least 7 in 10 have a published phone or email"].detail == "40 of 50"   # "Not recorded" is empty
 
     rows = _rows()
     rows[2][3] = "info@gmail.com"                    # an address not on the business's own domain
@@ -50,7 +50,9 @@ def test_a_booking_workbook_is_scored_from_its_cells(tmp_path, monkeypatch):
                       "every website is real (it answers on the web)", "every entry has its source page"}
 
     _book(tmp_path, _rows(6))
-    assert not _scores(bench.score_booking(outcome))["partners.xlsx lists at least 10"].passed
+    assert not _scores(bench.score_booking(outcome))["partners.xlsx lists at least 50"].passed
+    outcome.minutes = 31.0
+    assert not _scores(bench.score_booking(outcome))["done within 15 minutes (faster than a person searching by hand)"].passed
     outcome.engine, outcome.cost_usd = "", 3.0
     scored = _scores(bench.score_booking(outcome))
     assert not scored["ran on the Claude engine"].passed and not scored["stayed within its £1 allowance"].passed
