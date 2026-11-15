@@ -901,7 +901,10 @@ async def _memories(db: AsyncSession, user_id: UUID, query: str, workspace_id: O
     scopes = [workspace_id] if workspace_id else [w.id for w in await _workspaces(db, user_id)]
     hits: List[Any] = []
     for scope in scopes:
-        hits += await memory_service.search_scored(db, query, limit=limit, workspace_id=scope)
+        # A look for the voice only reads: marking a memory as recalled is a write, and it waited behind a running
+        # mission's lock on the same memories until the mission ended (15 November: 30 seconds and more, so the voice
+        # said "I can't read my live state").
+        hits += await memory_service.search_scored(db, query, limit=limit, workspace_id=scope, touch=False)
     hits.sort(key=lambda hit: hit.score, reverse=True)
     return [{"content": str(hit.memory.content)[:600], "type": hit.memory.memory_type,
              "category": hit.memory.memory_category, "score": round(hit.score, 3)} for hit in hits[:limit]]

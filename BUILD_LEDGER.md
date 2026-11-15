@@ -14725,3 +14725,16 @@ TESTS RUN: Partnerships, Marketing, Growth, Business, Research and Sales each ha
 RESULT: JAI's prospecting workflow (business/prospecting, Upgrade 6, after Sellbird: every business of a type in an area from OpenStreetMap, each one's own site read, named decision-makers, verified addresses) was the Sales Lead's alone. The booking-partners database went to the Partnerships Lead without it, which searched the web and visited businesses one at a time. The finding half of the workflow is now every list-building specialist's, and the engine's session says how a database of businesses is built at machine speed: discover from open data, save, fill the contacts from every site side by side. Drafting and sending stay with Sales, and every send still waits for Richard.
 BLOCKERS: None
 NEXT TASK: The booking test: 50 businesses within 15 minutes (£1)
+
+---
+
+TASK ID: VOICE-READS-WITHOUT-WAITING
+TASK NAME: The voice and the Memory page read memories without writing, so a running mission never holds them
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/voice/live.py, apps/backend/app/api/memory.py, apps/backend/tests/test_claude_engine.py, BUILD_LEDGER.md
+COMMANDS RUN: the voice's live-state read timed on Richard's machine while a mission ran; backend test suite on PostgreSQL (run by the installer)
+TESTS RUN: the voice's memory look-up asks for every workspace's memories with touch off
+RESULT: 15 November, 18:21: asked "how's the mission going?", the voice said "I can't read my live state". Timed while the booking test ran: workspaces 0.01 s, recent missions 0.71 s, approvals 0.04 s, Mem0 and Graphiti 0.63 s, JAI's memories more than 30 s. A memory search marks each memory it finds as recalled (an update); a running mission does the same inside the one transaction it keeps open until it ends, so the voice's update of the same memories waited behind the mission's row locks, past the voice's four seconds. The voice and the dashboard's memory search now only read (touch off); agents' own recall still refreshes the memories they use.
+BLOCKERS: None
+NEXT TASK: The booking test's result

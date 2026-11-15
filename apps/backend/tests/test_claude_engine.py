@@ -494,3 +494,22 @@ def test_every_list_building_specialist_has_the_open_data_prospecting_workflow()
         mine = set(role_tools(role))
         assert set(FINDING_TOOLS) <= mine, role                     # 15 November: the Sales Lead's alone
         assert "approve_and_send_outreach" not in mine and not any("send" in t for t in mine), role
+
+
+def test_the_voice_reads_memories_without_writing_so_a_running_mission_never_holds_it(monkeypatch):
+    from app.core.jarv_memory import memory_service
+    from app.core.voice import live
+
+    asked = []
+
+    async def search_scored(db, query, **kwargs):
+        asked.append(kwargs)
+        return []
+
+    async def workspaces(db, user_id):
+        return [SimpleNamespace(id=uuid4())]
+
+    monkeypatch.setattr(memory_service, "search_scored", search_scored)
+    monkeypatch.setattr(live, "_workspaces", workspaces)
+    assert _run(live._memories(None, uuid4(), "how's the mission going?", None)) == []
+    assert asked and all(kwargs.get("touch") is False for kwargs in asked)   # 15 November: 30 s behind a lock

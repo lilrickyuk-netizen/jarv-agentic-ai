@@ -266,6 +266,7 @@ async def search_memories(body: MemorySearch, user_id: CurrentUserId, db: AsyncS
         hits = await memory_service.search_scored(
             db, body.query, limit=body.limit, workspace_id=body.workspace_id,
             categories=body.categories, task_id=body.task_id, include_global=body.include_global,
+            touch=False,  # Richard looking at his memories only reads: it never waits behind a mission's lock
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
