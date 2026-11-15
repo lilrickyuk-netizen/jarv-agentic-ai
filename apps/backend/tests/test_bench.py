@@ -1,0 +1,127 @@
+"""
+The bench's scores (command/bench) are worked out in code from the files a job made, and a mission's own allowance
+(mission_budget) is the lower of the setting and the one the bench gives it. No mission runs here.
+"""
+from __future__ import annotations
+
+import asyncio
+import time
+
+from app.core.agents.workspace_ops import xlsx_bytes
+from app.core.command import bench, mission_budget
+
+HEADER = ["Company", "Website", "Published phone", "Published email", "Partnership page", "Source links"]
+
+
+def _book(folder, rows, name="partners.xlsx"):
+    (folder / name).write_bytes(xlsx_bytes([{"name": "Chains", "rows": [HEADER] + rows},
+                                            {"name": "Read Me", "rows": [["Notes"], ["about this workbook"]]}]))
+
+
+def _rows(n=10):
+    return [[f"Chain {i}", f"https://chain{i}.co.uk", f"020 7{i:03d} 0000" if i < 8 else "Not recorded",
+             f"hello@chain{i}.co.uk" if i < 5 else "", f"https://chain{i}.co.uk/partners",
+             f"https://chain{i}.co.uk/contact"] for i in range(n)]
+
+
+def _scores(coro):
+    return {c.what: c for c in asyncio.run(coro)}
+
+
+def test_a_booking_workbook_is_scored_from_its_cells(tmp_path, monkeypatch):
+    async def answers(urls):
+        return {u: "madeup" not in u for u in urls}
+
+    monkeypatch.setattr(bench, "reachable", answers)
+    outcome = bench.Outcome(job="booking", folder=tmp_path, status="completed", verified=True, engine="claude",
+                            cost_usd=0.6)
+    _book(tmp_path, _rows())
+    good = _scores(bench.score_booking(outcome))
+    assert all(c.passed for c in good.values()), {k: c.detail for k, c in good.items() if not c.passed}
+    assert good["at least 7 in 10 have a published phone or email"].detail == "8 of 10"   # "Not recorded" is empty
+
+    rows = _rows()
+    rows[2][3] = "info@gmail.com"                    # an address not on the business's own domain
+    rows[3][1] = "https://madeup-chain.co.uk"        # a site that does not exist
+    rows[4][5] = ""                                  # no source
+    _book(tmp_path, rows)
+    failed = {k for k, c in _scores(bench.score_booking(outcome)).items() if not c.passed}
+    assert failed == {"no email is guessed: each is on the business's own domain",
+                      "every website is real (it answers on the web)", "every entry has its source page"}
+
+    _book(tmp_path, _rows(6))
+    assert not _scores(bench.score_booking(outcome))["partners.xlsx lists at least 10"].passed
+    outcome.engine, outcome.cost_usd = "", 3.0
+    scored = _scores(bench.score_booking(outcome))
+    assert not scored["ran on the Claude engine"].passed and not scored["stayed within its £1 allowance"].passed
+
+
+def test_a_list_of_places_counts_a_site_twice_once(tmp_path, monkeypatch):
+    async def answers(urls):
+        return {u: True for u in urls}
+
+    monkeypatch.setattr(bench, "reachable", answers)
+    rows = [["Place", "URL", "What is allowed and how to post", "Checked on"]] + [
+        [f"Place {i}", f"https://place{i}.com", "A weekly show-and-tell thread", f"https://place{i}.com/rules"]
+        for i in range(8)]
+    (tmp_path / "free-places.xlsx").write_bytes(xlsx_bytes([{"name": "Free places", "rows": rows}]))
+    outcome = bench.Outcome(job="places", folder=tmp_path, status="completed", verified=True, engine="claude")
+    assert all(c.passed for c in _scores(bench.score_places(outcome)).values())
+    rows[3][1] = "https://place1.com/another-page"
+    (tmp_path / "free-places.xlsx").write_bytes(xlsx_bytes([{"name": "Free places", "rows": rows}]))
+    failed = [k for k, c in _scores(bench.score_places(outcome)).items() if not c.passed]
+    assert failed == ["no entry is listed twice"]
+
+
+def test_the_team_job_needs_a_second_specialist_and_the_cancel_job_nothing_written_after(tmp_path, monkeypatch):
+    async def answers(urls):
+        return {u: True for u in urls}
+
+    monkeypatch.setattr(bench, "reachable", answers)
+    (tmp_path / "partners.xlsx").write_bytes(xlsx_bytes([{"name": "Partners", "rows": [
+        ["Company", "Website", "Partnership contact", "Source"]] + [
+        [f"Hub{i} Spaces", f"https://hub{i}.co.uk", f"partners@hub{i}.co.uk", f"https://hub{i}.co.uk"]
+        for i in range(5)]}]))
+    (tmp_path / "outreach.md").write_text("\n".join(f"## Hub{i} Spaces\nHello" for i in range(5)))
+    team = bench.Outcome(job="team", folder=tmp_path, status="completed", verified=True, engine="claude",
+                         delegated=[{"to": "sales", "what": "the first emails"}])
+    assert all(c.passed for c in _scores(bench.score_team(team)).values())
+    team.delegated = []
+    assert [k for k, c in _scores(bench.score_team(team)).items() if not c.passed] == [
+        "a second specialist did part of the work"]
+    team.child_tasks = 2                                  # split by the Orchestrator into two specialists' steps
+    assert all(c.passed for c in _scores(bench.score_team(team)).values())
+
+    cancelled = bench.Outcome(job="cancel", folder=tmp_path, status="cancelled", cancelled_at=time.time())
+    assert all(c.passed for c in _scores(bench.score_cancel(cancelled)).values())
+    cancelled.cancelled_at = time.time() - 100            # a file written well after the cancel
+    assert [k for k, c in _scores(bench.score_cancel(cancelled)).items() if not c.passed] == [
+        "nothing was written after the cancel"]
+    assert bench.email_matches_site("partners@hub1.co.uk", "hub1.co.uk") is True
+    assert bench.email_matches_site("", "hub1.co.uk") is None
+
+
+def test_a_missions_own_allowance_is_never_more_than_the_setting(monkeypatch):
+    from app.core.config import settings
+
+    store = {}
+
+    class Redis:
+        async def get(self, key):
+            return store.get(key)
+
+        async def set(self, key, value, ex=None):
+            store[key] = value
+
+    async def redis():
+        return Redis()
+
+    monkeypatch.setattr(mission_budget, "_redis", redis)
+    monkeypatch.setattr(settings, "ROLE_MISSION_MAX_COST_USD", 2.5)
+    assert asyncio.run(mission_budget.role_cap("t1")) == 2.5          # none set: the setting
+    asyncio.run(mission_budget.set_allowance("t1", 1.28))
+    assert asyncio.run(mission_budget.role_cap("t1")) == 1.28         # the bench's £1
+    asyncio.run(mission_budget.set_allowance("t2", 9.0))
+    assert asyncio.run(mission_budget.role_cap("t2")) == 2.5          # never above the setting
+    assert asyncio.run(mission_budget.role_cap(None)) == 2.5
+    assert set(bench.JOBS) == {"booking", "places", "investors", "team", "cancel"}

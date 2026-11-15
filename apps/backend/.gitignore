@@ -73,3 +73,6 @@ alembic/versions/*.pyc
 
 # Logs
 *.log
+
+# The bench's run record (app/core/command/bench.py): written on Richard's machine, never committed
+.jai-bench/

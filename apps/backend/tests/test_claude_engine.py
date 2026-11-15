@@ -89,6 +89,8 @@ class Session:
                     if decision:
                         session.denied.append((name, decision["hookSpecificOutput"]["permissionDecisionReason"]))
                         continue
+                    if not name.startswith(PREFIX):
+                        continue                                     # Claude Code's own (a colleague, a skill)
                     session.results.append((name, await tools[name.removeprefix(PREFIX)].handler(args)))
                     await asyncio.sleep(0)                           # the real session waits on its pipe here
                 yield AssistantMessage(said)
@@ -145,6 +147,7 @@ def _loop(runner, tools, budget=60):
 def test_the_work_runs_on_the_engine_through_jais_own_tools_gates_and_checklist(project, monkeypatch):  # noqa: F811
     host, root = project
     session = Session([([
+        ("Agent", {"subagent_type": "sales", "description": "Draft the first emails"}),   # a colleague
         ("Bash", {"command": "rm -rf /"}),                                   # Claude Code's shell: refused
         (f"{PREFIX}write_spreadsheet", {"path": "plexecute/partners.xlsx", "sheets": BOOK}),
         (f"{PREFIX}write_file", {"path": "../../outside.txt", "content": "x"}),   # outside the folder: JAI refuses
@@ -167,6 +170,7 @@ def test_the_work_runs_on_the_engine_through_jais_own_tools_gates_and_checklist(
     assert session.denied and session.denied[0][0] == "Bash" and "not one of JAI's tools" in session.denied[0][1]
     outside = dict(session.results)[f"{PREFIX}write_file"]
     assert outside["is_error"] is True
+    assert runner.delegated == [{"to": "sales", "what": "Draft the first emails"}]
     assert [r["status"] for r in runner.requirements] == ["done", "done"]
     saves = [c for c in runtime.calls if c.get("tool") == "write_file" and c.get("success")]   # every save is a
     assert saves and "partners.xlsx" in str(saves[-1].get("inputs"))                              # file write

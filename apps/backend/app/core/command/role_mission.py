@@ -126,6 +126,7 @@ class RoleExecutor(AgentExecutor):
         self.team = team
         self.capped = False
         self._spent_before = 0.0
+        self._cap = float(getattr(settings, "ROLE_MISSION_MAX_COST_USD", 0) or 0)  # the mission's own, at run()
         from app.core.command.mission_org import SPECIALISTS
 
         self.title = SPECIALISTS.get(role, {}).get("title", role.replace("_", " ").title())
@@ -294,7 +295,7 @@ class RoleExecutor(AgentExecutor):
         return steer.as_message(notes)
 
     async def _over_allowance(self) -> Optional[str]:
-        cap = float(getattr(settings, "ROLE_MISSION_MAX_COST_USD", 0) or 0)
+        cap = self._cap
         if cap <= 0:
             return None
         used = self._spent_before + float(self.usage.cost_usd or 0)
@@ -319,6 +320,7 @@ class RoleExecutor(AgentExecutor):
         from app.core.command import mission_budget
 
         self._spent_before = await mission_budget.spent(self.runtime.task_id)
+        self._cap = await mission_budget.role_cap(self.runtime.task_id)
         if self.job is not None:
             extra = "\n\n".join(part for part in (self.job.brief_for_team(), self.job.brief_for_specialist())
                                 if part)

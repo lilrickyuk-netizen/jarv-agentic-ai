@@ -92,6 +92,7 @@ class ClaudeRoleExecutor(RoleExecutor):
         self._lock = asyncio.Lock()
         self._client = None
         self._stop: Optional[str] = None
+        self.delegated: List[Dict[str, str]] = []  # each part handed to a colleague: who, and what
 
     # ----- the session's parts ------------------------------------------------------------------------------------
 
@@ -187,9 +188,10 @@ class ClaudeRoleExecutor(RoleExecutor):
         result = await super().run(mission, *args, **kwargs)
         if self.engine_note:
             result["engine"] = {"name": "claude", "model": engine_model(), "cost_usd": round(self.engine_cost_usd, 4),
-                                "note": self.engine_note}
+                                "note": self.engine_note, "delegated": list(self.delegated)}
             if isinstance(result.get("role"), dict):
                 result["role"]["model"] = engine_model()
+                result["role"]["engine"] = result["engine"]  # kept on the mission's record with the role
         return result
 
     # ----- the session --------------------------------------------------------------------------------------------
@@ -232,6 +234,10 @@ class ClaudeRoleExecutor(RoleExecutor):
                 if self._stop:
                     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                                    "permissionDecisionReason": self._stop}}
+                if tool in ("Agent", "Task"):
+                    asked = (hook_input or {}).get("tool_input") or {}
+                    self.delegated.append({"to": str(asked.get("subagent_type") or "")[:60],
+                                           "what": str(asked.get("description") or "")[:200]})
                 return {}
             return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                            "permissionDecisionReason": (
@@ -241,7 +247,7 @@ class ClaudeRoleExecutor(RoleExecutor):
         skills_dir = self._skills_dir()
         from app.core.knowledge.skill_packs import packs_dir
 
-        allowance = float(getattr(settings, "ROLE_MISSION_MAX_COST_USD", 0) or 0)  # the role's allowance
+        allowance = float(self._cap or 0)  # the mission's allowance (role_mission.run sets it)
         spent = self._spent_before + float(self.usage.cost_usd or 0)
         budget = max(0.05, allowance - spent) if allowance > 0 else None
         options = sdk.ClaudeAgentOptions(

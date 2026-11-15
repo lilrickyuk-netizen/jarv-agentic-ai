@@ -42,6 +42,34 @@ def cap() -> float:
     return float(getattr(settings, "MISSION_MAX_COST_USD", 0) or 0)
 
 
+ALLOWANCE_KEY = "mission:allowance:{}"
+
+
+async def set_allowance(task_id: Any, usd: float) -> None:
+    """A lower allowance for one mission than the setting gives (the bench runs each job at £1). Never raises."""
+    if task_id is None or not usd or usd <= 0:
+        return
+    try:
+        redis = await _redis()
+        await asyncio.wait_for(redis.set(ALLOWANCE_KEY.format(task_id), str(float(usd)), ex=TTL_SECONDS), timeout=2)
+    except Exception as exc:  # noqa: BLE001
+        logger.info(f"mission allowance not set: {exc}")
+
+
+async def role_cap(task_id: Any) -> float:
+    """What a specialist's mission may spend in US dollars: ROLE_MISSION_MAX_COST_USD, or the mission's own
+    allowance when one was set lower. 0 means no allowance."""
+    cap_usd = float(getattr(settings, "ROLE_MISSION_MAX_COST_USD", 0) or 0)
+    if task_id is None:
+        return cap_usd
+    try:
+        own = float(await asyncio.wait_for((await _redis()).get(ALLOWANCE_KEY.format(task_id)), timeout=2) or 0)
+    except Exception as exc:  # noqa: BLE001
+        logger.info(f"mission allowance not read: {exc}")
+        return cap_usd
+    return min(cap_usd, own) if own > 0 and cap_usd > 0 else (own or cap_usd)
+
+
 async def _redis():
     from app.core.redis import get_redis
 
