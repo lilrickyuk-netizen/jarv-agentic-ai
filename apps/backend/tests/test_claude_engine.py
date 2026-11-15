@@ -471,3 +471,17 @@ def test_an_independent_check_that_never_answers_reports_the_work_unchecked(monk
     verdict = _run(AgentExecutor.verify_in_time(runner, "m", "done"))
     assert verdict["verified"] is False and verdict["timed_out"] is True
     assert "saved but unchecked" in verdict["unmet"][0]
+
+
+def test_claude_5_models_are_sent_no_temperature():
+    from app.core.providers.base import CompletionRequest, Message as Msg
+    from app.core.providers.claude import ClaudeProvider, rejects_sampling
+
+    for model in ("claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5", "claude-fable-5-2", "claude-opus-4-7"):
+        assert rejects_sampling(model), model
+    for model in ("claude-sonnet-4-5", "claude-haiku-4-5", "claude-3-5-sonnet"):
+        assert not rejects_sampling(model), model
+    provider = ClaudeProvider.__new__(ClaudeProvider)
+    sent = provider._convert_request(CompletionRequest(model="claude-sonnet-5-5", temperature=0.0, max_tokens=10,
+                                                       messages=[Msg(role="user", content="hi")]))
+    assert "temperature" not in sent and "top_p" not in sent

@@ -14686,3 +14686,16 @@ TESTS RUN: Superpowers and ECC are assembled as plugins from their pinned clones
 RESULT: The 15 November bench showed the engine doing the booking job's work in 9 minutes (16:26 to 16:35, 64 tools and 155 skills loaded) and the mission then held for 45 minutes by the independent check, which ran on GPT-6 Luna and waited on a dropped OpenAI connection with no overall limit. Richard: it should be using the proven systems added from ECC and the others. The ledger (UPGRADES-ECC-ICM) shows only their skills were installed: "ECC's own 71 agents, hooks and orchestration are not installed". Both are Claude Code plugins, and JAI now runs on Claude Code, so they load as plugins (the SDK's documented plugins option), with their agents, commands and workflows running the work; JAI's 31 agents, its permission gate, hard boundaries, folder scope and audit log stay. ECC's hooks are left out because they run Node scripts against code repositories and a specialist's session has no shell. Every model call of a mission now runs on Claude when the engine is on, the independent check has VERIFIER_MAX_SECONDS (600) for all its calls, and the bench can no longer be held by a slow look at the record. Unattended sessions take the most reasonable reading where a workflow would stop to ask, and write the assumption down.
 BLOCKERS: None
 NEXT TASK: The bench's booking job on this set-up (£1)
+
+---
+
+TASK ID: CLAUDE-5-NO-TEMPERATURE
+TASK NAME: Claude generation-5 models are never sent a temperature
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/providers/claude.py, apps/backend/tests/test_claude_engine.py, BUILD_LEDGER.md
+COMMANDS RUN: backend test suite on PostgreSQL (run by the installer)
+TESTS RUN: Sonnet, Haiku, Opus and Fable 5.x and Opus 4.7+ are sent no temperature or top_p; Claude 4.x and 3.x keep them; a request for claude-sonnet-5-5 at temperature 0 goes without it
+RESULT: With every model call of a mission on Claude (PROVEN-WORKFLOWS-AS-PLUGINS), the first booking test (15 November, 17:53) showed "Invalid request to Claude API: `temperature` is deprecated for this model" for claude-sonnet-5-5: the provider stripped sampling settings only for Opus. Reading the request fell back to another model; the independent check and the report, which send temperature 0, would have failed. Every generation-5 model is now sent none, and a model that refuses a temperature is asked again without it.
+BLOCKERS: None
+NEXT TASK: The booking test (£1)

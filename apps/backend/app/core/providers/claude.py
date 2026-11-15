@@ -57,6 +57,16 @@ def _claude_tool(tool: Dict[str, Any]) -> Dict[str, Any]:
     return {**tool, "name": _claude_name(tool["name"]),
             "input_schema": tool.get("input_schema") or {"type": "object", "properties": {}}}
 
+
+def rejects_sampling(model: str) -> bool:
+    """Claude models that refuse temperature and top_p: every generation-5 model (Opus, Sonnet, Haiku, Fable,
+    Mythos 5.x; 15 November: "`temperature` is deprecated for this model" from claude-sonnet-5-5) and Opus 4.7+."""
+    import re
+
+    name = str(model or "")
+    return bool(re.match(r"claude-[a-z]+-([5-9]|\d{2})(\b|-)", name)) or name.startswith(
+        ("claude-opus-4-8", "claude-opus-4-7"))
+
 class ClaudeProvider(BaseLLMProvider):
     """
     Claude (Anthropic) API provider implementation.
@@ -148,6 +158,10 @@ class ClaudeProvider(BaseLLMProvider):
 
             # Make API request
             response = await self.client.post("/messages", json=claude_request)
+            if response.status_code == 400 and "temperature" in claude_request and "temperature" in response.text:
+                # A model newer than this list that takes no sampling settings: the same request without them.
+                claude_request.pop("temperature", None)
+                response = await self.client.post("/messages", json=claude_request)
 
             # Handle errors
             if response.status_code != 200:
@@ -300,10 +314,7 @@ class ClaudeProvider(BaseLLMProvider):
         # Sampling parameters: Opus 4.7+ reject temperature/top_p entirely, and
         # all Claude 4+ models reject temperature and top_p together. Send at
         # most one, and none for models that don't accept them.
-        no_sampling = any(
-            request.model.startswith(prefix)
-            for prefix in ("claude-opus-5", "claude-opus-4-8", "claude-opus-4-7")
-        )
+        no_sampling = rejects_sampling(request.model)
         if not no_sampling:
             if request.temperature is not None:
                 claude_request["temperature"] = request.temperature
