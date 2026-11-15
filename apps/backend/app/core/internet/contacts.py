@@ -158,9 +158,11 @@ def extract(page: str, url: str) -> Dict[str, Any]:
             phones.append(phone)
 
     structured_phones, structured_emails = _structured(page)
-    for value in re.findall(r"(?i)href\s*=\s*[\"']\s*tel:([^\"']+)", page) + structured_phones:
+    for value in re.findall(r"(?i)href\s*=\s*[\"']\s*tel:([^\"']+)", page) + re.findall(
+            r"(?i)\]\(\s*tel:([^)\s]+)\)", page) + structured_phones:
         add_phone(value)
-    for value in re.findall(r"(?i)href\s*=\s*[\"']\s*mailto:([^\"'?]+)", page) + structured_emails:
+    for value in re.findall(r"(?i)href\s*=\s*[\"']\s*mailto:([^\"'?]+)", page) + re.findall(
+            r"(?i)\]\(\s*mailto:([^)?\s]+)", page) + structured_emails:
         add_email(value)
     for encoded in re.findall(r"(?i)data-cfemail\s*=\s*[\"']([0-9a-f]+)[\"']", page) + re.findall(
             r"(?i)/cdn-cgi/l/email-protection#([0-9a-f]+)", page):
@@ -230,15 +232,59 @@ async def fetch_raw(url: str) -> Dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         out = {"ok": False, "url": url, "reason": str(exc)[:200]}
     thin = len(_visible(out.get("html") or "")) < internet.THIN_PAGE_CHARS
-    if (not out.get("ok") or thin) and internet._setting("CRAWL4AI_URL"):
-        try:
-            rendered = await internet.render_page(out.get("url") or url)
-            if rendered.get("ok") and rendered.get("text"):
-                return {"ok": True, "url": rendered.get("url") or url, "status": rendered.get("status") or 200,
-                        "html": str(rendered.get("markdown") or rendered["text"])[:MAX_HTML], "rendered": True}
-        except Exception as exc:  # noqa: BLE001
-            logger.debug(f"browser read of {url} failed: {exc}")
+    if not out.get("ok") or thin:
+        rendered = await fetch_rendered(out.get("url") or url)
+        if rendered.get("ok"):
+            return rendered
+        out.setdefault("reason", rendered.get("reason") or "")
     return out
+
+
+async def fetch_rendered(url: str) -> Dict[str, Any]:
+    """One page as a browser shows it, read through Crawl4AI (JAI's headless browser): its whole rendered HTML, so the
+    footer, the tel: and mailto: links and the schema.org data are all there. 15 November: the browser read used
+    internet.render_page, which asks Crawl4AI for its "fit" Markdown (the main content, the footer pruned away) cut to
+    8,000 characters: a site that turns plain readers away or builds its page with JavaScript lost exactly the
+    details this reader looks for. Crawl4AI's /crawl answer carries the full HTML; its /md answer with the "raw"
+    filter (the whole page, nothing pruned) is the second way. {"ok", "url", "status", "html", "rendered"}."""
+    import httpx
+
+    from app.core import internet
+    from app.core.config import settings
+
+    base = internet._setting("CRAWL4AI_URL")
+    if not base:
+        return {"ok": False, "url": url, "reason": "the browser (Crawl4AI) is turned off"}
+    ok, reason = internet._ssrf_ok(url)
+    if not ok:
+        return {"ok": False, "url": url, "reason": reason, "blocked": True}
+    token = getattr(settings, "CRAWL4AI_TOKEN", None)
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    wait = float(getattr(settings, "RESEARCH_TIMEOUT_SECONDS", 30) or 30) + 25
+    reasons: List[str] = []
+    try:
+        async with httpx.AsyncClient(timeout=wait) as client:
+            answer = await client.post(f"{base}/crawl", headers=headers, json={
+                "urls": [url], "browser_config": {"type": "BrowserConfig", "params": {"headless": True}},
+                "crawler_config": {"type": "CrawlerRunConfig", "params": {"stream": False, "cache_mode": "bypass"}}})
+            if answer.status_code < 400:
+                result = ((answer.json() or {}).get("results") or [{}])[0] or {}
+                page = str(result.get("html") or result.get("cleaned_html") or "")
+                final = str(result.get("redirected_url") or result.get("url") or url)
+                if result.get("success", True) and len(_visible(page)) >= 1 and internet._ssrf_ok(final)[0]:
+                    return {"ok": True, "url": final, "status": int(result.get("status_code") or 200),
+                            "html": page[:MAX_HTML], "rendered": True}
+                reasons.append(str(result.get("error_message") or "the browser read an empty page")[:120])
+            else:
+                reasons.append(f"the browser answered {answer.status_code}")
+            answer = await client.post(f"{base}/md", headers=headers, json={"url": url, "f": "raw", "c": "0"})
+            markdown = str(((answer.json() or {}) if answer.status_code < 400 else {}).get("markdown") or "")
+            if markdown.strip():
+                return {"ok": True, "url": url, "status": 200, "html": markdown[:MAX_HTML], "rendered": True}
+            reasons.append(f"its Markdown answer was empty ({answer.status_code})")
+    except (httpx.HTTPError, ValueError, TypeError, AttributeError, IndexError) as exc:
+        reasons.append(f"the browser could not be reached: {type(exc).__name__}")
+    return {"ok": False, "url": url, "reason": "; ".join(reasons)[:200]}
 
 
 async def site_contacts(url: str, fetch: Optional[Fetch] = None) -> Dict[str, Any]:
@@ -296,6 +342,20 @@ async def site_contacts(url: str, fetch: Optional[Fetch] = None) -> Dict[str, An
                 links["contact"].append(str(page.get("url") or page_url))  # a usual address that was really there
         else:
             out["pages_failed"].append(page_url)
+    if fetch is fetch_raw and not out["phones"] and not out["emails"]:
+        # The plain pages carried no phone or email: a page whose details JavaScript puts in (a shell of menus in the
+        # plain HTML) is read again as the browser shows it.
+        again = [page for page in [home_url] + out["pages_read"][1:] if page][:PAGES_AFTER_HOME + 1]
+        shown = await asyncio.gather(*(fetch_rendered(page) for page in dict.fromkeys(again)), return_exceptions=True)
+        for page_url, page in zip(dict.fromkeys(again), shown):
+            if isinstance(page, dict) and page.get("ok") and site_of(str(page.get("url") or page_url)) == site:
+                got = extract(page["html"], str(page.get("url") or page_url))
+                take(str(page.get("url") or page_url), got)
+                for kind in KINDS:
+                    links[kind] += [link for link in got["links"][kind] if link not in links[kind]]
+            elif isinstance(page, dict) and page.get("reason"):
+                out.setdefault("browser", str(page["reason"])[:200])
+        out["read_by_browser"] = True
     # On a contact or partnership page the details beside the form come first; the home page's come after.
     for kind in ("phones", "emails"):
         out[kind].sort(key=lambda entry: 0 if entry["source"].rstrip("/") != home_url.rstrip("/") else 1)

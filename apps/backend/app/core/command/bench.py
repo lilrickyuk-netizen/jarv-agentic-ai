@@ -754,6 +754,13 @@ async def free_check(say: Callable[[str], None] = print) -> Outcome:
     outcome.answer = json.dumps({k: answer.get(k) for k in ("rows_tried", "phone_filled", "email_filled",
                                                             "channel_filled")}, default=str)
     say(f"   fill_contacts: {outcome.answer}")
+    # Why each one without a phone or email has none: what Claude reads to fix the reader without a paid run.
+    say(f"   sites read with no phone or email on them: {', '.join(answer.get('sites_publishing_neither') or []) or '-'}")
+    say(f"   sites that could not be read: {', '.join(answer.get('could_not_be_read') or []) or '-'}")
+    from app.core.internet.contacts import fetch_rendered
+
+    probe = await fetch_rendered(FREE_CHECK[0][1])
+    say(f"   the browser (Crawl4AI): {'read ' + FREE_CHECK[0][0] + ' (' + str(len(probe.get('html') or '')) + ' characters)' if probe.get('ok') else 'did not read a page: ' + str(probe.get('reason'))}")
     main = table(_sheets(folder, "partners.xlsx"), ("company",))
     header = main["header"]
     rows = main["rows"]

@@ -848,7 +848,7 @@ def test_a_workbooks_contact_columns_are_filled_from_each_business_own_site_many
     assert sorted(read[:3]) == ["https://down.com", "https://quiet.com", "https://www.luigis.co.uk"]
     assert first["success"] and first["rows_tried"] == 3 and first["phone_filled"] == 1
     assert first["email_filled"] == 1 and first["channel_filled"] == 2 and first["rows_left"] == 0
-    assert first["sites_publishing_neither"] == ["Quiet Co"] and "Down Ltd" in first["could_not_be_read"][0]
+    assert [n.split(" (")[0] for n in first["sites_publishing_neither"]] == ["Quiet Co"] and "Down Ltd" in first["could_not_be_read"][0]
     assert cell(1, "published phone") == "0161 234 5678" and cell(1, "published email") == "partnerships@luigis.co.uk"
     assert cell(1, "official partnership/contact channel") == "https://www.luigis.co.uk/partners"
     assert cell(1, "source links").startswith("https://old | https://www.luigis.co.uk/contact")
