@@ -698,10 +698,94 @@ async def stop() -> List[str]:
     return done
 
 
+# The free check: JAI's contact reader on its own, no model and no spend. Well-known UK hospitality businesses and
+# their own websites; the score is what fill_contacts finds on those sites and whether each detail keeps its source.
+FREE_CHECK = [
+    ("Greggs", "https://www.greggs.co.uk"), ("Pret A Manger", "https://www.pret.co.uk"),
+    ("Nando's", "https://www.nandos.co.uk"), ("Wagamama", "https://www.wagamama.com"),
+    ("PizzaExpress", "https://www.pizzaexpress.com"), ("Zizzi", "https://www.zizzi.co.uk"),
+    ("Prezzo", "https://www.prezzo.co.uk"), ("Côte", "https://www.cote.co.uk"),
+    ("ASK Italian", "https://www.askitalian.co.uk"), ("LEON", "https://leon.co"),
+    ("itsu", "https://www.itsu.com"), ("Honest Burgers", "https://www.honestburgers.co.uk"),
+    ("Dishoom", "https://www.dishoom.com"), ("Wahaca", "https://www.wahaca.co.uk"),
+    ("Gourmet Burger Kitchen", "https://www.gbk.co.uk"), ("Tortilla", "https://www.tortilla.co.uk"),
+    ("Franco Manca", "https://www.francomanca.co.uk"), ("Hawksmoor", "https://thehawksmoor.com"),
+    ("Browns", "https://www.browns-restaurants.co.uk"), ("Caffè Nero", "https://www.caffenero.com"),
+    ("Costa Coffee", "https://www.costa.co.uk"), ("GAIL's", "https://gailsbread.co.uk"),
+    ("Bill's", "https://bills-website.co.uk"), ("Pizza Pilgrims", "https://www.pizzapilgrims.co.uk"),
+    ("Turtle Bay", "https://turtlebay.co.uk"),
+]
+
+
+async def free_check(say: Callable[[str], None] = print) -> Outcome:
+    """fill_contacts on FREE_CHECK in its own folder, through the same toolbox a specialist's mission uses."""
+    import time
+    from types import SimpleNamespace
+
+    from app.core.agents import workspace_ops
+    from app.core.agents.toolbox import AgentToolbox
+    from app.core.command.role_mission import RoleAgent
+    from app.core.command.tool_runtime import ToolRuntime
+    from app.core.database import AsyncSessionLocal
+    from app.core.workspaces import fs_inspector
+
+    outcome = Outcome(job="contacts")
+    host = _host_folder("contacts")
+    folder = fs_inspector.host_to_container(host)
+    shutil.rmtree(folder, ignore_errors=True)
+    folder.mkdir(parents=True)
+    outcome.folder = folder
+    header = ["company", "website", "published phone", "phone source URL", "published email", "email source URL",
+              "contact or partnership page URL", "that page's source URL", "still to check", "date checked"]
+    (folder / "partners.xlsx").write_bytes(workspace_ops.xlsx_bytes([{"name": "Partners", "rows": [header] + [
+        [name, site] + [""] * (len(header) - 2) for name, site in FREE_CHECK]}]))
+    started = time.monotonic()
+    async with AsyncSessionLocal() as db:
+        user, workspace = await _workspace(db)
+        runtime = ToolRuntime(db, workspace.id, None, operator="bench:free-check", authority_level=5,
+                              user_id=user.id)
+        context = SimpleNamespace(db_session=db, workspace_id=workspace.id, task_id=None, user_id=user.id,
+                                  session_id=None, approval_granted=False, approved_tools=[])
+        box = AgentToolbox(RoleAgent(runtime, "partnerships"), context, runtime=runtime, root_host=_host_folder())
+        await box.prepare()
+        answer = await workspace_ops.fill_contacts(box, {"path": "contacts/partners.xlsx", "limit": 60})
+        await db.commit()
+    outcome.minutes = round((time.monotonic() - started) / 60, 1)
+    outcome.answer = json.dumps({k: answer.get(k) for k in ("rows_tried", "phone_filled", "email_filled",
+                                                            "channel_filled")}, default=str)
+    say(f"   fill_contacts: {outcome.answer}")
+    main = table(_sheets(folder, "partners.xlsx"), ("company",))
+    header = main["header"]
+    rows = main["rows"]
+    col = {k: _column(header, k) for k in header}
+    with_detail = [r for r in rows if cell(r, col["published phone"]) or cell(r, col["published email"])]
+    sourced = [r for r in with_detail
+               if (not cell(r, col["published phone"]) or first_url(cell(r, col["phone source url"])))
+               and (not cell(r, col["published email"]) or first_url(cell(r, col["email source url"])))]
+    emails = [email_matches_site(cell(r, col["published email"]), cell(r, col["website"])) for r in rows]
+    emails = [e for e in emails if e is not None]
+    outcome.checks = [
+        Check("it ran within 5 minutes, with no model and no spend", outcome.minutes <= 5, f"{outcome.minutes} min"),
+        Check("at least half the businesses got a published phone or email",
+              len(with_detail) * 2 >= len(rows), _share(len(with_detail), len(rows))),
+        Check("every phone and email given has its own source page", len(sourced) == len(with_detail),
+              _share(len(sourced), len(with_detail))),
+        Check("no email is guessed: each is on the business's own domain", all(emails),
+              f"{sum(emails)} of {len(emails)} emails match their website"),
+    ]
+    return outcome
+
+
 def main(argv: List[str]) -> int:
     import os
 
     sys.stdout.reconfigure(line_buffering=True)  # every line reaches the run record as it happens
+    if argv[:1] == ["contacts"]:
+        outcome = asyncio.run(free_check())
+        JOBS.setdefault("contacts", Job("contacts", "Free check: JAI's contact reader on 25 businesses",
+                                        _booking, score_booking))
+        print(render([outcome]))
+        return 0 if outcome.passed else 1
     if argv[:1] == ["stop"]:
         for line in asyncio.run(stop()) or ["Nothing of the bench's was running."]:
             print(line)

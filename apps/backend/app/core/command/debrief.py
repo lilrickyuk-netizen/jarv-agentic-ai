@@ -103,6 +103,10 @@ async def _ask(role_title: str, record: str, router=None) -> Optional[List[Dict[
 
     if getattr(settings, "TESTING", False) or not getattr(settings, "MISSION_DEBRIEF_ENABLED", True):
         return None
+    from app.core.config import missions_on_claude
+
+    if missions_on_claude():
+        return None  # on the Claude engine, Hermes' playbook review (command/learning_loop) is how JAI learns
     from app.core.config import mission_model, missions_on_claude
 
     model = str((mission_model() if missions_on_claude() else "") or getattr(settings, "DEBRIEF_MODEL", "")

@@ -469,6 +469,12 @@ class Settings(BaseSettings):
     CLAUDE_LIGHT_MODEL: str = "claude-haiku-5-5"
     # The independent check has this long, all its calls together, before the work is reported unchecked.
     VERIFIER_MAX_SECONDS: int = 600
+    # Each engine mission's Claude Code folder (session transcripts, skill links) and JAI's own playbooks, kept
+    # beside the code so a restart keeps them (both git-ignored). LEARNING_LOOP_ENABLED: Hermes' review after a
+    # passed mission writes or improves a playbook (command/learning_loop).
+    JAI_SESSIONS_DIR: str = "/app/.jai-sessions"
+    LEARNED_SKILLS_DIR: str = "/app/.jai-learned"
+    LEARNING_LOOP_ENABLED: bool = True
     ROLE_AGENT_MODEL: str = "gpt-6-luna"
     ROLE_AGENT_STUCK_MODEL: str = "claude-sonnet-5-5"
     ROLE_MISSION_MAX_COST_USD: float = Field(default=2.5, ge=0, le=100)

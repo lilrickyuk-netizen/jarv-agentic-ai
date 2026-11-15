@@ -100,8 +100,9 @@ def api_key() -> str:
 
 def sessions_root() -> Path:
     """Where each mission's Claude Code configuration (its skills and its session transcripts) lives, so a round
-    cut short can resume the same session."""
-    return Path(tempfile.gettempdir()) / "jai-claude"
+    cut short can resume the same session, a playbook review can fork it, and a mission's record can be read after
+    the worker restarts (JAI_SESSIONS_DIR; it was the temporary folder before 15 November, which a restart wipes)."""
+    return Path(str(getattr(settings, "JAI_SESSIONS_DIR", "") or Path(tempfile.gettempdir()) / "jai-claude"))
 
 
 def _kind(message: Any) -> str:
@@ -238,6 +239,13 @@ class ClaudeRoleExecutor(RoleExecutor):
                 if (folder / "SKILL.md").is_file() and not (home / "skills" / entry["skill"]).exists():
                     os.symlink(folder, home / "skills" / entry["skill"], target_is_directory=True)
             out.append({"type": "local", "path": str(home)})
+        try:
+            from app.core.command import learning_loop
+
+            if learning_loop.playbooks():  # the playbooks JAI wrote from its own finished missions
+                out.append({"type": "local", "path": str(learning_loop.plugin_dir())})
+        except Exception as exc:  # noqa: BLE001 - the session runs without them
+            logger.info(f"JAI's own playbooks not loaded: {exc}")
         return out
 
     def _folder(self) -> Optional[Path]:
@@ -363,6 +371,16 @@ class ClaudeRoleExecutor(RoleExecutor):
     async def run(self, mission: str, *args, **kwargs) -> Dict[str, Any]:
         self._verify_on = bool(kwargs.get("verify", True))
         result = await super().run(mission, *args, **kwargs)
+        verification = result.get("verification") if isinstance(result.get("verification"), dict) else {}
+        if self.engine_note and self._verify_on and (verification.get("verified") or (
+                result.get("settled") and verification.get("request_done"))):
+            # Hermes' learning loop: a passed mission's way of working is kept as a playbook (command/learning_loop).
+            from app.core.command import learning_loop
+
+            try:
+                result["playbooks"] = await asyncio.wait_for(learning_loop.review(self, mission), timeout=240)
+            except asyncio.TimeoutError:
+                result["playbooks"] = {"reviewed": False, "error": "the review took longer than 4 minutes"}
         if self.engine_note:
             result["engine"] = {"name": "claude", "model": engine_model(), "cost_usd": round(self.engine_cost_usd, 4),
                                 "note": self.engine_note, "delegated": list(self.delegated),
