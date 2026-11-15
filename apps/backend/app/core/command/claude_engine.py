@@ -265,6 +265,12 @@ class ClaudeRoleExecutor(RoleExecutor):
             f"{PREFIX}tidy_spreadsheet and {PREFIX}check_spreadsheet for Excel workbooks, {PREFIX}find_contacts and "
             f"{PREFIX}fill_contacts for the contact details a business publishes on its own pages, and JAI's memory "
             "and knowledge graph.",
+            f"For a list or database of businesses, work at machine speed, not one business at a time: "
+            f"{PREFIX}discover_prospect_companies gives every business of a type in an area from OpenStreetMap (free "
+            f"open data) with its website; save them with {PREFIX}write_spreadsheet; {PREFIX}fill_contacts then reads "
+            f"all their own sites side by side for the published phone, email and contact page; "
+            f"{PREFIX}find_decision_makers and {PREFIX}verify_prospect_email add named people and check addresses. "
+            "Search the web for what open data does not hold.",
         ]
         if rules:
             parts.append("Richard's standing rules for this product (every one applies):\n"

@@ -64,9 +64,20 @@ def today() -> str:
     return f"{datetime.now(timezone.utc):%A %-d %B %Y} ({datetime.now(timezone.utc):%Y-%m-%d})"
 
 
+# JAI's open-data prospecting workflow (business/prospecting, Upgrade 6, after Sellbird): every business of a type in
+# an area from OpenStreetMap, each one's own site read for signals and the people who decide, and each address
+# verified against what the site publishes. 15 November: it was the Sales Lead's alone, so the booking-partners
+# database went to the Partnerships Lead without it and was built by searching the web one business at a time.
+# Every role that builds lists of businesses has the finding half; drafting and sending stay with Sales.
+FINDING_TOOLS = ("discover_prospect_companies", "read_buying_signals", "find_decision_makers", "verify_prospect_email")
+LIST_BUILDERS = ("partnerships", "sales", "marketing", "growth", "business", "research", "community")
+
+
 def role_tools(role: str) -> List[str]:
     """The tools a role's agent works with in its missions."""
     tools = list(TRADE_TOOLS)
+    if role in LIST_BUILDERS:
+        tools += list(FINDING_TOOLS)
     if role in CREATIVE_ROLES:
         tools += list(CREATIVE_TOOLS)
     try:

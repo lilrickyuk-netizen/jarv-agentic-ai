@@ -14712,3 +14712,16 @@ TESTS RUN: the booking job is scored on 50 businesses and fails past 15 minutes;
 RESULT: Richard, 15 November: "15 to 30 minutes to get 10 UK chains ... does it save me time, no; does it save me money, no." The log of the 16:25 booking run: the businesses' own sites were read several a second by JAI's own contact tools, and most of the 9 minutes went to work the 15-item checklist asked for (closure news, administration checks), then up to 80 model calls of checking. The checklist is now at most 8 items, only what the deliverable must show; an engine mission's independent check has at most 20 calls and 5 minutes; the booking test is 50 businesses and must finish within 15 minutes.
 BLOCKERS: None
 NEXT TASK: The booking test (£1)
+
+---
+
+TASK ID: OPEN-DATA-PROSPECTING-FOR-EVERY-LIST
+TASK NAME: Every specialist that builds lists of businesses has JAI's open-data prospecting workflow
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/role_mission.py, apps/backend/app/core/command/claude_engine.py, apps/backend/tests/test_claude_engine.py, BUILD_LEDGER.md
+COMMANDS RUN: backend test suite on PostgreSQL (run by the installer)
+TESTS RUN: Partnerships, Marketing, Growth, Business, Research and Sales each have discover_prospect_companies, read_buying_signals, find_decision_makers and verify_prospect_email, and none has a sending tool
+RESULT: JAI's prospecting workflow (business/prospecting, Upgrade 6, after Sellbird: every business of a type in an area from OpenStreetMap, each one's own site read, named decision-makers, verified addresses) was the Sales Lead's alone. The booking-partners database went to the Partnerships Lead without it, which searched the web and visited businesses one at a time. The finding half of the workflow is now every list-building specialist's, and the engine's session says how a database of businesses is built at machine speed: discover from open data, save, fill the contacts from every site side by side. Drafting and sending stay with Sales, and every send still waits for Richard.
+BLOCKERS: None
+NEXT TASK: The booking test: 50 businesses within 15 minutes (£1)

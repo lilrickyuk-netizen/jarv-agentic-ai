@@ -485,3 +485,12 @@ def test_claude_5_models_are_sent_no_temperature():
     sent = provider._convert_request(CompletionRequest(model="claude-sonnet-5-5", temperature=0.0, max_tokens=10,
                                                        messages=[Msg(role="user", content="hi")]))
     assert "temperature" not in sent and "top_p" not in sent
+
+
+def test_every_list_building_specialist_has_the_open_data_prospecting_workflow():
+    from app.core.command.role_mission import FINDING_TOOLS, role_tools
+
+    for role in ("partnerships", "marketing", "growth", "business", "research", "sales"):
+        mine = set(role_tools(role))
+        assert set(FINDING_TOOLS) <= mine, role                     # 15 November: the Sales Lead's alone
+        assert "approve_and_send_outreach" not in mine and not any("send" in t for t in mine), role
