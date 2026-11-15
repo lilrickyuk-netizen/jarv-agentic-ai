@@ -283,3 +283,42 @@ def test_the_engine_is_off_in_tests_and_chosen_for_role_missions_when_on(monkeyp
     monkeypatch.setattr(settings, "MISSION_ENGINE", "jai")
     assert claude_engine.enabled() is False
     assert issubclass(ClaudeRoleExecutor, claude_engine.RoleExecutor)
+
+
+@pytest.mark.integration
+def test_finish_is_checked_there_and_then_and_the_agent_fixes_what_the_check_found(project, monkeypatch):  # noqa: F811
+    host, root = project
+    session = Session([([
+        (f"{PREFIX}write_spreadsheet", {"path": "plexecute/partners.xlsx", "sheets": BOOK}),
+        (f"{PREFIX}requirement_status", {"id": "R1", "status": "done", "evidence": "wrote the sheet"}),
+        (f"{PREFIX}requirement_status", {"id": "R2", "status": "done", "evidence": "one website"}),
+        (f"{PREFIX}finish", {"summary": "Built.", "success": True}),          # checked: not yet
+        (f"{PREFIX}write_spreadsheet", {"path": "plexecute/partners.xlsx", "sheets": BOOK}),   # the fix
+        (f"{PREFIX}finish", {"summary": "Built and fixed.", "success": True}),  # checked: accepted
+    ], "", "success")])
+    _engine_on(monkeypatch, session)
+    verdicts = [{"verified": False, "unmet": ["R2: Greggs's website is not its own address"], "checks": []},
+                {"verified": True, "unmet": [], "checks": []}]
+    seen = []
+
+    async def verify(self, mission, summary, settled=False):
+        seen.append(summary)
+        return dict(verdicts[len(seen) - 1])
+
+    monkeypatch.setattr(claude_engine.RoleExecutor, "verify", verify)
+
+    async def go():
+        async with AsyncTestingSessionLocal() as db:
+            runner, _, tools = await _executor(db, host)
+            runner._verify_on = True
+            out = await _loop(runner, tools)
+            after = await runner.verify("Build the partners workbook", out[0])      # the check after the session
+            return runner, out, after
+
+    runner, (summary, success, finished, *_), after = _run(go())
+    assert finished and success and summary == "Built and fixed."
+    first_finish = [r for n, r in session.results if n == f"{PREFIX}finish"][0]
+    assert "NOT ACCEPTED YET" in first_finish["content"][0]["text"]
+    assert "Greggs's website is not its own address" in first_finish["content"][0]["text"]
+    assert seen == ["Built.", "Built and fixed."] and runner._checks == 2
+    assert after["verified"] is True and len(seen) == 2          # nothing done since: that verdict stands

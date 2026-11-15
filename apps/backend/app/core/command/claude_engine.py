@@ -50,7 +50,12 @@ OUTSIDE_JAI = ("Bash", "BashOutput", "KillShell", "Write", "Edit", "MultiEdit", 
                "WebSearch", "WebFetch", "Agent(fork)", "SendMessage", "Workflow", "AskUserQuestion")
 # Claude Code's own tools a specialist keeps: its skills, reading a skill's files and its colleagues.
 KEPT = ("Skill", "Read", "Agent", "Task")
-EXTRA_TURNS = 40  # loading skills and briefing colleagues take turns of their own
+EXTRA_TURNS = 40
+# When the agent says it has finished, JAI's independent Verifier checks the work there and then, and what it finds
+# is the answer to finish: the agent fixes it in the same session, with everything it has read still in front of it.
+# (15 November bench: checked only after the session ended, the investors job ran four fresh rounds and met 5 of 15
+# requirements.) After this many checks in one session, finish is accepted and the usual check after it decides.
+CHECKS_IN_SESSION = 2  # loading skills and briefing colleagues take turns of their own
 MAX_WORDS_ONLY = 3
 SUB_AGENTS_AT_ONCE = 3
 TEXT_LIMIT = 30_000
@@ -93,6 +98,10 @@ class ClaudeRoleExecutor(RoleExecutor):
         self._client = None
         self._stop: Optional[str] = None
         self.delegated: List[Dict[str, str]] = []  # each part handed to a colleague: who, and what
+        self._verify_on = False       # set by run(verify=...): a team member's part is checked by its lead
+        self._checks = 0              # independent checks made inside this session
+        self._verdict: Optional[Dict[str, Any]] = None  # the latest, with the number of calls it saw
+        self._verdict_calls = -1
 
     # ----- the session's parts ------------------------------------------------------------------------------------
 
@@ -185,6 +194,7 @@ class ClaudeRoleExecutor(RoleExecutor):
         return extra
 
     async def run(self, mission: str, *args, **kwargs) -> Dict[str, Any]:
+        self._verify_on = bool(kwargs.get("verify", True))
         result = await super().run(mission, *args, **kwargs)
         if self.engine_note:
             result["engine"] = {"name": "claude", "model": engine_model(), "cost_usd": round(self.engine_cost_usd, 4),
@@ -212,7 +222,7 @@ class ClaudeRoleExecutor(RoleExecutor):
         from app.core.command.requirements import update as update_requirement
 
         state = {"summary": "", "success": True, "finished": False, "settled": False, "last": None,
-                 "refused": 0, "calls": 0}
+                 "refused": 0, "calls": 0, "mission": mission}
         names = [t["name"] for t in tools]
 
         def handler(name: str):
@@ -272,7 +282,9 @@ class ClaudeRoleExecutor(RoleExecutor):
             max_budget_usd=budget,
             env={"ANTHROPIC_API_KEY": api_key(), "CLAUDE_AGENT_SDK_CLIENT_APP": "jai-backend",
                  "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "1",
-                 "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": str(SUB_AGENTS_AT_ONCE)},
+                 "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": str(SUB_AGENTS_AT_ONCE),
+                 # The independent check runs inside finish and can take minutes: the call waits for it.
+                 "MCP_TOOL_TIMEOUT": str(30 * 60 * 1000)},
             stderr=lambda line: logger.debug(f"claude engine: {line}"),
         )
         prompt = messages[0].content if messages and isinstance(messages[0].content, str) else str(mission)
@@ -321,6 +333,35 @@ class ClaudeRoleExecutor(RoleExecutor):
         return (state["summary"], state["success"], state["finished"], state["settled"], continuation,
                 state["last"])
 
+    async def _check_now(self, mission: str, args: Dict[str, Any], settled: bool) -> Optional[str]:
+        """The independent check, run when the agent says it has finished. None: the work stands (or this session
+        has had its checks, or the mission's lead checks it). Otherwise what the check found, as the answer to
+        finish, so the agent goes on in this session."""
+        if not self._verify_on or self._checks >= CHECKS_IN_SESSION:
+            return None
+        self._checks += 1
+        verdict = await RoleExecutor.verify(self, mission, str(args.get("summary") or ""), settled=settled)
+        self._verdict, self._verdict_calls = verdict, len(self.runtime.calls)
+        if verdict.get("verified") or (settled and verdict.get("request_done")):
+            return None
+        unmet = [str(u)[:400] for u in (verdict.get("unmet") or [])][:15] or [
+            "The independent check did not confirm the work."]
+        last = self._checks >= CHECKS_IN_SESSION
+        return ("NOT ACCEPTED YET. JAI's independent check (a separate agent that did not do the work) looked at the "
+                "folder and found:\n" + "\n".join(f"- {u}" for u in unmet)
+                + "\n\nFix each one now, in the files, with the evidence it needs: open the pages, correct or replace "
+                "the entries, then check the workbook again. Where one truly cannot be shown from published sources, "
+                "say so in the work itself and mark that requirement with requirement_status, giving the reason. "
+                "Then call finish again." + (" The next finish is checked once more after the session." if last
+                                             else ""))
+
+    async def verify(self, mission: str, summary: str, settled: bool = False) -> Dict[str, Any]:
+        """The check after the session: the one made at finish stands when nothing has been done since."""
+        if self._verdict is not None and self._verdict_calls == len(self.runtime.calls):
+            verdict, self._verdict = self._verdict, None
+            return verdict
+        return await super().verify(mission, summary, settled=settled)
+
     async def _drain(self, client) -> str:
         """Read the session's messages until its turn ends. Returns the result's subtype ("success",
         "error_max_turns", "error_max_budget_usd", ...)."""
@@ -365,9 +406,14 @@ class ClaudeRoleExecutor(RoleExecutor):
                 state["refused"] += 1
                 out = {"acknowledged": False, "reason": self._not_finished(remaining)}
             else:
-                state.update({"summary": args.get("summary", "Mission complete."), "success": not gave_up,
-                              "finished": True, "settled": settled})
-                out = {"acknowledged": True, "next": "The mission is ending: say nothing more."}
+                found = await self._check_now(state["mission"], args, settled) if (
+                    not gave_up or settled) else None
+                if found:
+                    out = {"acknowledged": False, "reason": found}
+                else:
+                    state.update({"summary": args.get("summary", "Mission complete."), "success": not gave_up,
+                                  "finished": True, "settled": settled})
+                    out = {"acknowledged": True, "next": "The mission is ending: say nothing more."}
         else:
             out = await self._tool_step(name, args)
             if (self.first_edit_step is None and name in ("write_file", "edit_file", "write_spreadsheet",

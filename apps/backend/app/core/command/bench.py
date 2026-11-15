@@ -20,6 +20,7 @@ cancels a job whose spend passes it. Nothing is sent, posted or published by any
 
     python -m app.core.command.bench                 every job
     python -m app.core.command.bench booking cancel  the jobs named
+    python -m app.core.command.bench stop            stop a bench that is running, and every mission it started
 """
 from __future__ import annotations
 
@@ -42,6 +43,7 @@ POLL_SECONDS = 10
 JOB_MINUTES = 35          # a job still working after this is cancelled and scored as it stands
 SETTLED_SECONDS = 180     # a mission left waiting to carry on, with no change for this long, has ended its run
 HARD_STOP = 1.15          # the bench cancels a job whose spend passes its allowance by this much
+RUN_DIR = Path("/app/.jai-bench")   # the bench's run record and its process id, beside the code (git-ignored)
 
 
 @dataclass
@@ -381,7 +383,8 @@ def _allowance_usd() -> float:
 def _host_folder(name: str = "") -> str:
     from app.core.config import settings
 
-    root = str(settings.WORKSPACE_HOST_ROOT).rstrip("\\/")
+    # The setting can hold escaped backslashes (C:\\\\Users\\\\...): one is meant (15 November bench).
+    root = re.sub(r"\\{2,}", lambda _: "\\", str(settings.WORKSPACE_HOST_ROOT)).rstrip("\\/")
     windows = "\\" in root or ":" in root[:3]
     sep = "\\" if windows else "/"
     return sep.join(p for p in (root, FOLDER, name) if p)
@@ -615,7 +618,58 @@ async def run(names: List[str], say: Callable[[str], None] = print) -> List[Outc
     return outcomes
 
 
+async def stop() -> List[str]:
+    """Stop a bench that is running (its process) and every mission and workflow in the bench workspace."""
+    import os
+    import signal
+
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.runtime.missions import cancel_mission
+    from app.models.task import Task
+    from app.models.workflow import WorkflowRun
+    from app.models.workspace import Workspace
+
+    done: List[str] = []
+    try:
+        pid = int((RUN_DIR / "pid").read_text().strip())
+        if pid != os.getpid():
+            os.kill(pid, signal.SIGTERM)
+            done.append(f"bench process {pid} stopped")
+    except (OSError, ValueError):
+        pass
+    live = ["pending", "queued", "running", "recovering", "needs_continuation", "waiting_on_approval", "blocked"]
+    async with AsyncSessionLocal() as db:
+        workspace = (await db.execute(select(Workspace).where(Workspace.slug == SLUG))).scalars().first()
+        if workspace is None:
+            return done
+        for run in (await db.execute(select(WorkflowRun).where(WorkflowRun.workspace_id == workspace.id,
+                                                                WorkflowRun.status == "running"))).scalars():
+            run.status, run.stopped_reason = "cancelled", "the bench was stopped"
+            run.finished_at = datetime.now(timezone.utc)
+            done.append(f"workflow stopped: {run.title}")
+        for task in (await db.execute(select(Task).where(Task.workspace_id == workspace.id,
+                                                         Task.status.in_(live)))).scalars():
+            if await cancel_mission(db, task, actor="bench", reason="the bench was stopped"):
+                done.append(f"mission cancelled: {str(task.id)[:8]}")
+        await db.commit()
+    return done
+
+
 def main(argv: List[str]) -> int:
+    import os
+
+    sys.stdout.reconfigure(line_buffering=True)  # every line reaches the run record as it happens
+    if argv[:1] == ["stop"]:
+        for line in asyncio.run(stop()) or ["Nothing of the bench's was running."]:
+            print(line)
+        return 0
+    try:
+        RUN_DIR.mkdir(parents=True, exist_ok=True)
+        (RUN_DIR / "pid").write_text(str(os.getpid()))
+    except OSError:
+        pass
     names = [a for a in argv if a in JOBS] or list(JOBS)
     unknown = [a for a in argv if a not in JOBS]
     if unknown:

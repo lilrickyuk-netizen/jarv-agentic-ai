@@ -125,3 +125,31 @@ def test_a_missions_own_allowance_is_never_more_than_the_setting(monkeypatch):
     assert asyncio.run(mission_budget.role_cap("t2")) == 2.5          # never above the setting
     assert asyncio.run(mission_budget.role_cap(None)) == 2.5
     assert set(bench.JOBS) == {"booking", "places", "investors", "team", "cancel"}
+
+
+def test_a_workbook_in_a_new_folder_keeps_its_backup_beside_it_never_above_the_workspaces(tmp_path, monkeypatch):
+    from app.core.agents.workspace_ops import _backup_workbook
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "WORKSPACE_CONTAINER_ROOT", str(tmp_path))
+    fresh = tmp_path / "_jai_bench" / "investors"
+    fresh.mkdir(parents=True)
+    book = fresh / "investors.xlsx"
+    book.write_bytes(b"new")
+    _backup_workbook(book, b"old")                    # 15 November: "Permission denied: '/.jai'"
+    assert [p.read_bytes() for p in (fresh / ".jai" / "backups").glob("investors-*.xlsx")] == [b"old"]
+    workspace = tmp_path / "PLEXECUTE"
+    (workspace / ".jai").mkdir(parents=True)
+    (workspace / "plexecute").mkdir()
+    (workspace / "plexecute" / "p.xlsx").write_bytes(b"new")
+    _backup_workbook(workspace / "plexecute" / "p.xlsx", b"old")
+    assert list((workspace / ".jai" / "backups").glob("p-*.xlsx"))      # a workspace keeps them at its root
+
+
+def test_the_bench_folder_has_one_backslash_where_the_setting_escapes_them(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "WORKSPACE_HOST_ROOT", "C:\\\\Users\\\\lilri\\\\Projects")
+    assert bench._host_folder("booking") == "C:\\Users\\lilri\\Projects\\_jai_bench\\booking"
+    monkeypatch.setattr(settings, "WORKSPACE_HOST_ROOT", "C:\\Users\\lilri\\Projects\\")
+    assert bench._host_folder() == "C:\\Users\\lilri\\Projects\\_jai_bench"

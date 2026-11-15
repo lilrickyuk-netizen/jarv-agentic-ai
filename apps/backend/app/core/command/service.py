@@ -644,6 +644,11 @@ class CommandService:
                 "failure": failure,
                 **result_extra,
             }
+            engine = (result_extra.get("role") or {}).get("engine") if isinstance(result_extra.get("role"), dict) \
+                else None
+            if isinstance(engine, dict) and engine.get("model"):
+                # The work ran on the Claude engine: the card names the model that did it, not the Orchestrator's.
+                task.result["provider"], task.result["model"] = "claude-agent-sdk", engine["model"]
             task.execution_logs = [
                 {"step": "planning", "agent": "orchestrator", "agents_selected": selected_agents},
                 {"step": "tools", "agent": "orchestrator", "tool_calls": len(runtime.calls)},

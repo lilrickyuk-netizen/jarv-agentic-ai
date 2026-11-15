@@ -1556,12 +1556,24 @@ def _backup_workbook(path, old: bytes) -> None:
     """Keep the workbook as it was in .jai/backups/ (the latest ten copies) before it is changed."""
     from datetime import datetime, timezone
 
-    backups = path.parent
-    for _ in range(8):  # the workspace root holds .jai/
+    from pathlib import Path
+
+    from app.core.config import settings
+
+    # The workspace root holds .jai/: the nearest folder up that has one (or a .git), never above the folder JAI's
+    # workspaces are mounted at. A new folder has neither, so its backups go beside the workbook (15 November: in a
+    # fresh folder the search climbed to / and tidy_spreadsheet failed with "Permission denied: '/.jai'").
+    top = Path(str(getattr(settings, "WORKSPACE_CONTAINER_ROOT", "") or "/host/workspaces")).resolve()
+    backups = path.parent.resolve()
+    home = backups
+    for _ in range(8):
         if (backups / ".jai").is_dir() or (backups / ".git").exists():
+            home = backups
+            break
+        if backups == top or backups.parent == backups:
             break
         backups = backups.parent
-    folder = backups / ".jai" / "backups"
+    folder = home / ".jai" / "backups"
     folder.mkdir(parents=True, exist_ok=True)
     (folder / f"{path.stem}-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}.xlsx").write_bytes(old)
     for stale in sorted(folder.glob(f"{path.stem}-*.xlsx"))[:-10]:
