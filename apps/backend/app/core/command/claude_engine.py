@@ -59,7 +59,12 @@ PREFIX = f"mcp__{SERVER}__"
 # Claude Code's own tools in a specialist's session.
 FILE_TOOLS = ("Read", "Write", "Edit", "Glob", "Grep")
 WEB_TOOLS = ("WebSearch", "WebFetch")
-OWN_TOOLS = FILE_TOOLS + WEB_TOOLS + ("TodoWrite", "Skill", "Agent", "Task")
+# ToolSearch loads a tool's definition into the session (Claude Code defers the definitions of a large tool set):
+# without it the agent cannot call JAI's own tools properly. 15 November: the gate refused it, so the specialist,
+# whose first move was to load discover_prospect_companies and fill_contacts, worked one business at a time with
+# the only tool it could call blind (123 find_contacts calls), and found 20 businesses with 3 contacts.
+LOADERS = ("ToolSearch",)
+OWN_TOOLS = FILE_TOOLS + WEB_TOOLS + ("TodoWrite", "Skill", "Agent", "Task") + LOADERS
 # Not part of a specialist's session: the shell (JAI's command gate is for the builder's sandbox) and anything that
 # would wait for a person.
 REMOVED = ("Bash", "BashOutput", "KillShell", "NotebookEdit", "AskUserQuestion", "SendMessage", "Workflow",
@@ -310,7 +315,7 @@ class ClaudeRoleExecutor(RoleExecutor):
                         "the part you are given fully, save what you make in the folder, and report exactly what you "
                         "saved and where, and what you could not do. Never guess a fact, a contact or an address. "
                         "Contact, send, post, publish and spend nothing."),
-                tools=list(FILE_TOOLS + WEB_TOOLS + ("TodoWrite", "Skill")) + theirs,
+                tools=list(FILE_TOOLS + WEB_TOOLS + ("TodoWrite", "Skill") + LOADERS) + theirs,
                 model="inherit",
             )
         return out
@@ -388,8 +393,9 @@ class ClaudeRoleExecutor(RoleExecutor):
                 if self._client is not None:
                     asyncio.ensure_future(self._client.interrupt())
                 return _deny(self._stop)
-            if tool.startswith(PREFIX) or tool in ("TodoWrite", "Skill"):
-                return {}  # JAI's own tools enforce JAI's gate themselves; planning and skills touch nothing
+            if tool.startswith(PREFIX) or tool in ("TodoWrite", "Skill") + LOADERS:
+                return {}  # JAI's own tools enforce JAI's gate themselves; planning, skills and loading a tool's
+                # definition touch nothing
             if tool in ("Agent", "Task"):
                 self.delegated.append({"to": str(args.get("subagent_type") or "")[:60],
                                        "what": str(args.get("description") or "")[:200]})
@@ -522,7 +528,9 @@ class ClaudeRoleExecutor(RoleExecutor):
             env={"ANTHROPIC_API_KEY": api_key(), "CLAUDE_AGENT_SDK_CLIENT_APP": "jai-backend",
                  "CLAUDE_CONFIG_DIR": str(config),
                  "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "1",
-                 "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": str(SUB_AGENTS_AT_ONCE)},
+                 "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": str(SUB_AGENTS_AT_ONCE),
+                 # Claude Code's own telemetry and other non-essential traffic stay off: JAI's work is Richard's.
+                 "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_TELEMETRY": "1"},
             stderr=lambda line: logger.debug(f"claude engine: {line}"),
         )
         self.engine_note = f"Claude Agent SDK, {engine_model()}"

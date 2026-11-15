@@ -175,6 +175,10 @@ def _loop(runner, tools, budget=60):
                                "", tools, budget, 15, 0)
 
 
+def options_allowed(session):
+    return set(session.options.allowed_tools)
+
+
 def _folder(monkeypatch, root):
     """The product's folder as the session sees it (the test's folder stands for the container's)."""
     monkeypatch.setattr(ClaudeRoleExecutor, "_folder", lambda self: Path(root))
@@ -186,6 +190,7 @@ def test_the_session_is_claude_code_with_jais_rules_skills_specialists_and_gate(
     host, root = project
     session = Session([([
         ("Bash", {"command": "rm -rf /"}),                                   # not part of the session
+        ("ToolSearch", {"query": "select:mcp__jai__fill_contacts"}),       # loading a tool: never refused
         ("TodoWrite", {"todos": [{"content": "Find chains", "status": "in_progress"}]}),
         ("WebFetch", {"url": "https://www.greggs.co.uk/contact", "prompt": "contact details"}),
         ("WebFetch", {"url": "http://169.254.169.254/latest/meta-data", "prompt": "x"}),   # never opened
@@ -210,7 +215,8 @@ def test_the_session_is_claude_code_with_jais_rules_skills_specialists_and_gate(
     assert (Path(root) / "plexecute" / "partners.xlsx").exists()
     assert not Path("/etc/outside.txt").exists()
     denied = dict(session.denied)
-    assert "Bash" in denied and "outside the product's folder" in denied["Write"]
+    assert "Bash" in denied and "outside the product's folder" in denied["Write"] and "ToolSearch" not in denied
+    assert "ToolSearch" in options_allowed(session)
     assert "not one JAI may open" in denied["WebFetch"]
     record = [(c["tool"], c["success"]) for c in runtime.calls]
     assert ("fetch_url", True) in record

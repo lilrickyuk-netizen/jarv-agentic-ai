@@ -113,9 +113,10 @@ def _column(header: List[Any], *words: str) -> Optional[int]:
 
 
 def table(sheets: List[Dict[str, Any]], name_words: tuple) -> Dict[str, Any]:
-    """The workbook's main list: the sheet with most rows whose header names its entries. {"header", "rows",
-    "sheet"}; empty when there is none."""
-    best: Dict[str, Any] = {"header": [], "rows": [], "sheet": ""}
+    """The workbook's list: every sheet whose header names its entries, taken together (15 November: 50 businesses
+    in three sheets were counted as the 20 of the largest). Rows of the other sheets are lined up under the largest
+    sheet's header by column name. {"header", "rows", "sheet"}; empty when there is none."""
+    found = []
     for sheet in sheets:
         rows = [r for r in (sheet.get("rows") or []) if any(str(c or "").strip() for c in r)]
         if len(rows) < 2:
@@ -123,9 +124,17 @@ def table(sheets: List[Dict[str, Any]], name_words: tuple) -> Dict[str, Any]:
         header = [str(c or "").strip().lower() for c in rows[0]]
         if _column(header, *name_words) is None:
             continue
-        if len(rows) - 1 > len(best["rows"]):
-            best = {"header": header, "rows": rows[1:], "sheet": sheet.get("name", "")}
-    return best
+        found.append((header, rows[1:], sheet.get("name", "")))
+    if not found:
+        return {"header": [], "rows": [], "sheet": ""}
+    found.sort(key=lambda f: len(f[1]), reverse=True)
+    header = found[0][0]
+    rows: List[List[Any]] = []
+    for theirs, body, _ in found:
+        where = {name: k for k, name in enumerate(theirs)}
+        for row in body:
+            rows.append([row[where[name]] if name in where and where[name] < len(row) else "" for name in header])
+    return {"header": header, "rows": rows, "sheet": ", ".join(f[2] for f in found)}
 
 
 def cell(row: List[Any], column: Optional[int]) -> str:

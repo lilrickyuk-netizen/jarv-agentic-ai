@@ -155,3 +155,21 @@ def test_the_bench_folder_has_one_backslash_where_the_setting_escapes_them(monke
     assert bench._host_folder("booking") == "C:\\Users\\lilri\\Projects\\_jai_bench\\booking"
     monkeypatch.setattr(settings, "WORKSPACE_HOST_ROOT", "C:\\Users\\lilri\\Projects\\")
     assert bench._host_folder() == "C:\\Users\\lilri\\Projects\\_jai_bench"
+
+
+def test_a_list_kept_in_several_sheets_is_counted_whole(tmp_path, monkeypatch):
+    async def answers(urls):
+        return {u: True for u in urls}
+
+    monkeypatch.setattr(bench, "reachable", answers)
+    rows = _rows()
+    (tmp_path / "partners.xlsx").write_bytes(xlsx_bytes([
+        {"name": "Groups and chains", "rows": [HEADER] + rows[:20]},
+        {"name": "Independents", "rows": [HEADER] + rows[20:35]},
+        {"name": "Cafés", "rows": [HEADER[1:] + HEADER[:1]] + [r[1:] + r[:1] for r in rows[35:]]},   # other order
+        {"name": "Notes", "rows": [["Notes"], ["how it was made"]]}]))
+    outcome = bench.Outcome(job="booking", folder=tmp_path, status="completed", verified=True, engine="claude",
+                            cost_usd=0.6, minutes=12.0)
+    scored = _scores(bench.score_booking(outcome))
+    assert scored["partners.xlsx lists at least 50"].passed, scored["partners.xlsx lists at least 50"].detail
+    assert all(c.passed for c in scored.values()), {k: c.detail for k, c in scored.items() if not c.passed}

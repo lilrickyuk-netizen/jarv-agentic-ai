@@ -14738,3 +14738,16 @@ TESTS RUN: the voice's memory look-up asks for every workspace's memories with t
 RESULT: 15 November, 18:21: asked "how's the mission going?", the voice said "I can't read my live state". Timed while the booking test ran: workspaces 0.01 s, recent missions 0.71 s, approvals 0.04 s, Mem0 and Graphiti 0.63 s, JAI's memories more than 30 s. A memory search marks each memory it finds as recalled (an update); a running mission does the same inside the one transaction it keeps open until it ends, so the voice's update of the same memories waited behind the mission's row locks, past the voice's four seconds. The voice and the dashboard's memory search now only read (touch off); agents' own recall still refreshes the memories they use.
 BLOCKERS: None
 NEXT TASK: The booking test's result
+
+---
+
+TASK ID: THE-TOOL-LOADER
+TASK NAME: The engine's gate lets the agent load its tools' definitions (ToolSearch); the bench counts a list kept in several sheets; Claude Code's non-essential traffic is off
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/claude_engine.py, apps/backend/app/core/command/bench.py, apps/backend/tests/test_claude_engine.py, apps/backend/tests/test_bench.py, BUILD_LEDGER.md
+COMMANDS RUN: the 18:16 booking test's Claude Code transcript read on Richard's machine (196 tool calls); backend test suite on PostgreSQL (run by the installer)
+TESTS RUN: ToolSearch passes the gate and is in the lead's and every colleague's tools; a list of 50 kept in three sheets (one with its columns in another order) is counted as 50
+RESULT: The transcript of the 50-business test: the specialist's first move was ToolSearch "select: discover_prospect_companies, write_spreadsheet, fill_contacts, read_document, check_spreadsheet, WebFetch, WebSearch". Claude Code defers the definitions of a large tool set and loads them with ToolSearch; the engine's gate (ENGINE-AS-CLAUDE-CODE) refused it as "not part of a specialist's session", twice. So the specialist never had the open-data discovery or the bulk contact reader, and worked one business at a time: 123 find_contacts calls, 53 page fetches, no discover_prospect_companies, no fill_contacts; it wrote 50 businesses in three sheets with 4 phones, over its allowance. The bench counted only the largest sheet (20). ToolSearch only loads definitions and touches nothing: it is allowed. The bench now counts every sheet of the list. The session also showed Claude Code's own bundled plugins loading, one of them telemetry: CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC and DISABLE_TELEMETRY are set.
+BLOCKERS: None
+NEXT TASK: The booking test (£1)
