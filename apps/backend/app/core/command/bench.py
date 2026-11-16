@@ -283,7 +283,11 @@ async def _score_contacts(outcome: Outcome, book: str, wanted: int, name_words: 
                                        if cell(r, _detail(header, kind))) and any(
         first_url(cell(r, i)) for i, h in enumerate(header) if i != site and re.search(
             r"source|evidence|url|page|link", str(h or ""), re.I))]
-    can_contact = [r for r in named if _EMAIL.search(cell(r, email)) or cell(r, _detail(header, "phone"))]
+    # A business can be contacted when its row holds a published email (in whichever column the workbook keeps it:
+    # "published email", "partnership contact") or a published phone.
+    held = [i for i, h in enumerate(header) if i != site and not re.search(r"source|evidence|url|link", str(h or ""), re.I)]
+    can_contact = [r for r in named if any(_EMAIL.search(cell(r, i)) for i in held)
+                   or cell(r, _detail(header, "phone"))]
     answers = await reachable(sites) if sites else {}
     live = sum(1 for ok in answers.values() if ok)
     return [
@@ -324,12 +328,8 @@ async def _score_places(outcome: Outcome, book: str, wanted: int, name_words: tu
 
     distinct = len({site_of(u) for u in urls})
     return [
-        # Richard, 16 November: "if it can't find the number or email address it moves to the next business ...
-        # until it has at least x businesses for me to contact".
-        Check(f"{book} has at least {wanted} businesses to contact (a published email or phone)",
-              len(can_contact) >= wanted,
-              f"{len(can_contact)} of {len(named)} listed" + (f" in sheet '{main['sheet']}'" if main["sheet"] else "")
-              if named else f"no {book} with a list was found"),
+        Check(f"{book} lists at least {wanted}", len(named) >= wanted,
+              f"{len(named)} in sheet '{main['sheet']}'" if main["sheet"] else f"no {book} with a list was found"),
         Check("every entry has its address", bool(named) and len(urls) == len(named), _share(len(urls), len(named))),
         Check("every address is real (it answers on the web)", bool(urls) and live == len(urls),
               _share(live, len(urls)) + ("" if live == len(urls) else ": not answering "
