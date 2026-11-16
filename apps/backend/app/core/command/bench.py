@@ -112,22 +112,24 @@ def _column(header: List[Any], *words: str) -> Optional[int]:
     return None
 
 
-def table(sheets: List[Dict[str, Any]], name_words: tuple) -> Dict[str, Any]:
+def table(sheets: List[Dict[str, Any]], name_words: tuple, needs: tuple = ()) -> Dict[str, Any]:
     """The workbook's list: every sheet whose header names its entries, taken together (15 November: 50 businesses
-    in three sheets were counted as the 20 of the largest). Rows of the other sheets are lined up under the largest
-    sheet's header by column name. {"header", "rows", "sheet"}; empty when there is none."""
+    in three sheets were counted as the 20 of the largest). Rows of the other sheets are lined up under the widest
+    such sheet's header by column name. needs: words one of whose columns a sheet must have to be part of the list
+    (16 November: a "Passed over" sheet of company, website and reason was the largest, its header was taken, and 47
+    businesses with their emails were scored as 0 of 75). {"header", "rows", "sheet"}; empty when there is none."""
     found = []
     for sheet in sheets:
         rows = [r for r in (sheet.get("rows") or []) if any(str(c or "").strip() for c in r)]
         if len(rows) < 2:
             continue
         header = [str(c or "").strip().lower() for c in rows[0]]
-        if _column(header, *name_words) is None:
+        if _column(header, *name_words) is None or (needs and _column(header, *needs) is None):
             continue
         found.append((header, rows[1:], sheet.get("name", "")))
     if not found:
         return {"header": [], "rows": [], "sheet": ""}
-    found.sort(key=lambda f: len(f[1]), reverse=True)
+    found.sort(key=lambda f: (len(f[0]), len(f[1])), reverse=True)
     header = found[0][0]
     rows: List[List[Any]] = []
     for theirs, body, _ in found:
@@ -265,7 +267,7 @@ def _source(header: List[Any], row: List[Any], kind: str) -> str:
 
 
 async def _score_contacts(outcome: Outcome, book: str, wanted: int, name_words: tuple) -> List[Check]:
-    main = table(_sheets(outcome.folder, book), name_words)
+    main = table(_sheets(outcome.folder, book), name_words, needs=("mail", "phone", "contact"))
     header, rows = main["header"], main["rows"]
     name = _column(header, *name_words)
     site = _column(header, "website", "site", "web", "url")

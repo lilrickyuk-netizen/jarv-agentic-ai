@@ -187,3 +187,24 @@ def test_a_list_kept_in_several_sheets_is_counted_whole(tmp_path, monkeypatch):
     whole = scored["partners.xlsx has at least 50 businesses to contact (a published email or phone)"]
     assert whole.passed and whole.detail.startswith("50 of 60 listed"), whole.detail
     assert all(c.passed for c in scored.values()), {k: c.detail for k, c in scored.items() if not c.passed}
+
+
+def test_a_passed_over_sheet_is_not_the_list(tmp_path, monkeypatch):
+    """16 November, mission 1c19fd8c: JAI listed 50 businesses in three sheets and the 25 it passed over in their own
+    sheet; the score took the larger "Passed over" sheet's header and scored 50 contactable businesses as 0 of 75."""
+    async def answers(urls):
+        return {u: True for u in urls}
+
+    monkeypatch.setattr(bench, "reachable", answers)
+    rows = [r for r in _rows(60) if r[3]]                                  # the 50 with a published email
+    (tmp_path / "partners.xlsx").write_bytes(xlsx_bytes([
+        {"name": "Chains", "rows": [HEADER] + rows[:30]},
+        {"name": "Cafés", "rows": [HEADER] + rows[30:]},
+        {"name": "Passed over", "rows": [["company", "website", "reason (checked 2026-11-16)"]] + [
+            [f"Quiet {i}", f"https://quiet{i}.co.uk", "no phone or email published"] for i in range(60)]}]))
+    outcome = bench.Outcome(job="booking", folder=tmp_path, status="completed", verified=True, engine="claude",
+                            cost_usd=0.6, minutes=12.0)
+    scored = _scores(bench.score_booking(outcome))
+    reached = scored["partners.xlsx has at least 50 businesses to contact (a published email or phone)"]
+    assert reached.passed and reached.detail.startswith("50 of 50 listed"), reached.detail
+    assert scored["every entry has its source page"].passed

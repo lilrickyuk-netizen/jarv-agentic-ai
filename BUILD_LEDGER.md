@@ -9,7 +9,8 @@
 ## CURRENT STATUS
 - **Updated**: 2026-11-16 10:55 (read this section and the last entries at the bottom before any change)
 - **Current Phase**: REPAIR CONTINUATION (10-15): missions run on the Claude Agent SDK engine (MISSION_ENGINE=claude) since 2026-11-15; the 50-business database mission is being proven end to end
-- **Current Task**: THE-ENGINE-GETS-JAIS-BRIEFING and REQUIREMENTS-MET-ARE-MARKED-DONE, built and committed, after install-phones.sh (install-requirements.sh version 2, free check only)
+- **Current Task**: THE-PASSED-OVER-SHEET-IS-NOT-THE-LIST (bench scoring only); then find the session transcripts the trace could not see, to count the skills the 12:05 mission opened
+- **Last verified on Richard's machine (update)**: 2026-11-16 11:33, full suite alone 1297 passed, 1 skipped (commit 6f9d231); 12:05 paid booking run 1c19fd8c: 50 businesses, 45 published emails, 50 contactable, 25 passed over with reasons, 7 of 8 requirements done, 11.3 min, $1.16; independent check still open on R5 (each email confirmed on its cited page)
 - **Last verified on Richard's machine**: 2026-11-16 10:03, free check PASS (25 businesses: 13 emails, 16 contactable, all sourced, none guessed); PostgreSQL suite 1294 passed, 1 skipped
 - **Last paid run**: 2026-11-16 10:05, mission 6f10b402 booking: 50 businesses, 44 published emails, 13.6 min, $0.86; JAI's independent check marked it partial (an incomplete published phone counted; sources and emails it could not re-read in its time)
 - **Not re-tested since the engine change (2026-11-15)**: places, investors, team and cancel bench jobs; decks, videos and software builds (the builder and OpenHands loop is unchanged but its model calls now go to Claude)
@@ -14900,3 +14901,16 @@ TESTS RUN: the briefing in the first message JAI builds is taken whole, without 
 RESULT: Richard, 11:11: "all the skills I've installed and it still can't use them; you have not wired JAI up correctly." Evidence: every engine session reports 159 skills and 27 agents, and across the two traced booking missions the session made 308 tool calls and opened 0 skills and handed 0 parts to another specialist. Cause, in the code: JAI's own loop builds each specialist a briefing (agent_executor: expertise.Job.brief_for_specialist, the playbooks of the skills chosen for the job in full and the list of its other skills; field knowledge; JAI's memory and verified lessons; starting context; source documentation) and puts it in the mission's first message; the engine (command/claude_engine, 15 November) received that message and threw it away, sending Claude Code only the request, the job and the checklist. Every specialist mission on the engine since 15 November ran without its playbooks, knowledge or memory. Now the briefing goes into the session's first prompt.
 BLOCKERS: None
 NEXT TASK: install-requirements.sh version 2 on Richard's machine (free check), then one paid booking run, its transcript read for Skill calls
+
+---
+
+TASK ID: THE-PASSED-OVER-SHEET-IS-NOT-THE-LIST
+TASK NAME: The bench's list is the sheets with contact columns, under the widest header; a sheet of passed-over businesses is not part of it
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/bench.py, apps/backend/tests/test_bench.py, BUILD_LEDGER.md
+COMMANDS RUN: the bench's booking score run on the real workbook of mission 1c19fd8c (rebuilt from mission-trace.txt) on Claude's side
+TESTS RUN: the 8 bench tests, including a workbook whose "Passed over" sheet (company, website, reason) is larger than the list
+RESULT: Mission 1c19fd8c (16 November 12:05) listed 50 businesses in three sheets and put the 25 it passed over in a "Passed over" sheet, as Richard asked (09:06). The bench took the largest sheet's header ("Passed over": company, website, reason) and scored 0 of 75 contactable, 0 of 75 sourced. Scored on the same rows now: 50 of 50 contactable, 50 of 50 websites, 45 of 45 emails on the business's own site, 50 of 50 sourced. The engine's fixes are visible in the record: 7 of 8 requirements marked done with evidence (0 before).
+BLOCKERS: The session transcript was not found by mission-trace.sh ("transcripts: none found"), so the number of skills the session opened is not known yet
+NEXT TASK: list where the worker keeps the session transcripts (read only)
