@@ -9,7 +9,7 @@
 ## CURRENT STATUS
 - **Updated**: 2026-11-16 10:55 (read this section and the last entries at the bottom before any change)
 - **Current Phase**: REPAIR CONTINUATION (10-15): missions run on the Claude Agent SDK engine (MISSION_ENGINE=claude) since 2026-11-15; the 50-business database mission is being proven end to end
-- **Current Task**: REQUIREMENTS-MET-ARE-MARKED-DONE, built and committed, after install-phones.sh (install-requirements.sh, free check only)
+- **Current Task**: THE-ENGINE-GETS-JAIS-BRIEFING and REQUIREMENTS-MET-ARE-MARKED-DONE, built and committed, after install-phones.sh (install-requirements.sh version 2, free check only)
 - **Last verified on Richard's machine**: 2026-11-16 10:03, free check PASS (25 businesses: 13 emails, 16 contactable, all sourced, none guessed); PostgreSQL suite 1294 passed, 1 skipped
 - **Last paid run**: 2026-11-16 10:05, mission 6f10b402 booking: 50 businesses, 44 published emails, 13.6 min, $0.86; JAI's independent check marked it partial (an incomplete published phone counted; sources and emails it could not re-read in its time)
 - **Not re-tested since the engine change (2026-11-15)**: places, investors, team and cancel bench jobs; decks, videos and software builds (the builder and OpenHands loop is unchanged but its model calls now go to Claude)
@@ -14887,3 +14887,16 @@ TESTS RUN: met with evidence is marked done with the check's evidence; met witho
 RESULT: Found in jai-state.txt: every engine mission since 15 November (6f10b402, e3ae4003, 1565d564) ended "0 requirements done ... R1: left open; R2: left open ...", while mission 6f10b402's own report said "4 of 8 requirements shown done with evidence". In JAI's own loop the specialist marks each requirement with requirement_status; the engine (command/claude_engine, 15 November) removed that tool from the session and put nothing in its place, so no requirement could ever be marked done. Now each requirement the independent check finds met with evidence is marked done, by the check's own rule (agent_executor._request_done). Every specialist mission on the engine is affected; the builder's loop (software, video) is not.
 BLOCKERS: None
 NEXT TASK: install-requirements.sh on Richard's machine (free check only), then one paid booking run, then the places, investors, team and cancel bench jobs
+
+---
+
+TASK ID: THE-ENGINE-GETS-JAIS-BRIEFING
+TASK NAME: The engine's session is given what JAI's own loop gives a specialist: the playbooks of the skills chosen for the job, its other skills, its field knowledge, JAI's memory and verified lessons, the starting context and source documentation
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/claude_engine.py, apps/backend/tests/test_claude_engine.py, BUILD_LEDGER.md
+COMMANDS RUN: Skill calls counted in Richard's mission traces (18:54 and 19:55, 15 November); the briefing and prompt checks on Claude's side
+TESTS RUN: the briefing in the first message JAI builds is taken whole, without the requirement list or the closing line; it reaches the session's first prompt with the chosen skills' playbooks, the other skills (to open with the Skill tool, not read_skill) and the lessons; a first message with no briefing gives none
+RESULT: Richard, 11:11: "all the skills I've installed and it still can't use them; you have not wired JAI up correctly." Evidence: every engine session reports 159 skills and 27 agents, and across the two traced booking missions the session made 308 tool calls and opened 0 skills and handed 0 parts to another specialist. Cause, in the code: JAI's own loop builds each specialist a briefing (agent_executor: expertise.Job.brief_for_specialist, the playbooks of the skills chosen for the job in full and the list of its other skills; field knowledge; JAI's memory and verified lessons; starting context; source documentation) and puts it in the mission's first message; the engine (command/claude_engine, 15 November) received that message and threw it away, sending Claude Code only the request, the job and the checklist. Every specialist mission on the engine since 15 November ran without its playbooks, knowledge or memory. Now the briefing goes into the session's first prompt.
+BLOCKERS: None
+NEXT TASK: install-requirements.sh version 2 on Richard's machine (free check), then one paid booking run, its transcript read for Skill calls

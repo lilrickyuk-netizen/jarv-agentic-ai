@@ -170,8 +170,20 @@ async def _executor(db, host, task_status=None, task_id=None):
     return runner, runtime, tools + [STATUS_TOOL]
 
 
+# The first message as JAI's own loop builds it (agent_executor), with what JAI already knows for the job.
+FIRST = ("MISSION:\nBuild the partners workbook\n\nApproved workspace root: C:\\Projects\n\n"
+         "WHAT JAI ALREADY KNOWS (its memory and verified lessons for this workspace, and source documentation; "
+         "check memory against the files before relying on it):\nYOUR PLAYBOOKS FOR THIS JOB (your trade's method: "
+         "follow them):\n=== partner-sourcing ===\nList the businesses with their websites, then fill_contacts.\n\n"
+         "YOUR OTHER SKILLS (each is a full playbook with reference files; when part of this job is what one of them "
+         "is for, open it with read_skill before doing that part):\n- cold-email: first emails\n\n"
+         "LESSON: Greggs publishes no email; record its contact page.\n\n"
+         "REQUIREMENTS (work from this list; mark each with requirement_status as you finish it):\n- R1: x\n\n"
+         "Begin by inspecting what you need, then act.")
+
+
 def _loop(runner, tools, budget=60):
-    return runner._engine_loop("Build the partners workbook", [Message(role="user", content="MISSION: build it")],
+    return runner._engine_loop("Build the partners workbook", [Message(role="user", content=FIRST)],
                                "", tools, budget, 15, 0)
 
 
@@ -247,6 +259,12 @@ def test_the_session_is_claude_code_with_jais_rules_skills_specialists_and_gate(
     assert "sales" in options.agents and "partnerships" not in options.agents
     assert session.prompts[0].startswith("Build the partners workbook")
     assert "WHAT JAI'S INDEPENDENT CHECK WILL LOOK FOR" in session.prompts[0]
+    # What JAI's own loop gives a specialist reaches the session: the chosen skills' playbooks, its other skills
+    # (opened with Claude Code's Skill tool) and JAI's lessons (16 November: 0 skills used in 308 tool calls).
+    first = session.prompts[0]
+    assert "=== partner-sourcing ===" in first and "then fill_contacts" in first
+    assert "cold-email" in first and "open it with the Skill tool" in first and "read_skill" not in first
+    assert "Greggs publishes no email" in first and "mark each with requirement_status" not in first
 
 
 @pytest.mark.integration
@@ -594,3 +612,11 @@ def test_a_requirement_the_independent_check_found_met_with_evidence_is_marked_d
     assert requirements[0]["evidence"] == "50 rows in sheet Partners"
     assert requirements[0]["checked_by"] == "JAI's independent check"
     assert claude_engine.mark_met(requirements, None) == 2 and claude_engine.mark_met(None, checks) == 0
+
+
+def test_the_briefing_jais_own_loop_builds_is_taken_whole_and_nothing_else():
+    known = claude_engine.briefing([Message(role="user", content=FIRST)])
+    assert known.startswith("YOUR PLAYBOOKS FOR THIS JOB") and known.endswith("record its contact page.")
+    assert "REQUIREMENTS" not in known and "Begin by" not in known and "the Skill tool" in known
+    assert claude_engine.briefing([Message(role="user", content="MISSION: build it")]) == ""
+    assert claude_engine.briefing([]) == "" and claude_engine.briefing(None) == ""

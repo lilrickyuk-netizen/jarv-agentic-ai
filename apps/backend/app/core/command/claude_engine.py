@@ -329,12 +329,19 @@ class ClaudeRoleExecutor(RoleExecutor):
                          + "\n".join(f"- {r}" for r in rules))
         return "\n\n".join(parts)
 
-    def _prompt(self, mission: str) -> str:
-        """Richard's request, the job as JAI's specialist set it out, and what JAI's independent check looks for."""
+    def _prompt(self, mission: str, known: str = "") -> str:
+        """Richard's request, the job as JAI's specialist set it out, what JAI already knows for it (the playbooks of
+        the skills JAI chose for this job, the specialist's other skills, its field knowledge, JAI's memory and
+        verified lessons for the workspace, the starting context and source documentation), and what JAI's
+        independent check looks for."""
         parts = [mission]
         text = str(getattr(self.job, "text", "") or "")
         if text:
             parts.append(f"THE JOB AS JAI SET IT OUT:\n{text}")
+        if known:
+            parts.append("WHAT JAI ALREADY KNOWS FOR THIS JOB (its memory and verified lessons for this workspace, "
+                         "and source documentation: check memory against the files before relying on it). Follow "
+                         "the playbooks below: they are the skills JAI chose for this job.\n" + known)
         if self.requirements:
             parts.append("WHAT JAI'S INDEPENDENT CHECK WILL LOOK FOR IN THE FINISHED WORK:\n" + "\n".join(
                 f"- {r['id']}: {r['text']}" for r in self.requirements))
@@ -591,7 +598,7 @@ class ClaudeRoleExecutor(RoleExecutor):
             async with sdk.ClaudeSDKClient(options=options) as client:
                 self._client = client
                 await client.query("Carry on with the mission from where you stopped." if resume
-                                   else self._prompt(mission))
+                                   else self._prompt(mission, briefing(messages)))
                 outcome = await self._drain(client)
                 if outcome == "success" and not self._stop:
                     finished = True
@@ -715,6 +722,23 @@ class ClaudeRoleExecutor(RoleExecutor):
         text = _text(out)[:max(result_limit(name), 4000)]
         failed = isinstance(out, dict) and out.get("success") is False
         return {"content": [{"type": "text", "text": text}], "is_error": bool(failed)}
+
+
+def briefing(messages: Any) -> str:
+    """What JAI's own loop gives a specialist before its first step (agent_executor: the playbooks of the skills
+    chosen for the job and the specialist's other skills, field knowledge, JAI's memory and verified lessons for the
+    workspace, the starting context, source documentation), taken from the first message JAI built for the mission.
+    From 15 November the engine sent Claude Code only the request, the job and the checklist, and dropped all of
+    this: in 308 tool calls across two booking missions the session opened none of the 159 skills it had. A skill
+    the briefing says to open with read_skill (JAI's own tool) is opened with Claude Code's Skill tool here."""
+    import re
+
+    first = messages[0] if messages else None
+    text = str(getattr(first, "content", None) or (first.get("content") if isinstance(first, dict) else "") or "")
+    found = re.search(r"WHAT JAI ALREADY KNOWS[^\n]*:\n(.*?)\n\n(?:REQUIREMENTS \(|Begin by)", text, re.S)
+    known = found.group(1).strip() if found else ""
+    return known.replace("open it with read_skill", "open it with the Skill tool").replace(
+        "read_skill", "the Skill tool")
 
 
 def mark_met(requirements: Optional[List[Dict[str, Any]]], checks: Any) -> int:
