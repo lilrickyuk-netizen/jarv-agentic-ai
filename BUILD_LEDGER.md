@@ -9,7 +9,7 @@
 ## CURRENT STATUS
 - **Updated**: 2026-11-16 10:55 (read this section and the last entries at the bottom before any change)
 - **Current Phase**: REPAIR CONTINUATION (10-15): missions run on the Claude Agent SDK engine (MISSION_ENGINE=claude) since 2026-11-15; the 50-business database mission is being proven end to end
-- **Current Task**: VALID-PHONES-AND-CODE-FACTS-FOR-THE-CHECK, built and committed, waiting for Richard to run install-phones.sh (free check only)
+- **Current Task**: REQUIREMENTS-MET-ARE-MARKED-DONE, built and committed, after install-phones.sh (install-requirements.sh, free check only)
 - **Last verified on Richard's machine**: 2026-11-16 10:03, free check PASS (25 businesses: 13 emails, 16 contactable, all sourced, none guessed); PostgreSQL suite 1294 passed, 1 skipped
 - **Last paid run**: 2026-11-16 10:05, mission 6f10b402 booking: 50 businesses, 44 published emails, 13.6 min, $0.86; JAI's independent check marked it partial (an incomplete published phone counted; sources and emails it could not re-read in its time)
 - **Not re-tested since the engine change (2026-11-15)**: places, investors, team and cancel bench jobs; decks, videos and software builds (the builder and OpenHands loop is unchanged but its model calls now go to Claude)
@@ -14874,3 +14874,16 @@ TESTS RUN: "01483 66420" (one digit short) is never kept; real UK and US numbers
 RESULT: Richard's paid booking test, 16 November 10:05: 50 businesses, 44 published emails, every one on the business's own site and sourced, every website real, 13.6 minutes, 67p; JAI's independent check marked it partial on three points. Zizzi's and Origin's sites print a number one digit short ("01483 66420"): the reader kept it and it was counted as contactable (the session saw it and flagged it). The check could not re-read 50 businesses' pages in its time, so "every source is on the business's own site" (true for every row, wholesale.workshopcoffee.com included) and "every email appears on its page" were left unproven. Now: phonenumbers (the Python port of Google's libphonenumber, pure Python, installed with the SDK in the image) decides whether a phone is kept and whether a business counts as contactable; the workbook facts give the check, worked out from the file, how many emails and phones have a source on the business's own site (registered domain, subdomains included), how many phones are valid and how many businesses can be contacted. mission-trace.sh reads the transcripts where they are now kept (JAI_SESSIONS_DIR) and leaves page requests out of the worker's log.
 BLOCKERS: None
 NEXT TASK: install-phones.sh on Richard's machine (rebuilds the backend and worker images; free check only)
+
+---
+
+TASK ID: REQUIREMENTS-MET-ARE-MARKED-DONE
+TASK NAME: A requirement JAI's independent check finds met, with evidence, is marked done on an engine mission
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/claude_engine.py, apps/backend/tests/test_claude_engine.py, BUILD_LEDGER.md
+COMMANDS RUN: Richard's jai-state.sh (16 November 10:50); the engine's scripted session and the new test on Claude's side
+TESTS RUN: met with evidence is marked done with the check's evidence; met without evidence, or not met, stays open; R1 never marks R10
+RESULT: Found in jai-state.txt: every engine mission since 15 November (6f10b402, e3ae4003, 1565d564) ended "0 requirements done ... R1: left open; R2: left open ...", while mission 6f10b402's own report said "4 of 8 requirements shown done with evidence". In JAI's own loop the specialist marks each requirement with requirement_status; the engine (command/claude_engine, 15 November) removed that tool from the session and put nothing in its place, so no requirement could ever be marked done. Now each requirement the independent check finds met with evidence is marked done, by the check's own rule (agent_executor._request_done). Every specialist mission on the engine is affected; the builder's loop (software, video) is not.
+BLOCKERS: None
+NEXT TASK: install-requirements.sh on Richard's machine (free check only), then one paid booking run, then the places, investors, team and cancel bench jobs

@@ -579,3 +579,18 @@ def test_each_contact_detail_gets_its_own_source_column():
     assert set(filled) == {"phone", "email", "channel"}
     assert row[3] == "https://www.greggs.co.uk/contact" and row[5] == "https://www.greggs.co.uk/help"
     assert row[7] == "https://www.greggs.co.uk/partners" and row[9] == "2026-11-15"
+
+
+def test_a_requirement_the_independent_check_found_met_with_evidence_is_marked_done():
+    """16 November, mission 6f10b402: the check confirmed four of eight requirements with evidence and the card still
+    said "0 requirements done", because the engine's session has no requirement_status tool."""
+    requirements = [{"id": f"R{i}", "text": f"requirement {i}", "status": "open"} for i in (1, 2, 3, 10)]
+    checks = [{"requirement": "R1: partners.xlsx exists", "met": True, "evidence": "50 rows in sheet Partners"},
+              {"requirement": "R2", "met": True, "evidence": ""},                     # no evidence: not done
+              {"requirement": "R3", "met": False, "evidence": "Zizzi's phone is one digit short"},
+              {"requirement": "r10 every source", "met": True, "evidence": "50 of 50 on their own site"}]
+    assert claude_engine.mark_met(requirements, checks) == 2
+    assert [r["status"] for r in requirements] == ["done", "open", "open", "done"]   # R1 never marks R10
+    assert requirements[0]["evidence"] == "50 rows in sheet Partners"
+    assert requirements[0]["checked_by"] == "JAI's independent check"
+    assert claude_engine.mark_met(requirements, None) == 2 and claude_engine.mark_met(None, checks) == 0

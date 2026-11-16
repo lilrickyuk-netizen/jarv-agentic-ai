@@ -423,8 +423,10 @@ class ClaudeRoleExecutor(RoleExecutor):
         """The check after the session: the one already made stands when nothing has been done since."""
         if self._verdict is not None and self._verdict_calls == len(self.runtime.calls):
             verdict, self._verdict = self._verdict, None
-            return verdict
-        return await super().verify(mission, summary, settled=settled)
+        else:
+            verdict = await super().verify(mission, summary, settled=settled)
+        mark_met(self.requirements, verdict.get("checks"))
+        return verdict
 
     # ----- the gate: JAI's permission check and record on every call (PreToolUse / PostToolUse) --------------------
 
@@ -654,6 +656,7 @@ class ClaudeRoleExecutor(RoleExecutor):
         await self._progress("independent check", 0, 0)
         verdict = await self.verify_in_time(mission, self._result_text or self._agent_said)
         self._verdict, self._verdict_calls = verdict, len(self.runtime.calls)
+        mark_met(self.requirements, verdict.get("checks"))
         if verdict.get("verified"):
             return None
         found = [str(u)[:400] for u in (verdict.get("unmet") or [])][:15] or [
@@ -712,6 +715,28 @@ class ClaudeRoleExecutor(RoleExecutor):
         text = _text(out)[:max(result_limit(name), 4000)]
         failed = isinstance(out, dict) and out.get("success") is False
         return {"content": [{"type": "text", "text": text}], "is_error": bool(failed)}
+
+
+def mark_met(requirements: Optional[List[Dict[str, Any]]], checks: Any) -> int:
+    """Mark done each requirement JAI's independent check found met, with evidence, and return how many are done.
+    In JAI's own loop the specialist marks each requirement with requirement_status; the engine's session does not
+    have that tool, so from 15 November no requirement was ever marked done and every mission's card said "0
+    requirements done" though the check had confirmed four of eight with evidence (16 November, mission 6f10b402).
+    The rule is the check's own (agent_executor._request_done): a met check naming the requirement, with evidence."""
+    import re
+
+    found = [c for c in (checks or []) if isinstance(c, dict) and c.get("met") is True
+             and str(c.get("evidence") or "").strip()]
+    for requirement in requirements or []:
+        if not isinstance(requirement, dict) or requirement.get("status") == "done" or not requirement.get("id"):
+            continue
+        pattern = re.compile(rf"\b{re.escape(str(requirement['id']))}\b", re.I)
+        check = next((c for c in found if pattern.search(str(c.get("requirement") or ""))), None)
+        if check is not None:
+            requirement["status"] = "done"
+            requirement["evidence"] = str(requirement.get("evidence") or check.get("evidence"))[:600]
+            requirement["checked_by"] = "JAI's independent check"
+    return sum(1 for r in requirements or [] if isinstance(r, dict) and r.get("status") == "done")
 
 
 def forget(task_id: Any) -> None:
