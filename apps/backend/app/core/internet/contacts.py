@@ -43,7 +43,22 @@ _WHERE_CHAINS_PUBLISH = re.compile(r"press|media|news[- ]?room|franchis|partner|
                                    r"site[- ]?(?:finder|search)|acquisition|private[- ]?dining|events?\b|corporate|"
                                    r"customer[- ]?(?:care|service)|get[- ]?in[- ]?touch|help", re.I)
 SITEMAP_PAGES = 4
-BROWSER_SECONDS, FURTHER_SECONDS = 45, 70
+BROWSER_SECONDS, FURTHER_SECONDS = 90, 70
+# Pages JAI asks the browser for at once. 16 November: ten sites at once, each asking for up to six pages, overran
+# Crawl4AI's own page limit (crawler.max_pages, 40 by default, behind one global semaphore in its server) and seven
+# sites ran out of time waiting; the browser is asked for a few pages at a time, the home and contact pages first.
+BROWSER_AT_ONCE = 6
+BROWSER_PAGES_PER_SITE = 2
+_BROWSER: Dict[int, asyncio.Semaphore] = {}
+
+
+def _browser_turn() -> asyncio.Semaphore:
+    """One limit per event loop (a Semaphore belongs to the loop it was made on)."""
+    loop = id(asyncio.get_running_loop())
+    if loop not in _BROWSER:
+        _BROWSER.clear()
+        _BROWSER[loop] = asyncio.Semaphore(BROWSER_AT_ONCE)
+    return _BROWSER[loop]
 PDFS_READ = 2
 MAX_PDF = 15_000_000
 _TWO_PART = ("co.uk", "org.uk", "ac.uk", "gov.uk", "ltd.uk", "plc.uk", "me.uk", "com.au", "co.nz", "co.za")
@@ -265,14 +280,21 @@ async def fetch_rendered(url: str) -> Dict[str, Any]:
     8,000 characters: a site that turns plain readers away or builds its page with JavaScript lost exactly the
     details this reader looks for. Crawl4AI's /crawl answer carries the full HTML; its /md answer with the "raw"
     filter (the whole page, nothing pruned) is the second way. {"ok", "url", "status", "html", "rendered"}."""
+    from app.core import internet
+
+    base = internet._setting("CRAWL4AI_URL")
+    if not base:
+        return {"ok": False, "url": url, "reason": "the browser (Crawl4AI) is turned off"}
+    async with _browser_turn():
+        return await _rendered(url, base)
+
+
+async def _rendered(url: str, base: str) -> Dict[str, Any]:
     import httpx
 
     from app.core import internet
     from app.core.config import settings
 
-    base = internet._setting("CRAWL4AI_URL")
-    if not base:
-        return {"ok": False, "url": url, "reason": "the browser (Crawl4AI) is turned off"}
     ok, reason = internet._ssrf_ok(url)
     if not ok:
         return {"ok": False, "url": url, "reason": reason, "blocked": True}
@@ -365,13 +387,14 @@ async def site_contacts(url: str, fetch: Optional[Fetch] = None) -> Dict[str, An
     if fetch is fetch_raw and not out["phones"] and not out["emails"]:
         # The plain pages carried no phone or email: a page whose details JavaScript puts in (a shell of menus in the
         # plain HTML) is read again as the browser shows it.
-        again = [page for page in [home_url] + out["pages_read"][1:] if page][:PAGES_AFTER_HOME + 1]
+        contact_first = [p for p in out["pages_read"][1:] if p in links["contact"] or p in links["partnership"]]
+        again = list(dict.fromkeys([home_url] + contact_first + out["pages_read"][1:]))[:BROWSER_PAGES_PER_SITE]
         try:  # what the browser shows within 45 seconds; a page it is still loading is left
             shown = await asyncio.wait_for(asyncio.gather(*(fetch_rendered(page) for page in dict.fromkeys(again)),
                                                           return_exceptions=True), timeout=BROWSER_SECONDS)
         except asyncio.TimeoutError:
             shown = []
-            out["browser"] = f"the browser took longer than {BROWSER_SECONDS} seconds"
+            out["browser"] = f"the browser took longer than {BROWSER_SECONDS} seconds"  # what it read is kept
         for page_url, page in zip(dict.fromkeys(again), shown):
             if isinstance(page, dict) and page.get("ok") and site_of(str(page.get("url") or page_url)) == site:
                 got = extract(page["html"], str(page.get("url") or page_url))

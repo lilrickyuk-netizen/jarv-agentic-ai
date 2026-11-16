@@ -14829,3 +14829,16 @@ TESTS RUN: a chain whose contact page is a form and whose sitemap lists its pres
 RESULT: Richard, 21:53: big chains first; find the problems, research the correct fixes. From his 19:55 run (50 businesses): the bench read only the phone's source column (9 of 50 sourced was wrong); its email rule failed addresses the businesses publish themselves on their own pages; JAI's requirements step added "every business is still trading", which the independent check could not see proved and failed the mission on; the chains' addresses that were found were on press and franchise pages (press@leon.co, media@itsu.com, franchise@paul-uk.com, runwiththepack@brewdog.com), and PizzaExpress publishes its press releases as PDFs on its own site, while the reader opened at most three pages, never a press page, and skipped PDFs. Researched: Crawl4AI's deep crawl through its Docker server has open bugs (unclecode/crawl4ai issues 1419 and 1205: filter chains not decoded or applied), so the reader does not depend on it; it reads the site's own sitemap (sitemaps.org protocol, named in robots.txt) for press, franchise, partnership, property and events pages, and the PDFs its pages link through Docling, JAI's document reader. Data-broker pages (Prospeo, LeadIQ, SignalHire) carry pattern-built addresses and are never a source (PECR). Read cannot open .xlsx: the session is told to use read_document.
 BLOCKERS: None
 NEXT TASK: install-chains.sh on Richard's machine (free check only)
+
+---
+
+TASK ID: THE-BROWSER-IS-ASKED-A-FEW-PAGES-AT-A-TIME
+TASK NAME: JAI asks Crawl4AI for at most six pages at once, the home and contact pages first, and waits up to 90 seconds for them
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/internet/contacts.py, BUILD_LEDGER.md
+COMMANDS RUN: the contact reader against scripted sites and a scripted browser on Claude's side
+TESTS RUN: forty browser reads at once never have more than six with the browser; a second event loop gets its own limit; the earlier reader checks (footer details through the browser, a sitemap's press page, a press-release PDF, the luigis.co.uk page) unchanged
+RESULT: Richard's free check, 16 November 09:03: 11 of 25 businesses with a published email (7, then 8 before), 14 of 14 details with their own source, 11 of 11 emails published on the business's own site, 3.8 minutes, nothing spent. Seven sites ran out of time in the browser: ten sites at once each asked for up to six pages, more than Crawl4AI's server renders at once (crawler.max_pages, 40 by default, behind one global semaphore), so pages waited past the 45 seconds. Now six pages at a time, the home and contact pages first, 90 seconds. Searched: Greggs, Zizzi and Bill's publish no email address of their own; the only addresses for them are on data-broker pages built from name patterns (Clay, LeadIQ, Prospeo, RocketReach), which JAI never uses.
+BLOCKERS: None
+NEXT TASK: install-browser-limit.sh on Richard's machine (free check only)
