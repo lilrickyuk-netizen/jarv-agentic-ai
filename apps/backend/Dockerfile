@@ -56,9 +56,12 @@ RUN poetry install --no-interaction --no-ansi --only main
 # the server process, which the SDK's MCP library needs at 0.31.1 or later and which does not depend on Starlette.
 # The build then proves the web framework and the SDK both load, so an image that cannot start is never built.
 ARG CLAUDE_AGENT_SDK_SPEC="claude-agent-sdk>=0.2.140,<0.3"
+# Google's libphonenumber for Python (pure Python, no dependencies): the contact reader keeps only numbers that are
+# valid in their country's numbering plan (internet/contacts._phone_ok).
+ARG PHONENUMBERS_SPEC="phonenumbers>=8.13,<10"
 RUN pip freeze --exclude-editable | grep -v " @ " | grep -iv "^uvicorn==" > /tmp/locked.txt \
-    && pip install --no-cache-dir -c /tmp/locked.txt "${CLAUDE_AGENT_SDK_SPEC}" \
-    && python -c "from fastapi import APIRouter, FastAPI; APIRouter(); FastAPI(); import claude_agent_sdk" \
+    && pip install --no-cache-dir -c /tmp/locked.txt "${CLAUDE_AGENT_SDK_SPEC}" "${PHONENUMBERS_SPEC}" \
+    && python -c "from fastapi import APIRouter, FastAPI; APIRouter(); FastAPI(); import claude_agent_sdk, phonenumbers" \
     && rm /tmp/locked.txt
 
 

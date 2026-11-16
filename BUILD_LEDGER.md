@@ -14855,3 +14855,16 @@ TESTS RUN: 60 listed with 50 that publish an email or phone passes "at least 50 
 RESULT: Richard, 16 November 09:05-09:06: "whatever businesses don't have their email or phone online I will go through their websites; it can't find it, it moves to the next business; it doesn't fail, it doesn't stop, it carries on until it has at least x businesses for me to contact." fill_contacts counts the businesses in the workbook with a website and a published email or phone (contactable) and its next step says to find and add more until the number asked for can be contacted; a business with neither stays marked under still to check. The session's method says the same. The booking score asks for 50 businesses to contact, however many were listed to get there; the free check (a fixed 25) asks that every business has its published email, its contact page or the reason it has neither.
 BLOCKERS: None
 NEXT TASK: install-browser-limit.sh version 2 on Richard's machine (free check only)
+
+---
+
+TASK ID: VALID-PHONES-AND-CODE-FACTS-FOR-THE-CHECK
+TASK NAME: Only phone numbers valid in their numbering plan (Google's libphonenumber) are kept and counted; the workbook facts JAI's independent check reads say, worked out in code, which sources are on each business's own site and which phones are valid
+STATUS: COMPLETE
+FILES CREATED: apps/backend/tests/test_contact_phone_numbers.py
+FILES MODIFIED: apps/backend/Dockerfile, apps/backend/app/core/internet/contacts.py, apps/backend/app/core/agents/workspace_ops.py, BUILD_LEDGER.md
+COMMANDS RUN: the workbook facts, the contactable count and the contact reader on Claude's side (without phonenumbers, which is not installed here: the numbering-plan test runs in Richard's test image, which installs it)
+TESTS RUN: "01483 66420" (one digit short) is never kept; real UK and US numbers are; a page with both keeps only the valid one; the workbook facts count a wholesale. subdomain source as the business's own site and name a directory source as not
+RESULT: Richard's paid booking test, 16 November 10:05: 50 businesses, 44 published emails, every one on the business's own site and sourced, every website real, 13.6 minutes, 67p; JAI's independent check marked it partial on three points. Zizzi's and Origin's sites print a number one digit short ("01483 66420"): the reader kept it and it was counted as contactable (the session saw it and flagged it). The check could not re-read 50 businesses' pages in its time, so "every source is on the business's own site" (true for every row, wholesale.workshopcoffee.com included) and "every email appears on its page" were left unproven. Now: phonenumbers (the Python port of Google's libphonenumber, pure Python, installed with the SDK in the image) decides whether a phone is kept and whether a business counts as contactable; the workbook facts give the check, worked out from the file, how many emails and phones have a source on the business's own site (registered domain, subdomains included), how many phones are valid and how many businesses can be contacted. mission-trace.sh reads the transcripts where they are now kept (JAI_SESSIONS_DIR) and leaves page requests out of the worker's log.
+BLOCKERS: None
+NEXT TASK: install-phones.sh on Richard's machine (rebuilds the backend and worker images; free check only)

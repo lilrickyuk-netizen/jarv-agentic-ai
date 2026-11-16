@@ -129,8 +129,22 @@ def _digits(phone: str) -> str:
 
 
 def _phone_ok(phone: str) -> bool:
+    """A number someone can ring: checked against Google's libphonenumber numbering plans (the phonenumbers package,
+    its Python port) for the UK, or the US for a North American number. 16 November: Zizzi's and Origin's sites
+    print "01483 66420", a Guildford number one digit short, and it was counted as a way to contact them."""
     digits = re.sub(r"\D", "", phone)
-    return 10 <= len(digits) <= 13 and len(set(digits)) > 2 and not re.fullmatch(r"(19|20)\d{6,8}", digits)
+    if not (10 <= len(digits) <= 13 and len(set(digits)) > 2 and not re.fullmatch(r"(19|20)\d{6,8}", digits)):
+        return False
+    try:
+        import phonenumbers
+    except ImportError:  # the image ships it (Dockerfile); without it the shape check above stands
+        return True
+    region = None if phone.lstrip().startswith("+") else (
+        "US" if re.fullmatch(_US, phone.strip()) and not phone.strip().startswith("0") else "GB")
+    try:
+        return phonenumbers.is_valid_number(phonenumbers.parse(phone, region))
+    except phonenumbers.NumberParseException:
+        return False
 
 
 def _clean_phone(raw: str) -> str:

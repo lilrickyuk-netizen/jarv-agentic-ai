@@ -758,6 +758,7 @@ def xlsx_facts(sheets: List[Dict[str, Any]]) -> str:
         if gaps and body:
             lines.append("    filled in (a cell saying \"not recorded\" or \"to verify\" is not filled): "
                          + ", ".join(gaps)[:700])
+        lines += _contact_facts(header, body)
     twice = {k: v for k, v in seen_names.items() if len(v) > 1}
     if twice:
         sample = "; ".join(f"{k.split(chr(10))[-1]} ({', '.join(v)})" for k, v in list(twice.items())[:8])
@@ -765,6 +766,46 @@ def xlsx_facts(sheets: List[Dict[str, Any]]) -> str:
     else:
         lines.append("- Duplicate names: none found")
     return "\n".join(lines)
+
+
+def _contact_facts(header: List[str], body: List[List[Any]]) -> List[str]:
+    """For a list of businesses with contact details, what the file shows about them, worked out in code so the
+    Verifier need not re-read every page (16 November: it could not re-read 50 businesses' pages in its time and
+    left "the source pages are on each business's own site" unproven, though every one was): each phone and
+    email's source page against the business's own site (its registered domain, so wholesale.workshopcoffee.com is
+    workshopcoffee.com's), and each phone against its country's numbering plan (Google's libphonenumber)."""
+    from app.core.internet.contacts import _phone_ok, site_of
+
+    columns = contact_columns(header)
+    if "website" not in columns or not {"phone", "email"} & set(columns):
+        return []
+    out: List[str] = []
+    name = next((i for i, h in enumerate(header) if re.search(r"company|name|business|brand|chain", h or "", re.I)
+                 and i not in columns.values()), 0)
+    for kind in ("email", "phone"):
+        if kind not in columns:
+            continue
+        own_source = columns.get(f"{kind}_source", columns.get("sources"))
+        given = [row for row in body if not unfilled(_Tidy._cell(row, columns[kind]))]
+        if not given:
+            continue
+        if own_source is not None:
+            away = [row for row in given if site_of(_Tidy._cell(row, own_source).split()[0] if _Tidy._cell(
+                row, own_source).strip() else "") != site_of(_Tidy._cell(row, columns["website"]))]
+            out.append(f"    {kind}s whose source page is on the business's own site (its registered domain, "
+                       f"subdomains included): {len(given) - len(away)} of {len(given)}"
+                       + (f"; not: {', '.join(_Tidy._cell(r, name)[:40] for r in away[:10])}" if away else ""))
+        if kind == "phone":
+            bad = [row for row in given if not _phone_ok(_Tidy._cell(row, columns["phone"]))]
+            out.append(f"    phones valid in their country's numbering plan (libphonenumber): "
+                       f"{len(given) - len(bad)} of {len(given)}"
+                       + (f"; not: {', '.join(_Tidy._cell(r, name)[:40] + ' ' + _Tidy._cell(r, columns['phone'])[:20] for r in bad[:10])}" if bad else ""))
+    reachable = [row for row in body if not unfilled(_Tidy._cell(row, columns["website"])) and any(
+        kind in columns and not unfilled(_Tidy._cell(row, columns[kind])) and (
+            kind == "email" or _phone_ok(_Tidy._cell(row, columns[kind]))) for kind in ("email", "phone"))]
+    out.append(f"    businesses that can be contacted (a published email, or a valid published phone): "
+               f"{len(reachable)} of {len(body)}")
+    return out
 
 
 def xlsx_text(data: bytes, limit: int = 60000) -> str:
@@ -1413,6 +1454,8 @@ def contactable_rows(sheets: List[Dict[str, Any]]) -> int:
     """Businesses in the workbook Richard can contact: a row with a website and a published email or phone.
     Richard, 16 November: a business with neither is passed over, and JAI carries on until it has the number
     asked for."""
+    from app.core.internet.contacts import _phone_ok
+
     count = 0
     for sheet in sheets:
         rows = sheet.get("rows") or []
@@ -1423,7 +1466,8 @@ def contactable_rows(sheets: List[Dict[str, Any]]) -> int:
             continue
         for row in rows[1:]:
             if not unfilled(_Tidy._cell(row, columns["website"])) and any(
-                    kind in columns and not unfilled(_Tidy._cell(row, columns[kind])) for kind in ("email", "phone")):
+                    kind in columns and not unfilled(_Tidy._cell(row, columns[kind])) and (
+                        kind == "email" or _phone_ok(_Tidy._cell(row, columns[kind]))) for kind in ("email", "phone")):
                 count += 1
     return count
 
