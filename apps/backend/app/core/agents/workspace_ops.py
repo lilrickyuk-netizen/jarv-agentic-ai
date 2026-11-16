@@ -1409,6 +1409,25 @@ def rows_wanting_contacts(sheets: List[Dict[str, Any]], names: List[str], again:
     return out
 
 
+def contactable_rows(sheets: List[Dict[str, Any]]) -> int:
+    """Businesses in the workbook Richard can contact: a row with a website and a published email or phone.
+    Richard, 16 November: a business with neither is passed over, and JAI carries on until it has the number
+    asked for."""
+    count = 0
+    for sheet in sheets:
+        rows = sheet.get("rows") or []
+        if not rows:
+            continue
+        columns = contact_columns(rows[0])
+        if "website" not in columns:
+            continue
+        for row in rows[1:]:
+            if not unfilled(_Tidy._cell(row, columns["website"])) and any(
+                    kind in columns and not unfilled(_Tidy._cell(row, columns[kind])) for kind in ("email", "phone")):
+                count += 1
+    return count
+
+
 def write_contacts(row: List[Any], columns: Dict[str, int], found: Dict[str, Any], today: str) -> List[str]:
     """Put what a business's site publishes into the row's EMPTY contact cells, with the pages as sources and
     today as the verification date. Returns what was filled ("phone", "email", "channel"); when the site was read
@@ -1548,6 +1567,7 @@ async def fill_contacts(tb, args: Dict[str, Any]) -> Dict[str, Any]:
     data = xlsx_bytes(sheets)
     path.write_bytes(data)
     left = len(rows_wanting_contacts(sheets, names))
+    contactable = contactable_rows(sheets)
     rows = {s["name"]: max(0, len(s["rows"]) - 1) for s in sheets}
     summary = (f"contacts for {len(batch)} businesses from their own sites: phone filled in {counts['phone']}, "
                f"email in {counts['email']}, contact channel in {counts['channel']}; {len(nothing)} sites publish "
@@ -1559,10 +1579,13 @@ async def fill_contacts(tb, args: Dict[str, Any]) -> Dict[str, Any]:
     return {"success": True, "path": host, "rows_tried": len(batch), "phone_filled": counts["phone"],
             "email_filled": counts["email"], "channel_filled": counts["channel"],
             "sites_publishing_neither": nothing[:40], "could_not_be_read": unread[:40],
-            "rows_left": left,
+            "rows_left": left, "contactable": contactable,
             "next": ("Call fill_contacts again for the next rows." if left > 0 else
-                     "Every row with a website has been tried. What is still empty is not published on the "
-                     "business's own site, or its site could not be read: say so, do not guess."),
+                     f"Every row with a website has been tried: {contactable} businesses publish an email or phone "
+                     "on their own site. A business that publishes neither is not counted and stays marked under "
+                     "still to check; never guess one. If the request asks for more businesses to contact than "
+                     "that, carry on: find more (discover_prospect_companies, or the web), add them with "
+                     "write_spreadsheet and call fill_contacts again, until the number asked for can be contacted."),
             "facts": xlsx_facts(sheets)}
 
 

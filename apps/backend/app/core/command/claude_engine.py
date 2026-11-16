@@ -320,7 +320,9 @@ class ClaudeRoleExecutor(RoleExecutor):
             f"open data) with its website; save them with {PREFIX}write_spreadsheet; {PREFIX}fill_contacts then reads "
             f"all their own sites side by side for the published phone, email and contact page; "
             f"{PREFIX}find_decision_makers and {PREFIX}verify_prospect_email add named people and check addresses. "
-            "Search the web for what open data does not hold.",
+            "Search the web for what open data does not hold. A business that publishes no email or phone is never "
+            "a reason to stop: it stays marked under still to check, is not counted, and you carry on with more "
+            "businesses until the number Richard asked for can be contacted (fill_contacts reports how many can).",
         ]
         if rules:
             parts.append("Richard's standing rules for this product (every one applies):\n"

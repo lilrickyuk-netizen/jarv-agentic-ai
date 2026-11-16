@@ -14842,3 +14842,16 @@ TESTS RUN: forty browser reads at once never have more than six with the browser
 RESULT: Richard's free check, 16 November 09:03: 11 of 25 businesses with a published email (7, then 8 before), 14 of 14 details with their own source, 11 of 11 emails published on the business's own site, 3.8 minutes, nothing spent. Seven sites ran out of time in the browser: ten sites at once each asked for up to six pages, more than Crawl4AI's server renders at once (crawler.max_pages, 40 by default, behind one global semaphore), so pages waited past the 45 seconds. Now six pages at a time, the home and contact pages first, 90 seconds. Searched: Greggs, Zizzi and Bill's publish no email address of their own; the only addresses for them are on data-broker pages built from name patterns (Clay, LeadIQ, Prospeo, RocketReach), which JAI never uses.
 BLOCKERS: None
 NEXT TASK: install-browser-limit.sh on Richard's machine (free check only)
+
+---
+
+TASK ID: CARRY-ON-UNTIL-ENOUGH-CAN-BE-CONTACTED
+TASK NAME: A business with no published email or phone is passed over, never a failure; JAI carries on until the number asked for can be contacted
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/agents/workspace_ops.py, apps/backend/app/core/command/claude_engine.py, apps/backend/app/core/command/bench.py, apps/backend/tests/test_bench.py, apps/backend/tests/test_jai_understands_and_finishes.py, BUILD_LEDGER.md
+COMMANDS RUN: the bench's booking scorer and the free check's scoring on Claude's side
+TESTS RUN: 60 listed with 50 that publish an email or phone passes "at least 50 businesses to contact"; 50 listed with 40 fails it; a list in several sheets counts whole; the free check passes a business with no published contact that has its contact page or the reason noted, and fails one with nothing recorded; fill_contacts reports how many businesses can be contacted and tells the session to carry on
+RESULT: Richard, 16 November 09:05-09:06: "whatever businesses don't have their email or phone online I will go through their websites; it can't find it, it moves to the next business; it doesn't fail, it doesn't stop, it carries on until it has at least x businesses for me to contact." fill_contacts counts the businesses in the workbook with a website and a published email or phone (contactable) and its next step says to find and add more until the number asked for can be contacted; a business with neither stays marked under still to check. The session's method says the same. The booking score asks for 50 businesses to contact, however many were listed to get there; the free check (a fixed 25) asks that every business has its published email, its contact page or the reason it has neither.
+BLOCKERS: None
+NEXT TASK: install-browser-limit.sh version 2 on Richard's machine (free check only)

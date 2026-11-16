@@ -20,7 +20,7 @@ def _book(folder, rows, name="partners.xlsx"):
 
 def _rows(n=50):
     return [[f"Chain {i}", f"https://chain{i}.co.uk", f"020 7{i:03d} 0000" if i < 5 else "Not recorded",
-             f"hello@chain{i}.co.uk" if i < 40 else "", f"https://chain{i}.co.uk/partners",
+             f"hello@chain{i}.co.uk" if i < 40 or i >= 50 else "", f"https://chain{i}.co.uk/partners",
              f"https://chain{i}.co.uk/contact"] for i in range(n)]
 
 
@@ -35,12 +35,16 @@ def test_a_booking_workbook_is_scored_from_its_cells(tmp_path, monkeypatch):
     monkeypatch.setattr(bench, "reachable", answers)
     outcome = bench.Outcome(job="booking", folder=tmp_path, status="completed", verified=True, engine="claude",
                             cost_usd=0.6, minutes=12.0)
-    _book(tmp_path, _rows())
+    # JAI carried on past the 10 businesses that publish neither: 60 listed, 50 can be contacted
+    _book(tmp_path, _rows(60))
     good = _scores(bench.score_booking(outcome))
     assert all(c.passed for c in good.values()), {k: c.detail for k, c in good.items() if not c.passed}
-    assert good["at least 7 in 10 have a published email address"].detail == "40 of 50"   # emails count, not phones
+    _book(tmp_path, _rows(50))                       # it stopped at 50 listed: only 40 can be contacted
+    reached = _scores(bench.score_booking(outcome))[
+        "partners.xlsx has at least 50 businesses to contact (a published email or phone)"]
+    assert not reached.passed and reached.detail.startswith("40 of 50 listed")
 
-    rows = _rows()
+    rows = _rows(60)
     rows[2][3] = "info@gmail.com"                    # an address from a data broker's page, not the business's
     rows[2][5] = "https://prospeo.io/c/chain2"
     rows[3][1] = "https://madeup-chain.co.uk"        # a site that does not exist
@@ -50,7 +54,7 @@ def test_a_booking_workbook_is_scored_from_its_cells(tmp_path, monkeypatch):
     assert failed == {"no email is guessed: each is published on the business's own site",
                       "every website is real (it answers on the web)", "every entry has its source page"}
 
-    rows = _rows()
+    rows = _rows(60)
     rows[6][3], rows[7][3] = "guestexperience@trgplc.com", "pressemea@chain7.com"   # published by the business itself
     _book(tmp_path, rows)
     assert _scores(bench.score_booking(outcome))["no email is guessed: each is published on the business's own site"].passed
@@ -59,7 +63,7 @@ def test_a_booking_workbook_is_scored_from_its_cells(tmp_path, monkeypatch):
     assert _scores(bench.score_booking(outcome))["every entry has its source page"].passed
 
     _book(tmp_path, _rows(6))
-    assert not _scores(bench.score_booking(outcome))["partners.xlsx lists at least 50"].passed
+    assert not _scores(bench.score_booking(outcome))["partners.xlsx has at least 50 businesses to contact (a published email or phone)"].passed
     outcome.minutes = 31.0
     assert not _scores(bench.score_booking(outcome))["done within 15 minutes (faster than a person searching by hand)"].passed
     outcome.engine, outcome.cost_usd = "", 3.0
@@ -171,7 +175,7 @@ def test_a_list_kept_in_several_sheets_is_counted_whole(tmp_path, monkeypatch):
         return {u: True for u in urls}
 
     monkeypatch.setattr(bench, "reachable", answers)
-    rows = _rows()
+    rows = _rows(60)
     (tmp_path / "partners.xlsx").write_bytes(xlsx_bytes([
         {"name": "Groups and chains", "rows": [HEADER] + rows[:20]},
         {"name": "Independents", "rows": [HEADER] + rows[20:35]},
@@ -180,5 +184,6 @@ def test_a_list_kept_in_several_sheets_is_counted_whole(tmp_path, monkeypatch):
     outcome = bench.Outcome(job="booking", folder=tmp_path, status="completed", verified=True, engine="claude",
                             cost_usd=0.6, minutes=12.0)
     scored = _scores(bench.score_booking(outcome))
-    assert scored["partners.xlsx lists at least 50"].passed, scored["partners.xlsx lists at least 50"].detail
+    whole = scored["partners.xlsx has at least 50 businesses to contact (a published email or phone)"]
+    assert whole.passed and whole.detail.startswith("50 of 60 listed"), whole.detail
     assert all(c.passed for c in scored.values()), {k: c.detail for k, c in scored.items() if not c.passed}

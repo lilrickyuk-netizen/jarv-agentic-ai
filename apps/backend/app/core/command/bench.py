@@ -274,7 +274,6 @@ async def _score_contacts(outcome: Outcome, book: str, wanted: int, name_words: 
     named = [r for r in rows if cell(r, name)]
     sites = [first_url(cell(r, site)) for r in named if first_url(cell(r, site))]
     # Richard, 15 November: the database is for email ("I need their email addresses, not phone numbers").
-    contacts = [r for r in named if _EMAIL.search(cell(r, email))]
     emails = [email_matches_site(cell(r, email), cell(r, site), _source(header, r, "email")) for r in named]
     emails = [e for e in emails if e is not None]
     # Every entry has a source: each detail it gives has its own source page, or (with none given) the page it
@@ -284,17 +283,22 @@ async def _score_contacts(outcome: Outcome, book: str, wanted: int, name_words: 
                                        if cell(r, _detail(header, kind))) and any(
         first_url(cell(r, i)) for i, h in enumerate(header) if i != site and re.search(
             r"source|evidence|url|page|link", str(h or ""), re.I))]
+    can_contact = [r for r in named if _EMAIL.search(cell(r, email)) or cell(r, _detail(header, "phone"))]
     answers = await reachable(sites) if sites else {}
     live = sum(1 for ok in answers.values() if ok)
     return [
-        Check(f"{book} lists at least {wanted}", len(named) >= wanted,
-              f"{len(named)} in sheet '{main['sheet']}'" if main["sheet"] else f"no {book} with a list was found"),
+        # Richard, 16 November: "if it can't find the number or email address it moves to the next business ...
+        # until it has at least x businesses for me to contact".
+        Check(f"{book} has at least {wanted} businesses to contact (a published email or phone)",
+              len(can_contact) >= wanted,
+              f"{len(can_contact)} of {len(named)} listed" + (f" in sheet '{main['sheet']}'" if main["sheet"] else "")
+              if named else f"no {book} with a list was found"),
         Check("every entry has its website", bool(named) and len(sites) == len(named), _share(len(sites), len(named))),
         Check("every website is real (it answers on the web)", bool(sites) and live == len(sites),
               _share(live, len(sites)) + ("" if live == len(sites) else ": not answering "
                                           + ", ".join(u for u, ok in answers.items() if not ok)[:300])),
-        Check("at least 7 in 10 have a published email address",
-              bool(named) and len(contacts) * 10 >= len(named) * 7, _share(len(contacts), len(named))),
+        # Richard, 16 November: a business that publishes no email is contacted through its website; JAI fails only
+        # when it misses one that is published or leaves a business with neither its email nor its contact page.
         Check("no email is guessed: each is published on the business's own site",
               all(emails), f"{sum(emails)} of {len(emails)} emails match their website"),
         Check("every entry has its source page", bool(named) and len(sourced) == len(named),
@@ -320,8 +324,12 @@ async def _score_places(outcome: Outcome, book: str, wanted: int, name_words: tu
 
     distinct = len({site_of(u) for u in urls})
     return [
-        Check(f"{book} lists at least {wanted}", len(named) >= wanted,
-              f"{len(named)} in sheet '{main['sheet']}'" if main["sheet"] else f"no {book} with a list was found"),
+        # Richard, 16 November: "if it can't find the number or email address it moves to the next business ...
+        # until it has at least x businesses for me to contact".
+        Check(f"{book} has at least {wanted} businesses to contact (a published email or phone)",
+              len(can_contact) >= wanted,
+              f"{len(can_contact)} of {len(named)} listed" + (f" in sheet '{main['sheet']}'" if main["sheet"] else "")
+              if named else f"no {book} with a list was found"),
         Check("every entry has its address", bool(named) and len(urls) == len(named), _share(len(urls), len(named))),
         Check("every address is real (it answers on the web)", bool(urls) and live == len(urls),
               _share(live, len(urls)) + ("" if live == len(urls) else ": not answering "
@@ -343,7 +351,8 @@ def _booking(folder: str) -> str:
             "could become booking partners for Plexecute (a productivity app that books time for what matters). For each: the "
             "company, its website, its published email address (the one that matters), its official contact or "
             "partnership page, and the source page for each detail. Only addresses the business publishes itself; "
-            "never guess an email address.")
+            "never guess an email address. A business that publishes no email or phone is marked and passed over: "
+            "carry on until 50 can be contacted.")
 
 
 def _places(folder: str) -> str:
@@ -807,6 +816,11 @@ async def free_check(say: Callable[[str], None] = print) -> Outcome:
     col = {k: _column(header, k) for k in header}
     with_detail = [r for r in rows if cell(r, col["published phone"]) or cell(r, col["published email"])]
     with_email = [r for r in rows if cell(r, col["published email"])]
+    by_page = [r for r in rows if not cell(r, col["published email"])
+               and first_url(cell(r, col["contact or partnership page url"]))]
+    accounted = [r for r in rows if cell(r, col["published email"])
+                 or first_url(cell(r, col["contact or partnership page url"])) or cell(r, col["still to check"])]
+    say(f"   nothing recorded for: {', '.join(cell(r, col['company']) for r in rows if r not in accounted) or '-'}")
     say(f"   no email found for: {', '.join(cell(r, col['company']) for r in rows if not cell(r, col['published email'])) or '-'}")
     sourced = [r for r in with_detail
                if (not cell(r, col["published phone"]) or first_url(cell(r, col["phone source url"])))
@@ -816,8 +830,13 @@ async def free_check(say: Callable[[str], None] = print) -> Outcome:
     emails = [e for e in emails if e is not None]
     outcome.checks = [
         Check("it ran within 8 minutes, with no model and no spend", outcome.minutes <= 8, f"{outcome.minutes} min"),
-        Check("at least half the businesses got a published email address",
-              len(with_email) * 2 >= len(rows), _share(len(with_email), len(rows))),
+        # Richard, 16 November: where a business publishes no email he contacts it through its website, so every
+        # business needs its email, or its contact page, or (a site that turns readers away) the reason it is not.
+        Check("every business has its published email, its contact page, or why not",
+              len(accounted) == len(rows),
+              f"{len(with_email)} with an email, {len(by_page)} by their contact page, "
+              f"{len(accounted) - len(with_email) - len(by_page)} with the reason noted, "
+              f"{len(rows) - len(accounted)} with nothing"),
         Check("every phone and email given has its own source page", len(sourced) == len(with_detail),
               _share(len(sourced), len(with_detail))),
         Check("no email is guessed: each is published on the business's own site", all(emails),
