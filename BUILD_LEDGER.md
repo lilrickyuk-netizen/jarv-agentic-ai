@@ -7,15 +7,16 @@
 - **Status**: LEGACY PHASE CLAIM; REPAIRS 10-15 UNDER VERIFICATION
 
 ## CURRENT STATUS
-- **Updated**: 2026-11-16 10:55 (read this section and the last entries at the bottom before any change)
-- **Current Phase**: REPAIR CONTINUATION (10-15): missions run on the Claude Agent SDK engine (MISSION_ENGINE=claude) since 2026-11-15; the 50-business database mission is being proven end to end
-- **Current Task**: THE-PASSED-OVER-SHEET-IS-NOT-THE-LIST (bench scoring only); then find the session transcripts the trace could not see, to count the skills the 12:05 mission opened
+- **Updated**: 2026-11-16 13:20 (read this section and the last entries at the bottom before any change)
+- **Current Phase**: REPAIR CONTINUATION (10-15): missions run on the Claude Agent SDK engine (MISSION_ENGINE=claude) since 2026-11-15; the booking database is being scaled to thousands of UK and US businesses, chains first
+- **Current Task**: IMPORT-CHAINS (installer install-chains-import.sh: tests, then the free chains check: the real open data imported and the first 50 chains' own sites read, no AI, no spend)
+- **Richard's rule (16 November)**: no paid mission until every part is proven working for free first; only proven open-source code and open data, no home-made loops
 - **Last verified on Richard's machine (update)**: 2026-11-16 11:33, full suite alone 1297 passed, 1 skipped (commit 6f9d231); 12:05 paid booking run 1c19fd8c: 50 businesses, 45 published emails, 50 contactable, 25 passed over with reasons, 7 of 8 requirements done, 11.3 min, $1.16; independent check still open on R5 (each email confirmed on its cited page)
-- **Last verified on Richard's machine**: 2026-11-16 10:03, free check PASS (25 businesses: 13 emails, 16 contactable, all sourced, none guessed); PostgreSQL suite 1294 passed, 1 skipped
-- **Last paid run**: 2026-11-16 10:05, mission 6f10b402 booking: 50 businesses, 44 published emails, 13.6 min, $0.86; JAI's independent check marked it partial (an incomplete published phone counted; sources and emails it could not re-read in its time)
+- **Free probes on Richard's machine (16 November 12:40)**: the Name Suggestion Index lists 1,364 different UK and US chains (587 UK, 1,137 US) across 23 bookable categories; an official website on Wikidata for 149 of a sample of 150
+- **Earlier work found in this ledger**: the 124-business booking workbook in the Plexecute workspace (mission 9be7aeee, 14 November: 5 phones, 2 emails); MYCO Phase 0 committed and then corrected against V3.2; the Plexecute pitch deck and videos
 - **Not re-tested since the engine change (2026-11-15)**: places, investors, team and cancel bench jobs; decks, videos and software builds (the builder and OpenHands loop is unchanged but its model calls now go to Claude)
 - **Open**: ECC pack scanned grade F (300 critical findings, nothing blocked), not yet reviewed
-- **Next**: install-phones.sh, one paid booking run, then the other four bench jobs once each; read jai-state.txt from Richard's machine before every change
+- **Next**: install-chains-import.sh (free); then one capped paid booking run on the chains; read jai-state.txt from Richard's machine before every change
 - **Build Status**: NOT ACCEPTED; Repairs 11-15 remain open under the locked execution order
 - **Build Start Date**: 2026-06-03
 - **Build Completion Date**: 2026-06-03
@@ -14914,3 +14915,16 @@ TESTS RUN: the 8 bench tests, including a workbook whose "Passed over" sheet (co
 RESULT: Mission 1c19fd8c (16 November 12:05) listed 50 businesses in three sheets and put the 25 it passed over in a "Passed over" sheet, as Richard asked (09:06). The bench took the largest sheet's header ("Passed over": company, website, reason) and scored 0 of 75 contactable, 0 of 75 sourced. Scored on the same rows now: 50 of 50 contactable, 50 of 50 websites, 45 of 45 emails on the business's own site, 50 of 50 sourced. The engine's fixes are visible in the record: 7 of 8 requirements marked done with evidence (0 before).
 BLOCKERS: The session transcript was not found by mission-trace.sh ("transcripts: none found"), so the number of skills the session opened is not known yet
 NEXT TASK: list where the worker keeps the session transcripts (read only)
+
+---
+
+TASK ID: IMPORT-CHAINS
+TASK NAME: The big UK and US chains come into the booking database from open data (Name Suggestion Index and Wikidata), ready for fill_contacts
+STATUS: IN_PROGRESS (built and checked on Claude's side; Richard's installer runs the suite and the free chains check)
+FILES CREATED: apps/backend/app/core/business/chains.py, apps/backend/tests/test_import_chains.py
+FILES MODIFIED: apps/backend/app/core/agents/workspace_ops.py, apps/backend/app/core/agents/toolbox.py, apps/backend/app/tools/workspace_runtime/__init__.py, apps/backend/app/core/command/role_mission.py, apps/backend/app/core/command/claude_engine.py, apps/backend/app/core/command/bench.py, BUILD_LEDGER.md
+COMMANDS RUN: chains-probe.sh and chains-probe-2.sh on Richard's machine (read only, free); on Claude's side py_compile of every changed file, the two pure tests run against chains.py, chain_rows on the test's data (5 rows, a second run adds 0), every heading of the Chains sheet matched against fill_contacts' column patterns
+TESTS RUN: the website for the country is chosen (Wikidata P1001, then the country's ending, then a general one) and another country's set apart (Kura Sushi, Galito's); only brands trading in the UK or US with a Wikidata ID; through the Partnerships Lead's toolbox: chains appended to the workbook beside the earlier sheet, a website or a chain already listed never added twice, unknown country refused, fill_contacts sees the chains as rows to fill, the tool is in the role's tools and the registry
+RESULT: Richard, 16 November: thousands of UK and US businesses to email for booking permission, the big chains first; proven open sources only. A specialist could not load a list of chains: JAI's command gate classes any download as dangerous (kept as it is) and the page reader summarises a large file, so the database grew one web search at a time. import_chains (registered, authority-checked, recorded, in every list-building role) reads the Name Suggestion Index (BSD-3-Clause) for 23 bookable categories and each brand's official website from Wikidata (CC0, 50 at a time, a pause between requests), and appends a Chains sheet with each chain's Wikidata page as its source and its own email-source and phone-source columns, so every email keeps the page it is published on (the independent check's open R5). A chain whose only website is another country's is listed without one and the site set apart, so no other country's office is emailed. The engine's session is told to start a chains list with it. The bench has a free chains check: the real import, then fill_contacts on the first 50 chains.
+BLOCKERS: None
+NEXT TASK: Richard runs install-chains-import.sh (tests, restart, free chains check) and sends chains-install.txt and chains-check.txt

@@ -229,6 +229,19 @@ WORKSPACE_TOOLS: Dict[str, ToolSpec] = {
         _schema({"path": _PATH_PROP, "sheets": {"type": "array", "items": {"type": "string"}},
                  "limit": {"type": "integer"}, "again": {"type": "boolean"}}, ["path"]),
         "workspace"),
+    "import_chains": ToolSpec(
+        "import_chains",
+        "Add UK and US chain businesses (restaurants, fast food, cafes, pubs, bars, hotels, gyms, hair and beauty, "
+        "car rental and repair, cinemas and more) to a workbook from open data: every chain the Name Suggestion "
+        "Index lists for those countries, with its official website from Wikidata and the Wikidata page as its "
+        "source. Use it first when a list of businesses should start with the big chains; then fill_contacts reads "
+        "each chain's own site for the email and phone it publishes. A website already in the workbook is not added "
+        "twice; a chain whose only website is another country's is listed without one, for Richard to check. Give "
+        "path, optionally categories, countries (UK, US) and limit.",
+        _schema({"path": _PATH_PROP, "categories": {"type": "array", "items": {"type": "string"}},
+                 "countries": {"type": "array", "items": {"type": "string"}}, "sheet": {"type": "string"},
+                 "limit": {"type": "integer"}}, ["path"]),
+        "workspace"),
     "check_spreadsheet": ToolSpec(
         "check_spreadsheet",
         "Check EVERY row of an Excel workbook against rules, in code, and get back what passes and what does not, "
@@ -457,7 +470,7 @@ WORKSPACE_TOOLS.update({
                                             ["memory_id"]), "workspace"),
 })
 
-_FILESYSTEM_TOOLS = {"generate_image", "make_voiceover", "make_video", "list_files", "read_file", "search_files", "scan_workspace", "write_file", "write_spreadsheet", "tidy_spreadsheet", "check_spreadsheet", "fill_contacts",
+_FILESYSTEM_TOOLS = {"generate_image", "make_voiceover", "make_video", "list_files", "read_file", "search_files", "scan_workspace", "write_file", "write_spreadsheet", "tidy_spreadsheet", "check_spreadsheet", "fill_contacts", "import_chains",
                      "run_command", "git_status", "git_diff", "git_log", "edit_file", "create_folder",
                      "move_file", "copy_file", "delete_file_with_boundary", "get_file_metadata",
                      "detect_workspace_type", "detect_stack", "detect_commands", "find_missing_files",

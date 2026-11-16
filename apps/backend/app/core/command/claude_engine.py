@@ -315,7 +315,9 @@ class ClaudeRoleExecutor(RoleExecutor):
             f"{PREFIX}fill_contacts for the contact details a business publishes on its own pages, and JAI's memory "
             f"and knowledge graph. Claude Code's Read cannot open an Excel, Word or PDF file: open one with "
             f"{PREFIX}read_document (15 November: four steps of a mission were lost to Read on .xlsx files).",
-            f"For a list or database of businesses, work at machine speed, not one business at a time: "
+            f"For a list or database of businesses, work at machine speed, not one business at a time: when it "
+            f"should start with chains, {PREFIX}import_chains adds every UK and US chain of the kinds asked for "
+            f"(open data, each with its official website) to the workbook; "
             f"{PREFIX}discover_prospect_companies gives every business of a type in an area from OpenStreetMap (free "
             f"open data) with its website; save them with {PREFIX}write_spreadsheet; {PREFIX}fill_contacts then reads "
             f"all their own sites side by side for the published phone, email and contact page; "

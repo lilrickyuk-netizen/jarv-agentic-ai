@@ -852,6 +852,81 @@ async def free_check(say: Callable[[str], None] = print) -> Outcome:
     return outcome
 
 
+
+async def chains_check(say: Callable[[str], None] = print, sample: int = 50) -> Outcome:
+    """The booking database's first tier, free: import_chains on the real open data (every UK and US chain of the
+    bookable kinds, with its official website), then fill_contacts on the first chains with a website, through the
+    same toolbox a specialist's mission uses. No model and no spend."""
+    import time
+    from types import SimpleNamespace
+
+    from app.core.agents import workspace_ops
+    from app.core.agents.toolbox import AgentToolbox
+    from app.core.command.role_mission import RoleAgent
+    from app.core.command.tool_runtime import ToolRuntime
+    from app.core.database import AsyncSessionLocal
+    from app.core.workspaces import fs_inspector
+
+    outcome = Outcome(job="chains")
+    host = _host_folder("chains")
+    folder = fs_inspector.host_to_container(host)
+    shutil.rmtree(folder, ignore_errors=True)
+    folder.mkdir(parents=True)
+    outcome.folder = folder
+    started = time.monotonic()
+    async with AsyncSessionLocal() as db:
+        user, workspace = await _workspace(db)
+        runtime = ToolRuntime(db, workspace.id, None, operator="bench:chains-check", authority_level=5,
+                              user_id=user.id)
+        context = SimpleNamespace(db_session=db, workspace_id=workspace.id, task_id=None, user_id=user.id,
+                                  session_id=None, approval_granted=False, approved_tools=[])
+        box = AgentToolbox(RoleAgent(runtime, "partnerships"), context, runtime=runtime, root_host=_host_folder())
+        await box.prepare()
+        imported = await box.call("import_chains", {"path": "chains/partners.xlsx"})
+        imported_at = round((time.monotonic() - started) / 60, 1)
+        say(f"   import_chains ({imported_at} min): " + json.dumps(
+            {k: imported.get(k) for k in ("success", "added", "with_website", "counts", "categories_not_read",
+                                          "error", "reason")}, default=str))
+        filled = (await box.call("fill_contacts", {"path": "chains/partners.xlsx", "sheets": ["Chains"],
+                                                   "limit": sample})
+                  if imported.get("success") else {})
+        await db.commit()
+    outcome.minutes = round((time.monotonic() - started) / 60, 1)
+    say("   fill_contacts on the first " + str(sample) + ": " + json.dumps(
+        {k: filled.get(k) for k in ("rows_tried", "email_filled", "phone_filled", "contactable", "error")},
+        default=str))
+    say(f"   sites with no phone or email on them: {', '.join(filled.get('sites_publishing_neither') or []) or '-'}")
+    say(f"   sites that could not be read: {', '.join(filled.get('could_not_be_read') or []) or '-'}")
+    main = table(_sheets(folder, "partners.xlsx"), ("business",)) if imported.get("success") else {
+        "header": [], "rows": []}
+    header, rows = main["header"], main["rows"]
+    col = {k: _column(header, k) for k in header}
+    tried = [r for r in rows if col.get("website") is not None and cell(r, col["website"])
+             and (cell(r, col["email"]) or cell(r, col["phone"]) or cell(r, col["still to check"]))]
+    with_email = [r for r in tried if cell(r, col["email"])]
+    say("   twenty chains: " + "; ".join(f"{cell(r, col['business'])} ({cell(r, col['country'])}): "
+                                         f"{cell(r, col['email']) or 'no email published'}" for r in tried[:20]))
+    emails = [email_matches_site(cell(r, col["email"]), cell(r, col["website"]), cell(r, col["email source"]))
+              for r in with_email]
+    sourced = [r for r in with_email if first_url(cell(r, col["email source"]))]
+    emails = [e for e in emails if e is not None]
+    found = int(imported.get("added") or 0)
+    sited = int(imported.get("with_website") or 0)
+    outcome.checks = [
+        Check("the chains list was read from open data", bool(imported.get("success")) and found >= 1000,
+              f"{found} chains added, {sited} with their UK or US website"),
+        Check("at least 9 in 10 chains have their UK or US website", found > 0 and sited * 10 >= found * 9,
+              _share(sited, found)),
+        Check(f"fill_contacts read the first {sample} chains' own sites", len(tried) >= sample * 0.9,
+              f"{len(tried)} of {sample} tried, {len(with_email)} with a published email"),
+        Check("every email keeps the page it is published on", len(sourced) == len(with_email),
+              _share(len(sourced), len(with_email))),
+        Check("no email is guessed: each is published on the chain's own site", all(emails),
+              f"{sum(emails)} of {len(emails)} emails match their website"),
+        Check("it ran within 10 minutes, with no model and no spend", outcome.minutes <= 10, f"{outcome.minutes} min"),
+    ]
+    return outcome
+
 def main(argv: List[str]) -> int:
     import os
 
@@ -860,6 +935,12 @@ def main(argv: List[str]) -> int:
         outcome = asyncio.run(free_check())
         JOBS.setdefault("contacts", Job("contacts", "Free check: JAI's contact reader on 25 businesses",
                                         _booking, score_booking))
+        print(render([outcome]))
+        return 0 if outcome.passed else 1
+    if argv[:1] == ["chains"]:
+        outcome = asyncio.run(chains_check())
+        JOBS.setdefault("chains", Job("chains", "Free check: UK and US chains from open data, then their own sites",
+                                      _booking, score_booking))
         print(render([outcome]))
         return 0 if outcome.passed else 1
     if argv[:1] == ["stop"]:

@@ -1633,6 +1633,71 @@ async def fill_contacts(tb, args: Dict[str, Any]) -> Dict[str, Any]:
             "facts": xlsx_facts(sheets)}
 
 
+
+async def import_chains(tb, args: Dict[str, Any]) -> Dict[str, Any]:
+    """UK and US chains from open data into a workbook's Chains sheet, ready for fill_contacts.
+
+    16 November: a specialist could not load a list of chains (its command gate blocks downloads, and the page
+    reader summarises a large file), so the booking database grew one web search at a time. The chains come from
+    the Name Suggestion Index and each one's official website from Wikidata (app.core.business.chains); both
+    addresses are cleared by the same gate as a page read, and the workbook is written by write_spreadsheet (file
+    gate, earlier copy kept, recorded). A website already in the workbook is not added twice."""
+    from app.core.business import chains, prospecting
+
+    host, path, refused = await _resolve(tb, args.get("path"))
+    if refused:
+        return refused
+    if path.suffix.lower() != ".xlsx":
+        return {"success": False, "error": "import_chains writes into an .xlsx workbook; give a path ending in .xlsx."}
+    try:
+        files = chains.category_files(args.get("categories"))
+        codes = chains.country_codes(args.get("countries"))
+    except ValueError as exc:
+        return {"success": False, "error": str(exc)}
+    for url in (chains.NSI_FILE.format(files[0][1]), chains.WIKIDATA_API):
+        denied = await tb.runtime._enforce("fetch_url", content=url)
+        if denied:
+            return denied
+    known: List[str] = []
+    names: List[str] = []
+    if path.exists():
+        try:
+            for sheet in xlsx_read(path.read_bytes()):
+                column = contact_columns(sheet["rows"][0]).get("website") if sheet["rows"] else None
+                if column is not None:
+                    known += [_Tidy._cell(row, column) for row in sheet["rows"][1:]]
+                if sheet["rows"]:
+                    named = next((i for i, h in enumerate(sheet["rows"][0]) if _NAMED.search(str(h))), 0)
+                    names += [_Tidy._cell(row, named) for row in sheet["rows"][1:]]
+        except Exception:  # noqa: BLE001
+            return {"success": False, "error": f"{host} exists but could not be read as a workbook, so it was not "
+                                               "changed. Give a new file name instead."}
+    async with prospecting.http_client() as client:
+        found, unread = await chains.read_index(client, files, codes)
+        claims = await chains.read_websites(client, [b["qid"] for b in found])
+    rows, counts = chains.chain_rows(found, claims, known, names)
+    try:
+        limit = int(args.get("limit") or 0)
+    except (TypeError, ValueError):
+        limit = 0
+    if limit > 0:
+        rows = rows[:limit]
+    sheet = str(args.get("sheet") or "Chains")
+    if not rows:
+        return {"success": True, "path": host, "added": 0, "counts": counts, "categories_not_read": unread,
+                "note": "No chain to add: every one found is already in the workbook."}
+    written = await write_spreadsheet(tb, {"path": args.get("path"), "mode": "append",
+                                           "sheets": [{"name": sheet, "rows": [list(chains.HEADER)] + rows}]})
+    if not written.get("success"):
+        return written
+    with_site = sum(1 for r in rows if r[3])
+    return {"success": True, "path": host, "sheet": sheet, "added": len(rows), "with_website": with_site,
+            "counts": counts, "categories_not_read": unread,
+            "source": "Name Suggestion Index (BSD-3-Clause) and Wikidata (CC0)",
+            "next": (f"Call fill_contacts on {host} (sheets: [\"{sheet}\"], limit 150) and again until it says none "
+                     f"is left: it reads each of the {with_site} chains' own sites for the email and phone they "
+                     "publish. Rows with no website are for Richard to check; never guess a site or an email.")}
+
 def _backup_workbook(path, old: bytes) -> None:
     """Keep the workbook as it was in .jai/backups/ (the latest ten copies) before it is changed."""
     from datetime import datetime, timezone
@@ -1714,7 +1779,7 @@ async def tidy_spreadsheet(tb, args: Dict[str, Any]) -> Dict[str, Any]:
 
 HANDLERS = {
     "write_spreadsheet": write_spreadsheet, "tidy_spreadsheet": tidy_spreadsheet,
-    "check_spreadsheet": check_spreadsheet, "fill_contacts": fill_contacts,
+    "check_spreadsheet": check_spreadsheet, "fill_contacts": fill_contacts, "import_chains": import_chains,
     "edit_file": edit_file, "create_folder": create_folder, "move_file": move_file, "copy_file": copy_file,
     "delete_file_with_boundary": delete_file_with_boundary, "get_file_metadata": get_file_metadata,
     "detect_workspace_type": detect_workspace_type, "detect_stack": detect_stack,

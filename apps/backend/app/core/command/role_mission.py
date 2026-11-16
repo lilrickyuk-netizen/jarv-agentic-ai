@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 # What every specialist works with: files and spreadsheets in the product's folder, the web, documents, memory and
 # knowledge. No shell, builds, installs, deletes or pushes: those are the software builder's.
 TRADE_TOOLS = (
-    "list_files", "read_file", "search_files", "get_file_metadata", "write_file", "edit_file", "write_spreadsheet", "tidy_spreadsheet", "check_spreadsheet", "fill_contacts", "find_contacts",
+    "list_files", "read_file", "search_files", "get_file_metadata", "write_file", "edit_file", "write_spreadsheet", "tidy_spreadsheet", "check_spreadsheet", "fill_contacts", "import_chains", "find_contacts",
     "create_folder", "move_file", "copy_file", "read_document", "web_search", "research_web", "fetch_url",
     "use_browser", "memory_search", "memory_add", "knowledge_graph_search", "knowledge_graph_add", "recall_richard",
     "read_mission_report", "consult_specialist_knowledge", "read_skill", "git_status", "git_log",
