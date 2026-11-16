@@ -818,8 +818,13 @@ async def free_check(say: Callable[[str], None] = print) -> Outcome:
     with_email = [r for r in rows if cell(r, col["published email"])]
     by_page = [r for r in rows if not cell(r, col["published email"])
                and first_url(cell(r, col["contact or partnership page url"]))]
+    # The reason is read as written: "not published on its own site: phone or email (checked ...)" is a reason,
+    # though JAI's own blank-cell test (unfilled) reads a cell starting "not published" as empty (16 November: two
+    # businesses with their reason written counted as "nothing recorded").
+    note = col["still to check"]
     accounted = [r for r in rows if cell(r, col["published email"])
-                 or first_url(cell(r, col["contact or partnership page url"])) or cell(r, col["still to check"])]
+                 or first_url(cell(r, col["contact or partnership page url"]))
+                 or (note is not None and note < len(r) and str(r[note] or "").strip())]
     say(f"   nothing recorded for: {', '.join(cell(r, col['company']) for r in rows if r not in accounted) or '-'}")
     say(f"   no email found for: {', '.join(cell(r, col['company']) for r in rows if not cell(r, col['published email'])) or '-'}")
     sourced = [r for r in with_detail
