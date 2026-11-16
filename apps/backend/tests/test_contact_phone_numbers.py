@@ -13,8 +13,11 @@ def test_a_number_one_digit_short_is_never_kept_and_real_numbers_are():
     # 16 November: Zizzi's site prints a Guildford number one digit short; it was counted as a way to contact them.
     assert not contacts._phone_ok("01483 66420")
     for good in ("01483 664200", "020 7946 0018", "+44 20 7946 0018", "0161 234 5678", "0330 123 4567",
-                 "(201) 555-0123", "+1 201 555 0123"):   # libphonenumber's own US example number
+                 "(212) 736-3100", "+1 212 736 3100"):   # a real, published US number (the Empire State Building)
         assert contacts._phone_ok(good), good
+    # 16 November, Richard's machine: libphonenumber rejects the 555-01xx range reserved for fiction, as it should.
+    for fiction in ("(201) 555-0123", "01483 66420"):
+        assert not contacts._phone_ok(fiction), fiction
     page = ('<footer>Call us on 01483 66420 or <a href="tel:+442079460018">020 7946 0018</a>. '
             '<a href="mailto:hello@zizzi.co.uk">Email</a></footer>')
     found = contacts.extract(page, "https://www.zizzi.co.uk")
