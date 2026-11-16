@@ -7,8 +7,14 @@
 - **Status**: LEGACY PHASE CLAIM; REPAIRS 10-15 UNDER VERIFICATION
 
 ## CURRENT STATUS
-- **Current Phase**: REPAIR CONTINUATION (10-15)
-- **Current Task**: None. Agents write whole documents (PostgreSQL suite 651 passed, 1 skipped)
+- **Updated**: 2026-11-16 10:55 (read this section and the last entries at the bottom before any change)
+- **Current Phase**: REPAIR CONTINUATION (10-15): missions run on the Claude Agent SDK engine (MISSION_ENGINE=claude) since 2026-11-15; the 50-business database mission is being proven end to end
+- **Current Task**: VALID-PHONES-AND-CODE-FACTS-FOR-THE-CHECK, built and committed, waiting for Richard to run install-phones.sh (free check only)
+- **Last verified on Richard's machine**: 2026-11-16 10:03, free check PASS (25 businesses: 13 emails, 16 contactable, all sourced, none guessed); PostgreSQL suite 1294 passed, 1 skipped
+- **Last paid run**: 2026-11-16 10:05, mission 6f10b402 booking: 50 businesses, 44 published emails, 13.6 min, $0.86; JAI's independent check marked it partial (an incomplete published phone counted; sources and emails it could not re-read in its time)
+- **Not re-tested since the engine change (2026-11-15)**: places, investors, team and cancel bench jobs; decks, videos and software builds (the builder and OpenHands loop is unchanged but its model calls now go to Claude)
+- **Open**: ECC pack scanned grade F (300 critical findings, nothing blocked), not yet reviewed
+- **Next**: install-phones.sh, one paid booking run, then the other four bench jobs once each; read jai-state.txt from Richard's machine before every change
 - **Build Status**: NOT ACCEPTED; Repairs 11-15 remain open under the locked execution order
 - **Build Start Date**: 2026-06-03
 - **Build Completion Date**: 2026-06-03
