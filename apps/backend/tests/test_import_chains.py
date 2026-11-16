@@ -82,10 +82,17 @@ WIKIDATA = {
 }
 
 
-def open_data(seen):
+def open_data(seen, busy=1):
+    """The index and Wikidata; Wikidata answers busy the first time (maxlag), as it did on 16 November."""
+    state = {"busy": busy}
+
     def answer(request: httpx.Request) -> httpx.Response:
         url = str(request.url)
         seen.append(url)
+        if "wikidata" in url and state["busy"] > 0:
+            state["busy"] -= 1
+            return httpx.Response(200, headers={"Retry-After": "5"}, json={"error": {
+                "code": "maxlag", "info": "Waiting for 10.64.48.35: 7 seconds lagged."}})
         if "raw.githubusercontent.com" in url:
             path = url.split("/data/brands/")[1].removesuffix(".json")
             return httpx.Response(200, json=INDEX[path]) if path in INDEX else httpx.Response(404)
@@ -153,3 +160,23 @@ def test_chains_are_added_to_the_workbook_ready_for_fill_contacts(project, monke
     assert all("wikidata.org" in u or "githubusercontent.com" in u for u in seen)
     assert any(c.get("tool") == "write_file" for c in calls)
     assert "import_chains" in role_tools("partnerships")
+
+
+def test_a_busy_wikidata_is_waited_out_and_what_it_never_answers_is_not_listed_as_having_no_website():
+    seen = []
+
+    async def go(busy):
+        async with httpx.AsyncClient(transport=httpx.MockTransport(open_data(seen, busy))) as client:
+            return await chains.read_websites(client, ["Q10", "Q11", "Q12"], pause=0)
+
+    claims, unread = asyncio.run(go(busy=2))            # busy twice, then answered
+    assert sorted(claims) == ["Q10", "Q11", "Q12"] and unread == []
+    assert sum("wikidata" in u for u in seen) == 3
+    claims, unread = asyncio.run(go(busy=99))           # never answered: reported, not taken as "no website"
+    assert claims == {} and len(unread) == 3 and "busy" in unread[0]
+    found = [{"qid": "Q10", "name": "Giraffe", "category": "restaurant", "countries": ["gb"]}]
+    rows, counts = chains.chain_rows(found, claims, [])
+    assert rows == [] and counts["wikidata_not_read"] == 1 and counts["no_website"] == 0
+    assert chains._busy(httpx.Response(200, json={"entities": {}})) == 0
+    assert chains._busy(httpx.Response(429, headers={"Retry-After": "30"})) == 30
+

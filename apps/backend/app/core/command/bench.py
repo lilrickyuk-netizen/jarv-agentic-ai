@@ -901,22 +901,40 @@ async def chains_check(say: Callable[[str], None] = print, sample: int = 50) -> 
         "header": [], "rows": []}
     header, rows = main["header"], main["rows"]
     col = {k: _column(header, k) for k in header}
+    # The still-to-check note is read as written: "not published on its own site ..." and "could not be read ..."
+    # are reasons, though JAI's blank-cell test reads a cell starting "not published" as empty (16 November: the
+    # first chains check counted 40 of 50 tried when fill_contacts had tried all 50).
+    note = col.get("still to check")
     tried = [r for r in rows if col.get("website") is not None and cell(r, col["website"])
-             and (cell(r, col["email"]) or cell(r, col["phone"]) or cell(r, col["still to check"]))]
+             and (cell(r, col["email"]) or cell(r, col["phone"])
+                  or (note is not None and note < len(r) and str(r[note] or "").strip()))]
     with_email = [r for r in tried if cell(r, col["email"])]
     say("   twenty chains: " + "; ".join(f"{cell(r, col['business'])} ({cell(r, col['country'])}): "
                                          f"{cell(r, col['email']) or 'no email published'}" for r in tried[:20]))
     emails = [email_matches_site(cell(r, col["email"]), cell(r, col["website"]), cell(r, col["email source"]))
               for r in with_email]
+    # An email on another domain is shown with its page, so whether it is the chain's own (a parent company's
+    # address on the chain's contact page) or not can be judged without a paid run.
+    say("   emails on another domain: " + ("; ".join(
+        f"{cell(r, col['business'])}: {cell(r, col['email'])} on {cell(r, col['email source'])} (site "
+        f"{cell(r, col['website'])})" for r, ok in zip(with_email, emails) if ok is False) or "-"))
     sourced = [r for r in with_email if first_url(cell(r, col["email source"]))]
     emails = [e for e in emails if e is not None]
     found = int(imported.get("added") or 0)
     sited = int(imported.get("with_website") or 0)
+    counts = imported.get("counts") or {}
+    asked = int(counts.get("chains") or 0)
+    answered = asked - int(imported.get("wikidata_not_read") or 0)
+    # Chains Wikidata answered for (a busy Wikidata is waited out and retried; what it still did not answer is
+    # added by the next import, never listed as having no website).
+    judged = max(0, found)
     outcome.checks = [
         Check("the chains list was read from open data", bool(imported.get("success")) and found >= 1000,
               f"{found} chains added, {sited} with their UK or US website"),
-        Check("at least 9 in 10 chains have their UK or US website", found > 0 and sited * 10 >= found * 9,
-              _share(sited, found)),
+        Check("Wikidata answered for at least 95 in 100 chains", asked > 0 and answered * 100 >= asked * 95,
+              f"{answered} of {asked}"),
+        Check("at least 9 in 10 chains listed have their UK or US website", judged > 0 and sited * 10 >= judged * 9,
+              _share(sited, judged)),
         Check(f"fill_contacts read the first {sample} chains' own sites", len(tried) >= sample * 0.9,
               f"{len(tried)} of {sample} tried, {len(with_email)} with a published email"),
         Check("every email keeps the page it is published on", len(sourced) == len(with_email),

@@ -9,7 +9,7 @@
 ## CURRENT STATUS
 - **Updated**: 2026-11-16 13:20 (read this section and the last entries at the bottom before any change)
 - **Current Phase**: REPAIR CONTINUATION (10-15): missions run on the Claude Agent SDK engine (MISSION_ENGINE=claude) since 2026-11-15; the booking database is being scaled to thousands of UK and US businesses, chains first
-- **Current Task**: IMPORT-CHAINS (installer install-chains-import.sh: tests, then the free chains check: the real open data imported and the first 50 chains' own sites read, no AI, no spend)
+- **Current Task**: WIKIDATA-BUSY (installer install-chains-wikidata.sh: tests, then the free chains check again)
 - **Richard's rule (16 November)**: no paid mission until every part is proven working for free first; only proven open-source code and open data, no home-made loops
 - **Last verified on Richard's machine (update)**: 2026-11-16 11:33, full suite alone 1297 passed, 1 skipped (commit 6f9d231); 12:05 paid booking run 1c19fd8c: 50 businesses, 45 published emails, 50 contactable, 25 passed over with reasons, 7 of 8 requirements done, 11.3 min, $1.16; independent check still open on R5 (each email confirmed on its cited page)
 - **Free probes on Richard's machine (16 November 12:40)**: the Name Suggestion Index lists 1,364 different UK and US chains (587 UK, 1,137 US) across 23 bookable categories; an official website on Wikidata for 149 of a sample of 150
@@ -14920,7 +14920,7 @@ NEXT TASK: list where the worker keeps the session transcripts (read only)
 
 TASK ID: IMPORT-CHAINS
 TASK NAME: The big UK and US chains come into the booking database from open data (Name Suggestion Index and Wikidata), ready for fill_contacts
-STATUS: IN_PROGRESS (built and checked on Claude's side; Richard's installer runs the suite and the free chains check)
+STATUS: COMPLETE (installed on Richard's machine 16 November 13:10 as 849abac, 1301 passed, 1 skipped; its free check found the faults fixed in WIKIDATA-BUSY)
 FILES CREATED: apps/backend/app/core/business/chains.py, apps/backend/tests/test_import_chains.py
 FILES MODIFIED: apps/backend/app/core/agents/workspace_ops.py, apps/backend/app/core/agents/toolbox.py, apps/backend/app/tools/workspace_runtime/__init__.py, apps/backend/app/core/command/role_mission.py, apps/backend/app/core/command/claude_engine.py, apps/backend/app/core/command/bench.py, BUILD_LEDGER.md
 COMMANDS RUN: chains-probe.sh and chains-probe-2.sh on Richard's machine (read only, free); on Claude's side py_compile of every changed file, the two pure tests run against chains.py, chain_rows on the test's data (5 rows, a second run adds 0), every heading of the Chains sheet matched against fill_contacts' column patterns
@@ -14928,3 +14928,16 @@ TESTS RUN: the website for the country is chosen (Wikidata P1001, then the count
 RESULT: Richard, 16 November: thousands of UK and US businesses to email for booking permission, the big chains first; proven open sources only. A specialist could not load a list of chains: JAI's command gate classes any download as dangerous (kept as it is) and the page reader summarises a large file, so the database grew one web search at a time. import_chains (registered, authority-checked, recorded, in every list-building role) reads the Name Suggestion Index (BSD-3-Clause) for 23 bookable categories and each brand's official website from Wikidata (CC0, 50 at a time, a pause between requests), and appends a Chains sheet with each chain's Wikidata page as its source and its own email-source and phone-source columns, so every email keeps the page it is published on (the independent check's open R5). A chain whose only website is another country's is listed without one and the site set apart, so no other country's office is emailed. The engine's session is told to start a chains list with it. The bench has a free chains check: the real import, then fill_contacts on the first 50 chains.
 BLOCKERS: None
 NEXT TASK: Richard runs install-chains-import.sh (tests, restart, free chains check) and sends chains-install.txt and chains-check.txt
+
+---
+
+TASK ID: WIKIDATA-BUSY
+TASK NAME: A busy Wikidata is waited out as its documentation says, and the free chains check counts what fill_contacts tried and shows emails on another domain
+STATUS: IN_PROGRESS (checked on Claude's side; Richard's installer runs the suite and the free chains check)
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/business/chains.py, apps/backend/app/core/agents/workspace_ops.py, apps/backend/app/core/command/bench.py, apps/backend/tests/test_import_chains.py, BUILD_LEDGER.md
+COMMANDS RUN: install-chains-import.sh on Richard's machine (16 November 13:10: 1301 passed, 1 skipped; free chains check 3.0 min, nothing spent); on Claude's side py_compile, read_websites against a client that answers busy twice and one that never answers
+TESTS RUN: Wikidata answering maxlag (HTTP 200, error code maxlag, Retry-After) twice is retried and read; never answering is reported per chain and those chains are not listed (never as "no website"); a 429 with Retry-After is waited out; the import's integration test with Wikidata busy on its first answer
+RESULT: The first free chains check on Richard's machine: 1,689 chains from the index, 482 with their UK or US website, 1,194 with none, against 149 of 150 in the morning's probe; fill_contacts on the first 50 chains: 28 published emails, 19 phones, 31 contactable, every email with its page, 3 minutes, no model. Wikidata answers a request it cannot serve because its replicas lag with HTTP 200, {"error": {"code": "maxlag"}} and Retry-After (mediawiki.org, Manual:Maxlag_parameter); read_websites took a 200 as an answer, so those batches read as brands without claims. Now a busy answer (maxlag, or 429/503) is waited out for Retry-After, at least 5 seconds, up to 6 tries; a chain Wikidata still did not answer is reported and left for the next import, not listed. The check also counted 40 of 50 tried because the bench's blank-cell test reads a "not published on its own site" note as empty (the same fault fixed in the contacts check on 16 November): the note is read as written. The two emails on another domain (26 of 28 matched) are now printed with their pages, to judge whether they are the chain's own published addresses (a parent company's address on the chain's contact page is). New check: Wikidata answered for at least 95 in 100 chains.
+BLOCKERS: None
+NEXT TASK: Richard runs install-chains-wikidata.sh and sends chains-install.txt and chains-check.txt

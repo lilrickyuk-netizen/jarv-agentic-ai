@@ -152,19 +152,68 @@ async def read_index(client, files: List[Tuple[str, str]], codes: List[str]) -> 
     return list(found.values()), unread
 
 
-async def read_websites(client, qids: List[str], pause: float = WIKIDATA_PAUSE) -> Dict[str, Dict[str, Any]]:
-    """Each brand's Wikidata claims, 50 at a time."""
+WIKIDATA_TRIES = 6           # a busy answer is retried after the wait Wikidata gives
+WIKIDATA_LEAST_WAIT = 5.0    # Manual:Maxlag_parameter: wait at least 5 seconds with maxlag=5
+
+
+def _busy(answer) -> float:
+    """Seconds to wait when Wikidata answers busy, 0 when it did not.
+
+    16 November, first chains check: 1,194 of 1,689 chains came back without a website (the probe found one for
+    149 of 150). Wikidata answers a request it cannot serve because its replicas lag with HTTP 200 and an error
+    {"code": "maxlag"} and a Retry-After header (mediawiki.org, Manual:Maxlag_parameter); those answers were read
+    as brands with no claims. A 429 or 503 with Retry-After is waited out the same way."""
+    retry = answer.headers.get("retry-after")
+    try:
+        wait = max(WIKIDATA_LEAST_WAIT, float(retry)) if retry else WIKIDATA_LEAST_WAIT
+    except ValueError:
+        wait = WIKIDATA_LEAST_WAIT
+    if answer.status_code in (429, 503):
+        return wait
+    if answer.status_code == 200:
+        try:
+            error = (answer.json() or {}).get("error") or {}
+        except ValueError:
+            return 0.0
+        if error.get("code") == "maxlag":
+            return wait
+    return 0.0
+
+
+async def read_websites(client, qids: List[str], pause: Optional[float] = None) -> Tuple[Dict[str, Dict[str, Any]], List[str]]:
+    """Each brand's Wikidata claims, 50 at a time: ({qid: claims}, [qids that could not be read and why]).
+    pause 0 (tests) skips every wait."""
+    pause = WIKIDATA_PAUSE if pause is None else pause
     claims: Dict[str, Dict[str, Any]] = {}
+    unread: List[str] = []
     for start in range(0, len(qids), WIKIDATA_BATCH):
-        answer = await client.get(WIKIDATA_API, params={
-            "action": "wbgetentities", "ids": "|".join(qids[start:start + WIKIDATA_BATCH]), "props": "claims",
-            "format": "json", "maxlag": 5})
-        if answer.status_code == 200:
-            for qid, entity in (answer.json().get("entities") or {}).items():
+        batch = qids[start:start + WIKIDATA_BATCH]
+        reason = ""
+        for attempt in range(WIKIDATA_TRIES):
+            answer = await client.get(WIKIDATA_API, params={
+                "action": "wbgetentities", "ids": "|".join(batch), "props": "claims", "format": "json", "maxlag": 5})
+            wait = _busy(answer)
+            if wait:
+                reason = f"Wikidata busy after {WIKIDATA_TRIES} tries"
+                if attempt + 1 < WIKIDATA_TRIES and pause:
+                    await asyncio.sleep(wait)
+                continue
+            if answer.status_code != 200:
+                reason = f"Wikidata answered {answer.status_code}"
+                break
+            body = answer.json() or {}
+            if body.get("error"):
+                reason = f"Wikidata error {str(body['error'].get('code') or '')[:40]}"
+                break
+            for qid, entity in (body.get("entities") or {}).items():
                 claims[qid] = entity.get("claims") or {}
+            reason = ""
+            break
+        if reason:
+            unread += [f"{q} ({reason})" for q in batch]
         if pause and start + WIKIDATA_BATCH < len(qids):
             await asyncio.sleep(pause)
-    return claims
+    return claims, unread
 
 
 def chain_rows(found: List[Dict[str, Any]], claims: Dict[str, Dict[str, Any]], known_sites: Iterable[str],
@@ -175,9 +224,13 @@ def chain_rows(found: List[Dict[str, Any]], claims: Dict[str, Dict[str, Any]], k
     known = {_host(s).removeprefix("www.") for s in known_sites if s}
     names = {str(n).strip().lower() for n in known_names if n}
     rows: List[List[str]] = []
-    counts = {"chains": 0, "with_website": 0, "other_country_only": 0, "no_website": 0, "already_listed": 0}
+    counts = {"chains": 0, "with_website": 0, "other_country_only": 0, "no_website": 0, "already_listed": 0,
+              "wikidata_not_read": 0}
     for brand in found:
         counts["chains"] += 1
+        if brand["qid"] not in claims:
+            counts["wikidata_not_read"] += 1
+            continue
         by_site: Dict[str, List[str]] = {}
         elsewhere = ""
         for code in brand["countries"]:

@@ -1674,7 +1674,7 @@ async def import_chains(tb, args: Dict[str, Any]) -> Dict[str, Any]:
                                                "changed. Give a new file name instead."}
     async with prospecting.http_client() as client:
         found, unread = await chains.read_index(client, files, codes)
-        claims = await chains.read_websites(client, [b["qid"] for b in found])
+        claims, not_read = await chains.read_websites(client, [b["qid"] for b in found])
     rows, counts = chains.chain_rows(found, claims, known, names)
     try:
         limit = int(args.get("limit") or 0)
@@ -1685,18 +1685,24 @@ async def import_chains(tb, args: Dict[str, Any]) -> Dict[str, Any]:
     sheet = str(args.get("sheet") or "Chains")
     if not rows:
         return {"success": True, "path": host, "added": 0, "counts": counts, "categories_not_read": unread,
-                "note": "No chain to add: every one found is already in the workbook."}
+                "wikidata_not_read": len(not_read),
+                "note": ("No chain to add: every one found is already in the workbook." if not not_read else
+                         f"Wikidata could not be read for {len(not_read)} chains; call import_chains again later "
+                         "to add them.")}
     written = await write_spreadsheet(tb, {"path": args.get("path"), "mode": "append",
                                            "sheets": [{"name": sheet, "rows": [list(chains.HEADER)] + rows}]})
     if not written.get("success"):
         return written
     with_site = sum(1 for r in rows if r[3])
     return {"success": True, "path": host, "sheet": sheet, "added": len(rows), "with_website": with_site,
-            "counts": counts, "categories_not_read": unread,
+            "counts": counts, "categories_not_read": unread, "wikidata_not_read": len(not_read),
             "source": "Name Suggestion Index (BSD-3-Clause) and Wikidata (CC0)",
             "next": (f"Call fill_contacts on {host} (sheets: [\"{sheet}\"], limit 150) and again until it says none "
                      f"is left: it reads each of the {with_site} chains' own sites for the email and phone they "
-                     "publish. Rows with no website are for Richard to check; never guess a site or an email.")}
+                     "publish. Rows with no website are for Richard to check; never guess a site or an email."
+                     + (f" Wikidata could not be read for {len(not_read)} chains (busy): call import_chains again "
+                        "later and they are added; the chains already listed are not added twice." if not_read
+                        else ""))}
 
 def _backup_workbook(path, old: bytes) -> None:
     """Keep the workbook as it was in .jai/backups/ (the latest ten copies) before it is changed."""
