@@ -9,7 +9,7 @@
 ## CURRENT STATUS
 - **Updated**: 2026-11-17 20:40 (read this section and the last entries at the bottom before any change)
 - **Current Phase**: REPAIR CONTINUATION (10-15): missions run on the Claude Agent SDK engine (MISSION_ENGINE=claude) since 2026-11-15; the booking database is being scaled to thousands of UK and US businesses, chains first
-- **Current Task**: SKILLS-READ-AND-WORKERS (installer install-skills-workers.sh: the 11 skills Richard listed, the skill listing that reaches Claude whole, department workers on the cheaper model up to 20 at once; full suite, restart; no paid run)
+- **Current Task**: SKILLS-READ-AND-WORKERS COMPLETE (17 November 20:47, commit bf7bbec on Richard's machine); next: Richard's six Plexecute video ads (goal only; JAI's own skills decide the creative), the first mission that can split into parts for the workers
 - **Richard's rule (16 November)**: no paid mission until every part is proven working for free first; only proven open-source code and open data, no home-made loops
 - **Last verified on Richard's machine (update)**: 2026-11-16 11:33, full suite alone 1297 passed, 1 skipped (commit 6f9d231); 12:05 paid booking run 1c19fd8c: 50 businesses, 45 published emails, 50 contactable, 25 passed over with reasons, 7 of 8 requirements done, 11.3 min, $1.16; independent check still open on R5 (each email confirmed on its cited page)
 - **Free probes on Richard's machine (16 November 12:40)**: the Name Suggestion Index lists 1,364 different UK and US chains (587 UK, 1,137 US) across 23 bookable categories; an official website on Wikidata for 149 of a sample of 150
@@ -14973,7 +14973,7 @@ NEXT TASK: Richard runs install-fixes-17nov.sh; then a free mail-merge tool, wri
 
 TASK ID: SKILLS-READ-AND-WORKERS
 TASK NAME: The skills Richard listed that JAI did not have, installed from their authors' repositories; every skill a Claude engine session lists reaches Claude whole; each department hands independent parts of a job to up to 20 workers on the cheaper model, which start with the job's playbooks already read
-STATUS: IN_PROGRESS (checked on Claude's side; Richard's installer runs the full suite and a free check)
+STATUS: COMPLETE (17 November 20:47 on Richard's machine: full suite 1312 passed, 1 skipped, commit bf7bbec; the five packs fetched at their pins; AgentShield graded the new packs B with nothing blocked; 151 skills stored for JAI's search; Claude's out-of-credit mark cleared; free check 23 of 23: claude-agent-sdk 0.2.182 preloads skills, workers 20 at once on claude-haiku-5-5, the lead and the check on claude-sonnet-5-5, every registered skill on the machine, and for eight departments the listing fits its budget with the job's playbooks in full and preloaded in the workers, 22,400 to 27,690 characters)
 FILES CREATED: apps/backend/tests/test_skills_read_and_workers.py
 FILES MODIFIED: apps/backend/app/core/knowledge/skill_packs.py, apps/backend/app/core/command/claude_engine.py, apps/backend/app/core/config.py, scripts/skill-packs.sh, apps/backend/tests/test_claude_engine.py, apps/backend/tests/test_skill_packs.py, BUILD_LEDGER.md
 COMMANDS RUN: on Claude's side: shallow clones of the five repositories to read each skill and licence; scripts/skill-packs.sh (all twelve packs at their pinned commits, licences checked, including CC BY-SA 4.0); the skill listing measured on a mission folder built from the real packs; ruff (F, E9) on every changed file; py_compile
