@@ -64,9 +64,13 @@ MAX_PDF = 15_000_000
 _TWO_PART = ("co.uk", "org.uk", "ac.uk", "gov.uk", "ltd.uk", "plc.uk", "me.uk", "com.au", "co.nz", "co.za")
 
 _EMAIL = re.compile(r"[A-Za-z0-9][A-Za-z0-9._%+-]{0,63}@[A-Za-z0-9][A-Za-z0-9.-]{0,251}\.[A-Za-z]{2,24}")
+# A tracking service's address is never a contact (16 November: Denny's, Checkers, Rally's, Perkins, Chicken
+# Express and Europcar were listed with 3b0f...@o17585.ingest.us.sentry.io, Sentry's error-reporting key, which
+# their sites carry in their code): such services anywhere in the domain, and a long hexadecimal key before the @.
 _NOT_EMAIL = re.compile(r"\.(?:png|jpe?g|gif|svg|webp|avif|css|js|ico|woff2?)$|^(?:your|name|email|user|example|"
                         r"someone|firstname|first\.last|you)@|@(?:example|domain|email|yourdomain|sentry|"
-                        r"sentry-next|wixpress|mysite|company|test)\.|@[0-9.]+$|@2x\.", re.I)
+                        r"sentry-next|wixpress|mysite|company|test)\.|@(?:[a-z0-9-]+\.)*(?:sentry|sentry-next|"
+                        r"wixpress|ingest)\.|^[0-9a-f]{24,}@|^u002f|@[0-9.]+$|@2x\.", re.I)
 _UK = r"(?:\+44[\s.-]?\(?0?\)?[\s.-]?|\(?\b0)\d{2,5}\)?(?:[\s.-]?\d{2,5}){1,3}"
 _US = r"(?:\+1[\s.-]?)?\(?\b[2-9]\d{2}\)?[\s.-]\d{3}[\s.-]\d{4}\b"
 _PHONE = re.compile(rf"(?:{_UK}|{_US})")

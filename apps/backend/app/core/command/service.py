@@ -935,11 +935,15 @@ class CommandService:
         # Work a skill is made for, in a named workspace, is the skill's mission: on 9 November "Using BRAG, make a
         # fresh video ad ... write the web address as ... don't post it" went to a marketing draft because of the
         # words "write" and "post".
-        if has_path:
-            from app.core.knowledge.skill_packs import named_skill
+        from app.core.knowledge.skill_packs import named_skill
 
-            if named_skill(command_text) is not None:
-                return "agent_task"
+        # A skill named for work is the skill's mission with or without a typed folder path: the workspace comes
+        # from the brief's name for it (workspace_choice). 16 November: "Use my BRAG skill on Plexecute, starting
+        # from the project in brag-output-..." had no C:\ path, went to the one-off research and QA answer, and
+        # reviewed the old video instead of making the new one. Questions about a skill keep their quick answers.
+        if named_skill(command_text) is not None and (has_path or not _QUESTION.match(text)):
+            return "agent_task"
+        if has_path:
             # Work in Richard's folder that one of the specialists owns (prospects, decks, research, plans), or a
             # document there to make or change, is a mission in that folder: on 9 November "finish
             # outreach/Plexecute-Prospects.xlsx ... Do no new research" went to the one-off web-research answer,

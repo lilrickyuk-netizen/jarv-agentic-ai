@@ -622,3 +622,31 @@ def test_the_sandbox_is_told_what_cached_input_really_costs(monkeypatch, sandbox
     assert fake.started["output_cost_per_token"] == pytest.approx(1e-5)
     assert fake.started["cache_read_cost_per_token"] == pytest.approx(1e-7)
     assert fake.started["cache_write_cost_per_token"] == pytest.approx(2.5e-6)
+
+
+def test_an_apostrophe_in_a_command_does_not_put_the_workspace_outside_itself():
+    """17 November: a carousel mission's "cd <its own folder>; echo don't ..." was refused as outside its workspace:
+    with the quote unfinished, the words were split on spaces alone and the ";" stayed on the folder's name."""
+    assert check_command(f"cd {ROOT}; echo don't stop", ROOT, SCOPE) is None
+    assert check_command(f"ls {ROOT}/apps&& echo it's done", ROOT, SCOPE) is None
+    # another project is still refused when a quote is unfinished
+    assert "outside this mission's workspace" in (check_command(
+        "cat /host/workspaces/other-project/secret.txt; echo don't", ROOT, SCOPE) or "")
+
+
+def test_a_sandbox_that_cannot_see_the_folder_stops_the_mission_with_the_fix():
+    """16 and 17 November: after WSL or Docker restarted, the sandbox answered "/host/workspaces/PLEXECUTE_IMAGES is
+    not a folder" and the mission went round again for nothing. Now it stops and tells Richard the one command."""
+    from app.core.command import failures
+    from app.core.command.mission_org import MissionTeam
+    from app.core.command.sandbox_engine import FOLDER_UNSEEN
+
+    assert "--force-recreate --no-deps openhands" in FOLDER_UNSEEN and "Retry mission" in FOLDER_UNSEEN
+    assert failures.classify(FOLDER_UNSEEN) == "richard"
+    team = MissionTeam.__new__(MissionTeam)
+    team.packages = [SimpleNamespace(summary="(claude-sonnet-5-5 stopped short, so claude-opus-5-5 took the package "
+                                             "over. It had reported: " + FOLDER_UNSEEN + ")")]
+    team.verdict = None
+    assert team._folder_unseen() is True
+    team.packages = [SimpleNamespace(summary="Rendered brag.mp4")]
+    assert team._folder_unseen() is False

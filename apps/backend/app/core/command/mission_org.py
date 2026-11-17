@@ -1117,6 +1117,13 @@ class MissionTeam:
             for p in wave:
                 finished[p.id] = p
 
+    def _folder_unseen(self) -> bool:
+        """The sandbox could not see the workspace folder: no round can do anything until Richard reconnects it."""
+        from app.core.command.sandbox_engine import FOLDER_UNSEEN
+
+        return any(FOLDER_UNSEEN[:60] in str(p.summary or "") for p in self.packages) or \
+            FOLDER_UNSEEN[:60] in str((self.verdict or {}).get("answer") or "")
+
     def _specialist_work(self) -> bool:
         return bool(self.packages and self.packages[0].acting_as)
 
@@ -1185,7 +1192,7 @@ class MissionTeam:
             # Restored 10 November: a specialist's mission goes on, round after round, until it is verified or its
             # allowance is used, as it did before research was cut to one round that morning (every list mission
             # after that came back "partial").
-            "needs_continuation": not verified and not self.capped,
+            "needs_continuation": not verified and not self.capped and not self._folder_unseen(),
             "step_limit_reached": False,
             "verification": {"verified": verified, "unmet": unmet, "waiting_on_richard": waiting,
                              "checks": judged["checks"],

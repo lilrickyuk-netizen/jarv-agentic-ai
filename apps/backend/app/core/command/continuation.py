@@ -171,13 +171,23 @@ def _done(requirements) -> int:
     return sum(1 for r in requirements or [] if isinstance(r, dict) and r.get("status") == "done")
 
 
-def round_progressed(before, after, calls) -> bool:
+def round_progressed(before, after, calls, best: int = 0) -> bool:
     """Whether a round moved the mission on. With a requirement list, only a requirement newly done counts: on
     8 November MYCO rounds kept changing files, completed nothing and kept paying. Without one, a change to the
-    workspace counts."""
+    workspace counts.
+
+    Newly done means more than the mission has ever had done (best), not more than the round before: on 16
+    November a video mission ran 11 rounds and ended 0 of 16 done with only 1 idle round counted, because a round
+    whose Verifier did not finish leaves every requirement open, and the next round "recovering" them counted as
+    progress each time."""
     if after:
-        return _done(after) > _done(before)
+        return _done(after) > max(_done(before), int(best or 0))
     return round_changed_workspace(calls)
+
+
+def best_done(before, after, best: int = 0) -> int:
+    """The most requirements the mission has had done in any round so far."""
+    return max(int(best or 0), _done(before), _done(after))
 
 
 def settled_reason(requirements) -> str:
@@ -359,7 +369,8 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
 
     outcome, reason, idle = after_round(outcome, reason, round_progressed(res.get("requirements"),
                                                                           result.get("requirements"),
-                                                                          runtime.calls),
+                                                                          runtime.calls,
+                                                                          int(res.get("best_done") or 0)),
                                         int(res.get("idle_rounds") or 0))
     checkpoint_id = str(uuid4()) if outcome == lifecycle.NEEDS_CONTINUATION else res.get("checkpoint_id")
     from app.core.command import mission_budget, result_card
@@ -382,6 +393,7 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
         "checkpoint_id": checkpoint_id,
         "final_status_reason": reason,
         "idle_rounds": idle,
+        "best_done": best_done(res.get("requirements"), result.get("requirements"), int(res.get("best_done") or 0)),
         "verification": result.get("verification"),
         "settled": bool(result.get("settled")),
         "role": result.get("role") or res.get("role"),

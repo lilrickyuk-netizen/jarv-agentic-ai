@@ -9,7 +9,7 @@
 ## CURRENT STATUS
 - **Updated**: 2026-11-16 13:20 (read this section and the last entries at the bottom before any change)
 - **Current Phase**: REPAIR CONTINUATION (10-15): missions run on the Claude Agent SDK engine (MISSION_ENGINE=claude) since 2026-11-15; the booking database is being scaled to thousands of UK and US businesses, chains first
-- **Current Task**: WIKIDATA-BUSY (installer install-chains-wikidata.sh: tests, then the free chains check again)
+- **Current Task**: SEVENTEEN-NOVEMBER-FIXES (installer install-fixes-17nov.sh: the full suite, restart; no paid run)
 - **Richard's rule (16 November)**: no paid mission until every part is proven working for free first; only proven open-source code and open data, no home-made loops
 - **Last verified on Richard's machine (update)**: 2026-11-16 11:33, full suite alone 1297 passed, 1 skipped (commit 6f9d231); 12:05 paid booking run 1c19fd8c: 50 businesses, 45 published emails, 50 contactable, 25 passed over with reasons, 7 of 8 requirements done, 11.3 min, $1.16; independent check still open on R5 (each email confirmed on its cited page)
 - **Free probes on Richard's machine (16 November 12:40)**: the Name Suggestion Index lists 1,364 different UK and US chains (587 UK, 1,137 US) across 23 bookable categories; an official website on Wikidata for 149 of a sample of 150
@@ -14933,7 +14933,7 @@ NEXT TASK: Richard runs install-chains-import.sh (tests, restart, free chains ch
 
 TASK ID: WIKIDATA-BUSY
 TASK NAME: A busy Wikidata is waited out as its documentation says, and the free chains check counts what fill_contacts tried and shows emails on another domain
-STATUS: IN_PROGRESS (checked on Claude's side; Richard's installer runs the suite and the free chains check)
+STATUS: COMPLETE (installed 16 November 14:00 as 4f90ffb, 1302 passed, 1 skipped; free chains check: Wikidata answered 1,689 of 1,689, 1,547 with their UK or US website, 50 of 50 sites read, 28 emails each with its page)
 FILES CREATED: None
 FILES MODIFIED: apps/backend/app/core/business/chains.py, apps/backend/app/core/agents/workspace_ops.py, apps/backend/app/core/command/bench.py, apps/backend/tests/test_import_chains.py, BUILD_LEDGER.md
 COMMANDS RUN: install-chains-import.sh on Richard's machine (16 November 13:10: 1301 passed, 1 skipped; free chains check 3.0 min, nothing spent); on Claude's side py_compile, read_websites against a client that answers busy twice and one that never answers
@@ -14941,3 +14941,29 @@ TESTS RUN: Wikidata answering maxlag (HTTP 200, error code maxlag, Retry-After) 
 RESULT: The first free chains check on Richard's machine: 1,689 chains from the index, 482 with their UK or US website, 1,194 with none, against 149 of 150 in the morning's probe; fill_contacts on the first 50 chains: 28 published emails, 19 phones, 31 contactable, every email with its page, 3 minutes, no model. Wikidata answers a request it cannot serve because its replicas lag with HTTP 200, {"error": {"code": "maxlag"}} and Retry-After (mediawiki.org, Manual:Maxlag_parameter); read_websites took a 200 as an answer, so those batches read as brands without claims. Now a busy answer (maxlag, or 429/503) is waited out for Retry-After, at least 5 seconds, up to 6 tries; a chain Wikidata still did not answer is reported and left for the next import, not listed. The check also counted 40 of 50 tried because the bench's blank-cell test reads a "not published on its own site" note as empty (the same fault fixed in the contacts check on 16 November): the note is read as written. The two emails on another domain (26 of 28 matched) are now printed with their pages, to judge whether they are the chain's own published addresses (a parent company's address on the chain's contact page is). New check: Wikidata answered for at least 95 in 100 chains.
 BLOCKERS: None
 NEXT TASK: Richard runs install-chains-wikidata.sh and sends chains-install.txt and chains-check.txt
+
+---
+
+TASK ID: CHAINS-DATABASE-AND-OUTREACH (16-17 November, recorded here)
+TASK NAME: The booking database's chains tier built in full for free; location counts; the US partnership drafts
+STATUS: COMPLETE
+FILES CREATED: on Richard's machine: PLEXECUTE_IMAGES/outreach/chains-database-with-locations.xlsx, us-partnership-email-drafts.xlsx (outside the repository)
+FILES MODIFIED: none in the repository
+COMMANDS RUN: build-chains-database.sh (JAI's fill_contacts over every chain, 150 at a time, no model): 903 of 1,650 chains contactable, 707 with a published email (515 US), 21.8 min, nothing spent; count-locations.sh: All the Places run 2026-11-07 (5,829 store finders) counted per Wikidata ID; Git master and claude/voice-wake-wip merged on GitHub (c3fb69e: every master change was already on the work branch)
+TESTS RUN: the merge of JAI's Sales Lead template (mission e264edc0, 53 drafts, $1.25) with every US chain: one email per inbox (Marriott's 20 brands one email), the opt-out and footer in every draft, no repeated inbox
+RESULT: The contactable chains cover about 147,000 US and 18,000 UK locations (each brand counted once; fuel stations and parent-company counts left out). 481 US partnership drafts in 49 daily batches of 10; Richard sends them himself. Found: six chains listed with a Sentry error-reporting key as their email (fixed in SEVENTEEN-NOVEMBER-FIXES).
+BLOCKERS: None
+NEXT TASK: SEVENTEEN-NOVEMBER-FIXES
+
+---
+
+TASK ID: SEVENTEEN-NOVEMBER-FIXES
+TASK NAME: Rounds that only re-check stop after two; a sandbox that cannot see the folder stops at once with the fix; a skill named without a folder path is its mission; an apostrophe never puts the workspace outside itself; a tracking service's address is never an email
+STATUS: IN_PROGRESS (checked on Claude's side; Richard's installer runs the full suite)
+FILES CREATED: apps/backend/tests/test_contact_tracking_addresses.py, apps/backend/tests/test_seventeen_november_fixes.py
+FILES MODIFIED: apps/backend/app/core/command/continuation.py, apps/backend/app/core/command/mission_org.py, apps/backend/app/core/command/sandbox_engine.py, apps/backend/app/core/command/sandbox_policy.py, apps/backend/app/core/command/service.py, apps/backend/app/core/internet/contacts.py, apps/backend/tests/test_missions_finish_properly.py, apps/backend/tests/test_openhands_sandbox.py, BUILD_LEDGER.md
+COMMANDS RUN: on Richard's machine (read only): jai-state.sh (commit 4f90ffb, every service up, Claude out of credit, OpenAI the fallback), the stored result of missions 947d0d14, 51a3f085 and 58d935c7; on Claude's side py_compile of every changed file and each new test's logic run against the real code
+TESTS RUN: a Verifier that wobbles (12, 0, 12, 0, 12 done) stops the mission at round 3 (the old rule counted 0 idle rounds after 5); the six real Sentry keys refused and every real address from the database kept, through the contact reader's extract; "cd <workspace>; echo don't" and "ls <workspace>/apps&& echo it's done" allowed, another project still refused; the sandbox's "is not a folder" stops the mission and is classed as waiting on Richard; a named skill without a typed path is a mission, a question about a skill is not
+RESULT: Mission 947d0d14 (the second video) ran 11 rounds and ended 0 of 16 done with 1 idle round counted: a round whose Verifier did not finish leaves every requirement open, and the next round's recovery counted as progress, so the two-idle-rounds stop never fired. Progress is now measured against the most requirements ever done (best_done kept with the mission). The sandbox lost sight of C:\Users\lilri\Projects after WSL or Docker restarted (16 November 18:25 and 17 November 17:03); JAI may restart but not recreate containers and a restart is not shown to fix the link, so the mission stops at once with the one command (docker compose --profile engineer up -d --force-recreate --no-deps openhands). The carousel mission's own folder was refused as "PLEXECUTE_IMAGES;" when an apostrophe left a quote unfinished and the words were split on spaces alone. The contact reader refused "@sentry." only straight after the @; Sentry keys read @o17585.ingest.us.sentry.io.
+BLOCKERS: None
+NEXT TASK: Richard runs install-fixes-17nov.sh; then a free mail-merge tool, writing Word and PowerPoint files (Pandoc, python-docx, python-pptx), an image model that fits the RTX 4050's 6 GB, the "no folder" label on mission cards

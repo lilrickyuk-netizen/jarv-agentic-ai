@@ -115,8 +115,10 @@ def _words(command: str) -> Iterable[str]:
         lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()<>")
         lexer.whitespace_split = True
         return list(lexer)
-    except ValueError:  # an unfinished quote: split on spaces
-        return command.split()
+    except ValueError:  # an unfinished quote: split on spaces and on the shell's separators
+        # 17 November: "cd /host/workspaces/PLEXECUTE_IMAGES; echo don't" split on spaces alone kept the ";" on the
+        # path, "PLEXECUTE_IMAGES;" did not match the workspace, and the mission's own folder was refused.
+        return [w for w in re.split(r"[\s;&|()<>]+", command) if w]
 
 
 _QUOTED = re.compile(r"'[^']*'|\"(?:[^\"\\]|\\.)*\"")

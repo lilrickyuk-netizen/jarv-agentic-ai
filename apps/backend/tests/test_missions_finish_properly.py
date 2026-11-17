@@ -213,3 +213,32 @@ def test_every_mission_knows_its_toolchain_and_that_a_missing_tool_is_not_a_bloc
     assert "ARG MISE_IMAGE=ghcr.io/jdx/mise:2026.10.4" in dockerfile and "COPY --from=mise /usr/local/bin/mise" in dockerfile
     for pin in ("ARG GO_VERSION=1.26", "ARG JAVA_VERSION=temurin-25", "ARG MAVEN_VERSION=3", "ARG GRADLE_VERSION=9"):
         assert pin in dockerfile, pin
+
+
+def test_a_wobbling_verifier_does_not_reset_the_idle_count():
+    """16 November: a video mission ran 11 rounds and ended 0 of 16 done with only 1 idle round counted. A round
+    whose Verifier did not finish leaves every requirement open; the next round "recovering" them counted as
+    progress. Progress is now measured against the most ever done, so the wobble stops after two idle rounds."""
+    from app.core.command.continuation import best_done, round_progressed
+
+    def reqs(done, total=16):
+        return [{"id": f"R{i}", "status": "done" if i <= done else "open"} for i in range(1, total + 1)]
+
+    # 12 done, then a round whose Verifier missed (0 done), then 12 again, then 0, then 12: nothing new
+    rounds = [12, 0, 12, 0, 12]
+    best, idle, before, outcome = 0, 0, None, lifecycle.NEEDS_CONTINUATION
+    stopped_at = None
+    for n, done in enumerate(rounds, 1):
+        after = reqs(done)
+        changed = round_progressed(before, after, [{"tool": "write_file", "success": True}], best)
+        best = best_done(before, after, best)
+        outcome, _, idle = after_round(lifecycle.NEEDS_CONTINUATION, "check not passed", changed, idle)
+        before = after
+        if outcome != lifecycle.NEEDS_CONTINUATION:
+            stopped_at = n
+            break
+    assert stopped_at == 3 and outcome == lifecycle.PARTIAL  # round 1 progressed; rounds 2 and 3 did not
+    # a real step forward still counts
+    assert round_progressed(reqs(12), reqs(13), [], best=12) is True
+    assert round_progressed(reqs(0), reqs(12), [], best=12) is False
+    assert best_done(reqs(0), reqs(5), best=12) == 12

@@ -227,6 +227,12 @@ def builder_method(mission: str) -> str:
         f"6. When an item is another discipline's work, do it to that role's standard: {roles}\n")
 
 
+# What Richard is told when the sandbox cannot see his folders; the mission stops at it (no further round can help).
+FOLDER_UNSEEN = ("Waiting for Richard: the engineering sandbox cannot see your Projects folder (its link to Windows "
+                 "goes stale when WSL or Docker restarts). Nothing more was spent. Run this once in Ubuntu, then press "
+                 "Retry mission: cd ~/jarv-agentic-ai && docker compose --profile engineer up -d --force-recreate "
+                 "--no-deps openhands")
+
 class SandboxSpecialist:
     """Runs one work package in the sandbox and follows it to the end."""
 
@@ -460,6 +466,10 @@ class SandboxSpecialist:
         try:
             started = await client.post(f"{sandbox_url()}/runs", json=body, headers=_headers())
             if started.status_code != 200:
+                if "is not a folder" in started.text:
+                    # 16 and 17 November: after WSL or Docker restarted, the sandbox's link to Richard's Projects
+                    # folder went stale and every package failed this way; rounds after it only repeated it.
+                    return {"success": False, "folder_unseen": True, "answer": FOLDER_UNSEEN}
                 return {"success": False, "answer": f"The sandbox did not start the package: "
                                                     f"{started.status_code} {started.text[:300]}"}
             view = await self._follow(client, container_root)
