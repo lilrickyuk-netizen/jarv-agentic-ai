@@ -467,6 +467,12 @@ class Settings(BaseSettings):
     # check, the report, the debrief, the business tools' small steps) runs on Claude too: this one for light work
     # (15 November: the check on GPT-6 Luna hung for 45 minutes on a dropped OpenAI connection).
     CLAUDE_LIGHT_MODEL: str = "claude-haiku-5-5"
+    # The workers a specialist hands parts of its job to in the Claude engine (Claude Code sub-agents): this model
+    # (empty: CLAUDE_LIGHT_MODEL), while the specialist leading the job and the independent check stay on
+    # CLAUDE_ENGINE_MODEL. Up to CLAUDE_WORKERS_AT_ONCE run at the same time (Claude Code's own default is 20); the
+    # mission's spending limit covers them all together (the Agent SDK counts every worker's calls against it).
+    CLAUDE_WORKER_MODEL: str = ""
+    CLAUDE_WORKERS_AT_ONCE: int = Field(default=20, ge=1, le=20)
     # The independent check has this long, all its calls together, before the work is reported unchecked.
     VERIFIER_MAX_SECONDS: int = 600
     # Each engine mission's Claude Code folder (session transcripts, skill links), kept beside the code so a restart

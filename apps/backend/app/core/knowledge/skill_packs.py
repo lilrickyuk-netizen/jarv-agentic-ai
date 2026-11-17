@@ -1,7 +1,8 @@
 """
 JAI Backend - Third-party skill packs (Upgrades 1-5)
 
-Seven skill libraries (MIT, and Hyperframes under Apache 2.0), each pinned to one commit and cloned by scripts/skill-packs.sh into the
+Twelve skill libraries (MIT; Hyperframes and Playwright CLI under Apache 2.0; Trail of Bits under CC BY-SA 4.0),
+each pinned to one commit and cloned by scripts/skill-packs.sh into the
 git-ignored folder skill-packs/ (mounted read-only into the backend, the worker and the engineering sandbox):
 
 - Superpowers (obra/superpowers): planning, test-driven development, systematic debugging, code review and
@@ -14,6 +15,10 @@ git-ignored folder skill-packs/ (mounted read-only into the backend, the worker 
 - BRAG Slim (latent-spaces/brag): a project or website made into a short launch video with music and share copy.
 - Hyperframes (heygen-com/hyperframes): the composition, CLI, registry and media skills the full BRAG workflow
   hands its brief to. Without them full BRAG (the one used for a voice-over) improvised the video itself.
+- 17 November: Context Engineering (muratcankoylan/Agent-Skills-for-Context-Engineering), Agent Skills
+  (addyosmani/agent-skills), Compound Engineering (EveryInc/compound-engineering-plugin), Trail of Bits'
+  differential review (trailofbits/skills) and Playwright CLI (microsoft/playwright-cli), with ECC's
+  iterative-retrieval: the skills Richard listed that JAI did not have.
 
 Two ways in, both selective so no task pays for knowledge it does not need:
 
@@ -64,6 +69,30 @@ PACKS: Dict[str, Dict[str, str]] = {
     "hyperframes": {"repo": "heygen-com/hyperframes", "commit": "ad6f7858f649f44e16f21128a88992ea3c01dd74",
                     "root": "skills", "title": "Hyperframes", "publisher": "HeyGen (heygen-com/hyperframes)",
                     "copyright": "Copyright 2026 HeyGen, Inc.", "licence": "Apache-2.0"},
+    # ----- 17 November: the skills Richard listed that JAI did not have, each from its authors' repository ----------
+    # Context engineering: compression, optimisation, memory design and long-running prompts (MIT).
+    "context-engineering": {"repo": "muratcankoylan/Agent-Skills-for-Context-Engineering",
+                            "commit": "9ff0c99108b36d3b886defd825d8ac1f47dba374", "root": "skills",
+                            "title": "Agent Skills for Context Engineering", "publisher": "Muratcan Koylan",
+                            "copyright": "Copyright (c) 2025 Context Engineering Agent Skills Contributors"},
+    # Addy Osmani's engineering skills: shipping a launch and instrumenting what runs in production (MIT).
+    "agent-skills": {"repo": "addyosmani/agent-skills", "commit": "39b723ceebf81474d0557c1fecd01eddab585563",
+                     "root": "skills", "title": "Agent Skills", "publisher": "Addy Osmani",
+                     "copyright": "Copyright (c) 2025 Addy Osmani"},
+    # Every's compound engineering: each solved problem saved as a durable lesson (MIT).
+    "compound-engineering": {"repo": "EveryInc/compound-engineering-plugin",
+                             "commit": "a3d6a8ee41a404b74391ee278423b52890b8920d", "root": "skills",
+                             "title": "Compound Engineering", "publisher": "Every (EveryInc)",
+                             "copyright": "Copyright (c) 2025 Every"},
+    # Trail of Bits' security-focused review of a change (CC BY-SA 4.0: fetched at install, never committed here).
+    "trailofbits": {"repo": "trailofbits/skills", "commit": "149d7b21f4067765b82e67029730b42d228ef4b4",
+                    "root": "plugins/differential-review/skills", "title": "Trail of Bits Skills",
+                    "publisher": "Trail of Bits", "copyright": "Trail of Bits (trailofbits/skills)",
+                    "licence": "CC-BY-SA-4.0"},
+    # Microsoft's Playwright CLI skill: browser testing and captures from the shell (Apache 2.0).
+    "playwright-cli": {"repo": "microsoft/playwright-cli", "commit": "b21724888b8100b05ef8dee3a92f2bb03bf4dcde",
+                       "root": "skills", "title": "Playwright CLI", "publisher": "Microsoft",
+                       "copyright": "Copyright (c) Microsoft Corporation", "licence": "Apache-2.0"},
 }
 
 CODING, DEBUG, DEVOPS, QA, VERIFY = "coding_agent", "debugging_agent", "devops", "qa", "verifier"
@@ -242,6 +271,23 @@ SKILLS: List[Dict] = [
     _s("hyperframes", "hyperframes-cli", (CREATION,), (CREATION, CONTENT, MARKETING)),
     _s("hyperframes", "hyperframes-registry", (CREATION,), (CREATION, CONTENT, MARKETING)),
     _s("hyperframes", "media-use", (CREATION,), (CREATION, CONTENT, MARKETING)),
+    # ----- 17 November: the skills Richard listed that JAI did not have --------------------------------------------
+    # How JAI's own agents spend their context: fewer tokens per finished task, long missions that keep their thread.
+    _s("context-engineering", "context-compression", (ORCH, SWARM, EVOLVE, "memory")),
+    _s("context-engineering", "context-optimization", (ORCH, SWARM, EVOLVE)),
+    _s("context-engineering", "memory-systems", ("memory", ORCH, EVOLVE)),
+    _s("context-engineering", "long-horizon-prompting", (ORCH, SWARM, EVOLVE)),
+    _s("ecc", "iterative-retrieval", (ORCH, SWARM, "memory")),
+    # Launch and production evidence.
+    _s("agent-skills", "shipping-and-launch", (DEVOPS, INFRA, VERIFY, "monitoring"), (DEVOPS, INFRA)),
+    _s("agent-skills", "observability-and-instrumentation", (CODING, DEVOPS, INFRA, "monitoring", HEAL),
+       (CODING, DEVOPS, INFRA)),
+    # A solved problem kept as a lesson (it uses git, so it runs where there is a shell: the builder's sandbox).
+    _s("compound-engineering", "ce-compound", (EVOLVE, CODING, DEBUG), (CODING, DEBUG)),
+    # A change reviewed for security (git blame and callers: the sandbox).
+    _s("trailofbits", "differential-review", (SECURITY_ROLE, QA, VERIFY), (SECURITY_ROLE, QA)),
+    # Browser testing and captures with the playwright-cli command (the sandbox has the shell it needs).
+    _s("playwright-cli", "playwright-cli", (QA, CREATION, VERIFY), (QA, CREATION)),
 ]
 
 # Files inside a skill folder that are not guidance for the agent (the pack's own tests and evaluation sets).
@@ -275,11 +321,13 @@ def skill_url(entry: Dict) -> str:
     return f"https://github.com/{pack['repo']}/tree/{pack['commit']}/{skill_path(entry)}"
 
 
-_LICENCE_NAMES = {"MIT": "MIT License", "Apache-2.0": "Apache License 2.0"}
+_LICENCE_NAMES = {"MIT": "MIT License", "Apache-2.0": "Apache License 2.0",
+                  "CC-BY-SA-4.0": "Creative Commons Attribution-ShareAlike 4.0"}
 
 
 def catalogue_entries() -> List[Dict]:
-    """The skills as knowledge-library sources: stored text (MIT or Apache 2.0, both allow it), read from the local
+    """The skills as knowledge-library sources: stored text (MIT, Apache 2.0 and CC BY-SA 4.0 all allow it, with the
+    attribution kept beside each passage), read from the local
     pinned clone."""
     out = []
     for entry in SKILLS:

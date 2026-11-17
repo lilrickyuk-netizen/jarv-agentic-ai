@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Clones JAI's third-party skill packs (Superpowers, UI/UX Pro Max, Marketing Skills, No AI Slop, ECC, BRAG,
-# Hyperframes) into skill-packs/<name>, each at the exact commit pinned in apps/backend/app/core/knowledge/skill_packs.py
-# (only its skills folder, for a large repository), and checks each one's licence is still the one pinned (MIT, or
-# Apache 2.0 for Hyperframes). skill-packs/ is git-ignored and mounted read-only into the backend, the worker and
-# the engineering sandbox. Run again after a pin changes; delete skill-packs/<name> to remove one pack.
+# Hyperframes, and from 17 November Context Engineering, Agent Skills, Compound Engineering, Trail of Bits and
+# Playwright CLI) into skill-packs/<name>, each at the exact commit pinned in
+# apps/backend/app/core/knowledge/skill_packs.py (only its skills folder, for a large repository), and checks each
+# one's licence is still the one pinned (MIT; Apache 2.0 for Hyperframes and Playwright CLI; CC BY-SA 4.0 for Trail
+# of Bits). skill-packs/ is git-ignored and mounted read-only into the backend, the worker and the engineering
+# sandbox. Run again after a pin changes; delete skill-packs/<name> to remove one pack.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 DEST=skill-packs
@@ -34,6 +36,7 @@ while read -r name repo commit root licence plugin; do
   fi
   case "$licence" in
     Apache-2.0) expected="Apache License" ;;
+    CC-BY-SA-4.0) expected="Attribution-ShareAlike 4.0" ;;
     *) expected="MIT License" ;;
   esac
   if ! head -3 "$dir.tmp/LICENSE" | grep -q "$expected"; then

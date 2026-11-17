@@ -257,6 +257,18 @@ def test_the_session_is_claude_code_with_jais_rules_skills_specialists_and_gate(
         assert own <= served, name
         assert "Agent" not in agent.tools and "Bash" not in agent.tools
     assert "sales" in options.agents and "partnerships" not in options.agents
+    # 17 November: the department's own workers, up to 20 at once, on the cheaper model; the lead stays on its own.
+    worker = options.agents["partnerships-worker"]
+    assert {t.removeprefix(PREFIX) for t in worker.tools if t.startswith(PREFIX)} == served
+    assert worker.skills == [] and "Skill" in worker.tools                  # no job set: nothing to preload
+    assert all(a.model == claude_engine.worker_model() for a in options.agents.values())
+    assert claude_engine.worker_model() != options.model
+    assert options.env["CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"] == "20"
+    assert "partnerships-worker" in options.system_prompt["append"]
+    # The skill listing fits its budget whole, so no description in it is dropped.
+    config = Path(options.env["CLAUDE_CONFIG_DIR"])
+    assert int(options.env["SLASH_COMMAND_TOOL_CHAR_BUDGET"]) >= runner.listing["chars"]
+    assert (config / "settings.json").is_file()
     assert session.prompts[0].startswith("Build the partners workbook")
     assert "WHAT JAI'S INDEPENDENT CHECK WILL LOOK FOR" in session.prompts[0]
     # What JAI's own loop gives a specialist reaches the session: the chosen skills' playbooks, its other skills

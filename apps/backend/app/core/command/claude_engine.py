@@ -77,7 +77,6 @@ REPLACED = {"list_files", "read_file", "search_files", "get_file_metadata", "wri
 JAI_NAME = {"Read": "read_file", "Write": "write_file", "Edit": "edit_file", "Glob": "list_files",
             "Grep": "search_files", "WebFetch": "fetch_url", "WebSearch": "web_search"}
 WRITES = ("Write", "Edit")
-SUB_AGENTS_AT_ONCE = 3
 SESSION_SHARE = 0.75
 EXTRA_TURNS = 40
 TEXT_LIMIT = 30_000
@@ -92,6 +91,110 @@ def enabled() -> bool:
 
 def engine_model() -> str:
     return str(getattr(settings, "CLAUDE_ENGINE_MODEL", "") or "claude-sonnet-5-5")
+
+
+def worker_model() -> str:
+    """The model a specialist's workers run on (CLAUDE_WORKER_MODEL, else CLAUDE_LIGHT_MODEL): the specialist leading
+    the job and JAI's independent check keep CLAUDE_ENGINE_MODEL."""
+    return str(getattr(settings, "CLAUDE_WORKER_MODEL", "") or getattr(settings, "CLAUDE_LIGHT_MODEL", "")
+               or "claude-haiku-5-5")
+
+
+def workers_at_once() -> int:
+    """How many workers may run at the same time (Claude Code's CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS; 20 is its own
+    default). 17 November: it was 3, so a department never had more than three working at once."""
+    try:
+        return max(1, min(20, int(getattr(settings, "CLAUDE_WORKERS_AT_ONCE", 20))))
+    except (TypeError, ValueError):
+        return 20
+
+
+# ----- the skill listing: every skill a session can open, and the descriptions Claude chooses from -----------------
+# Claude Code lists every skill's name, and its description only while the listing fits a character budget (1% of the
+# model's context window by default); past it, the descriptions of the least-used skills are dropped, which removes
+# the words Claude matches a job against (code.claude.com/docs/en/skills, "Skill descriptions are cut short"). JAI
+# installs about 150 skills, about 73,000 characters of descriptions: by default most of them were dropped. So a
+# session lists in full the playbooks chosen for the job, lists the rest by name only (skillOverrides "name-only":
+# still opened by name; the briefing gives each skill of the specialist's trade its own line), carries only ECC's
+# skills of the specialist's trade, and sets the budget (SLASH_COMMAND_TOOL_CHAR_BUDGET) to what that listing
+# needs, so nothing in it is cut. A plugin's skills and commands are not affected by skillOverrides and are always
+# listed in full.
+DESCRIPTION_CAP = 1536      # Claude Code's cap on one entry's description and when_to_use (skillListingMaxDescChars)
+LISTING_SPARE = 6000        # Claude Code's bundled skills and the listing's own layout
+LISTING_MARGIN = 1.25
+
+
+def _front(skill_md: Path) -> Dict[str, str]:
+    """A SKILL.md's (or a command's) name and description, as Claude Code lists them."""
+    try:
+        text = skill_md.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {}
+    if not text.startswith("---"):
+        first = next((line.strip() for line in text.splitlines() if line.strip()), "")
+        return {"description": first}
+    head = text[3:].split("\n---", 1)[0]
+    try:
+        import yaml
+
+        data = yaml.safe_load(head) or {}
+    except Exception:  # noqa: BLE001 - Claude Code loads a skill with unreadable frontmatter by its folder name
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    return {"name": str(data.get("name") or ""), "description": " ".join(
+        str(data.get(key) or "") for key in ("description", "when_to_use")).strip()}
+
+
+def skill_listing(config: Path, keep: Any) -> Dict[str, Any]:
+    """What a session's skill listing holds: the skills in config/skills listed in full when their name is in keep
+    and by name only otherwise; every plugin skill and command in config/plugins in full. Returns the overrides
+    to write, the characters the listing needs, and the budget that fits it whole."""
+    keep = {str(k) for k in (keep or ())}
+    overrides: Dict[str, str] = {}
+    full, names_only, chars = [], [], 0
+    for link in sorted((config / "skills").glob("*")) if (config / "skills").is_dir() else []:
+        front = _front(link / "SKILL.md")
+        listed = front.get("name") or link.name
+        if link.name in keep or listed in keep:
+            full.append(link.name)
+            chars += len(listed) + min(len(front.get("description", "")), DESCRIPTION_CAP) + 4
+        else:
+            names_only.append(link.name)
+            for key in {link.name, listed}:
+                overrides[key] = "name-only"
+            chars += len(listed) + 4
+    plugins = config / "plugins"
+    for home in sorted(plugins.iterdir()) if plugins.is_dir() else []:
+        for item in [*sorted((home / "skills").glob("*/SKILL.md")), *sorted((home / "commands").glob("*.md"))]:
+            front = _front(item)
+            listed = front.get("name") or (item.parent.name if item.name == "SKILL.md" else item.stem)
+            full.append(f"{home.name}:{listed}")
+            chars += len(home.name) + 1 + len(listed) + min(len(front.get("description", "")), DESCRIPTION_CAP) + 4
+    return {"overrides": overrides, "full": full, "names_only": names_only, "chars": chars,
+            "budget": int(chars * LISTING_MARGIN) + LISTING_SPARE}
+
+
+def write_listing(config: Path, keep: Any) -> Dict[str, Any]:
+    """Writes the session's skill overrides into its own user settings (the mission's configuration folder, which
+    Claude Code reads as ~/.claude) and returns the listing (skill_listing)."""
+    listing = skill_listing(config, keep)
+    path = config / "settings.json"
+    try:
+        current = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, ValueError):
+        current = {}
+    if not isinstance(current, dict):
+        current = {}
+    current["skillOverrides"] = listing["overrides"]
+    path.write_text(json.dumps(current, indent=1), encoding="utf-8")
+    return listing
+
+
+def _preload(sdk, skills: List[str]) -> Dict[str, Any]:
+    """AgentDefinition's skills (the skills loaded in full when a worker starts), when this SDK has the field."""
+    fields = getattr(getattr(sdk, "AgentDefinition", None), "__dataclass_fields__", None)
+    return {"skills": list(skills)} if fields is None or "skills" in fields else {}
 
 
 def api_key() -> str:
@@ -191,6 +294,7 @@ class ClaudeRoleExecutor(RoleExecutor):
         self._verdict_calls = -1
         self.session_id: Optional[str] = None
         self.skills_seen: List[str] = []
+        self.listing: Dict[str, Any] = {"full": [], "names_only": [], "chars": 0, "budget": 0, "overrides": {}}
         self.plugins_seen: List[str] = []
         self._result_text = ""
         self._agent_said = ""
@@ -270,6 +374,11 @@ class ClaudeRoleExecutor(RoleExecutor):
                         os.symlink(item, home / part / item.name, target_is_directory=item.is_dir())
             (home / "skills").mkdir()
             chosen = [e for e in SKILLS if e["pack"] == name]
+            trade = self._trade() if hasattr(self, "_trade") else None
+            if name == "ecc" and trade is not None:
+                # ECC's skills of the specialist's trade and the job's playbooks, and its learning system, whose
+                # hooks run from its skill folder (17 November: every session listed all 62 ECC skills).
+                chosen = [e for e in chosen if e["skill"] in trade or e["skill"] == "continuous-learning-v2"]
             if name == "superpowers":  # the whole workflow: its skills hand on to one another by name
                 root = base / pack["root"]
                 listed = {e["skill"] for e in chosen}
@@ -326,6 +435,15 @@ class ClaudeRoleExecutor(RoleExecutor):
             "a reason to stop: it stays marked under still to check, is not counted, and you carry on with more "
             "businesses until the number Richard asked for can be contacted (fill_contacts reports how many can).",
         ]
+        if self.role and self.role != "builder":
+            worker = f"{str(self.role).replace('_', '-')}-worker"
+            parts.insert(4, (
+                f"Your department has workers ({worker}, up to {workers_at_once()} at the same time, on a faster, "
+                "cheaper model, each starting with this job's playbooks already read). When the job splits into parts "
+                "that do not depend on one another (separate products, sections, files, lists or batches), hand each "
+                "part to its own worker in the same turn, with everything it needs written in its prompt, and check "
+                "what each saved before you finish. Do a single connected piece of work yourself: splitting it costs "
+                "more and gains nothing."))
         if rules:
             parts.append("Richard's standing rules for this product (every one applies):\n"
                          + "\n".join(f"- {r}" for r in rules))
@@ -349,13 +467,50 @@ class ClaudeRoleExecutor(RoleExecutor):
                 f"- {r['id']}: {r['text']}" for r in self.requirements))
         return "\n\n".join(parts)
 
+    def _trade(self) -> Optional[set]:
+        """The skills of the specialist's trade (the ones its briefing names) and the job's playbooks, by name; None
+        when the specialist is not known (every skill stays)."""
+        if not getattr(self, "role", None):
+            return None
+        try:
+            from app.core.command.expertise import trade_skills
+
+            return {e["skill"] for e in trade_skills(self.role)} | set(self._job_skills())
+        except Exception:  # noqa: BLE001 - every skill stays
+            return None
+
+    def _job_skills(self) -> List[str]:
+        """The playbooks JAI chose for this job (expertise: at most three), by name."""
+        return [str(s) for s in (getattr(self.job, "skills", None) or []) if s][:3]
+
     def _agents(self, names: List[str], sdk) -> Dict[str, Any]:
-        """JAI's other specialists as sub-agents. Each has Claude Code's own tools and only the JAI tools the lead
-        has, so it can never exceed the lead's authority or folder (the same hooks gate its calls)."""
+        """The specialist's own workers, and JAI's other specialists, as sub-agents. Each has Claude Code's own tools
+        and only the JAI tools the lead has, so it can never exceed the lead's authority or folder (the same hooks
+        gate its calls), and runs on the workers' model (worker_model). The specialist's workers start with the
+        playbooks chosen for the job loaded in full (AgentDefinition.skills: "the full skill content is injected at
+        startup"), so a worker has read them before its first step."""
         from app.core.command.mission_org import SPECIALISTS
 
         mine = set(names)
         out: Dict[str, Any] = {}
+        own = SPECIALISTS.get(self.role, {}) if self.role else {}
+        if self.role and self.role != "builder":
+            title = own.get("title", self.title)
+            out[f"{self.role.replace('_', '-')}-worker"] = sdk.AgentDefinition(
+                description=(f"A worker in JAI's {title} department: give it one self-contained part of this job "
+                             "(one product, section, file, list or batch) with everything it needs in the prompt. "
+                             "Several work at the same time."),
+                prompt=(f"You are a worker in JAI's {title} department, doing one part of a mission for its lead. "
+                        f"{own.get('standard', self.standard)} You work in the product's folder "
+                        f"({self.workspace_root}). Follow the playbooks you were given. Do the part you are given "
+                        "fully, save what you make in the folder, and report exactly what you saved and where, and "
+                        "what you could not do. Never guess a fact, a contact or an address. Contact, send, post, "
+                        "publish and spend nothing."),
+                tools=list(FILE_TOOLS + WEB_TOOLS + ("TodoWrite", "Skill") + LOADERS)
+                + [f"{PREFIX}{t}" for t in names],
+                model=worker_model(),
+                **_preload(sdk, self._job_skills()),
+            )
         for role, spec in SPECIALISTS.items():
             if role in (self.role, "builder"):
                 continue
@@ -372,7 +527,7 @@ class ClaudeRoleExecutor(RoleExecutor):
                         "saved and where, and what you could not do. Never guess a fact, a contact or an address. "
                         "Contact, send, post, publish and spend nothing."),
                 tools=list(FILE_TOOLS + WEB_TOOLS + ("TodoWrite", "Skill") + LOADERS) + theirs,
-                model="inherit",
+                model=worker_model(),
             )
         return out
 
@@ -422,7 +577,12 @@ class ClaudeRoleExecutor(RoleExecutor):
             result["engine"] = {"name": "claude", "model": engine_model(), "cost_usd": round(self.engine_cost_usd, 4),
                                 "note": self.engine_note, "delegated": list(self.delegated),
                                 "session_id": self.session_id, "skills": len(self.skills_seen),
-                                "plugins": list(self.plugins_seen)}
+                                "plugins": list(self.plugins_seen), "worker_model": worker_model(),
+                                "workers_at_once": workers_at_once(),
+                                "skill_listing": {"in_full": len(self.listing.get("full") or []),
+                                                  "by_name": len(self.listing.get("names_only") or []),
+                                                  "characters": self.listing.get("chars", 0),
+                                                  "budget": self.listing.get("budget", 0)}}
             if isinstance(result.get("role"), dict):
                 result["role"]["model"] = engine_model()
                 result["role"]["engine"] = result["engine"]  # kept on the mission's record with the role
@@ -552,6 +712,11 @@ class ClaudeRoleExecutor(RoleExecutor):
         server = sdk.create_sdk_mcp_server(name=SERVER, version="1.0.0", tools=jai_tools)
         folder = self._folder()
         config = self._config_dir()
+        plugins = self._plugins(config)
+        # In the listing in full: the job's playbooks (also in the briefing in full). Every other skill is listed by
+        # name: the briefing already gives each skill of the specialist's trade a line, so its description in the
+        # listing as well would be paid for on every call for nothing.
+        self.listing = write_listing(config, set(self._job_skills()))
         readable = [config, Path(str(packs_dir()))]
         continuation = start_continuation
 
@@ -574,7 +739,7 @@ class ClaudeRoleExecutor(RoleExecutor):
             add_dirs=[str(p) for p in readable],
             setting_sources=["user"],              # the mission's config folder: every JAI skill
             skills="all",
-            plugins=self._plugins(config),         # Superpowers and ECC, as their authors ship them
+            plugins=plugins,                       # Superpowers and ECC, as their authors ship them
             mcp_servers={SERVER: server},
             allowed_tools=list(OWN_TOOLS) + [f"{PREFIX}*"],
             disallowed_tools=list(REMOVED) + ([] if folder is not None else list(FILE_TOOLS[1:])),
@@ -588,7 +753,9 @@ class ClaudeRoleExecutor(RoleExecutor):
             env={"ANTHROPIC_API_KEY": api_key(), "CLAUDE_AGENT_SDK_CLIENT_APP": "jai-backend",
                  "CLAUDE_CONFIG_DIR": str(config),
                  "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "1",
-                 "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": str(SUB_AGENTS_AT_ONCE),
+                 "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": str(workers_at_once()),
+                 # The skill listing's budget, so every description in it reaches Claude whole (skill_listing).
+                 "SLASH_COMMAND_TOOL_CHAR_BUDGET": str(self.listing["budget"]),
                  # Claude Code's own telemetry and other non-essential traffic stay off: JAI's work is Richard's.
                  "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_TELEMETRY": "1",
                  **ecc_learning_env(folder)},

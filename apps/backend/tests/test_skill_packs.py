@@ -24,7 +24,8 @@ def test_every_pack_is_mit_and_pinned_to_a_full_commit():
     for entry in entries:
         assert entry["url"].startswith("https://github.com/") and "/tree/" in entry["url"]
         assert (entry["licence"], entry["licence_evidence"].count("MIT License")) == ("MIT", 1) or \
-            (entry["licence"], entry["licence_evidence"].count("Apache License 2.0")) == ("Apache-2.0", 1)
+            (entry["licence"], entry["licence_evidence"].count("Apache License 2.0")) == ("Apache-2.0", 1) or \
+            (entry["licence"], entry["licence_evidence"].count("Attribution-ShareAlike 4.0")) == ("CC-BY-SA-4.0", 1)
         assert entry["licence_class"] == "store" and entry["agents"]
 
 
