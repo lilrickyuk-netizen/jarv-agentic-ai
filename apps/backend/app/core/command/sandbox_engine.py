@@ -231,7 +231,8 @@ def builder_method(mission: str) -> str:
 FOLDER_UNSEEN = ("Waiting for Richard: the engineering sandbox cannot see your Projects folder (its link to Windows "
                  "goes stale when WSL or Docker restarts). Nothing more was spent. Run this once in Ubuntu, then press "
                  "Retry mission: cd ~/jarv-agentic-ai && docker compose --profile engineer up -d --force-recreate "
-                 "--no-deps openhands")
+                 "--no-deps openhands. If the sandbox still cannot see it, quit and reopen Docker Desktop, then run "
+                 "the same command (Docker's issue docker/for-win#9823 reports restarting Docker Desktop as the fix).")
 
 class SandboxSpecialist:
     """Runs one work package in the sandbox and follows it to the end."""
