@@ -1284,10 +1284,10 @@ class MissionTeam:
         if not getattr(settings, "ROLE_AGENTS_ENABLED", True):
             return None
         from app.core.command.work_type import classify
-        from app.core.knowledge.skill_packs import named_skill
+        from app.core.knowledge.skill_packs import skill_for
 
         try:
-            if named_skill(mission) is not None or PARALLEL_ASKED.search(mission or ""):
+            if skill_for(mission) is not None or PARALLEL_ASKED.search(mission or ""):
                 return None
             self.route = self.route or await self._read_route() or await classify(
                     getattr(self, "route_from", None) or mission)
@@ -1366,10 +1366,10 @@ class MissionTeam:
         """The specialist's job (expertise.job_for) when the brief is a specialist's work, else None. Never raises."""
         from app.core.command import expertise
         from app.core.command.work_type import classify
-        from app.core.knowledge.skill_packs import named_skill
+        from app.core.knowledge.skill_packs import skill_for
 
         try:
-            if named_skill(mission) is not None or PARALLEL_ASKED.search(mission or ""):
+            if skill_for(mission) is not None or PARALLEL_ASKED.search(mission or ""):
                 return None
             self.route = self.route or await self._read_route() or await classify(
                     getattr(self, "route_from", None) or mission)
@@ -1571,9 +1571,9 @@ class MissionTeam:
 
         self.sandbox = await sandbox_engine.available()
         open_ids = [str(r["id"]).upper() for r in self.lead.requirements if r.get("status") != "done"]
-        from app.core.knowledge.skill_packs import named_skill
+        from app.core.knowledge.skill_packs import skill_for
 
-        skill = named_skill(mission) if self.sandbox and open_ids and not self.restored else None
+        skill = skill_for(mission) if self.sandbox and open_ids and not self.restored else None
         if self.restored:
             pass  # the interrupted run's plan, its finished packages kept
         elif self.sandbox and open_ids:

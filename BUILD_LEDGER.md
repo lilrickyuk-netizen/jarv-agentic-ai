@@ -7,9 +7,9 @@
 - **Status**: LEGACY PHASE CLAIM; REPAIRS 10-15 UNDER VERIFICATION
 
 ## CURRENT STATUS
-- **Updated**: 2026-11-17 20:40 (read this section and the last entries at the bottom before any change)
+- **Updated**: 2026-11-17 22:00 (read this section and the last entries at the bottom before any change)
 - **Current Phase**: REPAIR CONTINUATION (10-15): missions run on the Claude Agent SDK engine (MISSION_ENGINE=claude) since 2026-11-15; the booking database is being scaled to thousands of UK and US businesses, chains first
-- **Current Task**: SKILLS-READ-AND-WORKERS COMPLETE (17 November 20:47, commit bf7bbec on Richard's machine); next: Richard's six Plexecute video ads (goal only; JAI's own skills decide the creative), the first mission that can split into parts for the workers
+- **Current Task**: VIDEO-WORK-RUNS-ON-ITS-SKILL (installer install-video-skill.sh: new video work runs on BRAG without Richard naming it; full suite, restart; no paid run)
 - **Richard's rule (16 November)**: no paid mission until every part is proven working for free first; only proven open-source code and open data, no home-made loops
 - **Last verified on Richard's machine (update)**: 2026-11-16 11:33, full suite alone 1297 passed, 1 skipped (commit 6f9d231); 12:05 paid booking run 1c19fd8c: 50 businesses, 45 published emails, 50 contactable, 25 passed over with reasons, 7 of 8 requirements done, 11.3 min, $1.16; independent check still open on R5 (each email confirmed on its cited page)
 - **Free probes on Richard's machine (16 November 12:40)**: the Name Suggestion Index lists 1,364 different UK and US chains (587 UK, 1,137 US) across 23 bookable categories; an official website on Wikidata for 149 of a sample of 150
@@ -14982,4 +14982,18 @@ RESULT: Added at pinned commits: Agent-Skills-for-Context-Engineering 9ff0c99 (M
 RESEARCH (before changing anything, at Richard's request): code.claude.com/docs/en/agent-sdk/subagents (AgentDefinition fields; "multiple subagents can run concurrently"; CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS default 20; max_budget_usd counts subagent requests); code.claude.com/docs/en/sub-agents ("The full content of each listed skill is injected into the subagent's context at startup, up to the first 32"; model accepts haiku or a full model ID); code.claude.com/docs/en/skills ("Skill descriptions are cut short": the listing budget scales at 1% of the context window, SLASH_COMMAND_TOOL_CHAR_BUDGET sets a fixed character count, skillOverrides name-only, 1,536-character cap per entry, plugin skills not affected by skillOverrides); Anthropic's multi-agent guidance (parallel work by independent component, 3-10x tokens); claude-flow and claude-skills-mcp considered and not used (unmaintained, or a second orchestration system)
 BLOCKERS: None
 NEXT TASK: Richard runs install-skills-workers.sh; JAI goes back to Claude by itself (the no-credit mark lasts 6 hours; the installer clears it); then one capped mission that splits into parts, to see the workers run
+
+---
+
+TASK ID: VIDEO-WORK-RUNS-ON-ITS-SKILL
+TASK NAME: New video work runs on BRAG, JAI's video skill, without Richard having to name it
+STATUS: IN_PROGRESS (checked on Claude's side; Richard's installer runs the full suite)
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/knowledge/skill_packs.py, apps/backend/app/core/command/mission_org.py, apps/backend/app/core/command/service.py, apps/backend/tests/test_skill_for_the_work.py, BUILD_LEDGER.md
+COMMANDS RUN: on Claude's side: the routing read end to end (service._detect_intent, mission_org._role, _job and the effort tiers, work_type.specialist_for and _BUILDER_KEEPS, expertise.job_for and choose_skills); the new rule tried on 24 briefs (Richard's own and the routing tests'); ruff (F, E9, E501) on every changed file
+TESTS RUN: tests/test_skill_for_the_work.py (new video work runs on BRAG; a skill Richard names still wins; a site or app with a video in it, a change to a video that exists, a carry-on, a brief that says no BRAG and one that mentions skills are not new video work; a video brief is a mission). The full suite runs in Richard's installer
+RESULT: Mission 092182a7 (17 November, 43 min, about a pound, 11 of 11 checked) made two Plexecute ads Richard judged not good enough: the card said "no skills loaded". Cause: video words keep a brief with the Lead Builder (work_type._BUILDER_KEEPS, 9 November) on its generic software package ("ledger item by ledger item") with no playbooks, and BRAG ran only when named (9 November: an unasked BRAG run cost many times the builder's ad). The first BRAG video (16 November, named) was good. Now skill_packs.skill_for: the skill Richard names, else BRAG for new video work (make, create, produce... a video, ad film, reel, animation, explainer, motion graphics or promo), never for software that has a video in it, a change to a video that exists, a carry-on, a brief that says no BRAG, or one that names skills; mission_org (_role, _job, the effort tiers) and service (_detect_intent, the route) use it where they used named_skill, so new video work is tier 1: BRAG end to end with its own allowance (SKILL_RUNS: lead model, 200 steps, $10).
+RESEARCH: Anthropic, "Building effective agents" (routing: classify the input and send it to the follow-up made for it); code.claude.com/docs/en/skills (a skill is chosen for the work it is for; Claude decides from its description); the records of missions 092182a7 (no skill, not postable) and the 16 November BRAG run (12 of 12, posted quality)
+BLOCKERS: None
+NEXT TASK: Richard runs install-video-skill.sh once the running BRAG mission finishes
 

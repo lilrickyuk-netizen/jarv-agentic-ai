@@ -35,6 +35,7 @@ manager, which already do this in JAI). Removing a pack's folder removes it ever
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -464,6 +465,41 @@ def named_skill(text: str) -> Optional[Dict]:
 # Packs whose name is distinctive enough to stand alone ("using BRAG"); an everyday skill name ("with
 # accessibility in mind") is not taken as a request to run that skill.
 _NAMED_ALONE = frozenset({"brag"})
+
+# New video work: making a video, an ad film, a reel, an animation or motion graphics.
+_MAKE_VIDEO = re.compile(r"\b(?:make|making|create|creating|produce|producing|generate|design|build|do)\b"
+                         r"[^.?!\n]{0,120}?\b(?:videos?|ad films?|reels?|animations?|"
+                         r"animated (?:ads?|videos?|explainers?)|explainers?|motion graphics|promos?)\b", re.I)
+# Software that has a video in it ("build the marketing site with a hero video") is the builder's.
+_SOFTWARE_OBJECT = re.compile(r"\b(?:build|make|create|design|code)\s+(?:(?:a|an|the|my|our|new)\s+)?(?:[\w-]+\s+){0,2}"
+                              r"(?:site|website|landing page|web ?page|web app|app|dashboard)\b", re.I)
+# Changing a video that exists is not new video work; nor is a brief that asks for no BRAG.
+_CHANGE_VIDEO = re.compile(r"^\s*(?:please\s+)?(?:edit|fix|change|cut|trim|shorten|re-?voice|correct|update|"
+                           r"carry on|continue|redo)\b", re.I)
+_NO_BRAG = re.compile(r"\b(?:without|no|not with|don'?t use|do not use|skip)\s+(?:the\s+|your\s+|its\s+)?brag\b",
+                      re.I)
+VIDEO_SKILL = "brag"
+
+
+def skill_for(text: str) -> Optional[Dict]:
+    """The skill that runs this mission end to end: the one Richard names (named_skill), else, for new video work,
+    BRAG, JAI's video skill. Richard, 17 November: "why didn't it use its skills?" Two ads made by the builder without
+    a skill (mission 092182a7, 43 minutes, about a pound) were not good enough to post; the first BRAG video, made when
+    he named it, was. Software that mentions a video (a site with a hero video), a change to a video that exists, and a
+    brief that says no BRAG are not new video work."""
+    entry = named_skill(text)
+    if entry is not None:
+        return entry
+    from app.core.command.work_type import _ENGINEERING, richard_brief
+
+    brief = richard_brief(text or "")
+    if not _MAKE_VIDEO.search(brief) or _CHANGE_VIDEO.search(brief) or _NO_BRAG.search(brief) \
+            or _ENGINEERING.search(brief) or _SOFTWARE_OBJECT.search(brief) \
+            or re.search(r"\bskills?\b", brief, re.I):
+        return None
+    refused = blocked()
+    return next((e for e in SKILLS if e["pack"] == "brag" and e["skill"] == VIDEO_SKILL and e["sandbox"]
+                 and f"{e['pack']}/{skill_path(e)}" not in refused), None)
 
 
 def installed() -> Dict[str, bool]:

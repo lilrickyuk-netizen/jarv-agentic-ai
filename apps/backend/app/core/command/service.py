@@ -935,13 +935,13 @@ class CommandService:
         # Work a skill is made for, in a named workspace, is the skill's mission: on 9 November "Using BRAG, make a
         # fresh video ad ... write the web address as ... don't post it" went to a marketing draft because of the
         # words "write" and "post".
-        from app.core.knowledge.skill_packs import named_skill
+        from app.core.knowledge.skill_packs import skill_for
 
         # A skill named for work is the skill's mission with or without a typed folder path: the workspace comes
         # from the brief's name for it (workspace_choice). 16 November: "Use my BRAG skill on Plexecute, starting
         # from the project in brag-output-..." had no C:\ path, went to the one-off research and QA answer, and
         # reviewed the old video instead of making the new one. Questions about a skill keep their quick answers.
-        if named_skill(command_text) is not None and (has_path or not _QUESTION.match(text)):
+        if skill_for(command_text) is not None and (has_path or not _QUESTION.match(text)):
             return "agent_task"
         if has_path:
             # Work in Richard's folder that one of the specialists owns (prospects, decks, research, plans), or a
@@ -2284,7 +2284,7 @@ class CommandService:
         # names it, not the software team (10 November: every marketing report listed devops and qa).
         from app.core.command.mission_org import PARALLEL_ASKED, SPECIALISTS
         from app.core.command.work_type import specialist_for
-        from app.core.knowledge.skill_packs import named_skill
+        from app.core.knowledge.skill_packs import skill_for
 
         from app.core.command import understanding
 
@@ -2294,7 +2294,7 @@ class CommandService:
         if understood is not None and not understood.sure:
             understood = None
         read_route = understanding.route(understood)
-        if (not getattr(settings, "ROLE_AGENTS_ENABLED", True) or named_skill(command_text) is not None
+        if (not getattr(settings, "ROLE_AGENTS_ENABLED", True) or skill_for(command_text) is not None
                 or PARALLEL_ASKED.search(command_text)):
             kind = None
         elif read_route is not None:
