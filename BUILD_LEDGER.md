@@ -15537,7 +15537,7 @@ NEXT TASK: Richard runs install-video-edit.sh, then the music edit again
 
 TASK ID: VOICE-BUILT-IN-AND-PRODUCT-FACTS
 TASK NAME: The sandbox has Hyperframes' voice built in, and a video run reads saved product facts instead of the website
-STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-voice-and-facts.sh on Richard's machine)
+STATUS: COMPLETE (18 November 13:50 on Richard's machine: 1331 passed, 1 skipped, commit 0e345fa; free checks: the agent's login shell uses /opt/kokoro, a 2-second test clip made with nothing installed during the run, the voice models kept in the sandbox home)
 FILES CREATED: apps/backend/tests/test_voice_and_product_facts.py
 FILES MODIFIED: services/openhands/Dockerfile, apps/backend/app/core/command/mission_org.py, BUILD_LEDGER.md
 COMMANDS RUN: on Claude's side: Hyperframes v0.9.58 source read (tts/python.ts findPython: HYPERFRAMES_PYTHON first, then PATH; tts/manager.ts ensureModel and ensureVoices: download only when the file is missing; core cacheDir.ts: ~/.cache/hyperframes unless HYPERFRAMES_CACHE_DIR); OpenHands 1.58.2 tmux_terminal.py read (the agent's shell is `su openhands -`); product_facts_rule exercised on a temporary folder (no file, fresh, 31 days old, a brief asking for a refresh)
@@ -15545,11 +15545,11 @@ TESTS RUN: tests/test_voice_and_product_facts.py (Dockerfile pins and order; fre
 RESULT: Every BRAG run spent its first steps installing kokoro-onnx and soundfile for `hyperframes tts` and reading Plexecute's website afresh. (1) The sandbox image now has kokoro-onnx 0.6.1 and soundfile 0.14.0 in their own environment (/opt/kokoro), used through HYPERFRAMES_PYTHON, Hyperframes' documented override; set in the image and in /etc/profile.d because the agent's login shell keeps none of the image's environment. The voice models (about 340 MB) are kept in the sandbox home volume after their first download. (2) A video skill run (brag, brag-slim) reads .jai/product.md and .jai/product-assets/ in the project folder while the file is under 30 days old; otherwise, or when the brief asks to refresh the product facts, it reads the real website and saves them for the runs after it. Other named skills are unchanged.
 RESEARCH: Hyperframes 0.9.58 source (tts/python.ts, tts/manager.ts, core/cacheDir.ts, media-use tts-local-provider.mjs); OpenHands Software Agent SDK 1.58.2 terminal source; kokoro-onnx on PyPI (0.6.1, 19 August 2026, Python 3.10 to 3.13, model files v1.0); soundfile 0.14.0 (Arch Linux and CERN package indexes)
 BLOCKERS: None
-NEXT TASK: Richard runs install-voice-and-facts.sh once no mission is running
+NEXT TASK: OpenMontage evaluation (reference-led character animation), then MYCO Phase 1
 
 TASK ID: IMAGE-GENERATOR-ON-DEMAND
 TASK NAME: The image generator (ComfyUI) starts when an image is asked for and stops after 10 minutes with no image
-STATUS: IN_PROGRESS (built on Claude's side 18 November; installed with install-voice-and-facts.sh, version 2)
+STATUS: COMPLETE (18 November 13:50 on Richard's machine, same commit 0e345fa; free checks: the idle check is on the beat schedule, ComfyUI not running and started on demand)
 FILES CREATED: apps/backend/tests/test_image_generator_on_demand.py
 FILES MODIFIED: apps/backend/app/core/creative/images.py, apps/backend/app/core/celery.py, apps/backend/app/workers/tasks.py, apps/backend/tests/test_images.py, BUILD_LEDGER.md
 COMMANDS RUN: Richard's read-only check (proxy-check.txt, 18 November 12:27): free -h, docker stats, restart counts, the docker-proxy, backend and worker logs
@@ -15557,4 +15557,4 @@ TESTS RUN: tests/test_image_generator_on_demand.py (a stopped generator is start
 RESULT: Richard saw services dropping and "docker proxy" messages. The docker-proxy had not restarted in 20 hours (its log lines are haproxy reloads and its standing warning about the event stream's timeouts). The cause was memory: Docker had 10 GB with 105 MB free and 10 GB of swap in use; ComfyUI held 5.7 GB for 19 hours with no image to make; Chatterbox was killed (exit 137). images.generate already asks ComfyUI to release its model after each image, which does not give the memory back. Now images.generate starts ComfyUI through the restricted Docker proxy (docker_ops.switch, already allowed for the Command Center's switches) when it does not answer, and waits up to 180 seconds for it; it records when it was last used and that it is busy (Redis). A Celery beat task every 2 minutes stops ComfyUI when it is running, not busy, and has made no image for 10 minutes. Postgres, Redis and the docker-proxy are never touched.
 RESEARCH: Richard's proxy-check.txt; app/core/ops/docker_ops.py (SWITCHABLE, switch, the proxy's ALLOW_START and ALLOW_STOP); ComfyUI's /system_stats and /free routes
 BLOCKERS: None
-NEXT TASK: Richard runs install-voice-and-facts.sh (version 2) once the comparison mission finishes
+NEXT TASK: OpenMontage evaluation (reference-led character animation), then MYCO Phase 1
