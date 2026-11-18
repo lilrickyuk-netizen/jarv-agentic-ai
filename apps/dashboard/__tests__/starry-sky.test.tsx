@@ -25,10 +25,11 @@ describe('StarrySky', () => {
   });
 
   it('puts each volley somewhere new on the sky', () => {
-    const seeds = [0.1, 0.9, 0.5, 0.2, 0.7, 0.3, 0.8, 0.4];
+    // A volley uses 8 random numbers (4 per star), so the stand-in for Math.random never repeats within 16.
     let i = 0;
-    const first = volley(0, () => seeds[i++ % seeds.length]);
-    const second = volley(2, () => seeds[i++ % seeds.length]);
+    const next = () => ((i++ * 0.6180339887) % 1);
+    const first = volley(0, next);
+    const second = volley(2, next);
     expect(first.map((s) => [s.top, s.left])).not.toEqual(second.map((s) => [s.top, s.left]));
     for (const star of [...first, ...second]) {
       expect(star.top).toBeGreaterThanOrEqual(0);
