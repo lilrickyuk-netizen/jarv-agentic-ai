@@ -128,11 +128,14 @@ def product_facts_rule(container_root: Optional[Path], mission: str = "", now: O
                 f"runs used are in {PRODUCT_ASSETS}/: read those first and work from them instead of reading the "
                 "website again; open a live page only for something they do not cover, and add what you learn there "
                 f"to {PRODUCT_FACTS} with the page it came from.")
+    keep = (f" {PRODUCT_FACTS} already exists: add what is new and correct what the site now contradicts, and never "
+            "delete or rewrite the rest, which Richard may have written himself."
+            if facts is not None and facts.is_file() else "")
     return (f" Read the product's real website as the skill says, then save what you learned for the runs after "
             f"this one: {PRODUCT_FACTS} (what the product is and does, who it is for, the problems it solves, its "
             "features and pricing, its name, tagline, colours and fonts, each fact with the page it came from and "
             f"today's date) and the real assets you used (logo, screenshots, fonts) copied into {PRODUCT_ASSETS}/. "
-            f"Later runs work from these instead of the website for {PRODUCT_FACTS_DAYS} days.")
+            f"Later runs work from these instead of the website for {PRODUCT_FACTS_DAYS} days." + keep)
 
 # A specialist's round: the builder's full step allowance, within the mission's own spending allowance (restored 10
 # November, after a morning's cut to 100 steps and $2 in one round left every list mission "partial"; the hours the

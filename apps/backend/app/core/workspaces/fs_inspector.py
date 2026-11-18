@@ -549,6 +549,8 @@ SAFE_COMMAND_PREFIXES = (
     "mvn --version", "gradle --version", "gradle -v", "dotnet --version", "dotnet --info", "dotnet --list-sdks",
     "dotnet --list-runtimes", "mise --version", "mise version", "mise ls", "mise list", "mise current",
     "mise where", "mise which", "mise doctor", "mise ls-remote", "mise registry", "mise tasks",
+    # A video's size, length and streams (18 November: an OpenMontage mission waited on Richard to read its own MP4).
+    "ffprobe",
 )
 # Build / test commands — allowed at Level 3 (build & test) inside an approved
 # workspace. These compile/test a project (JAI's core job) but do not delete,

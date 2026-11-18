@@ -15570,3 +15570,15 @@ RESULT: Two BRAG videos on 18 November (OpenAI, then Claude at 3.6 times the cos
 RESEARCH: OpenMontage source at 2e003e65 (15 November 2026); its README's free paths and "start from a video you already love"; Hyperframes is the renderer it delegates to (npx uses the installed 0.9.58)
 BLOCKERS: None
 NEXT TASK: the free OpenMontage test video, then two carousels, then MYCO Phase 1
+
+TASK ID: EXTRA-ROUNDS-OWN-CHECKS
+TASK NAME: A later round checks only its own mission, ffprobe needs no approval, and a fact file is added to, never rewritten
+STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-round-fixes.sh on Richard's machine)
+FILES CREATED: apps/backend/tests/test_extra_rounds_and_safe_reads.py
+FILES MODIFIED: apps/backend/app/core/command/ledger.py, apps/backend/app/core/workspaces/fs_inspector.py, apps/backend/app/core/command/mission_org.py, BUILD_LEDGER.md
+COMMANDS RUN: on Claude's side: mission a00ac5ea's card and Richard's log extract read; ledger.requirements, resume.CARRY_ON, work_type.richard_brief and fs_inspector.classify_command read
+TESTS RUN: tests/test_extra_rounds_and_safe_reads.py (new work and its later rounds never take an old ledger; Richard's "carry on" still does; ffprobe is a safe read; an old fact file is added to)
+RESULT: Mission a00ac5ea (OpenMontage, 18 November) finished its video in round 1 (42.5 s, 1080x1920, sound effects only; Richard: "a major improvement"), but its later rounds took over the music edit's acceptance ledger (R1-R6, brag-no-music.mp4, .jai/verify-video.py) because ledger.requirements matched "carry on" in the progress notes JAI appends to a later round, not in Richard's brief; the card then showed "6 of 6" and "0 of 6" together, and the round waited on Richard to approve ffprobe on its own MP4. Now the carry-on test reads only Richard's words (work_type.richard_brief), ffprobe is a read-only safe command, and a video run that refreshes an old .jai/product.md adds to it and never deletes or rewrites the rest. Richard will give JAI each video's story himself, so no variety rule was added.
+RESEARCH: mission a00ac5ea's card and logs; the acceptance-ledger and command-policy code
+BLOCKERS: None
+NEXT TASK: Richard runs install-round-fixes.sh, then the two carousels, then MYCO Phase 1

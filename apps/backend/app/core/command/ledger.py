@@ -64,8 +64,12 @@ def requirements(workspace_root: Optional[str], mission: str) -> Optional[List[D
             return None
     else:
         from app.core.command.resume import CARRY_ON
+        from app.core.command.work_type import richard_brief
 
-        if not CARRY_ON.search(mission or ""):
+        # Richard's own words, never what JAI appended for a later round: on 18 November an OpenMontage video's
+        # third round read "carry on" in its own progress notes and took over the music edit's ledger (R1-R6 about
+        # brag-no-music.mp4), then spent its rounds trying to prove another mission's checks.
+        if not CARRY_ON.search(richard_brief(mission or "")):
             return None
     out = []
     for item in data["items"]:
