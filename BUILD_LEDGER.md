@@ -15654,3 +15654,15 @@ RESULT: MYCO Phase 1 (mission 77e45dd6, 31 of 36, £3.96) ended PARTIAL with two
 RESEARCH: PEP 440 version specifiers (packaging.specifiers.SpecifierSet); the mission's card
 BLOCKERS: None
 NEXT TASK: Richard runs install-pin-ranges.sh, then carries on mission 77e45dd6
+
+TASK ID: STARS-BEHIND-EVERYTHING
+TASK NAME: Shooting stars read as behind the glass panels and the intelligence field
+STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-stars-behind.sh on Richard's machine)
+FILES CREATED: None
+FILES MODIFIED: apps/dashboard/src/app/globals.css, apps/dashboard/__tests__/starry-sky.test.tsx, BUILD_LEDGER.md
+COMMANDS RUN: on Claude's side: a page with a card, the field's container (.ov-orb) and two shooting stars rendered in Chromium and looked at
+TESTS RUN: __tests__/starry-sky.test.tsx (frosted glass and the field's solid core present)
+RESULT: Richard saw the shooting stars in front of the panels and the intelligence field. They were behind (the sky is at z-index -1), but the 3% glass with a 2px blur showed them sharp, and the field is made of light, so the sky showed between its lines. The field's container now has a black core (a radial gradient that fades at its edge) the sky cannot show through, and the glass is frosted at 9px: still see-through, and a star behind a panel reads as a soft glow behind it.
+RESEARCH: the rendered page
+BLOCKERS: None
+NEXT TASK: Richard runs install-stars-behind.sh (the dashboard only; missions keep running)

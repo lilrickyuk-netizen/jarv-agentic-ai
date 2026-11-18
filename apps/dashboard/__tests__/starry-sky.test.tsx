@@ -45,7 +45,8 @@ describe('StarrySky', () => {
     const css = fs.readFileSync(path.join(root, 'globals.css'), 'utf8');
     expect(css).toMatch(/\.starry-sky \{ position: fixed; inset: 0; z-index: -1;/);
     expect(css).toContain('html body.jai-theme .cockpit-panel.core-panel');
-    expect(css).toMatch(/backdrop-filter: blur\(2px\)/);
+    expect(css).toMatch(/backdrop-filter: blur\(9px\)/);  // frosted enough that stars behind read as behind
+    expect(css).toContain('html body.jai-theme .ov-orb::before');  // the field is solid against the sky
     expect(css).toMatch(/border: 1px solid rgba\(var\(--neon\), \.9\) !important;/);
   });
 });

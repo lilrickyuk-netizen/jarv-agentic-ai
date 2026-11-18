@@ -734,3 +734,18 @@ html body.jai-theme button:not(.mini-switch):not([role="switch"]):is(.text-red-6
   background: rgba(255, 92, 120, .07) !important; text-shadow: 0 0 6px rgba(255, 92, 120, .45);
   box-shadow: 0 0 4px rgba(255, 92, 120, .85), 0 0 14px rgba(255, 92, 120, .35), inset 0 0 8px rgba(255, 92, 120, .15) !important;
 }
+
+/* 18 November, later: shooting stars passing behind the near-clear glass and through the intelligence field (made of
+   light, so the sky shows between its lines) looked in front of them. The field now has a dark core the sky cannot
+   show through, and the glass is frosted enough that a star behind it reads as behind: still see-through, not clear. */
+html body.jai-theme .ov-orb::before { content: ""; position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle closest-side, #000 0 80%, rgba(0, 0, 0, .9) 88%, rgba(0, 0, 0, 0) 100%); }
+html body.jai-theme .bg-card, html body.jai-theme .cockpit-panel:not(.core-panel), html body.jai-theme .cockpit-nav,
+html body.jai-theme .ov-side, html body.jai-theme .ov-chat, html body.jai-theme .ov-composer, html body.jai-theme .ov-chip,
+html body.jai-theme .ov-agent-tag, html body.jai-theme .jai-display, html body.jai-theme .ov-screen .jai-display,
+html body.jai-theme .mission-result, html body.jai-theme .voice-operator, html body.jai-theme nav.bg-card\/80,
+html body.jai-theme .bg-white, html body.jai-theme .bg-gray-50, html body.jai-theme .bg-gray-100,
+html body.jai-theme .bg-slate-50, html body.jai-theme .bg-slate-100, html body.jai-theme .bg-gray-800,
+html body.jai-theme .bg-muted, html body.jai-theme .bg-secondary {
+  -webkit-backdrop-filter: blur(9px) saturate(120%); backdrop-filter: blur(9px) saturate(120%);
+}
