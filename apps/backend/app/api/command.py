@@ -92,8 +92,12 @@ class CommandHistoryItem(BaseModel):
 
 
 def _folder(task: Task) -> Optional[str]:
+    """The folder the mission works in: the one its result records, or while it runs, the one its brief names.
+    18 November: every running mission's card said "no folder" until it finished, because only the result had it."""
     res = task.result if isinstance(task.result, dict) else {}
-    return res.get("workspace_path") or None
+    if res.get("workspace_path"):
+        return res["workspace_path"]
+    return CommandService._extract_path(task.description or task.title or "")
 
 
 def _archived(task: Task) -> bool:

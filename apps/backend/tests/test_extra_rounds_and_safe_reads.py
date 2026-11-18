@@ -72,3 +72,16 @@ def test_a_carousel_in_richards_folder_is_the_builders_mission_and_not_a_video_s
     assert CommandService._detect_intent(brief) == "agent_task"
     assert skill_for(brief) is None
 
+
+def test_a_running_missions_card_shows_the_folder_its_brief_names():
+    """18 November: every running mission's card said "no folder" until it finished."""
+    from types import SimpleNamespace
+
+    from app.api.command import _folder
+
+    running = SimpleNamespace(result=None, title="Make 1 carousel",
+                              description='Make 1 carousel in C:\\Users\\lilri\\Projects\\PLEXECUTE_IMAGES: "5 things"')
+    assert _folder(running) == "C:\\Users\\lilri\\Projects\\PLEXECUTE_IMAGES"
+    done = SimpleNamespace(result={"workspace_path": "C:\\Users\\lilri\\Projects\\MYCO"}, title="x", description="x")
+    assert _folder(done) == "C:\\Users\\lilri\\Projects\\MYCO"
+    assert _folder(SimpleNamespace(result=None, title="Find investors", description="Find investors")) is None

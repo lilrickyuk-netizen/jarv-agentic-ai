@@ -15585,7 +15585,7 @@ NEXT TASK: the two Plexecute carousels, then MYCO Phase 1
 
 TASK ID: CAROUSEL-IS-A-MISSION
 TASK NAME: A carousel or infographic in Richard's folder is the Lead Builder's mission in the sandbox, not a one-off research and QA answer
-STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-carousel-fix.sh on Richard's machine)
+STATUS: COMPLETE (18 November, installed by install-carousel-fix.sh on Richard's machine; mission 36b4435e, the same carousel brief again, ran as the builder's mission in the sandbox)
 FILES CREATED: None
 FILES MODIFIED: apps/backend/app/core/command/work_type.py, apps/backend/tests/test_extra_rounds_and_safe_reads.py, BUILD_LEDGER.md
 COMMANDS RUN: on Claude's side: mission d1aadd3e's card read; service._detect_intent's folder branch and work_type.specialist_for read
@@ -15593,4 +15593,16 @@ TESTS RUN: tests/test_extra_rounds_and_safe_reads.py (the carousel brief is an a
 RESULT: Mission d1aadd3e, "Make 1 Instagram and TikTok carousel for Plexecute in C:\...\PLEXECUTE_IMAGES: 5 things that kill procrastination", matched no specialist's words (the 17 November carousels named the social skill), so _detect_intent's folder branch did not make it a mission; it went to the one-off research and QA answer (113 s), which made no slides and reported an earlier mission's pending approvals. Carousels and infographics now join video and motion work as the Lead Builder's visual work in the sandbox (work_type._BUILDER_KEEPS), where it can draw, render and check the slides. They never start BRAG or OpenMontage (skill_packs.skill_for matches video work only).
 RESEARCH: mission d1aadd3e's card; the routing code
 BLOCKERS: None
-NEXT TASK: Richard runs install-carousel-fix.sh, then the procrastination carousel again
+NEXT TASK: the procrastination carousel (mission 36b4435e), then the confidence carousel, then MYCO Phase 1
+
+TASK ID: CARD-SHOWS-FOLDER
+TASK NAME: A running mission's card shows the folder its brief names, not "no folder"
+STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-card-folder.sh on Richard's machine)
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/api/command.py, apps/backend/tests/test_extra_rounds_and_safe_reads.py, BUILD_LEDGER.md
+COMMANDS RUN: on Claude's side: the dashboard's command page (folder ? folder : 'no folder') and api/command._folder read
+TESTS RUN: tests/test_extra_rounds_and_safe_reads.py (a running mission shows its brief's folder; a finished one its result's; a brief with no folder shows none)
+RESULT: Every running mission's card said "no folder" until it finished, because the card's folder came only from the result's workspace_path, which is written at the end. Now, while the result has none, it is the folder the brief names (CommandService._extract_path, the same reading the mission itself uses). Missions whose brief names no folder still show none.
+RESEARCH: the card's code path, dashboard to API
+BLOCKERS: None
+NEXT TASK: Richard runs install-card-folder.sh
