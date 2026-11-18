@@ -15534,3 +15534,15 @@ RESEARCH: the routing code and the two missions' cards
 BLOCKERS: None
 NEXT TASK: Richard runs install-video-edit.sh, then the music edit again
 
+
+TASK ID: VOICE-BUILT-IN-AND-PRODUCT-FACTS
+TASK NAME: The sandbox has Hyperframes' voice built in, and a video run reads saved product facts instead of the website
+STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-voice-and-facts.sh on Richard's machine)
+FILES CREATED: apps/backend/tests/test_voice_and_product_facts.py
+FILES MODIFIED: services/openhands/Dockerfile, apps/backend/app/core/command/mission_org.py, BUILD_LEDGER.md
+COMMANDS RUN: on Claude's side: Hyperframes v0.9.58 source read (tts/python.ts findPython: HYPERFRAMES_PYTHON first, then PATH; tts/manager.ts ensureModel and ensureVoices: download only when the file is missing; core cacheDir.ts: ~/.cache/hyperframes unless HYPERFRAMES_CACHE_DIR); OpenHands 1.58.2 tmux_terminal.py read (the agent's shell is `su openhands -`); product_facts_rule exercised on a temporary folder (no file, fresh, 31 days old, a brief asking for a refresh)
+TESTS RUN: tests/test_voice_and_product_facts.py (Dockerfile pins and order; fresh file read; missing, old or refresh reads the site and saves; only video skill runs get the rule)
+RESULT: Every BRAG run spent its first steps installing kokoro-onnx and soundfile for `hyperframes tts` and reading Plexecute's website afresh. (1) The sandbox image now has kokoro-onnx 0.6.1 and soundfile 0.14.0 in their own environment (/opt/kokoro), used through HYPERFRAMES_PYTHON, Hyperframes' documented override; set in the image and in /etc/profile.d because the agent's login shell keeps none of the image's environment. The voice models (about 340 MB) are kept in the sandbox home volume after their first download. (2) A video skill run (brag, brag-slim) reads .jai/product.md and .jai/product-assets/ in the project folder while the file is under 30 days old; otherwise, or when the brief asks to refresh the product facts, it reads the real website and saves them for the runs after it. Other named skills are unchanged.
+RESEARCH: Hyperframes 0.9.58 source (tts/python.ts, tts/manager.ts, core/cacheDir.ts, media-use tts-local-provider.mjs); OpenHands Software Agent SDK 1.58.2 terminal source; kokoro-onnx on PyPI (0.6.1, 19 August 2026, Python 3.10 to 3.13, model files v1.0); soundfile 0.14.0 (Arch Linux and CERN package indexes)
+BLOCKERS: None
+NEXT TASK: Richard runs install-voice-and-facts.sh once no mission is running

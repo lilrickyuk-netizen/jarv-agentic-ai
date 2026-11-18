@@ -79,6 +79,39 @@ SPECIALIST_CHECK = (" Judge only this mission's requirements by opening the deli
 SPECIALIST_CHECK_STEPS, SPECIALIST_CHECK_COST = 20, 0.5
 # The independent judge of a video skill's work: Opus, which looks at stills, within its own small allowance.
 CREATIVE_CHECK_STEPS, CREATIVE_CHECK_COST = 40, 2.0
+# 18 November: every BRAG run read the product's website afresh before it could start. The first run in a folder
+# reads it and saves the facts (with the page each came from) and the real assets it used; later runs read those
+# instead, until they are PRODUCT_FACTS_DAYS old or the brief asks for a fresh read of the site.
+PRODUCT_FACTS, PRODUCT_ASSETS, PRODUCT_FACTS_DAYS = ".jai/product.md", ".jai/product-assets", 30
+# The sandbox has Hyperframes and its voice (Kokoro through kokoro-onnx, HYPERFRAMES_PYTHON) built in.
+VIDEO_TOOLS_READY = (" Hyperframes and its voice (npx hyperframes tts) are already installed in this sandbox, with "
+                     "the voice models kept between runs: use them as they are, without installing them again.")
+_REFRESH_FACTS = re.compile(r"\b(refresh|re-?read|update)\b[^.]{0,40}\b(product|site|website)\b", re.IGNORECASE)
+
+
+def product_facts_rule(container_root: Optional[Path], mission: str = "", now: Optional[float] = None) -> str:
+    """What a video skill's specialist does about the product's facts: read the saved ones while they are fresh,
+    otherwise read the real website and save them for the runs after it."""
+    import time
+
+    facts = container_root / PRODUCT_FACTS if container_root is not None else None
+    age = None
+    try:
+        if facts is not None and facts.is_file():
+            age = ((now if now is not None else time.time()) - facts.stat().st_mtime) / 86400
+    except OSError:
+        age = None
+    if age is not None and age < PRODUCT_FACTS_DAYS and not _REFRESH_FACTS.search(mission or ""):
+        return (f" The product's facts are saved in {PRODUCT_FACTS} ({int(age)} days old) and the real assets earlier "
+                f"runs used are in {PRODUCT_ASSETS}/: read those first and work from them instead of reading the "
+                "website again; open a live page only for something they do not cover, and add what you learn there "
+                f"to {PRODUCT_FACTS} with the page it came from.")
+    return (f" Read the product's real website as the skill says, then save what you learned for the runs after "
+            f"this one: {PRODUCT_FACTS} (what the product is and does, who it is for, the problems it solves, its "
+            "features and pricing, its name, tagline, colours and fonts, each fact with the page it came from and "
+            f"today's date) and the real assets you used (logo, screenshots, fonts) copied into {PRODUCT_ASSETS}/. "
+            f"Later runs work from these instead of the website for {PRODUCT_FACTS_DAYS} days.")
+
 # A specialist's round: the builder's full step allowance, within the mission's own spending allowance (restored 10
 # November, after a morning's cut to 100 steps and $2 in one round left every list mission "partial"; the hours the
 # cut was meant to stop came from scraping with Python and broken search, both since fixed).
@@ -1429,7 +1462,7 @@ class MissionTeam:
                        done_when="every ledger item passes its check through jai-check, or is recorded as blocked",
                        model="lead", max_steps=int(settings.OPENHANDS_BUILDER_MAX_ITERATIONS))
 
-    def _skill_package(self, skill: Dict[str, Any], open_ids: List[str]) -> Package:
+    def _skill_package(self, skill: Dict[str, Any], open_ids: List[str], mission: str = "") -> Package:
         """Tier 1: one specialist runs the named skill end to end."""
         run = SKILL_RUNS.get(skill["skill"]) or {}
         return Package(
@@ -1438,12 +1471,19 @@ class MissionTeam:
                   "every step it describes is yours, none is handed to anyone else. Keep to everything the brief "
                   "says (what to read first, what may be claimed, the format and the deliverables). Work from the "
                   "real material the skill asks for (for a website: its real pages, styles, fonts and assets, saved "
-                  "into your working folder), never from a summary of it. Install what the skill needs yourself. "
+                  "into your working folder), never from memory or a guess. Install what the skill needs yourself. "
                   "Where the skill says to look at your own output (stills, contact sheets), open the images and "
-                  "look, then fix what you see before you finish. Run the brief's own acceptance checks last."),
+                  "look, then fix what you see before you finish. Run the brief's own acceptance checks last."
+                  + (VIDEO_TOOLS_READY + self._product_facts(mission) if skill["skill"] in SKILL_RUNS else "")),
             owns=[], depends_on=[], requirements=open_ids,
             done_when="every deliverable the brief names exists, passes the brief's checks and meets the skill's own "
                       "quality rules", **run)
+
+    def _product_facts(self, mission: str) -> str:
+        from app.core.workspaces import fs_inspector
+
+        container = fs_inspector.host_to_container(self.workspace_root) if self.workspace_root else None
+        return product_facts_rule(container, mission)
 
     def _skill_run(self) -> bool:
         """A one-skill job: the skill's specialist alone, with no Verifier after it."""
@@ -1607,7 +1647,7 @@ class MissionTeam:
             #           writers on separate paths, each integrating and testing its own change, then the Verifier.
             # There is no separate integration stage; the Verifier is the one independent judge.
             if skill is not None:
-                self.packages = [self._skill_package(skill, open_ids)]
+                self.packages = [self._skill_package(skill, open_ids, mission)]
                 if skill["skill"] in SKILL_RUNS:
                     self.packages.append(self._creative_verifier(skill))
             elif PARALLEL_ASKED.search(mission or ""):

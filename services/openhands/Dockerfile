@@ -98,6 +98,21 @@ RUN pip install "openhands-sdk==1.58.2" "openhands-tools==1.58.2" "fastapi>=0.11
 ARG HYPERFRAMES_VERSION=0.9.58
 RUN npm install -g "hyperframes@${HYPERFRAMES_VERSION}" && npm cache clean --force
 
+# Hyperframes' voice: `hyperframes tts` runs Kokoro through kokoro-onnx (MIT) and soundfile (BSD-3-Clause) in Python.
+# Installed once here in their own environment, which Hyperframes uses through HYPERFRAMES_PYTHON (its documented
+# override), so a video no longer installs them in every run and they cannot clash with OpenHands' packages. The
+# agent's shell is a login shell (su openhands -), which keeps none of the image's environment, so the setting is
+# also in /etc/profile.d. The voice models (about 340 MB) download once into the sandbox home, which is kept.
+ARG KOKORO_ONNX_VERSION=0.6.1
+ARG SOUNDFILE_VERSION=0.14.0
+RUN python3 -m venv /opt/kokoro \
+    && /opt/kokoro/bin/pip install "kokoro-onnx==${KOKORO_ONNX_VERSION}" "soundfile==${SOUNDFILE_VERSION}" \
+    && /opt/kokoro/bin/python -c "import kokoro_onnx, soundfile" \
+    && chmod -R a+rX /opt/kokoro \
+    && printf 'export HYPERFRAMES_PYTHON=/opt/kokoro/bin/python\n' > /etc/profile.d/jai-voice.sh \
+    && chmod 644 /etc/profile.d/jai-voice.sh
+ENV HYPERFRAMES_PYTHON=/opt/kokoro/bin/python
+
 WORKDIR /jai
 COPY app ./app
 COPY tests ./tests
