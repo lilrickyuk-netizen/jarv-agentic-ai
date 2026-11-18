@@ -113,6 +113,28 @@ RUN python3 -m venv /opt/kokoro \
     && chmod 644 /etc/profile.d/jai-voice.sh
 ENV HYPERFRAMES_PYTHON=/opt/kokoro/bin/python
 
+# OpenMontage (calesthio/OpenMontage, AGPL-3.0): an agent-run video studio (character animation, animated explainers,
+# starting from a reference video), at a pinned commit in /opt/openmontage, owned by the agent's user because the
+# studio keeps its working files in its own folder; its projects go into the mission's folder
+# (OPENMONTAGE_PROJECTS_DIR). Its Python environment has its own requirements plus what its reference-video analysis
+# and character renders import (faster-whisper, PySceneDetect with OpenCV, Playwright with its Chromium). It renders
+# through the Hyperframes installed above. Remotion's packages are not installed: its character pipeline renders
+# with Hyperframes.
+ARG OPENMONTAGE_COMMIT=2e003e65fa99a0f329478a2c1cdcf26bc481933a
+RUN git clone --quiet https://github.com/calesthio/OpenMontage.git /opt/openmontage \
+    && git -C /opt/openmontage checkout --quiet "${OPENMONTAGE_COMMIT}" \
+    && rm -rf /opt/openmontage/.git \
+    && python3 -m venv /opt/openmontage/.venv \
+    && /opt/openmontage/.venv/bin/pip install -r /opt/openmontage/requirements.txt \
+        "faster-whisper>=1.1,<2" "scenedetect[opencv-headless]>=0.6.4,<0.7" "playwright>=1.49,<2" \
+    && PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright /opt/openmontage/.venv/bin/python -m playwright install \
+        --with-deps chromium \
+    && rm -rf /var/lib/apt/lists/* \
+    && chown -R openhands:openhands /opt/openmontage && chmod -R a+rX /opt/ms-playwright \
+    && printf 'export OPENMONTAGE_HOME=/opt/openmontage\nexport PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright\n' \
+        > /etc/profile.d/jai-studio.sh && chmod 644 /etc/profile.d/jai-studio.sh
+ENV OPENMONTAGE_HOME=/opt/openmontage PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+
 WORKDIR /jai
 COPY app ./app
 COPY tests ./tests

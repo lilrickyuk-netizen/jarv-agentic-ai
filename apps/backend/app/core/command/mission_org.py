@@ -83,6 +83,28 @@ CREATIVE_CHECK_STEPS, CREATIVE_CHECK_COST = 40, 2.0
 # reads it and saves the facts (with the page each came from) and the real assets it used; later runs read those
 # instead, until they are PRODUCT_FACTS_DAYS old or the brief asks for a fresh read of the site.
 PRODUCT_FACTS, PRODUCT_ASSETS, PRODUCT_FACTS_DAYS = ".jai/product.md", ".jai/product-assets", 30
+# OpenMontage, the video studio built into the sandbox (skill_packs.STUDIO): its code, its Python environment and a
+# browser for its character renders are in /opt/openmontage; its projects are written into the mission's folder.
+from app.core.knowledge.skill_packs import STUDIO, STUDIO_HOME  # noqa: E402
+
+
+def studio_goal() -> str:
+    """The studio specialist's job: OpenMontage's own agent workflow, run end to end inside the mission's folder."""
+    return (f"Make this mission's video with OpenMontage, the video studio installed at {STUDIO_HOME}, following its "
+            f"own instructions yourself from start to finish: read {STUDIO_HOME}/AGENT_GUIDE.md first and do what it "
+            "says (choose the pipeline, read its manifest and stage skills, use its tools). Run its Python as "
+            f"{STUDIO_HOME}/.venv/bin/python from {STUDIO_HOME}, and before anything else run "
+            "`export OPENMONTAGE_PROJECTS_DIR=\"<this mission's workspace folder>/openmontage-projects\"` in your "
+            "terminal so every project, checkpoint and render is saved in Richard's folder. Use only free tools: no "
+            "paid provider is configured, so never ask for an API key. When the brief names a reference video, "
+            "start from it the way the guide describes (keep its pacing, hook and structure; change the topic). "
+            "Where OpenMontage asks the human to approve a stage, Richard's brief is his answer: if it approves the "
+            "creative stages in advance, write that stage's checkpoint with human_approved=True and the brief as "
+            "the reason, and carry on; never the publish stage, because nothing is published or posted. Copy the "
+            "final MP4 to the workspace folder the brief names. Where the studio's instructions say to look at "
+            "your output, open the stills and look, then fix what you see before you finish.")
+
+
 # The sandbox has Hyperframes and its voice (Kokoro through kokoro-onnx, HYPERFRAMES_PYTHON) built in.
 VIDEO_TOOLS_READY = (" Hyperframes and its voice (npx hyperframes tts) are already installed in this sandbox, with "
                      "the voice models kept between runs: use them as they are, without installing them again.")
@@ -124,6 +146,7 @@ SPECIALIST_WORK_RULE = (" Tests and checklists that earlier missions left in thi
 SKILL_RUNS: Dict[str, Dict[str, Any]] = {
     "brag-slim": {"model": "lead", "effort": "high", "max_steps": 200, "max_cost": 10.0},
     "brag": {"model": "lead", "effort": "high", "max_steps": 200, "max_cost": 10.0},
+    "openmontage": {"model": "lead", "effort": "high", "max_steps": 200, "max_cost": 10.0},
 }
 
 # The specialists a mission can call on, with each role's working standard. A sub-agent is briefed with its role's
@@ -1465,6 +1488,13 @@ class MissionTeam:
     def _skill_package(self, skill: Dict[str, Any], open_ids: List[str], mission: str = "") -> Package:
         """Tier 1: one specialist runs the named skill end to end."""
         run = SKILL_RUNS.get(skill["skill"]) or {}
+        if skill["skill"] == STUDIO:
+            return Package(
+                id=SKILL_PACKAGE_ID, title=f"The {skill['skill']}{SKILL_TITLE_END}", specialist=skill["sandbox"][0],
+                goal=studio_goal() + VIDEO_TOOLS_READY + self._product_facts(mission),
+                owns=[], depends_on=[], requirements=open_ids,
+                done_when="the finished video and everything the brief names are in the workspace, and OpenMontage's "
+                          "own review and the brief's checks pass", **run)
         return Package(
             id=SKILL_PACKAGE_ID, title=f"The {skill['skill']}{SKILL_TITLE_END}", specialist=skill["sandbox"][0],
             goal=(f"Invoke the {skill['skill']} skill and follow it yourself from start to finish for this mission: "
@@ -1512,11 +1542,15 @@ class MissionTeam:
 
     @staticmethod
     def _creative_check(skill: Dict[str, Any]) -> str:
+        rules = (f"OpenMontage's own reviewer ({STUDIO_HOME}/skills/meta/reviewer.md) and any reference video "
+                 "the brief names: a hook in the first seconds, constant motion, a character or tension, readable "
+                 "text, every frame postable" if skill["skill"] == STUDIO else
+                 "the skill's own quality rules (read its SKILL.md under /jai/skills: a hook in the first seconds, "
+                 "the real product shown in use, constant motion, readable text, every frame postable)")
         return (f"Check every requirement yourself. This is {skill['skill']} creative work, so judge how it looks, "
                 "not only its format: make contact sheets of stills from every scene and from mid-transition "
-                "(ffmpeg), open and look at them, and judge them against the skill's own quality rules (read its "
-                "SKILL.md under /jai/skills: a hook in the first seconds, the real product shown in use, constant "
-                "motion, readable text, every frame postable). A format check (ffprobe) is necessary, never enough.")
+                f"(ffmpeg), open and look at them, and judge them against {rules}. A format check (ffprobe) is "
+                "necessary, never enough.")
 
     def _capped_result(self, requirements: Optional[List[Dict[str, Any]]], start_continuation: int) -> Dict[str, Any]:
         """The round's result when the mission's allowance was already used before it began: nothing is spent."""

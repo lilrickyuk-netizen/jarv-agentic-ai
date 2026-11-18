@@ -15558,3 +15558,15 @@ RESULT: Richard saw services dropping and "docker proxy" messages. The docker-pr
 RESEARCH: Richard's proxy-check.txt; app/core/ops/docker_ops.py (SWITCHABLE, switch, the proxy's ALLOW_START and ALLOW_STOP); ComfyUI's /system_stats and /free routes
 BLOCKERS: None
 NEXT TASK: OpenMontage evaluation (reference-led character animation), then MYCO Phase 1
+
+TASK ID: OPENMONTAGE-STUDIO
+TASK NAME: OpenMontage, an agent-run video studio that starts from a reference video, is built into the sandbox and runs when a brief names it
+STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-openmontage.sh on Richard's machine and one free test video)
+FILES CREATED: apps/backend/tests/test_openmontage_studio.py
+FILES MODIFIED: services/openhands/Dockerfile, apps/backend/app/core/knowledge/skill_packs.py, apps/backend/app/core/command/mission_org.py, apps/backend/app/core/command/sandbox_policy.py, BUILD_LEDGER.md
+COMMANDS RUN: on Claude's side: OpenMontage cloned at 2e003e65 and read (README, AGENTS.md, AGENT_GUIDE.md routing, pipeline_defs/character-animation.yaml, lib/paths.py OPENMONTAGE_PROJECTS_DIR, lib/checkpoint.py approval gates, tools/character/character_animation.py Playwright render, tools/video/hyperframes_compose.py npx use, requirements.txt, Makefile)
+TESTS RUN: tests/test_openmontage_studio.py (Dockerfile pin and order; a brief naming OpenMontage runs it and BRAG stays the default for other video briefs; the studio package's goal; the studio folder is a working folder and other projects are still refused)
+RESULT: Two BRAG videos on 18 November (OpenAI, then Claude at 3.6 times the cost) were slideshows Richard would not post: BRAG is a launch-video skill and his references are character and metaphor stories. OpenMontage starts from a reference video (its transcript, pacing, scenes and style), and its character-animation pipeline makes rigged SVG characters acting out scenes, rendered with Hyperframes, with no API key. It is installed in the sandbox image at a pinned commit (/opt/openmontage, its own Python environment plus faster-whisper, PySceneDetect and Playwright's Chromium, which its analysis and character renders import; Remotion's packages left out). A brief that names OpenMontage gets one specialist who follows OpenMontage's AGENT_GUIDE.md with its projects saved in Richard's folder (OPENMONTAGE_PROJECTS_DIR), free tools only, approval gates answered by Richard's brief and never the publish stage, then the independent creative check against OpenMontage's reviewer and the reference video. Every other video brief still runs BRAG.
+RESEARCH: OpenMontage source at 2e003e65 (15 November 2026); its README's free paths and "start from a video you already love"; Hyperframes is the renderer it delegates to (npx uses the installed 0.9.58)
+BLOCKERS: None
+NEXT TASK: Richard runs install-openmontage.sh, then the free test brief

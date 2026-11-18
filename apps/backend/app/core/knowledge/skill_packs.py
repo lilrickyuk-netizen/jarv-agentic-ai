@@ -479,6 +479,16 @@ _CHANGE_VIDEO = re.compile(r"^\s*(?:please\s+)?(?:edit|fix|change|cut|trim|short
 _NO_BRAG = re.compile(r"\b(?:without|no|not with|don'?t use|do not use|skip)\s+(?:the\s+|your\s+|its\s+)?brag\b",
                       re.I)
 VIDEO_SKILL = "brag"
+# OpenMontage (calesthio/OpenMontage, AGPL-3.0): an agent-run video studio with pipelines for character animation,
+# animated explainers and more, which starts from a reference video ("make me something like this"). It is built
+# into JAI's engineering sandbox at /opt/openmontage at a pinned commit (services/openhands/Dockerfile) and runs
+# only when a brief names it. 18 November: two BRAG videos (a launch-video skill) were slideshows Richard would not
+# post; his references are character and metaphor stories.
+STUDIO = "openmontage"
+STUDIO_HOME = "/opt/openmontage"
+_STUDIO = re.compile(r"\bopen\s?-?montage\b", re.IGNORECASE)
+STUDIO_SKILL: Dict = {"pack": STUDIO, "skill": STUDIO, "agents": (CREATION, CONTENT, MARKETING),
+                      "sandbox": (CREATION, CONTENT, MARKETING)}
 
 
 def skill_for(text: str) -> Optional[Dict]:
@@ -487,10 +497,13 @@ def skill_for(text: str) -> Optional[Dict]:
     a skill (mission 092182a7, 43 minutes, about a pound) were not good enough to post; the first BRAG video, made when
     he named it, was. Software that mentions a video (a site with a hero video), a change to a video that exists, and a
     brief that says no BRAG are not new video work."""
+    from app.core.command.work_type import _ENGINEERING, richard_brief
+
+    if _STUDIO.search(richard_brief(text or "")):
+        return STUDIO_SKILL
     entry = named_skill(text)
     if entry is not None:
         return entry
-    from app.core.command.work_type import _ENGINEERING, richard_brief
 
     brief = richard_brief(text or "")
     if not _MAKE_VIDEO.search(brief) or _CHANGE_VIDEO.search(brief) or _NO_BRAG.search(brief) \
