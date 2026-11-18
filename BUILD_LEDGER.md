@@ -9,7 +9,7 @@
 ## CURRENT STATUS
 - **Updated**: 2026-11-17 22:00 (read this section and the last entries at the bottom before any change)
 - **Current Phase**: REPAIR CONTINUATION (10-15): missions run on the Claude Agent SDK engine (MISSION_ENGINE=claude) since 2026-11-15; the booking database is being scaled to thousands of UK and US businesses, chains first
-- **Current Task**: SIGN-OFF-ENDS-IT (installer install-sign-off.sh: approving a sign-off on Richard's own judgement finishes the mission with no further round; full suite, restart; no paid run)
+- **Current Task**: SIGN-OFF-ENDS-IT COMPLETE (18 November, commit 8779d5d); next: the sandbox's init, Hyperframes pinned, the mission card's refresh, an independent creative check, then MYCO
 - **Richard's rule (16 November)**: no paid mission until every part is proven working for free first; only proven open-source code and open data, no home-made loops
 - **Last verified on Richard's machine (update)**: 2026-11-16 11:33, full suite alone 1297 passed, 1 skipped (commit 6f9d231); 12:05 paid booking run 1c19fd8c: 50 businesses, 45 published emails, 50 contactable, 25 passed over with reasons, 7 of 8 requirements done, 11.3 min, $1.16; independent check still open on R5 (each email confirmed on its cited page)
 - **Free probes on Richard's machine (16 November 12:40)**: the Name Suggestion Index lists 1,364 different UK and US chains (587 UK, 1,137 US) across 23 bookable categories; an official website on Wikidata for 149 of a sample of 150
@@ -15001,7 +15001,7 @@ NEXT TASK: Richard runs install-video-skill.sh once the running BRAG mission fin
 
 TASK ID: SIGN-OFF-ENDS-IT
 TASK NAME: Approving a sign-off on Richard's own judgement finishes the mission, with no further round
-STATUS: IN_PROGRESS (checked on Claude's side; Richard's installer runs the full suite)
+STATUS: COMPLETE (18 November 07:46 on Richard's machine: full suite 1317 passed, 1 skipped, commit 8779d5d; free check 3 of 3)
 FILES CREATED: None
 FILES MODIFIED: apps/backend/app/core/command/sign_off.py, apps/backend/app/core/command/continuation.py, apps/backend/tests/test_sign_off_waits_for_richard.py, BUILD_LEDGER.md
 COMMANDS RUN: on Richard's machine (read only): the record of mission a04751ab (meta_data and requirements) and of 8a107b26; on Claude's side: sign_off, continuation, missions._run, lifecycle and resume.last_state read end to end; ruff (F, E9, E501)
