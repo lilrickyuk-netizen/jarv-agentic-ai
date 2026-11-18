@@ -9,7 +9,7 @@
 ## CURRENT STATUS
 - **Updated**: 2026-11-17 22:00 (read this section and the last entries at the bottom before any change)
 - **Current Phase**: REPAIR CONTINUATION (10-15): missions run on the Claude Agent SDK engine (MISSION_ENGINE=claude) since 2026-11-15; the booking database is being scaled to thousands of UK and US businesses, chains first
-- **Current Task**: FOUR-FIXES-18NOV COMPLETE (18 November, commits 8839e4c and b011ca9); open: a brief naming a folder inside a project opens that project; next: MYCO
+- **Current Task**: CAPABILITIES-AND-ICONS (installer install-capabilities.sh: JAI says exactly what it has from a live inventory, a Capabilities page, icons on both navigations; backend and dashboard tests, dashboard rebuilt; no paid run)
 - **Richard's rule (16 November)**: no paid mission until every part is proven working for free first; only proven open-source code and open data, no home-made loops
 - **Last verified on Richard's machine (update)**: 2026-11-16 11:33, full suite alone 1297 passed, 1 skipped (commit 6f9d231); 12:05 paid booking run 1c19fd8c: 50 businesses, 45 published emails, 50 contactable, 25 passed over with reasons, 7 of 8 requirements done, 11.3 min, $1.16; independent check still open on R5 (each email confirmed on its cited page)
 - **Free probes on Richard's machine (16 November 12:40)**: the Name Suggestion Index lists 1,364 different UK and US chains (587 UK, 1,137 US) across 23 bookable categories; an official website on Wikidata for 149 of a sample of 150
@@ -15024,4 +15024,18 @@ RESULT: (1) docker-compose.yml: openhands init: true (Docker's tini as PID 1 rea
 RESEARCH: Docker run reference (--init: an init process that forwards signals and reaps processes) and the Compose specification (init); npm's npx documentation (a name with no specifier matches the version in the local project) and a test of a globally installed package; heygen-com/hyperframes tags and commits v0.9.58 to v0.9.65; Anthropic, "Building effective agents" (evaluator-optimizer: one model generates, another evaluates against clear criteria); Richard's BRAG ads of 17 and 18 November and their records
 BLOCKERS: None
 NEXT TASK: Richard runs install-four-fixes.sh; then MYCO
+
+---
+
+TASK ID: CAPABILITIES-AND-ICONS
+TASK NAME: JAI says exactly what skills it has, what it can do and what upgrades it has had, from a live inventory; a Capabilities page; an icon for every page in both navigations
+STATUS: IN_PROGRESS (checked on Claude's side; Richard's installer adds lucide-react to the lock file, runs the backend and dashboard tests and rebuilds the dashboard)
+FILES CREATED: apps/backend/app/core/identity/inventory.py, apps/backend/app/api/capabilities.py, apps/dashboard/src/app/dashboard/capabilities/page.tsx, apps/dashboard/__tests__/capabilities-page.test.tsx
+FILES MODIFIED: apps/backend/app/core/identity/JAI.md, apps/backend/app/core/command/service.py, apps/backend/app/core/voice/live.py, apps/backend/app/main.py, apps/backend/tests/test_identity.py, apps/dashboard/src/components/ops/section-nav.tsx, apps/dashboard/src/app/dashboard/page.tsx, apps/dashboard/src/app/globals.css, apps/dashboard/package.json, apps/dashboard/package-lock.json (on Richard's machine), BUILD_LEDGER.md
+COMMANDS RUN: on Claude's side: identity (asks_about_me, capabilities, JAI.md), upgrades.recent and both callers read; lucide-icons/lucide cloned and every chosen icon checked present at tag 0.460.0 (2024-11-15, ISC; bar-chart-3 is chart-column there); ruff on the changed Python. npm's registry is not reachable from Claude's side, so the lock file is made on Richard's machine
+TESTS RUN: tests/test_identity.py (capabilities() points to the live inventory; a question about JAI gets the LIVE INVENTORY with every pack's title; inventory reads every pack, at least 150 skills, 20 workers, brag for video, the tool registry; GET /api/capabilities answers signed in and refuses signed out); __tests__/capabilities-page.test.tsx (the page shows packs, departments, tools and upgrades from the API and filters by skill; every navigation link has an icon and Capabilities is listed)
+RESULT: JAI.md said "six MIT-licensed skill packs, 135 skills" after the twelfth pack and 150 skills; a question about JAI was answered from it "with its exact numbers". Now identity/inventory.py reads, with no AI: every pack (title, publisher, repository, commit, licence, usable and AgentShield-blocked skills), each department's own skills, the tool and agent registries, the lead and worker models, workers at once, the video skill and the creative check's limit, and the upgrades of the last 30 days from the repository's history. A question about JAI in the Command Center or by voice gets this beside JAI.md; JAI.md's skills section no longer states counts. GET /api/capabilities (signed in) serves it to a new Capabilities page under Agents. Both navigations show a Lucide icon (ISC, the set shadcn/ui uses) for every page; the cockpit's dots become icons.
+RESEARCH: the existing self-knowledge path (identity.ABOUT_ME, capabilities, upgrades.recent from the mounted .git); Lucide's repository and licence at 0.460.0; shadcn/ui's use of Lucide
+BLOCKERS: None
+NEXT TASK: Richard runs install-capabilities.sh and sends the dashboard's new package-lock.json so Claude's copy matches
 

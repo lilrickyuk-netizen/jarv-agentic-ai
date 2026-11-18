@@ -533,10 +533,10 @@ html body.jai-theme .border-rose-100, html body.jai-theme .border-rose-200, html
 .side-label { display: flex; justify-content: space-between; padding: 14px 12px 5px; color: var(--ov-fa); font-size: 10px; letter-spacing: .14em; }
 .side-label em { font-style: normal; }
 .ov-link { display: flex; align-items: center; gap: 10px; padding: 6px 12px; border-radius: 8px; color: var(--ov-mu); font-size: 13.5px; }
-.ov-link::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .45; }
+.ov-link svg { opacity: .7; }
 .ov-link:hover { background: rgba(148, 163, 184, .06); color: var(--ov-tx); }
 .ov-link.is-active { background: rgba(56, 189, 248, .10); color: #fff; }
-.ov-link.is-active::before { background: var(--ov-c); opacity: 1; box-shadow: 0 0 8px var(--ov-c); }
+.ov-link.is-active svg { color: var(--ov-c); opacity: 1; filter: drop-shadow(0 0 6px var(--ov-c)); }
 .ov-count { margin-left: auto; min-width: 18px; padding: 0 6px; border-radius: 999px; background: #fbbf24; color: #1a1200; font: 600 11px Inter, sans-serif; text-align: center; }
 .side-services { margin-top: 14px; border-top: 1px solid var(--ov-line); padding-top: 4px; }
 .side-services ul { list-style: none; margin: 0; padding: 0; }

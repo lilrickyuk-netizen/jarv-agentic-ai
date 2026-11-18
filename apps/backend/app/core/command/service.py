@@ -3002,10 +3002,15 @@ class CommandService:
         from app.core.identity import asks_about_me, capabilities, written_system
 
         router = get_router()
-        system_prompt = written_system() + (
-            ("\nHE IS ASKING ABOUT YOU. Answer straight from your own design document, with its exact numbers and "
-             "names, never a count or feature it does not give:\n" + capabilities() + "\n")
-            if asks_about_me(command_text) else "") + (
+        about_me = ""
+        if asks_about_me(command_text):
+            from app.core.identity import inventory
+
+            about_me = ("\nHE IS ASKING ABOUT YOU. Answer straight from your own design document and the live "
+                        "inventory read from your code, with their exact numbers and names, never a count or feature "
+                        "they do not give:\n" + capabilities() + "\n\n"
+                        + inventory.as_text(await inventory.inventory()) + "\n")
+        system_prompt = written_system() + about_me + (
             "\nYou are JAI, a private autonomous multi-agent AI operations system. "
             "Answer the operator's command directly and concretely using the REAL "
             "system context and the execution plan provided. "

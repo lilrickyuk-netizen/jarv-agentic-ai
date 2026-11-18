@@ -1039,7 +1039,10 @@ async def brain_facts(db: AsyncSession, user_id: UUID, question: str,
     from app.core.identity import asks_about_me, capabilities
 
     if asks_about_me(question):
+        from app.core.identity import inventory
+
         facts["what_i_am"] = capabilities()
+        facts["what_i_have_now"] = inventory.as_text(await inventory.inventory())
     try:
         from app.core import spend
 

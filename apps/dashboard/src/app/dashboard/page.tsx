@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { JarvisOrb } from '@/components/jarvis-orb';
 import { JarvMark } from '@/components/jarv-mark';
+import { NavIcon } from '@/components/ops/section-nav';
 import { JaiDisplay } from '@/components/jai-display';
 import { ServiceSwitches } from '@/components/service-switches';
 import { apiClient, HealthResponse } from '@/lib/api';
@@ -216,23 +217,24 @@ export default function CommandCenterPage() {
         </a>
         <nav>
           <span className="side-label">COMMAND</span>
-          <a className="ov-link is-active" href="/dashboard">Overview</a>
-          <a className="ov-link" href="/dashboard/command">Missions</a>
-          <a className="ov-link" href="/dashboard/agents">Agents</a>
-          <a className="ov-link" href="/dashboard/swarm">Swarm</a>
-          <a className="ov-link" href="/dashboard/tasks">Tasks</a>
+          <a className="ov-link is-active" href="/dashboard"><NavIcon href="/dashboard" size={16} />Overview</a>
+          <a className="ov-link" href="/dashboard/command"><NavIcon href="/dashboard/command" size={16} />Missions</a>
+          <a className="ov-link" href="/dashboard/agents"><NavIcon href="/dashboard/agents" size={16} />Agents</a>
+          <a className="ov-link" href="/dashboard/capabilities"><NavIcon href="/dashboard/capabilities" size={16} />Capabilities</a>
+          <a className="ov-link" href="/dashboard/swarm"><NavIcon href="/dashboard/swarm" size={16} />Swarm</a>
+          <a className="ov-link" href="/dashboard/tasks"><NavIcon href="/dashboard/tasks" size={16} />Tasks</a>
           <span className="side-label">OPERATIONS</span>
-          <a className="ov-link" href="/dashboard/live-operations">Live operations</a>
-          <a className="ov-link" href="/dashboard/approvals">Approvals{waiting > 0 && <b className="ov-count">{waiting}</b>}</a>
-          <a className="ov-link" href="/dashboard/workspaces">Workspaces</a>
+          <a className="ov-link" href="/dashboard/live-operations"><NavIcon href="/dashboard/live-operations" size={16} />Live operations</a>
+          <a className="ov-link" href="/dashboard/approvals"><NavIcon href="/dashboard/approvals" size={16} />Approvals{waiting > 0 && <b className="ov-count">{waiting}</b>}</a>
+          <a className="ov-link" href="/dashboard/workspaces"><NavIcon href="/dashboard/workspaces" size={16} />Workspaces</a>
           <span className="side-label">COMPANY</span>
-          <a className="ov-link" href="/dashboard/company-operations">Company</a>
-          <a className="ov-link" href="/dashboard/business">Business</a>
-          <a className="ov-link" href="/dashboard/revenue-operations">Revenue</a>
-          <a className="ov-link" href="/dashboard/sales">Sales & outreach</a>
-          <a className="ov-link" href="/dashboard/support">Support</a>
-          <a className="ov-link" href="/dashboard/marketing">Growth</a>
-          <a className="ov-link" href="/dashboard/infrastructure">Infrastructure</a>
+          <a className="ov-link" href="/dashboard/company-operations"><NavIcon href="/dashboard/company-operations" size={16} />Company</a>
+          <a className="ov-link" href="/dashboard/business"><NavIcon href="/dashboard/business" size={16} />Business</a>
+          <a className="ov-link" href="/dashboard/revenue-operations"><NavIcon href="/dashboard/revenue-operations" size={16} />Revenue</a>
+          <a className="ov-link" href="/dashboard/sales"><NavIcon href="/dashboard/sales" size={16} />Sales & outreach</a>
+          <a className="ov-link" href="/dashboard/support"><NavIcon href="/dashboard/support" size={16} />Support</a>
+          <a className="ov-link" href="/dashboard/marketing"><NavIcon href="/dashboard/marketing" size={16} />Growth</a>
+          <a className="ov-link" href="/dashboard/infrastructure"><NavIcon href="/dashboard/infrastructure" size={16} />Infrastructure</a>
         </nav>
         <ServiceSwitches compact />
         {model && <div className="ov-model"><span className="ov-dot is-live" />{model.replace('claude-', '').replace(/-/g, ' ')}</div>}

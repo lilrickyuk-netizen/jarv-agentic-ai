@@ -1,7 +1,57 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
+import type { LucideIcon } from 'lucide-react';
+import {
+  Activity, ChartColumn, Bot, Briefcase, Building2, Cog, Flag, FolderKanban, GraduationCap, Handshake, ImageIcon,
+  KeyRound, LayoutDashboard, LifeBuoy, ListChecks, Megaphone, MessagesSquare, Network, PenLine, PoundSterling,
+  Puzzle, Rocket, Server, Settings, ShieldAlert, ShieldCheck, Sparkles, Brain, Target, UserCheck, UserPlus, Users,
+  Wrench,
+} from 'lucide-react';
 import { JarvMark } from '@/components/jarv-mark';
+
+/** Each page's icon (Lucide, ISC licence: the icon set shadcn/ui uses), shared by the cockpit and the section bar. */
+export const ICONS: Record<string, LucideIcon> = {
+  '/dashboard': LayoutDashboard,
+  '/dashboard/command': Rocket,
+  '/dashboard/tasks': ListChecks,
+  '/dashboard/approvals': ShieldCheck,
+  '/dashboard/boundary-reports': ShieldAlert,
+  '/dashboard/checkpoints': Flag,
+  '/dashboard/richard-boundary': UserCheck,
+  '/dashboard/company-operations': Building2,
+  '/dashboard/ai-standups': MessagesSquare,
+  '/dashboard/live-operations': Activity,
+  '/dashboard/business': Briefcase,
+  '/dashboard/revenue-operations': PoundSterling,
+  '/dashboard/analytics': ChartColumn,
+  '/dashboard/marketing': Megaphone,
+  '/dashboard/content': PenLine,
+  '/dashboard/onboarding': UserPlus,
+  '/dashboard/community': Users,
+  '/dashboard/partnerships': Handshake,
+  '/dashboard/sales': Target,
+  '/dashboard/support': LifeBuoy,
+  '/dashboard/agents': Bot,
+  '/dashboard/capabilities': Puzzle,
+  '/dashboard/swarm': Network,
+  '/dashboard/tools': Wrench,
+  '/dashboard/permissions': KeyRound,
+  '/dashboard/memory': Brain,
+  '/dashboard/experience': GraduationCap,
+  '/dashboard/self-evolution': Sparkles,
+  '/dashboard/workspaces': FolderKanban,
+  '/dashboard/assets': ImageIcon,
+  '/dashboard/operations': Cog,
+  '/dashboard/infrastructure': Server,
+  '/dashboard/settings': Settings,
+};
+
+/** A page's icon, or nothing for a page without one. */
+export function NavIcon({ href, size = 14 }: { href: string; size?: number }) {
+  const Icon = ICONS[href];
+  return Icon ? <Icon size={size} aria-hidden="true" className="shrink-0" /> : null;
+}
 
 /** Every dashboard page, grouped the way Richard works: command, company, growth, agents, systems. */
 export const SECTIONS: { group: string; links: { href: string; label: string }[] }[] = [
@@ -33,6 +83,7 @@ export const SECTIONS: { group: string; links: { href: string; label: string }[]
   ] },
   { group: 'Agents', links: [
     { href: '/dashboard/agents', label: 'Agents' },
+    { href: '/dashboard/capabilities', label: 'Capabilities' },
     { href: '/dashboard/swarm', label: 'Swarm' },
     { href: '/dashboard/tools', label: 'Tools' },
     { href: '/dashboard/permissions', label: 'Permissions' },
@@ -61,8 +112,8 @@ export function SectionNav() {
             <span className="text-[10px] uppercase tracking-widest text-muted-foreground mr-1">{section.group}</span>
             {section.links.filter((l) => l.href !== '/dashboard').map((link) => (
               <a key={link.href} href={link.href} aria-current={active(link.href) ? 'page' : undefined}
-                className={`px-2 py-1 rounded whitespace-nowrap ${active(link.href) ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}>
-                {link.label}
+                className={`px-2 py-1 rounded whitespace-nowrap inline-flex items-center gap-1.5 ${active(link.href) ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}>
+                <NavIcon href={link.href} />{link.label}
               </a>
             ))}
           </div>

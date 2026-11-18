@@ -39,7 +39,7 @@ def test_a_question_about_jai_itself_is_answered_from_its_design_document_not_a_
                  "How is the mission going?", "Make the Plexecute launch video with your BRAG Slim skill. " * 10):
         assert not identity.asks_about_me(work), work
     whole = identity.capabilities()
-    assert "135 skills" in whole and "Six pinned" in whole and "## Honest limits" in whole
+    assert "live inventory" in whole and "## Honest limits" in whole  # counts are read live, never written
     spoken = live.spoken_instructions([], brain=True)
     assert "what_i_am" in spoken and "A question is never a mission" in spoken
     start = next(t for t in live.TOOLS if t["name"] == "start_mission")
@@ -62,7 +62,8 @@ def test_a_written_question_about_jai_gets_the_whole_document(monkeypatch):
     monkeypatch.setattr("app.core.command.service.get_router", lambda: Router())
     service = CommandService()
     asyncio.run(service._run_answer("What capabilities have you got?", {}, [], []))
-    assert "HE IS ASKING ABOUT YOU" in seen["system"] and "135 skills" in seen["system"]
+    assert "HE IS ASKING ABOUT YOU" in seen["system"] and "LIVE INVENTORY" in seen["system"]
+    assert "Trail of Bits Skills" in seen["system"] and "workers on" in seen["system"]
     asyncio.run(service._run_answer("How is MYCO going?", {}, [], []))
     assert "HE IS ASKING ABOUT YOU" not in seen["system"]
 
@@ -95,3 +96,31 @@ def test_jais_design_is_stored_and_found_by_search():
     results, hits = out
     assert results[0]["status"] in ("updated", "unchanged") and results[0]["passages"] >= 5
     assert hits and hits[0]["url"] == identity.SOURCE_URL
+
+
+def test_jai_reads_what_it_has_from_its_code_when_asked():
+    """18 November: Richard wants JAI to say exactly what skills it has, what it can do and what upgrades it has
+    had. JAI.md said "six packs, 135 skills" after a twelfth pack was installed; the counts are now read live."""
+    from app.core.identity import inventory
+    from app.core.knowledge.skill_packs import PACKS
+
+    inv = asyncio.run(inventory.inventory())
+    assert {p["pack"] for p in inv["packs"]} == set(PACKS)
+    assert inv["skills_total"] >= 150 and inv["engine"]["workers_at_once"] == 20
+    assert inv["engine"]["video_skill"] == "brag" and inv["registries"]["tools"] > 0
+    text = inventory.as_text(inv)
+    assert text.startswith("LIVE INVENTORY") and all(p["title"] in text for p in PACKS.values())
+    assert "Upgrade" in text  # the history, or a plain line saying it is not readable here
+
+
+
+def test_the_capabilities_page_reads_the_live_inventory(client, signed_in):
+    answer = client.get("/api/capabilities")
+    assert answer.status_code == 200
+    data = answer.json()
+    assert {"packs", "departments", "engine", "registries", "upgrades", "skills_total"} <= set(data)
+    assert any(p["pack"] == "trailofbits" and p["licence"] == "CC-BY-SA-4.0" for p in data["packs"])
+
+
+def test_the_capabilities_page_needs_richard_signed_in(client):
+    assert client.get("/api/capabilities").status_code in (401, 403)

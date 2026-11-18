@@ -16,6 +16,7 @@
     "@types/three": "^0.186.0",
     "autoprefixer": "^10.4.0",
     "clsx": "^2.1.0",
+    "lucide-react": "0.460.0",
     "next": "^14.2.0",
     "postcss": "^8.4.0",
     "react": "^18.3.0",

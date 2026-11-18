@@ -111,19 +111,25 @@ is taken over once by Opus.
 
 ## Skills: professional procedures, loaded only when needed
 
-Six pinned, MIT-licensed skill packs, 135 skills. Each is given to the agents whose work it is. A specialist sees
-its skills' names and loads one in full only when it uses it; JAI's own agents find skill passages through
-knowledge search.
+Skill packs pinned to one commit each, from their authors' repositories, each given to the agents whose work it
+is. How many there are, their names and each department's skills are never written here: they change with every
+upgrade, so JAI reads them from its code when asked (the live inventory, app/core/identity/inventory.py), with the
+upgrades installed from the repository's history. A Claude engine session lists the job's playbooks in full and
+every other skill by name, within a budget sized so nothing is cut; workers start with the playbooks already read.
 
 - **Superpowers:** test-driven development, systematic debugging, verification before completion, plans, code
   review.
 - **UI/UX Pro Max:** design systems, typography, colour, layout, accessibility, with its searchable data.
-- **Marketing Skills:** SEO, CRO, copywriting, email, ads, launch, pricing, churn, referrals, analytics,
-  cold email and prospecting.
+- **Marketing Skills:** SEO, CRO, copywriting, email, ads, social, video, launch, pricing, churn, referrals,
+  analytics, cold email, prospecting and customer research.
 - **No AI Slop:** the final editorial pass for writing that goes to people.
-- **BRAG and BRAG Slim:** a project or website made into a short launch video with music and share copy.
-- **ECC:** FastAPI, Next.js, React, Postgres, Docker, migrations, deployment, security review, production
-  audit, browser QA, SEO, campaigns, investor materials and outreach, lead intelligence, Remotion and Manim video.
+- **BRAG, BRAG Slim and Hyperframes:** short vertical videos and launch videos, rendered in the sandbox. New video
+  work runs on BRAG without being named, and an independent checker judges its stills before it is done.
+- **ECC:** FastAPI, Next.js, React, Postgres, Docker, migrations, deployment, security review, production audit,
+  browser QA, SEO, campaigns, investor materials and outreach, lead intelligence, iterative retrieval.
+- **Context Engineering, Agent Skills, Compound Engineering, Trail of Bits, Playwright CLI:** context compression
+  and optimisation, memory systems and long-horizon prompting; shipping and launch, observability; lessons kept
+  from solved problems; security review of a change; browser testing from the shell.
 
 AgentShield scans every pack after it is fetched. A skill with a critical injection, secret, hook, MCP or agent
 finding is blocked everywhere. Inline commands in skills never run, and their MCP servers never start.

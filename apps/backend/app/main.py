@@ -207,6 +207,9 @@ from app.api import richard as richard_api
 app.include_router(richard_api.router)
 app.include_router(assets.router)
 app.include_router(agent_knowledge.router, prefix="/api")
+# What JAI has (skills, departments, tools, agents, upgrades), read live from its code: the Capabilities page
+from app.api import capabilities as capabilities_api  # noqa: E402
+app.include_router(capabilities_api.router)
 
 # Import and include support router
 from app.api.v1 import support
