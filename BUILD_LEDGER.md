@@ -9,7 +9,7 @@
 ## CURRENT STATUS
 - **Updated**: 2026-11-17 22:00 (read this section and the last entries at the bottom before any change)
 - **Current Phase**: REPAIR CONTINUATION (10-15): missions run on the Claude Agent SDK engine (MISSION_ENGINE=claude) since 2026-11-15; the booking database is being scaled to thousands of UK and US businesses, chains first
-- **Current Task**: VIDEO-WORK-RUNS-ON-ITS-SKILL (installer install-video-skill.sh: new video work runs on BRAG without Richard naming it; full suite, restart; no paid run)
+- **Current Task**: VIDEO-WORK-RUNS-ON-ITS-SKILL COMPLETE (18 November, commit 4fb94df); next: Richard's professional Plexecute ad, then the sandbox's init, Hyperframes pinned, the mission card's refresh and an independent creative check
 - **Richard's rule (16 November)**: no paid mission until every part is proven working for free first; only proven open-source code and open data, no home-made loops
 - **Last verified on Richard's machine (update)**: 2026-11-16 11:33, full suite alone 1297 passed, 1 skipped (commit 6f9d231); 12:05 paid booking run 1c19fd8c: 50 businesses, 45 published emails, 50 contactable, 25 passed over with reasons, 7 of 8 requirements done, 11.3 min, $1.16; independent check still open on R5 (each email confirmed on its cited page)
 - **Free probes on Richard's machine (16 November 12:40)**: the Name Suggestion Index lists 1,364 different UK and US chains (587 UK, 1,137 US) across 23 bookable categories; an official website on Wikidata for 149 of a sample of 150
@@ -14987,7 +14987,7 @@ NEXT TASK: Richard runs install-skills-workers.sh; JAI goes back to Claude by it
 
 TASK ID: VIDEO-WORK-RUNS-ON-ITS-SKILL
 TASK NAME: New video work runs on BRAG, JAI's video skill, without Richard having to name it
-STATUS: IN_PROGRESS (checked on Claude's side; Richard's installer runs the full suite)
+STATUS: COMPLETE (18 November 00:08 on Richard's machine: full suite 1315 passed, 1 skipped, commit 4fb94df; free check 6 of 6). Also found 17 November: BRAG mission 89a47a51 made 2 ads in 62 min for $5.24 using brag, hyperframes and hyperframes-cli; Hyperframes 0.9.64 renders hung at capture start and 0.9.58 rendered in about 73 s; each hung render left Chromium processes unreaped in the sandbox (over 1,000 PIDs, no init); the mission card kept showing RUNNING after the mission finished. Open: init for the sandbox, Hyperframes pinned, the card's refresh, an independent creative check for skill runs
 FILES CREATED: None
 FILES MODIFIED: apps/backend/app/core/knowledge/skill_packs.py, apps/backend/app/core/command/mission_org.py, apps/backend/app/core/command/service.py, apps/backend/tests/test_skill_for_the_work.py, BUILD_LEDGER.md
 COMMANDS RUN: on Claude's side: the routing read end to end (service._detect_intent, mission_org._role, _job and the effort tiers, work_type.specialist_for and _BUILDER_KEEPS, expertise.job_for and choose_skills); the new rule tried on 24 briefs (Richard's own and the routing tests'); ruff (F, E9, E501) on every changed file
