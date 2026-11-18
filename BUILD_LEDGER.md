@@ -15561,7 +15561,7 @@ NEXT TASK: OpenMontage evaluation (reference-led character animation), then MYCO
 
 TASK ID: OPENMONTAGE-STUDIO
 TASK NAME: OpenMontage, an agent-run video studio that starts from a reference video, is built into the sandbox and runs when a brief names it
-STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-openmontage.sh on Richard's machine and one free test video)
+STATUS: COMPLETE (18 November 14:18 on Richard's machine: 1335 passed, 1 skipped, commit b5c49dc; free checks: the login shell sees OPENMONTAGE_HOME, OpenMontage's tool registry loads, Playwright's Chromium starts, the studio folder is writable, the 5 reference videos are readable, a brief naming OpenMontage runs the studio and other video briefs run BRAG)
 FILES CREATED: apps/backend/tests/test_openmontage_studio.py
 FILES MODIFIED: services/openhands/Dockerfile, apps/backend/app/core/knowledge/skill_packs.py, apps/backend/app/core/command/mission_org.py, apps/backend/app/core/command/sandbox_policy.py, BUILD_LEDGER.md
 COMMANDS RUN: on Claude's side: OpenMontage cloned at 2e003e65 and read (README, AGENTS.md, AGENT_GUIDE.md routing, pipeline_defs/character-animation.yaml, lib/paths.py OPENMONTAGE_PROJECTS_DIR, lib/checkpoint.py approval gates, tools/character/character_animation.py Playwright render, tools/video/hyperframes_compose.py npx use, requirements.txt, Makefile)
@@ -15569,4 +15569,4 @@ TESTS RUN: tests/test_openmontage_studio.py (Dockerfile pin and order; a brief n
 RESULT: Two BRAG videos on 18 November (OpenAI, then Claude at 3.6 times the cost) were slideshows Richard would not post: BRAG is a launch-video skill and his references are character and metaphor stories. OpenMontage starts from a reference video (its transcript, pacing, scenes and style), and its character-animation pipeline makes rigged SVG characters acting out scenes, rendered with Hyperframes, with no API key. It is installed in the sandbox image at a pinned commit (/opt/openmontage, its own Python environment plus faster-whisper, PySceneDetect and Playwright's Chromium, which its analysis and character renders import; Remotion's packages left out). A brief that names OpenMontage gets one specialist who follows OpenMontage's AGENT_GUIDE.md with its projects saved in Richard's folder (OPENMONTAGE_PROJECTS_DIR), free tools only, approval gates answered by Richard's brief and never the publish stage, then the independent creative check against OpenMontage's reviewer and the reference video. Every other video brief still runs BRAG.
 RESEARCH: OpenMontage source at 2e003e65 (15 November 2026); its README's free paths and "start from a video you already love"; Hyperframes is the renderer it delegates to (npx uses the installed 0.9.58)
 BLOCKERS: None
-NEXT TASK: Richard runs install-openmontage.sh, then the free test brief
+NEXT TASK: the free OpenMontage test video, then two carousels, then MYCO Phase 1
