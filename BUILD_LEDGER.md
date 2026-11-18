@@ -9,7 +9,7 @@
 ## CURRENT STATUS
 - **Updated**: 2026-11-17 22:00 (read this section and the last entries at the bottom before any change)
 - **Current Phase**: REPAIR CONTINUATION (10-15): missions run on the Claude Agent SDK engine (MISSION_ENGINE=claude) since 2026-11-15; the booking database is being scaled to thousands of UK and US businesses, chains first
-- **Current Task**: VIDEO-EDIT-IS-A-MISSION (installer install-video-edit.sh: a video edit in Richard's folder goes to the builder in the sandbox; backend tests, restart; no paid run)
+- **Current Task**: VIDEO-EDIT-IS-A-MISSION COMPLETE (18 November, commit 46d563a); next: the music edit, the reference-style Plexecute ad, then MYCO
 - **Richard's rule (16 November)**: no paid mission until every part is proven working for free first; only proven open-source code and open data, no home-made loops
 - **Last verified on Richard's machine (update)**: 2026-11-16 11:33, full suite alone 1297 passed, 1 skipped (commit 6f9d231); 12:05 paid booking run 1c19fd8c: 50 businesses, 45 published emails, 50 contactable, 25 passed over with reasons, 7 of 8 requirements done, 11.3 min, $1.16; independent check still open on R5 (each email confirmed on its cited page)
 - **Free probes on Richard's machine (16 November 12:40)**: the Name Suggestion Index lists 1,364 different UK and US chains (587 UK, 1,137 US) across 23 bookable categories; an official website on Wikidata for 149 of a sample of 150
@@ -15524,7 +15524,7 @@ NEXT TASK: Richard runs install-capabilities.sh and sends the dashboard's new pa
 
 TASK ID: VIDEO-EDIT-IS-A-MISSION
 TASK NAME: A video edit in Richard's folder is the builder's mission in the sandbox, not a one-off research and QA answer
-STATUS: IN_PROGRESS (checked on Claude's side; Richard's installer runs the full suite)
+STATUS: COMPLETE (18 November 10:37 on Richard's machine: 1323 passed, 1 skipped, commit 46d563a; free check: the music edit is an agent_task)
 FILES CREATED: None
 FILES MODIFIED: apps/backend/app/core/command/service.py, apps/backend/tests/test_eighteen_november_fixes.py, BUILD_LEDGER.md
 COMMANDS RUN: on Claude's side: service._detect_intent read end to end for the brief; ruff on the changed files
