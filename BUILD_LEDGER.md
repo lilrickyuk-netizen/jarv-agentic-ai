@@ -9,7 +9,7 @@
 ## CURRENT STATUS
 - **Updated**: 2026-11-17 22:00 (read this section and the last entries at the bottom before any change)
 - **Current Phase**: REPAIR CONTINUATION (10-15): missions run on the Claude Agent SDK engine (MISSION_ENGINE=claude) since 2026-11-15; the booking database is being scaled to thousands of UK and US businesses, chains first
-- **Current Task**: FOUR-FIXES-18NOV (installer install-four-fixes.sh: the sandbox's init, Hyperframes 0.9.58 installed, the mission card follows long missions, an independent creative check for video skill runs; backend and dashboard tests, sandbox rebuilt, dashboard rebuilt; no paid run)
+- **Current Task**: FOUR-FIXES-18NOV COMPLETE (18 November, commits 8839e4c and b011ca9); open: a brief naming a folder inside a project opens that project; next: MYCO
 - **Richard's rule (16 November)**: no paid mission until every part is proven working for free first; only proven open-source code and open data, no home-made loops
 - **Last verified on Richard's machine (update)**: 2026-11-16 11:33, full suite alone 1297 passed, 1 skipped (commit 6f9d231); 12:05 paid booking run 1c19fd8c: 50 businesses, 45 published emails, 50 contactable, 25 passed over with reasons, 7 of 8 requirements done, 11.3 min, $1.16; independent check still open on R5 (each email confirmed on its cited page)
 - **Free probes on Richard's machine (16 November 12:40)**: the Name Suggestion Index lists 1,364 different UK and US chains (587 UK, 1,137 US) across 23 bookable categories; an official website on Wikidata for 149 of a sample of 150
@@ -15015,7 +15015,7 @@ NEXT TASK: Richard runs install-sign-off.sh; then the sandbox's init, Hyperframe
 
 TASK ID: FOUR-FIXES-18NOV
 TASK NAME: The sandbox reaps finished processes; renders use the Hyperframes version that works; the mission card follows a mission to its end; video skill runs get an independent creative check
-STATUS: IN_PROGRESS (checked on Claude's side; Richard's installer runs the backend and dashboard tests and rebuilds the sandbox and dashboard)
+STATUS: COMPLETE (18 November 08:57 on Richard's machine: backend 1319 passed, 1 skipped; dashboard 5 of 5; commits 8839e4c and b011ca9, the second moving the Hyperframes step after the large installs because the first rebuild re-downloaded OpenHands and timed out on a slow connection; checks 6 of 6: docker-init is PID 1, hyperframes@0.9.58 installed, the sandbox sees the Projects folder, the card follows long missions, the creative check is in place at 40 steps and $2)
 FILES CREATED: apps/backend/tests/test_eighteen_november_fixes.py, apps/dashboard/__tests__/mission-follow.test.ts
 FILES MODIFIED: docker-compose.yml, services/openhands/Dockerfile, apps/dashboard/src/lib/missions.ts, apps/backend/app/core/command/mission_org.py, apps/backend/tests/test_openhands_sandbox.py, BUILD_LEDGER.md
 COMMANDS RUN: on Claude's side: the sandbox's compose entry and Dockerfile read (PID 1 is uvicorn, no init); Hyperframes' repository cloned and its tags and commits from v0.9.58 to v0.9.65 read; npx's lookup tested with a package installed globally (npm 10: `npx <name>` with no version ran the installed one); the dashboard's mission follower read (FOLLOW_LIMIT_MS 30 minutes); mission_org's effort tiers and the unused _creative_check read; ruff on the changed Python
