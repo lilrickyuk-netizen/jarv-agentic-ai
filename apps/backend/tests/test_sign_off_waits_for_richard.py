@@ -92,3 +92,61 @@ def test_the_builder_and_verifier_are_told_how_to_report_a_step_that_waits_on_ri
     assert '"class": "richard"' in builder_method("Carry on with MYCO Phase 0")
     assert "Never re-run or re-record finished work" in builder_method("Carry on with MYCO Phase 0")
     assert "waiting, not open" in SPECIALISTS["verifier"]["standard"]
+
+
+def test_a_sign_off_on_richards_judgement_needs_no_round_but_a_real_step_does():
+    """18 November: mission a04751ab waited for "an ad Richard is proud to post: ready to publish, viral-worthy";
+    approving it ran a whole round that had nothing to do and stopped again."""
+    judged = ["R16 The finished video is one Richard is proud to post: ready to publish, viral-worthy, and delivered "
+              "with its file location. Only Richard can judge whether he is proud to post it."]
+    assert not sign_off.needs_round(judged)
+    assert not sign_off.needs_round(["R5 Acceptance: Richard's review"])
+    assert sign_off.needs_round(["R5 Acceptance: Richard's review, then the tag"])
+    assert sign_off.needs_round(["R9: push the release branch once Richard approves"])
+    reqs = [{"id": "R1", "status": "done"}, {"id": "R16", "status": "waiting"}]
+    assert [(r["status"], r.get("evidence")) for r in sign_off.signed(reqs)] == [
+        ("done", None), ("done", "Richard approved it")]
+
+
+def test_approving_a_judgement_finishes_the_mission_without_running_anything():
+    import asyncio
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from app.core.command import continuation
+    from app.core.runtime import lifecycle
+
+    class Db:
+        def __init__(self):
+            self.added = []
+
+        def add(self, item):
+            self.added.append(item)
+
+        async def flush(self):
+            return None
+
+        async def refresh(self, *a, **k):
+            return None
+
+        async def commit(self):
+            return None
+
+    def no_round(*a, **k):
+        raise AssertionError("a round ran for a sign-off that needed none")
+
+    task = SimpleNamespace(id=uuid4(), workspace_id=uuid4(), status=lifecycle.RUNNING, title="ad", description="ad",
+                           result={"mission": "Make 1 ad", "requirements": [{"id": "R1", "status": "done"},
+                                                                            {"id": "R16", "status": "waiting"}]},
+                           meta_data={"boundary_type": sign_off.BOUNDARY, "approval_grant": {"task_id": "x"},
+                                      "waiting_on_richard": ["R16 an ad Richard is proud to post: viral-worthy"]},
+                           status_history=[], started_at=None, completed_at=None, failed_at=None, error_message=None)
+    original = continuation.ToolRuntime
+    continuation.ToolRuntime = no_round
+    try:
+        out = asyncio.run(continuation.continue_mission(Db(), task, operator="richard"))
+    finally:
+        continuation.ToolRuntime = original
+    assert out["status"] == lifecycle.COMPLETED == lifecycle.normalise(task.status)
+    assert [r["status"] for r in task.result["requirements"]] == ["done", "done"]
+    assert task.meta_data["sign_off_used_at"] and not sign_off.granted(task.meta_data)

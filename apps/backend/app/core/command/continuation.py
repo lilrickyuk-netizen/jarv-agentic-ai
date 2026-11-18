@@ -327,6 +327,32 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
         related_task_id=task.id, requires_action=False, created_at=now, updated_at=now))
     await db.flush()
 
+    from app.core.command import sign_off
+
+    requirements = res.get("requirements") or None
+    meta = dict(task.meta_data or {})
+    if sign_off.granted(meta) and not sign_off.needs_round([str(i) for i in meta.get("waiting_on_richard") or []]):
+        # Richard's approval was the judgement the mission waited for: it is finished, with no round to run.
+        meta["sign_off_used_at"] = now.isoformat(timespec="seconds")
+        task.meta_data = meta
+        updated = dict(res)
+        updated.update({"requirements": sign_off.signed(requirements), "task_status": lifecycle.COMPLETED,
+                        "final_status_reason": "Richard signed it off.", "agent_needs_continuation": False,
+                        "continuation_required": False})
+        task.result = updated
+        await db.refresh(task, attribute_names=["status"])
+        if lifecycle.normalise(task.status) != lifecycle.CANCELLED:
+            lifecycle.transition(task, lifecycle.COMPLETED, reason="Richard signed it off.", actor="richard")
+        finished = datetime.now(timezone.utc)
+        db.add(AuditLog(
+            id=uuid4(), workspace_id=task.workspace_id, actor_type="user", action="task_signed_off",
+            action_category="resume", description=f"Task {task.id} signed off by Richard: finished with no round",
+            target_type="task", target_id=str(task.id), after_state={"status": task.status}, success=True,
+            created_at=finished, updated_at=finished))
+        await db.commit()
+        return {"task_id": str(task.id), "status": task.status, "continuation_count": prior,
+                "checkpoint_id": res.get("checkpoint_id"), "reason": "Richard signed it off.", "output_preview": ""}
+
     runtime = ToolRuntime(db, task.workspace_id, task.id, operator=operator)
     # The same model that started the mission continues it.
     model = res.get("model") or getattr(settings, "DEFAULT_MODEL", "claude-sonnet-4-6")

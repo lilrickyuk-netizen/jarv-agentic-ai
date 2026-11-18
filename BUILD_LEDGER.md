@@ -9,7 +9,7 @@
 ## CURRENT STATUS
 - **Updated**: 2026-11-17 22:00 (read this section and the last entries at the bottom before any change)
 - **Current Phase**: REPAIR CONTINUATION (10-15): missions run on the Claude Agent SDK engine (MISSION_ENGINE=claude) since 2026-11-15; the booking database is being scaled to thousands of UK and US businesses, chains first
-- **Current Task**: VIDEO-WORK-RUNS-ON-ITS-SKILL COMPLETE (18 November, commit 4fb94df); next: Richard's professional Plexecute ad, then the sandbox's init, Hyperframes pinned, the mission card's refresh and an independent creative check
+- **Current Task**: SIGN-OFF-ENDS-IT (installer install-sign-off.sh: approving a sign-off on Richard's own judgement finishes the mission with no further round; full suite, restart; no paid run)
 - **Richard's rule (16 November)**: no paid mission until every part is proven working for free first; only proven open-source code and open data, no home-made loops
 - **Last verified on Richard's machine (update)**: 2026-11-16 11:33, full suite alone 1297 passed, 1 skipped (commit 6f9d231); 12:05 paid booking run 1c19fd8c: 50 businesses, 45 published emails, 50 contactable, 25 passed over with reasons, 7 of 8 requirements done, 11.3 min, $1.16; independent check still open on R5 (each email confirmed on its cited page)
 - **Free probes on Richard's machine (16 November 12:40)**: the Name Suggestion Index lists 1,364 different UK and US chains (587 UK, 1,137 US) across 23 bookable categories; an official website on Wikidata for 149 of a sample of 150
@@ -14996,4 +14996,18 @@ RESULT: Mission 092182a7 (17 November, 43 min, about a pound, 11 of 11 checked) 
 RESEARCH: Anthropic, "Building effective agents" (routing: classify the input and send it to the follow-up made for it); code.claude.com/docs/en/skills (a skill is chosen for the work it is for; Claude decides from its description); the records of missions 092182a7 (no skill, not postable) and the 16 November BRAG run (12 of 12, posted quality)
 BLOCKERS: None
 NEXT TASK: Richard runs install-video-skill.sh once the running BRAG mission finishes
+
+---
+
+TASK ID: SIGN-OFF-ENDS-IT
+TASK NAME: Approving a sign-off on Richard's own judgement finishes the mission, with no further round
+STATUS: IN_PROGRESS (checked on Claude's side; Richard's installer runs the full suite)
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/sign_off.py, apps/backend/app/core/command/continuation.py, apps/backend/tests/test_sign_off_waits_for_richard.py, BUILD_LEDGER.md
+COMMANDS RUN: on Richard's machine (read only): the record of mission a04751ab (meta_data and requirements) and of 8a107b26; on Claude's side: sign_off, continuation, missions._run, lifecycle and resume.last_state read end to end; ruff (F, E9, E501)
+TESTS RUN: tests/test_sign_off_waits_for_richard.py (a judgement needs no round and a real step does; signed marks what waited done with Richard's approval as evidence; continue_mission on an approved judgement completes the mission and never builds a round)
+RESULT: Mission a04751ab (17-18 November, Richard's ad brief) was verified at 01:29 and stopped for Richard's sign-off on R16 "an ad Richard is proud to post: ready to publish, viral-worthy". It waited all night; Richard approved at 06:44; the approval re-queued the mission, which ran a whole Opus round meant for "the steps that waited on him" (9 November: a commit or the acceptance tag) and had none to take; the round ended with all 16 requirements open and "the independent check found work still to do", so it would have gone round again. Now sign_off.needs_round: an item with a step left (tag, commit, merge, push, deploy, release, publish or post it, send, sign in, credential, spend) still runs its round; an item that is only Richard's judgement ("proud to post", "ready to publish", "viral-worthy", "his review") is finished by his approval: continue_mission marks what waited done (evidence "Richard approved it"), completes the mission and runs nothing. Also seen, not changed: a04751ab carried on from 8a107b26 (the same brief, cancelled before any work, 0 of 16 done), which carried nothing.
+RESEARCH: the mechanism's own record (sign_off.py, 9 November: the sign-off exists so JAI does not re-run finished work); mission a04751ab's record on Richard's machine
+BLOCKERS: None
+NEXT TASK: Richard runs install-sign-off.sh; then the sandbox's init, Hyperframes pinned, the mission card's refresh, an independent creative check
 

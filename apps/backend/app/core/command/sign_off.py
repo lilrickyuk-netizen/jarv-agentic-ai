@@ -13,6 +13,7 @@ there was no way for him to give it: JAI kept re-running the team, which made si
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -58,6 +59,34 @@ def granted(meta: Dict[str, Any]) -> bool:
     """Whether Richard approved this mission's sign-off and the round that uses it has not run yet."""
     return (meta.get("boundary_type") == BOUNDARY and bool(meta.get("approval_grant"))
             and not meta.get("sign_off_used_at"))
+
+
+# A step JAI still takes once Richard approves (a commit or tag, a push, a release, a send, a sign-in, a spend). An
+# item without one is his judgement ("an ad Richard is proud to post", "his review of Phase 1"): his approval is the
+# judgement, so there is nothing left to run.
+_STEP = re.compile(r"\b(?:tag|tagging|commit|committing|merge|merging|push|pushing|deploy|deploying|release|releasing|"
+                   r"publish(?:ing)? (?:it|to|the)|send|sending|post(?:ing)? (?:it|to)|sign(?:ing)? in|log ?in|"
+                   r"api key|credential|password|spend|payment|pay)\b", re.I)
+_JUDGEMENT_WORDS = re.compile(
+    r"\b(?:ready to (?:post|publish)|proud to (?:post|publish)|worth (?:posting|publishing))\b", re.I)
+
+
+def needs_round(items: List[str]) -> bool:
+    """Whether approving these items leaves a step for JAI to take; False when every item is Richard's judgement.
+    18 November: mission a04751ab stopped for "an ad Richard is proud to post: ready to publish, viral-worthy";
+    approving it ran a whole Opus round that had nothing to do, re-checked the ad, and stopped again."""
+    return any(_STEP.search(_JUDGEMENT_WORDS.sub(" ", str(item))) for item in items)
+
+
+def signed(requirements: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+    """Richard's approval of his judgements: what waited on him is done, with his approval as its evidence."""
+    out = []
+    for r in requirements or []:
+        r = dict(r)
+        if r.get("status") == "waiting":
+            r["status"], r["evidence"] = "done", "Richard approved it"
+        out.append(r)
+    return out
 
 
 def reopen(requirements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
