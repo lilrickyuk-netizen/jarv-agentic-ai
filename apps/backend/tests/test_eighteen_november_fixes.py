@@ -21,3 +21,15 @@ def test_the_sandbox_has_the_hyperframes_version_that_renders_installed():
     dockerfile = repo_path("services", "openhands", "Dockerfile").read_text()
     assert "ARG HYPERFRAMES_VERSION=0.9.58" in dockerfile
     assert 'npm install -g "hyperframes@${HYPERFRAMES_VERSION}"' in dockerfile
+
+
+def test_a_video_edit_in_richards_folder_is_the_builders_mission():
+    """18 November: the music edit went to the one-off research and QA answer, which cannot render, twice."""
+    from app.core.command.service import CommandService
+
+    brief = ("Edit the Plexecute video ad in C:\\Users\\lilri\\Projects\\PLEXECUTE_IMAGES\\"
+             "brag-output-2026-11-17-215700: leave the background music out of its composition and keep every "
+             "sound effect exactly as it is.")
+    assert CommandService._detect_intent(brief) == "agent_task"
+    question = "What video is in C:\\Users\\lilri\\Projects\\PLEXECUTE_IMAGES\\brag-output-2026-11-17-215700?"
+    assert CommandService._detect_intent(question) != "agent_task"

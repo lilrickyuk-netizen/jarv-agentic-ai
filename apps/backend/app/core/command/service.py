@@ -948,9 +948,14 @@ class CommandService:
             # document there to make or change, is a mission in that folder: on 9 November "finish
             # outreach/Plexecute-Prospects.xlsx ... Do no new research" went to the one-off web-research answer,
             # which cannot open the folder, because of the word "research".
-            from app.core.command.work_type import specialist_for
+            from app.core.command.work_type import _BUILDER_KEEPS, specialist_for
 
             if specialist_for(command_text) is not None or _DOCUMENT_RE.search(command_text):
+                return "agent_task"
+            # Video work in his folder is the builder's mission in the sandbox, where it can open the project and
+            # render: 18 November, "Edit the Plexecute video ad in C:\...\brag-output-...: leave the background
+            # music out ..." went to the one-off research and QA answer, which cannot render, twice.
+            if _BUILDER_KEEPS.search(command_text) and not _QUESTION.match(text):
                 return "agent_task"
         # A founder's one-line request for a specialist's work, with no folder ("Find free places to market
         # Plexecute", "Find investors for Plexecute"): that specialist's mission in the workspace the request names

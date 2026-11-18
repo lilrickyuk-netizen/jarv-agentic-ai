@@ -9,7 +9,7 @@
 ## CURRENT STATUS
 - **Updated**: 2026-11-17 22:00 (read this section and the last entries at the bottom before any change)
 - **Current Phase**: REPAIR CONTINUATION (10-15): missions run on the Claude Agent SDK engine (MISSION_ENGINE=claude) since 2026-11-15; the booking database is being scaled to thousands of UK and US businesses, chains first
-- **Current Task**: CAPABILITIES-AND-ICONS COMPLETE (18 November, commit b619efc); open: the dashboard's package-lock.json from Richard's machine for Claude's copy; a brief naming a folder inside a project opens that project; next: MYCO
+- **Current Task**: VIDEO-EDIT-IS-A-MISSION (installer install-video-edit.sh: a video edit in Richard's folder goes to the builder in the sandbox; backend tests, restart; no paid run)
 - **Richard's rule (16 November)**: no paid mission until every part is proven working for free first; only proven open-source code and open data, no home-made loops
 - **Last verified on Richard's machine (update)**: 2026-11-16 11:33, full suite alone 1297 passed, 1 skipped (commit 6f9d231); 12:05 paid booking run 1c19fd8c: 50 businesses, 45 published emails, 50 contactable, 25 passed over with reasons, 7 of 8 requirements done, 11.3 min, $1.16; independent check still open on R5 (each email confirmed on its cited page)
 - **Free probes on Richard's machine (16 November 12:40)**: the Name Suggestion Index lists 1,364 different UK and US chains (587 UK, 1,137 US) across 23 bookable categories; an official website on Wikidata for 149 of a sample of 150
@@ -15519,4 +15519,18 @@ RESULT: JAI.md said "six MIT-licensed skill packs, 135 skills" after the twelfth
 RESEARCH: the existing self-knowledge path (identity.ABOUT_ME, capabilities, upgrades.recent from the mounted .git); Lucide's repository and licence at 0.460.0; shadcn/ui's use of Lucide
 BLOCKERS: None
 NEXT TASK: Richard runs install-capabilities.sh and sends the dashboard's new package-lock.json so Claude's copy matches
+
+---
+
+TASK ID: VIDEO-EDIT-IS-A-MISSION
+TASK NAME: A video edit in Richard's folder is the builder's mission in the sandbox, not a one-off research and QA answer
+STATUS: IN_PROGRESS (checked on Claude's side; Richard's installer runs the full suite)
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/service.py, apps/backend/tests/test_eighteen_november_fixes.py, BUILD_LEDGER.md
+COMMANDS RUN: on Claude's side: service._detect_intent read end to end for the brief; ruff on the changed files
+TESTS RUN: tests/test_eighteen_november_fixes.py (the music edit with its full path is an agent_task; a question naming the same folder is not)
+RESULT: Missions af13c92f and a3e92be4 (18 November), "Edit the Plexecute video ad in C:\...\brag-output-2026-11-17-215700: leave the background music out ... render it again", went to the one-off research and QA answer (agents research and qa), which cannot open the project or render; the second time the workspace was right ("Workspace chosen from the brief"). Cause: in _detect_intent a brief with a folder path became a mission only when a specialist owned its work or it named a document; video work is the Lead Builder's (work_type._BUILDER_KEEPS), so it matched neither. Now video work with a folder path that is not a question is an agent_task: the mission team's builder does it in the sandbox. A change to a video still never runs BRAG (skill_packs.skill_for).
+RESEARCH: the routing code and the two missions' cards
+BLOCKERS: None
+NEXT TASK: Richard runs install-video-edit.sh, then the music edit again
 
