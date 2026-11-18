@@ -479,6 +479,12 @@ _CHANGE_VIDEO = re.compile(r"^\s*(?:please\s+)?(?:edit|fix|change|cut|trim|short
 _NO_BRAG = re.compile(r"\b(?:without|no|not with|don'?t use|do not use|skip)\s+(?:the\s+|your\s+|its\s+)?brag\b",
                       re.I)
 VIDEO_SKILL = "brag"
+# A new carousel runs on the social skill (Marketing Skills), as the ones Richard liked did. 18 November: the
+# procrastination carousel made without a skill (mission 36b4435e) was plain pastel text slides ("terrible"); the
+# same brief naming the social skill (mission 8c49d86c, 38p) was "much better".
+CAROUSEL_SKILL = ("marketingskills", "social")
+_MAKE_CAROUSEL = re.compile(r"\b(?:make|making|create|creating|design|designing|build|produce|producing|do)\b"
+                            r"[^.?!\n]{0,120}?\bcarousels?\b", re.IGNORECASE)
 # OpenMontage (calesthio/OpenMontage, AGPL-3.0): an agent-run video studio with pipelines for character animation,
 # animated explainers and more, which starts from a reference video ("make me something like this"). It is built
 # into JAI's engineering sandbox at /opt/openmontage at a pinned commit (services/openhands/Dockerfile) and runs
@@ -504,6 +510,12 @@ def skill_for(text: str) -> Optional[Dict]:
     entry = named_skill(text)
     if entry is not None:
         return entry
+    if _MAKE_CAROUSEL.search(richard_brief(text or "")) and not _CHANGE_VIDEO.search(richard_brief(text or "")):
+        refused = blocked()
+        found = next((e for e in SKILLS if (e["pack"], e["skill"]) == CAROUSEL_SKILL and e["sandbox"]
+                      and f"{e['pack']}/{skill_path(e)}" not in refused), None)
+        if found is not None:
+            return found
 
     brief = richard_brief(text or "")
     if not _MAKE_VIDEO.search(brief) or _CHANGE_VIDEO.search(brief) or _NO_BRAG.search(brief) \

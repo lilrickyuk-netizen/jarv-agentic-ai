@@ -15597,7 +15597,7 @@ NEXT TASK: the procrastination carousel (mission 36b4435e), then the confidence 
 
 TASK ID: CARD-SHOWS-FOLDER
 TASK NAME: A running mission's card shows the folder its brief names, not "no folder"
-STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-card-folder.sh on Richard's machine)
+STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-evening-fixes.sh on Richard's machine)
 FILES CREATED: None
 FILES MODIFIED: apps/backend/app/api/command.py, apps/backend/tests/test_extra_rounds_and_safe_reads.py, BUILD_LEDGER.md
 COMMANDS RUN: on Claude's side: the dashboard's command page (folder ? folder : 'no folder') and api/command._folder read
@@ -15605,4 +15605,28 @@ TESTS RUN: tests/test_extra_rounds_and_safe_reads.py (a running mission shows it
 RESULT: Every running mission's card said "no folder" until it finished, because the card's folder came only from the result's workspace_path, which is written at the end. Now, while the result has none, it is the folder the brief names (CommandService._extract_path, the same reading the mission itself uses). Missions whose brief names no folder still show none.
 RESEARCH: the card's code path, dashboard to API
 BLOCKERS: None
-NEXT TASK: Richard runs install-card-folder.sh
+NEXT TASK: Richard runs install-evening-fixes.sh
+
+TASK ID: TYPE-WHILE-MISSIONS-RUN
+TASK NAME: Richard can type and send while missions run (the dashboard's two chat boxes stay open)
+STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-evening-fixes.sh on Richard's machine)
+FILES CREATED: None
+FILES MODIFIED: apps/dashboard/src/app/dashboard/command/page.tsx, apps/dashboard/src/app/dashboard/page.tsx, apps/dashboard/__tests__/command-page.test.tsx, BUILD_LEDGER.md
+COMMANDS RUN: on Claude's side: both pages read (disabled={loading} and disabled={commandLoading} on the box and the send button); the worker's concurrency read (celery --concurrency=4) and the sandbox's (OPENHANDS_MAX_RUNS 4)
+TESTS RUN: __tests__/command-page.test.tsx (while a mission is followed the box and Send stay enabled, a new mission is sent and the box clears)
+RESULT: Richard could not type in the cockpit's box or the Command Center's while a mission was followed: both were disabled until the followed mission finished, from when JAI ran one mission at a time. JAI runs up to 4 missions at once. Now the boxes and Send stay enabled; sending another mission stops following the old card (that mission keeps running in JAI's worker and stays in the history) and follows the new one.
+RESEARCH: the two pages and lib/missions.ts (runMission and followMission take an AbortSignal)
+BLOCKERS: None
+NEXT TASK: Richard runs install-evening-fixes.sh
+
+TASK ID: CAROUSEL-RUNS-ON-SOCIAL
+TASK NAME: A new carousel runs on the social skill without Richard naming it
+STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-evening-fixes.sh on Richard's machine)
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/knowledge/skill_packs.py, apps/backend/tests/test_skill_for_the_work.py, apps/backend/tests/test_extra_rounds_and_safe_reads.py, BUILD_LEDGER.md
+COMMANDS RUN: on Claude's side: missions 36b4435e and 8c49d86c compared (cards and slides)
+TESTS RUN: tests/test_skill_for_the_work.py (a new carousel runs on marketingskills/social; a named skill wins; a fix to a carousel runs no skill); tests/test_extra_rounds_and_safe_reads.py
+RESULT: The procrastination carousel made by the builder without a skill (36b4435e, 31p) was plain pastel text slides: Richard, "terrible". The same brief naming the social skill (8c49d86c, 38p) used its carousel frameworks and was "much better". skill_packs.skill_for now gives a new carousel the social skill (Marketing Skills) when no skill is named, as new video work gets BRAG; a named skill still wins, and a change to a carousel runs none.
+RESEARCH: the two missions' cards and slides
+BLOCKERS: None
+NEXT TASK: Richard runs install-evening-fixes.sh

@@ -70,7 +70,7 @@ def test_a_carousel_in_richards_folder_is_the_builders_mission_and_not_a_video_s
     brief = ('Make 1 Instagram and TikTok carousel for Plexecute in C:\\Users\\lilri\\Projects\\PLEXECUTE_IMAGES: "5 things '
              'that kill procrastination". Publish and post nothing.')
     assert CommandService._detect_intent(brief) == "agent_task"
-    assert skill_for(brief) is None
+    assert skill_for(brief)["skill"] == "social"  # 18 November, later: carousels run on the social skill
 
 
 def test_a_running_missions_card_shows_the_folder_its_brief_names():

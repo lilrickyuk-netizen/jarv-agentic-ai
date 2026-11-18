@@ -88,3 +88,19 @@ describe('CommandPage', () => {
     expect(await screen.findByRole('button', { name: 'Unarchive' })).toBeInTheDocument();
   });
 });
+
+describe('Sending while missions run', () => {
+  it('keeps the box open while a mission is followed, so another mission can be sent', async () => {
+    render(<CommandPage />);
+    await waitFor(() => expect(gets).toContain('/api/command/tasks/task-9'));
+    const box = screen.getByPlaceholderText(/inspect system status/);
+    expect(box).not.toBeDisabled();
+    fireEvent.change(box, { target: { value: 'Make the confidence carousel' } });
+    const send = screen.getByRole('button', { name: 'Send Command' });
+    expect(send).not.toBeDisabled();
+    fireEvent.click(send);
+    await waitFor(() => expect(posts).toContain('/api/command/execute'));
+    expect(box).toHaveValue('');
+    expect(box).not.toBeDisabled();
+  });
+});

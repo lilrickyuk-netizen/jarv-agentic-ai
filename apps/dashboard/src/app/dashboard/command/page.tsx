@@ -112,20 +112,26 @@ export default function CommandPage() {
     return () => followingRef.current?.abort();
   }, []);
 
+  // JAI runs several missions at once (18 November): sending a new one while another is followed stops following the
+  // old card (that mission keeps running in JAI's worker and stays in the history) and follows the new one.
   const runCommand = async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed) return;
+    followingRef.current?.abort();
+    const following = new AbortController();
+    followingRef.current = following;
     setLoading(true);
     setError(null);
     setResult(null);
+    setCommand('');
     try {
-      const mission = await runMission(trimmed, { onUpdate: setResult });
+      const mission = await runMission(trimmed, { onUpdate: setResult, signal: following.signal });
       setResult(mission);
       loadHistory();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Command failed');
+      if (!following.signal.aborted) setError(err instanceof Error ? err.message : 'Command failed');
     } finally {
-      setLoading(false);
+      if (!following.signal.aborted) setLoading(false);
     }
   };
 
@@ -219,22 +225,21 @@ export default function CommandPage() {
               onChange={(e) => setCommand(e.target.value)}
               placeholder="e.g. JAI, inspect system status and tell me whether all services are healthy. Do not modify files."
               rows={3}
-              disabled={loading}
               className="w-full px-4 py-3 border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary resize-y"
             />
             <div className="mt-3 flex items-center gap-2">
               <button
                 type="submit"
-                disabled={loading || !command.trim()}
+                disabled={!command.trim()}
                 className="px-6 py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 disabled:opacity-50"
               >
-                {loading ? 'Running…' : 'Send Command'}
+                Send Command
               </button>
               {voiceSupported && (
                 <button
                   type="button"
                   onClick={startVoice}
-                  disabled={loading || listening}
+                  disabled={listening}
                   className={`px-4 py-2 rounded-md border ${
                     listening
                       ? 'bg-red-600 text-white border-red-600 animate-pulse'

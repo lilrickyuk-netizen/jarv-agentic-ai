@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { JarvisOrb } from '@/components/jarvis-orb';
 import { JarvMark } from '@/components/jarv-mark';
@@ -96,6 +96,7 @@ export default function CommandCenterPage() {
   const [commandResult, setCommandResult] = useState<CommandResult | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [commandLoading, setCommandLoading] = useState(false);
+  const followingRef = useRef<AbortController | null>(null);
   const [clock, setClock] = useState('');
   // The chat is hidden unless Richard opens it (9 November); a reply while it is closed lights the chat button.
   const [chatOpen, setChatOpen] = useState(false);
@@ -142,6 +143,7 @@ export default function CommandCenterPage() {
   // worker, not in this page.
   useEffect(() => {
     const stop = new AbortController();
+    followingRef.current = stop;  // a new command sent from this page stops following this one
     void (async () => {
       const history = await apiClient.get<{ task_id: string; status: string; command: string }[]>('/api/command/history?limit=10');
       const current = history.data?.find((item) => IN_FLIGHT.has(item.status));
@@ -157,23 +159,28 @@ export default function CommandCenterPage() {
     return () => stop.abort();
   }, []);
 
+  // JAI runs several missions at once (18 November): Richard can send another while one is followed; the page then
+  // follows the new one, and the earlier mission keeps running in JAI's worker.
   const sendCommand = async (text: string): Promise<CommandResult | null> => {
     const trimmed = text.trim();
     if (!trimmed) return null;
+    followingRef.current?.abort();
+    const following = new AbortController();
+    followingRef.current = following;
     setCommandLoading(true);
     setCommandError(null);
     setCommandResult(null);
     setSent(trimmed);
     setCommand('');
     try {
-      const mission = await runMission(trimmed, { onUpdate: setCommandResult });
+      const mission = await runMission(trimmed, { onUpdate: setCommandResult, signal: following.signal });
       setCommandResult(mission);
       void refresh();
       return mission;
     } catch (error) {
-      setCommandError(error instanceof Error ? error.message : 'Command could not be sent');
+      if (!following.signal.aborted) setCommandError(error instanceof Error ? error.message : 'Command could not be sent');
     } finally {
-      setCommandLoading(false);
+      if (!following.signal.aborted) setCommandLoading(false);
     }
     return null;
   };
@@ -274,7 +281,7 @@ export default function CommandCenterPage() {
             </div>
           </div>
           <form className="ov-composer" onSubmit={(event) => { event.preventDefault(); void sendCommand(command); }}>
-            <textarea aria-label="Message JAI" value={command} rows={1} disabled={commandLoading}
+            <textarea aria-label="Message JAI" value={command} rows={1}
               onChange={(event) => setCommand(event.target.value)}
               onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void sendCommand(command); } }} />
             <button type="button" className={`ov-icon ov-chat-btn${chatOpen ? ' is-open' : ''}${unseen ? ' has-new' : ''}`}
@@ -286,7 +293,7 @@ export default function CommandCenterPage() {
               aria-label={voicePhase === 'off' ? 'Talk with JAI' : 'End conversation'}>
               <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3" /></svg>
             </button>
-            <button type="submit" className="ov-icon ov-send" disabled={commandLoading || !command.trim()} aria-label="Send">
+            <button type="submit" className="ov-icon ov-send" disabled={!command.trim()} aria-label="Send">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
             </button>
           </form>

@@ -62,8 +62,20 @@ def test_software_changes_and_a_no_brag_brief_are_not_new_video_work():
                   "Edit the video ad: read the address as dot co dot U K", "Carry on with the Plexecute video ad",
                   "Fix the onboarding video player in the app", "Make a video ad without BRAG",
                   "Use all your marketing skills on the launch video", "Make me a professional investor pitch deck",
-                  "Make a carousel post for Instagram"):
+                  "Make a pitch deck for Instagram"):
         assert skill_for(brief) is None, brief
+
+
+def test_a_new_carousel_runs_on_the_social_skill_without_naming_it():
+    """18 November: without a skill the procrastination carousel was plain text slides; with the social skill it was
+    "much better"."""
+    for brief in ('Make 1 Instagram and TikTok carousel for Plexecute in C:\\Users\\lilri\\Projects\\PLEXECUTE_IMAGES: '
+                  '"6 ways to build confidence".', "Make a carousel post for Instagram",
+                  "Create 3 carousels for Plexecute"):
+        entry = skill_for(brief)
+        assert entry is not None and (entry["pack"], entry["skill"]) == ("marketingskills", "social"), brief
+    assert skill_for("Use your BRAG skill to make a carousel video")["skill"] == "brag"  # a named skill wins
+    assert skill_for("Fix slide 3 of the carousel: the swipe cue overlaps") is None
 
 
 def test_a_video_brief_is_a_mission_whatever_words_it_uses():
