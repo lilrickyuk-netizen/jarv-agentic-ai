@@ -15597,7 +15597,7 @@ NEXT TASK: the procrastination carousel (mission 36b4435e), then the confidence 
 
 TASK ID: CARD-SHOWS-FOLDER
 TASK NAME: A running mission's card shows the folder its brief names, not "no folder"
-STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-evening-fixes.sh, version 2, on Richard's machine)
+STATUS: COMPLETE (18 November on Richard's machine: install-evening-fixes.sh version 4; backend 1342 passed, dashboard tests passed; the card showed mission 77e45dd6's folder while it ran)
 FILES CREATED: None
 FILES MODIFIED: apps/backend/app/api/command.py, apps/backend/tests/test_extra_rounds_and_safe_reads.py, BUILD_LEDGER.md
 COMMANDS RUN: on Claude's side: the dashboard's command page (folder ? folder : 'no folder') and api/command._folder read
@@ -15605,11 +15605,11 @@ TESTS RUN: tests/test_extra_rounds_and_safe_reads.py (a running mission shows it
 RESULT: Every running mission's card said "no folder" until it finished, because the card's folder came only from the result's workspace_path, which is written at the end. Now, while the result has none, it is the folder the brief names (CommandService._extract_path, the same reading the mission itself uses). Missions whose brief names no folder still show none.
 RESEARCH: the card's code path, dashboard to API
 BLOCKERS: None
-NEXT TASK: Richard runs install-evening-fixes.sh
+NEXT TASK: MYCO Phase 1 (mission 77e45dd6)
 
 TASK ID: TYPE-WHILE-MISSIONS-RUN
 TASK NAME: Richard can type and send while missions run (the dashboard's two chat boxes stay open)
-STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-evening-fixes.sh, version 2, on Richard's machine)
+STATUS: COMPLETE (18 November on Richard's machine: install-evening-fixes.sh version 4; backend 1342 passed, dashboard tests passed; the card showed mission 77e45dd6's folder while it ran)
 FILES CREATED: None
 FILES MODIFIED: apps/dashboard/src/app/dashboard/command/page.tsx, apps/dashboard/src/app/dashboard/page.tsx, apps/dashboard/__tests__/command-page.test.tsx, BUILD_LEDGER.md
 COMMANDS RUN: on Claude's side: both pages read (disabled={loading} and disabled={commandLoading} on the box and the send button); the worker's concurrency read (celery --concurrency=4) and the sandbox's (OPENHANDS_MAX_RUNS 4)
@@ -15617,11 +15617,11 @@ TESTS RUN: __tests__/command-page.test.tsx (while a mission is followed the box 
 RESULT: Richard could not type in the cockpit's box or the Command Center's while a mission was followed: both were disabled until the followed mission finished, from when JAI ran one mission at a time. JAI runs up to 4 missions at once. Now the boxes and Send stay enabled; sending another mission stops following the old card (that mission keeps running in JAI's worker and stays in the history) and follows the new one.
 RESEARCH: the two pages and lib/missions.ts (runMission and followMission take an AbortSignal)
 BLOCKERS: None
-NEXT TASK: Richard runs install-evening-fixes.sh
+NEXT TASK: MYCO Phase 1 (mission 77e45dd6)
 
 TASK ID: CAROUSEL-RUNS-ON-SOCIAL
 TASK NAME: A new carousel runs on the social skill without Richard naming it
-STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-evening-fixes.sh, version 2, on Richard's machine)
+STATUS: COMPLETE (18 November on Richard's machine: install-evening-fixes.sh version 4; backend 1342 passed, dashboard tests passed; the card showed mission 77e45dd6's folder while it ran)
 FILES CREATED: None
 FILES MODIFIED: apps/backend/app/core/knowledge/skill_packs.py, apps/backend/tests/test_skill_for_the_work.py, apps/backend/tests/test_extra_rounds_and_safe_reads.py, BUILD_LEDGER.md
 COMMANDS RUN: on Claude's side: missions 36b4435e and 8c49d86c compared (cards and slides)
@@ -15629,11 +15629,11 @@ TESTS RUN: tests/test_skill_for_the_work.py (a new carousel runs on marketingski
 RESULT: The procrastination carousel made by the builder without a skill (36b4435e, 31p) was plain pastel text slides: Richard, "terrible". The same brief naming the social skill (8c49d86c, 38p) used its carousel frameworks and was "much better". skill_packs.skill_for now gives a new carousel the social skill (Marketing Skills) when no skill is named, as new video work gets BRAG; a named skill still wins, and a change to a carousel runs none.
 RESEARCH: the two missions' cards and slides
 BLOCKERS: None
-NEXT TASK: Richard runs install-evening-fixes.sh
+NEXT TASK: MYCO Phase 1 (mission 77e45dd6)
 
 TASK ID: STARRY-GLASS-THEME
 TASK NAME: Every page sits on a black starry sky with shooting stars; panels are near-transparent glass with sharp corners; buttons are glass with an electric-blue neon outline
-STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-evening-fixes.sh, version 2, on Richard's machine)
+STATUS: COMPLETE (18 November on Richard's machine: install-evening-fixes.sh version 4; backend 1342 passed, dashboard tests passed; the card showed mission 77e45dd6's folder while it ran)
 FILES CREATED: apps/dashboard/src/components/starry-sky.tsx, apps/dashboard/__tests__/starry-sky.test.tsx
 FILES MODIFIED: apps/dashboard/src/app/layout.tsx, apps/dashboard/src/app/globals.css, BUILD_LEDGER.md
 COMMANDS RUN: on Claude's side: the theme layer (html body.jai-theme), the cockpit's and intelligence field's backgrounds and the three.js renderers (already transparent) read; a page using the new styles rendered in Chromium and looked at (panels, tabs, a disabled button, the red Cancel button, a text box, shooting stars)
@@ -15641,4 +15641,16 @@ TESTS RUN: __tests__/starry-sky.test.tsx (shooting stars every 30 seconds at new
 RESULT: Richard asked for a black starry sky with shooting stars in different places every 30 seconds on every page, behind the intelligence field too; sharper corners and near-transparent glass on every block and panel; glass buttons with a glowing electric-blue neon outline. StarrySky (a canvas of stars redrawn on resize, plus two shooting stars at random places every 30 seconds; none with reduced motion) is mounted once in the root layout at z-index -1, so it is behind every page, the login included. The theme layer makes each page's own backgrounds transparent (the cockpit, the intelligence field's panel, the Tailwind page backgrounds), turns panels, cards, side bars, the chat and the display into 3% white glass with a 2px blur and 4px corners, and every button (switches excepted) into glass with a neon outline and glow; the chosen tab glows brighter, disabled buttons dim, and stop, cancel and delete buttons keep red in the same neon style.
 RESEARCH: the dashboard's own theme layer and components
 BLOCKERS: None
-NEXT TASK: Richard runs install-evening-fixes.sh, version 2
+NEXT TASK: MYCO Phase 1 (mission 77e45dd6)
+
+TASK ID: SPEC-PIN-RANGES
+TASK NAME: The spec-pin check accepts a requires-python range that the spec's locked Python satisfies
+STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-pin-ranges.sh on Richard's machine)
+FILES CREATED: apps/backend/tests/test_spec_pin_ranges.py
+FILES MODIFIED: apps/backend/app/core/verification/checks.py, BUILD_LEDGER.md
+COMMANDS RUN: on Claude's side: mission 77e45dd6's card read; checks.declared_versions and check_spec_pins read; _range_allows exercised on five declarations
+TESTS RUN: tests/test_spec_pin_ranges.py (>=3.10 and >=3.14,<3.15 allow 3.14.7; ==3.12.8, >=3.15 and a bare 3.12.8 are findings); tests/test_upgrade1a_knowledge_and_checks.py keeps its exact-pin findings
+RESULT: MYCO Phase 1 (mission 77e45dd6, 31 of 36, £3.96) ended PARTIAL with two hard-check findings that no round could clear: semgrep 1.177.0's own lock files under .mise/locks declare requires-python >=3.10, and check_spec_pins compared the first number in the declaration (3.10) with the spec's locked 3.14.7. The builder had shown the range allows 3.14.7. A requires-python range is now checked with packaging's PEP 440 SpecifierSet: a range the locked version satisfies is not a finding; an exact pin or a range that excludes it still is. The mission's other open items (R23, R24, R28, R29, R34: the Phase 1 workflow evidence, two check scripts its requirements name and a stale evidence file) are real work for its next round.
+RESEARCH: PEP 440 version specifiers (packaging.specifiers.SpecifierSet); the mission's card
+BLOCKERS: None
+NEXT TASK: Richard runs install-pin-ranges.sh, then carries on mission 77e45dd6

@@ -273,12 +273,31 @@ def declared_versions(repo: Repo) -> Dict[str, List[Tuple[str, str, str]]]:
     return found
 
 
+def _range_allows(declaration: str, locked: str) -> bool:
+    """A requires-python range that the locked version satisfies (">=3.10" allows 3.14.7) contradicts nothing.
+    18 November, MYCO Phase 1: a third-party tool's own lock (semgrep 1.177.0's, under .mise/locks) declares
+    requires-python >=3.10, and this check read it as "Python 3.10" against the spec's 3.14.7, a finding no round
+    could ever clear. An exact pin ("==3.12.8") is still compared as before. PEP 440, read by packaging."""
+    if not declaration.startswith("requires-python"):
+        return False
+    spec = declaration.split("=", 1)[1].strip()
+    if _is_exact(spec) or spec.startswith("=="):
+        return False
+    try:
+        from packaging.specifiers import InvalidSpecifier, SpecifierSet
+        from packaging.version import Version
+
+        return Version(locked) in SpecifierSet(spec)
+    except (ImportError, InvalidSpecifier, ValueError):
+        return False
+
+
 def check_spec_pins(repo: Repo, pins: Dict[str, Tuple[str, str]],
                     found: Dict[str, List[Tuple[str, str, str]]]) -> List[Finding]:
     findings = []
     for component, (locked, doc) in sorted(pins.items()):
         for file, declaration, version in found.get(component, []):
-            if not _matches(version, locked):
+            if not _matches(version, locked) and not _range_allows(declaration, locked):
                 findings.append(Finding("spec_pins", file,
                                         f"{component} is {declaration!r} but {doc} locks {locked}"))
     return findings
