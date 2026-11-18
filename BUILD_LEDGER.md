@@ -13405,7 +13405,7 @@ NEXT TASK: Upgrade 2 (knowledge-enhanced reasoning).
 
 TASK ID: UPGRADE-2
 TASK NAME: Knowledge-enhanced reasoning: requirements first, the specification as knowledge, one ranking, effort per role
-STATUS: COMPLETE
+STATUS: IN_PROGRESS
 PROBLEM: Phase 0 missions worked from the mission text alone: the spec's Python and TypeScript pins were lines the agent had to notice, and the Verifier gave a general verdict instead of evidence per requirement.
 FILES CREATED:
 - apps/backend/app/core/command/requirements.py (requirements step through a fixed-shape tool; numbered list with sources; hard-check findings added as requirements of their own for conformance missions; requirement_status tool; evidence per requirement)
@@ -13421,7 +13421,7 @@ FILES MODIFIED:
 DECISIONS: The plan's authority_facts table is not built: the spec-pins hard check reads the authority documents directly on every run, so it is always current and needs no second copy. KnowledgeService.retrieve and ask_jarv keep their own ranking for now; the fused ranking serves consult_specialist_knowledge and missions.
 COMMANDS RUN: Static checks; the pure requirement tests locally with stand-in modules for the providers (4 passed).
 TESTS RUN: Owner run 1: 814 passed, 1 failed (the specification test: the change notice imported LiveOperationsFeedItem from app.models.operations; it lives in app.models.company_operations). Fixed; re-run by installer version 2.
-RESULT: Owner run 2 (installer version 2): 815 passed, 1 skipped; committed as d96a18a on master; backend, worker and scheduler rebuilt.
+RESULT: Pending the owner's test run.
 BLOCKERS: None.
 NEXT TASK: Owner runs install-upgrade-2.sh; then Upgrade 3 (Artifact Intelligence Graph).
 
@@ -13677,7 +13677,7 @@ FILES CREATED: apps/backend/app/core/command/progress.py
 FILES MODIFIED: apps/backend/app/core/command/agent_executor.py, apps/backend/app/core/voice/live.py, apps/backend/tests/test_jai_knows_what_is_running.py
 COMMANDS RUN: backend test suite (pgvector test database); dashboard type check and jest; docker compose up -d --build --no-deps backend (the worker running the MYCO mission was left alone; it takes the progress record at its next rebuild)
 TESTS RUN: full backend suite, with new tests for the progress snapshot, a real mission saving it after every step, and the voice reading it
-RESULT: Asked how the MYCO mission was going, JAI gave generic answers ("moving along steadily", "keeping pace"), then tried to resume a mission that was already running. Its voice only had the operations feed's one-line headlines. Every mission now keeps a live progress record after every step (in Redis, seven days, so it never touches the mission's own transaction): phase (working, independent check, writing the report), round and step, each requirement's status with its evidence, the files changed, the commands run with exit codes, what failed and why, what it is doing now and what it has cost. get_mission, the mission list, ask_jarv and each conversation's opening picture report from it. The voice now speaks like a senior engineer reporting: specific (requirement ids, files, errors, numbers), filler phrases named and forbidden, no promises to keep watching, and never resume_mission on a mission in progress.
+RESULT: Asked how the MYCO mission was going, JAI gave generic answers ("moving along steadily", "keeping pace"), then tried to resume a mission that was already running. Its voice only had the operations feed's one-line headlines. Every mission now keeps a live progress record after every step (in Redis, seven days, so it never touches the mission's own transaction): phase (working, independent check, writing the report), round and step, each requirement's status with its evidence, the files changed, the commands run with exit codes, with every file named as the workspace sees it (package.json, not the full path on Richard's computer), what failed and why, what it is doing now and what it has cost. get_mission, the mission list, ask_jarv and each conversation's opening picture report from it. The voice now speaks like a senior engineer reporting: specific (requirement ids, files, errors, numbers), filler phrases named and forbidden, no promises to keep watching, and never resume_mission on a mission in progress.
 BLOCKERS: None
 NEXT TASK: Review the MYCO acceptance mission's evidence report against MYCO_V3_SPEC.md and the baseline
 
@@ -14554,6 +14554,487 @@ NEXT TASK: Package with the next installer after MYCO Phase 0 finishes
 
 ---
 
+TASK ID: SIGN-OFF-APPROVAL
+TASK NAME: A finished mission whose last step is Richard's sign-off becomes one approval, not another round
+STATUS: COMPLETE
+FILES CREATED: apps/backend/app/core/command/sign_off.py, apps/backend/tests/test_sign_off_waits_for_richard.py
+FILES MODIFIED: apps/backend/app/core/command/failures.py, ledger.py, mission_org.py, sandbox_engine.py, service.py, continuation.py, apps/backend/app/api/approvals.py, apps/dashboard/src/app/dashboard/approvals/page.tsx
+COMMANDS RUN: backend test suite (run by the installer)
+TESTS RUN: a step only Richard can do is classified as waiting; the Verifier's "waiting" is accepted only for a real gate (review, approval, tag, push, sign-in, spend); a ledger item blocked on Richard is waiting, not open; a verified mission with only such steps left ends blocked with a plain-English reason; approving it carries the same mission on to that step once; builder and Verifier are told how to report it
+RESULT: On 9 November the MYCO Phase 0 tidy-up was finished and verified, but its last item waited on Richard's §50 review. JAI treated it as unfinished, kept re-running the team (six commits re-proving finished work) and marked the run failed, and Richard, a non-technical founder, had no way to give the sign-off. Now the mission stops as one item on the Approvals page ("your sign-off", Approve / Reject) and approving it lets JAI do the last step itself, locally.
+BLOCKERS: None
+NEXT TASK: Today's missions: the Plexecute ad, pitch deck, investor database and outreach
+
+---
+
+TASK ID: VOICE-STATE-IN-TIME
+TASK NAME: The voice gets JAI's live state in time while a mission runs
+STATUS: COMPLETE
+FILES CREATED: apps/backend/tests/test_voice_state_in_time.py
+FILES MODIFIED: apps/backend/app/core/voice/live.py, services/voice/app/backend.py
+COMMANDS RUN: backend and voice test suites (run by the installer)
+TESTS RUN: what Richard told JAI (Mem0, Graphiti) is recalled while the rest of the live state is gathered, so the read takes the longer of the two rather than both added together
+RESULT: On 9 November every voice reply became "I can't read the live state just now": with a mission running, the state took 4 seconds or more (the voice's limit) because Mem0 and Graphiti were asked only after everything else (about 2 to 2.5 seconds each). They now run alongside the rest, and the voice waits up to 6 seconds.
+BLOCKERS: None
+NEXT TASK: Today's missions: the Plexecute ad, pitch deck, investor database and outreach
+
+---
+
+TASK ID: LOCAL-TAG
+TASK NAME: A new local git tag is workspace work like a commit
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/workspaces/fs_inspector.py, apps/backend/tests/test_workspace_toolchain.py
+COMMANDS RUN: backend test suite (run by the installer)
+TESTS RUN: git tag -a <name> -m <message> [<commit>] is build-level work; git tag -d and -f still need approval; pushing a tag is refused
+RESULT: On 9 November Richard approved the MYCO Phase 0 acceptance tag and JAI's DevOps agent still held `git tag -a` at an approval gate that never reached his Approvals page, so the tag was not made. A new local tag is undone with `git tag -d`, like a commit, so it is now ordinary workspace work.
+BLOCKERS: None
+NEXT TASK: Create the MYCO Phase 0 tag; then today's Plexecute missions
+
+---
+
+TASK ID: SKILL-FOR-THE-WORK
+TASK NAME: JAI uses the skill made for the job: a video ad goes to BRAG
+STATUS: COMPLETE
+FILES CREATED: apps/backend/tests/test_skill_for_the_work.py
+FILES MODIFIED: apps/backend/app/core/knowledge/skill_packs.py, apps/backend/app/core/command/sandbox_engine.py, apps/backend/app/core/workspaces/fs_inspector.py, apps/backend/tests/test_workspace_toolchain.py
+COMMANDS RUN: backend test suite (run by the installer)
+TESTS RUN: a video ad, launch video or promo video goes to the BRAG specialist without the brief naming it; "Using BRAG" alone names it; other work, edits and everyday skill names are planned as usual; the builder is told to invoke the skill made for its work; reading tags and refs (for-each-ref, show-ref, verify-tag) never needs approval
+RESULT: On 9 November the Plexecute video ad was made by the general builder and its report said "no skills loaded". A brief for promotional video work now runs JAI's BRAG skill end to end on Opus, and the one builder looks for a skill made for its work before starting. The Phase 0 tag check (`git for-each-ref`) was held at an approval gate; reading refs is now read-only work.
+BLOCKERS: None
+NEXT TASK: A fresh Plexecute video with BRAG
+
+---
+
+TASK ID: WAY-BACK
+TASK NAME: A specialist whose terminal leaves the workspace can always cd back; a skill brief in a workspace is a mission
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/sandbox_policy.py, apps/backend/app/core/command/service.py, apps/backend/tests/test_openhands_sandbox.py, apps/backend/tests/test_skill_for_the_work.py
+COMMANDS RUN: backend test suite (run by the installer)
+TESTS RUN: cd into the workspace or /tmp runs wherever the terminal is; cd into another project is still refused; a skill's own folder is a place to run its scripts; a brief naming a workspace and a skill goes to the mission team whatever words it contains
+RESULT: On 9 November a BRAG run's terminal ended up outside the Plexecute workspace and every command after that, the `cd` back included, was refused: thirteen refusals and no work. And "Using BRAG ... write the web address as ... don't post it" went to a marketing draft because of the words "write" and "post".
+BLOCKERS: None
+NEXT TASK: A fresh Plexecute video with BRAG
+
+---
+
+TASK ID: VOICE-RESUME-CANCEL-GUARD
+TASK NAME: By voice, carry on never picks another mission while one is working, and nothing is cancelled unasked
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/voice/live.py, apps/backend/tests/test_voice_live_and_mission_session.py
+COMMANDS RUN: backend test suite (run by the installer)
+TESTS RUN: resume_mission without an id, while a mission is running anywhere, resumes nothing and names the running one; cancel_mission runs only when Richard's last words ask to stop or cancel (JAI's own words never count)
+RESULT: On 9 November Richard asked by voice how the Plexecute BRAG run was going and said to continue. The voice resumed a finished MYCO mission (a different workspace, so the one-mission-per-workspace rule did not stop it) and then cancelled the running Plexecute mission without being asked. Both are now refused.
+BLOCKERS: None
+NEXT TASK: The Plexecute ad, then the pitch deck
+
+---
+
+TASK ID: BUILDER-DEFAULT-FOR-VIDEO
+TASK NAME: A video ad goes to the builder; BRAG runs only when Richard asks for it
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/knowledge/skill_packs.py, apps/backend/app/core/command/sandbox_engine.py, apps/backend/tests/test_skill_for_the_work.py
+COMMANDS RUN: backend test suite (run by the installer)
+TESTS RUN: a video ad, launch video or promo video is planned for the builder; "Using BRAG" or "your BRAG skill" still runs BRAG; the builder treats skills as references, not as a pipeline to hand the mission to
+RESULT: On 9 November the builder made a good Plexecute video ad in minutes for about four pounds. Routing video ads to BRAG by default then cost many times that, over more than an hour, for a video Richard judged no better. The default is reversed.
+BLOCKERS: None
+NEXT TASK: The pitch deck
+
+---
+
+TASK ID: HYPERFRAMES-FOR-BRAG
+TASK NAME: Full BRAG has the Hyperframes skills it hands its video to
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/knowledge/skill_packs.py, apps/backend/tests/test_skill_packs.py, scripts/skill-packs.sh
+COMMANDS RUN: scripts/skill-packs.sh, scripts/scan-skill-packs.sh, backend test suite (run by the installer)
+TESTS RUN: every pack is pinned to a full commit and is MIT or Apache 2.0 with its licence evidence; the creation, content and marketing specialists get hyperframes, hyperframes-cli, hyperframes-registry and media-use
+RESULT: BRAG's full workflow (the one it uses for a voice-over, or when told "use the full brag") writes a composition brief and hands it to four Hyperframes skills by name (step 3). JAI had BRAG but not those skills, so on 9 November the BRAG specialist improvised the composition and made an ad no better than the builder's, at several times the cost. The Hyperframes pack (heygen-com/hyperframes, Apache 2.0, pinned at ad6f785) is now installed with them; skill-packs.sh fetches only a pack's skills folder and checks each pack's own licence.
+BLOCKERS: None
+NEXT TASK: A BRAG Plexecute video without a voice-over (BRAG Slim on Opus), then with one
+
+---
+
+TASK ID: SKILL-RUN-NO-VERIFIER
+TASK NAME: A one-skill job is judged by the skill's own checks and by Richard, not a Verifier
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/mission_org.py, apps/backend/app/core/identity/JAI.md, apps/backend/tests/test_openhands_sandbox.py
+COMMANDS RUN: backend test suite (run by the installer)
+TESTS RUN: a brief naming one skill is one specialist package and nothing after it; its own report decides the outcome; the report tells Richard the result is his call
+RESULT: Richard's point on 9 November: BRAG checks its own work (it looks at its stills and runs its own gate) and he decides whether to publish; JAI's generic Verifier has neither the skill's knowledge nor his taste, and only added minutes and cost to every BRAG run. Builds keep the independent Verifier.
+BLOCKERS: None
+NEXT TASK: The pitch deck
+
+---
+
+TASK ID: FRESH-WORK-FRESH-LEDGER
+TASK NAME: A new brief in the same folder is planned afresh, not handed the last mission's ledger
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/ledger.py, apps/backend/app/core/command/sandbox_engine.py, apps/backend/tests/test_eight_november_fixes.py, apps/backend/tests/test_skill_for_the_work.py
+COMMANDS RUN: backend test suite (run by the installer)
+TESTS RUN: a ledger with no phase is taken over only by a brief that says to carry on; a new brief in the same folder is planned afresh; the builder moves an earlier ledger and progress file to .jai/earlier/ for new work and does not redo the earlier work
+RESULT: On 9 November the Plexecute pitch deck brief inherited the ad-editing mission's ledger (R1 to R12, ad voice-over, pacing and re-render items) because neither named a phase, and its builder set off on the ad again before the deck.
+BLOCKERS: None
+NEXT TASK: The pitch deck
+
+---
+
+TASK ID: SANDBOX-TOOL-CACHES
+TASK NAME: The sandbox's own tool caches are a place a specialist may work
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/sandbox_policy.py, apps/backend/tests/test_openhands_sandbox.py
+COMMANDS RUN: backend test suite (run by the installer)
+TESTS RUN: a command run in ~/.cache or ~/.local inside the sandbox is allowed; the rest of the sandbox's home stays refused
+RESULT: On 9 November the pitch deck builder unpacked LibreOffice into ~/.cache/lo to turn the deck into a PDF and every command it ran there was refused as outside the workspace. The sandbox's own caches hold tools, never another project or a secret.
+BLOCKERS: None
+NEXT TASK: The pitch deck
+
+---
+
+TASK ID: COMMAND-CENTER-ORB
+TASK NAME: The Command Center: the JARVIS orb in the centre, the agents working around it, the chat bar at the bottom
+STATUS: COMPLETE
+FILES CREATED: apps/dashboard/src/components/working-agents.tsx, apps/dashboard/__tests__/working-agents.test.tsx
+FILES MODIFIED: apps/dashboard/src/app/dashboard/page.tsx, apps/dashboard/src/app/globals.css, apps/dashboard/src/components/service-switches.tsx, apps/dashboard/src/components/voice-conversation.tsx, apps/dashboard/src/lib/voice-signal.ts, apps/backend/app/api/command.py, apps/backend/tests/test_repair12_mission_runtime.py
+COMMANDS RUN: backend test suite; dashboard type check and tests (run by the installer)
+TESTS RUN: /api/command/working lists only missions in progress, with each agent's role, status and what it is doing (a mission with no team shows JAI itself); the working-agent markers show role and current action, dim a waiting agent and vanish when nothing runs; the side-menu services switch on and off
+RESULT: Richard's design, agreed screen by screen on 9 November: the JARVIS orb in the centre on black; the agents working shown as small markers around it, not a block; one status line; the chat bar at the bottom with the microphone beside send and no labels; the services as switches down the side under the menu; anything JAI puts on screen slides up over the orb; an approval waiting shows as a count on Approvals and a chip in the top bar. Every other page stays in the menu.
+BLOCKERS: None
+NEXT TASK: Today's Plexecute missions
+
+---
+
+TASK ID: CHAT-ON-DEMAND
+TASK NAME: The chat stays hidden until Richard opens it, and can be cleared
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/dashboard/src/app/dashboard/page.tsx, apps/dashboard/src/app/globals.css, apps/dashboard/src/components/voice-conversation.tsx, apps/dashboard/src/lib/voice-signal.ts, apps/dashboard/__tests__/working-agents.test.tsx
+COMMANDS RUN: dashboard type check and tests (run by the installer)
+TESTS RUN: clearing the chat clears what was said in the conversation as well as the typed exchange
+RESULT: At Richard's request: the conversation is not on screen unless he opens it with the chat button in the bar (which lights when JAI replies while it is closed); Clear empties it; a live conversation carries on while it is hidden.
+BLOCKERS: None
+NEXT TASK: Today's Plexecute missions
+
+---
+
+TASK ID: COMMAND-CENTER-BLACK-TOP
+TASK NAME: The Command Center's top strip is gone: black to the top, with the time, refresh and sign out
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/dashboard/src/app/dashboard/page.tsx, apps/dashboard/src/app/globals.css
+COMMANDS RUN: dashboard type check and tests (run by the installer)
+TESTS RUN: the dashboard suite
+RESULT: At Richard's request: no strip or "Command / Overview" across the top; the page is black to the top, with only the time, refresh and sign out at the top right; the model JAI is using sits under the services in the side menu.
+BLOCKERS: None
+NEXT TASK: Today's Plexecute missions
+
+---
+
+TASK ID: PROXY-START-STOP
+TASK NAME: The service switches work: the Docker proxy checks start and stop before refusing other POSTs
+STATUS: COMPLETE
+FILES CREATED: infra/docker-proxy/haproxy.cfg, apps/backend/tests/test_docker_proxy_rules.py
+FILES MODIFIED: docker-compose.yml, docker-compose.prod.yml, apps/dashboard/__tests__/command-page.test.tsx, apps/backend/tests/test_repair12d_ops_tools.py
+COMMANDS RUN: haproxy -c on the new rules; dashboard and backend test suites (run by the installer)
+TESTS RUN: with POST=0, starting, stopping and restarting a named container are allowed and creating containers, exec, images and paths with anything appended are refused; both compose files mount the rules; the command page test accepts a mission already completed by its first poll
+RESULT: tecnativa/docker-socket-proxy v0.4.2 checks ALLOW_START, ALLOW_STOP and ALLOW_RESTARTS after the rule that refuses every POST when POST=0, so the Command Center's switches (and self-healing restarts) were always refused. JAI now mounts its own copy of the proxy's rules (Apache 2.0, attributed) with those three checked first and anchored to the end of the path; everything else is unchanged.
+BLOCKERS: None
+NEXT TASK: Today's Plexecute missions
+
+---
+
+TASK ID: PDF-ON-SCREEN
+TASK NAME: A PDF goes on screen as the document, not its bytes
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/voice/live.py, apps/backend/tests/test_media_on_screen.py, apps/dashboard/src/components/jai-display.tsx, apps/dashboard/src/lib/screen-signal.ts, apps/dashboard/src/app/globals.css, apps/dashboard/__tests__/jai-display.test.tsx
+COMMANDS RUN: backend and dashboard test suites (run by the installer)
+TESTS RUN: a PDF shown on screen is a "pdf" card with a short-lived link served as application/pdf, never its text; galleries still list only images and videos; the screen panel embeds a PDF only from JAI's own backend
+RESULT: On 9 November Richard asked JAI to put the Plexecute pitch deck on screen and got the PDF's source bytes. A PDF now opens as the document in the panel over the orb, scrollable page by page.
+BLOCKERS: None
+NEXT TASK: The investor and buyer list
+
+---
+
+TASK ID: TABLES-ON-SCREEN
+TASK NAME: A spreadsheet goes on screen as a table, and no binary file as its bytes
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/voice/live.py, apps/backend/tests/test_media_on_screen.py
+COMMANDS RUN: backend test suite (run by the installer)
+TESTS RUN: an .xlsx shows each sheet as a table with its first row as the header (shared and inline strings, numbers, booleans; first 60 rows and 14 columns); a .csv likewise; a Word file is described with where it is, never its bytes
+RESULT: On 9 November the Plexecute prospects spreadsheet came up on screen as the bytes of its zip. Spreadsheets are now read straight from their XML (no new dependency) and shown as tables; Word, PowerPoint, archives, fonts, audio and any other file that is not text are described with where they are instead.
+BLOCKERS: None
+NEXT TASK: The outreach drafts
+
+---
+
+TASK ID: SPECIALIST-ROUTING-0911
+TASK NAME: JAI picks the specialist and its skills for the work itself
+STATUS: COMPLETE
+FILES CREATED: apps/backend/app/core/command/work_type.py, apps/backend/tests/test_work_goes_to_its_specialist.py
+FILES MODIFIED: apps/backend/app/core/command/mission_org.py, apps/backend/app/core/command/sandbox_engine.py, apps/backend/app/core/knowledge/skill_packs.py
+COMMANDS RUN: git apply; docker build (test target); pytest against pgvector
+TESTS RUN: full backend suite including test_work_goes_to_its_specialist.py
+RESULT: A brief is read for the kind of work it is. Sales and prospecting go to the Sales Lead, research to the Research Analyst, decks and posts to the Content Lead, plans to Marketing, business and finance to their analysts, support and legal to theirs. Software and video stay with the Lead Builder. The chosen specialist works through the acceptance ledger on Opus with its own skills in front of it and is told which to invoke first (Sales: prospecting, lead-intelligence, investor-outreach, cold-email). The Verifier still checks every requirement. A skill Richard names still wins.
+BLOCKERS: none
+NEXT TASK: The 200-entry prospects database, then outreach drafts in the Sales page outbox
+
+---
+
+TASK ID: SPECIALIST-ROUTING-0911-B
+TASK NAME: A later round keeps the specialist Richard's brief chose
+STATUS: COMPLETE
+FILES CREATED: none
+FILES MODIFIED: apps/backend/app/core/command/work_type.py, apps/backend/tests/test_work_goes_to_its_specialist.py
+COMMANDS RUN: git apply; docker build (test target); pytest against pgvector
+TESTS RUN: full backend suite including test_a_later_round_keeps_the_specialist_whatever_jai_ran
+RESULT: Round 2 of the Sales Lead's prospects mission (task 8050bba7) went back to the Lead Builder because the progress note JAI appends for a later round lists the commands it ran (`python ...`), which the routing read as software work. The specialist is now chosen from Richard's own brief only, without JAI's progress note or sign-off note.
+BLOCKERS: none
+NEXT TASK: Rerun the prospects improvement brief and check every round shows the Sales Lead
+
+---
+
+TASK ID: SPECIALIST-ROUTING-0911-C
+TASK NAME: Work in Richard's folder is a mission whatever words it uses
+STATUS: COMPLETE
+FILES CREATED: none
+FILES MODIFIED: apps/backend/app/core/command/service.py, apps/backend/tests/test_work_goes_to_its_specialist.py
+COMMANDS RUN: git apply; docker build (test target); pytest against pgvector
+TESTS RUN: full backend suite including test_work_in_richards_folder_is_a_mission_whatever_words_it_uses
+RESULT: Mission d5dccdbd ("finish outreach/Plexecute-Prospects.xlsx ... Do no new research") went to the one-off web-research answer, which cannot open the folder, because of the word "research". A brief naming a folder and either a specialist's kind of work or a document to make or change (xlsx, csv, pptx, docx, pdf, md) is now a mission in that folder. One-step requests keep their handlers (npm install in a folder, research of a package, a marketing draft).
+BLOCKERS: none
+NEXT TASK: Clean up the prospects list into proven rows and a "Not yet proven" sheet
+
+---
+
+TASK ID: LIGHTER-CHECKS-0911
+TASK NAME: Specialist work is checked briefly, on its own checks, and every report shows its cost
+STATUS: COMPLETE
+FILES CREATED: none
+FILES MODIFIED: apps/backend/app/core/command/mission_org.py, apps/backend/app/core/command/mission_budget.py, apps/backend/app/core/command/service.py, apps/backend/app/core/command/continuation.py, apps/backend/tests/test_work_goes_to_its_specialist.py
+COMMANDS RUN: git apply; docker build (test target); pytest against pgvector
+TESTS RUN: full backend suite including test_a_specialist_leaves_earlier_missions_tests_alone_and_its_check_is_brief and test_the_report_shows_what_the_mission_cost
+RESULT: The pitch-routes mission (9 November) ran for over an hour: its Verifier re-ran tests earlier prospects missions had left in the folder, which contradicted the new work. For a specialist's (non-software) mission the Verifier now judges only this mission's requirements by reading the deliverable, with at most 40 steps and $2.50; the specialist writes its own checks in a new file and leaves earlier missions' tests alone. Software missions keep their full checks. Every mission report ends with what the mission has cost so far, in dollars and about pounds.
+BLOCKERS: none
+NEXT TASK: The next 25 pitch routes, then outreach drafts in the Sales outbox
+
+---
+
+TASK ID: SPECIALIST-ONE-PASS-1011
+TASK NAME: Specialist work searches like a person and runs one round within a budget
+STATUS: COMPLETE
+FILES CREATED: none
+FILES MODIFIED: apps/backend/app/core/command/sandbox_engine.py, apps/backend/app/core/command/mission_org.py, apps/backend/tests/test_work_goes_to_its_specialist.py
+COMMANDS RUN: git apply; docker build (test target); pytest against pgvector
+TESTS RUN: full backend suite including test_specialist_work_is_one_round_of_searching_not_a_software_build
+RESULT: The waiting-list growth list (10 November) ran four rounds and hours: the specialist was given the software builder's method (init script, a unit test per requirement, a commit per item, fresh-clone runs) and scraped pages with Python one URL at a time, though JAI's web_search, fetch_url and research_web were in the sandbox. A specialist's mission now has its own method: search with JAI's tools, write the deliverable as it goes, no tests or per-item commits, one round within 100 steps and $5, and an honest count against every target. Its Verifier reads the deliverable within 20 steps and $1. An unmet target ends the mission with the count and "carry on" for more, instead of further automatic rounds. Software missions are unchanged.
+BLOCKERS: none
+NEXT TASK: Outreach introductions for the 32 contactable prospects
+
+---
+
+TASK ID: MODELS-SPEED-COST-1011
+TASK NAME: Research on Haiku 5.5, software on Sonnet 5.5, Opus 5.5 only when stuck
+STATUS: COMPLETE
+FILES CREATED: none
+FILES MODIFIED: apps/backend/app/core/config.py, apps/backend/app/core/command/metrics.py, apps/backend/app/core/command/sandbox_engine.py, apps/backend/app/core/command/mission_org.py, apps/backend/app/core/command/continuation.py, apps/backend/app/core/gateway/__init__.py, apps/backend/app/core/providers/claude.py, apps/backend/tests/test_work_goes_to_its_specialist.py, apps/backend/tests/test_eight_november_fixes.py, apps/backend/tests/test_model_tiers.py
+COMMANDS RUN: git apply; docker build (test target); pytest against pgvector
+TESTS RUN: full backend suite including test_research_runs_on_haiku_software_on_sonnet_and_opus_only_when_stuck
+RESULT: Richard, 10 November: today is about speed and cost without losing capability; he approved Sonnet for software with Opus only when it is stuck. Research, sales, marketing and writing missions and their check run on Haiku 5.5 ($0.10/$0.50 per million tokens, five times that past 100K tokens a request) with low reasoning effort, within 100 steps and $2 (check: 20 steps, $0.50); GPT-6 Luna when Anthropic cannot serve them. Software builds and checks run on Sonnet 5.5; Opus 5.5 takes the next round when a round completed nothing, and takes over a writer that stopped short. Haiku is priced in JAI's cost table with its 100K-token rate, and sandbox runs are priced at the higher rate so costs are never under-counted. The gateway allows every model the sandbox uses.
+BLOCKERS: none
+NEXT TASK: Outreach introductions for the 32 contactable prospects, checking its cost line
+
+---
+
+TASK ID: GROWTH-ROUTING-1011
+TASK NAME: Growth lists and any document job go to a specialist, never the software builder
+STATUS: COMPLETE
+FILES CREATED: none
+FILES MODIFIED: apps/backend/app/core/command/work_type.py, apps/backend/tests/test_work_goes_to_its_specialist.py
+COMMANDS RUN: git apply; docker build (test target); pytest against pgvector
+TESTS RUN: full backend suite including test_growth_lists_and_any_document_job_go_to_a_specialist
+RESULT: The waiting-list growth brief (newsletters, podcasts, blogs, creators, communities) matched no specialist's words and ran as the Lead Builder with the software routine and 250 steps. Marketing now recognises growth work (newsletters, podcasts, blogs, creators, influencers, YouTubers, communities, subreddits, sponsors, waiting list, lead magnets, audience). A brief for a document, spreadsheet or deck that names no kind of work and nothing about software goes to the Research Analyst on Haiku instead of the builder. Software briefs stay with the Lead Builder.
+BLOCKERS: none
+NEXT TASK: Rerun the waiting-list growth brief
+
+---
+
+TASK ID: SMART-ROUTING-ALARMS-1011
+TASK NAME: Two-stage routing with learning, and alarms on JAI's own behaviour
+STATUS: COMPLETE
+FILES CREATED: apps/backend/app/core/command/alarms.py, apps/backend/tests/test_smart_routing_and_alarms.py
+FILES MODIFIED: apps/backend/app/core/command/work_type.py, apps/backend/app/core/command/mission_org.py, apps/backend/app/core/voice/live.py, apps/backend/app/core/config.py
+COMMANDS RUN: git apply; docker build (test target); pytest against pgvector
+TESTS RUN: full backend suite including test_smart_routing_and_alarms.py
+RESULT: From Richard's AskRich design (10 November). Routing is two-stage: rules first (software words, then each specialist's words, with product phases, specifications and MVPs counted as software), then a correction Richard made for a brief like it, then a small model (ROUTER_MODEL, Haiku 5.5, 8-second limit, never in tests) that chooses with a confidence; below 0.6 the document rule or the Lead Builder decides. The team's approach line says why it chose the specialist. Richard corrects a route by voice ("that should have been the Sales Lead": the correct_routing tool), and briefs like it follow the correction. Alarms on JAI's own behaviour go to the Live Operations feed once per mission: work left with the Lead Builder because the router was unsure, research or writing running past 15 minutes or spending over $1, and a stuck software round handed to Opus.
+BLOCKERS: none
+NEXT TASK: Result card for every mission report
+
+---
+
+TASK ID: RESULT-CARD-1011
+TASK NAME: A result card at the top of every mission report
+STATUS: COMPLETE
+FILES CREATED: apps/backend/app/core/command/result_card.py, apps/backend/tests/test_result_card.py
+FILES MODIFIED: apps/backend/app/core/command/service.py, apps/backend/app/core/command/continuation.py, apps/backend/app/core/voice/live.py, apps/backend/app/core/config.py
+COMMANDS RUN: git apply; docker build (test target); pytest against pgvector
+TESTS RUN: full backend suite including test_result_card.py
+RESULT: From Richard's AskRich design (10 November): he was pasting reports to Claude to have them explained. Every mission report, first round or later, now starts with a card: one plain-English line, up to four numbers (what the work produced, requirements met, time, cost in pounds), what needs Richard, what is still open, the next three steps and a confidence label. Status, numbers and open items come from the mission's record; the line, the produced numbers, the needs-you items and the next steps are written by CARD_MODEL (Haiku 5.5, 10-second limit, never in tests), and the card is made from the record alone when the model is unavailable. The card is kept in the mission's result and the voice reads its headline first.
+BLOCKERS: none
+NEXT TASK: Workflows and councils on LangGraph
+
+---
+
+TASK ID: WORKFLOWS-COUNCILS-1011
+TASK NAME: Workflows and councils on LangGraph
+STATUS: COMPLETE
+FILES CREATED: apps/backend/app/core/councils/__init__.py, apps/backend/app/core/councils/templates.py, apps/backend/app/core/councils/engine.py, apps/backend/app/core/councils/service.py, apps/backend/app/api/workflows.py, apps/backend/app/models/workflow.py, apps/backend/alembic/versions/2026_11_10_1300-r19_workflow_runs.py, apps/backend/tests/test_workflows.py
+FILES MODIFIED: apps/backend/pyproject.toml, apps/backend/poetry.lock, apps/backend/app/models/__init__.py, apps/backend/app/main.py, apps/backend/app/api/approvals.py, apps/backend/app/core/celery.py, apps/backend/app/workers/tasks.py, apps/backend/app/core/config.py, apps/backend/app/core/command/work_type.py, apps/backend/app/core/command/mission_org.py, apps/backend/app/core/voice/live.py, apps/backend/tests/test_voice_live_and_mission_session.py, apps/backend/tests/test_voice_pipecat_service.py
+COMMANDS RUN: git apply; poetry lock --no-update (Poetry 1.7.1, in a python:3.11-slim container); docker build (test target); pytest against pgvector; docker compose build migrate backend worker scheduler; alembic upgrade head (migrate service); recreate backend, worker and scheduler
+TESTS RUN: full backend suite including test_workflows.py (LangGraph in memory, and its Postgres checkpointer surviving a restart)
+RESULT: From Richard's AskRich design (10 November): "you stop writing briefs". LangGraph 1.2.9 (MIT) with langgraph-checkpoint-postgres 3.1.0 and psycopg 3, chosen over building our own as CLAUDE.md prefers. A workflow template is a council of specialists and a chain of steps; each becomes a LangGraph StateGraph with a start/wait node pair per mission and an open/decide pair per gate, paused with interrupt() and kept by the Postgres checkpointer under the run's id. Two templates: Investor outreach (Sales Lead finds investors and buyers, Sales Lead writes the introductions, Richard reviews and sends them, Content Lead prepares follow-ups) and Waiting-list growth (Marketing Lead finds audiences, Marketing Lead writes pitches, Richard reviews and sends them, Content Lead writes two weeks of posts and the lead magnet). Each step's brief names its specialist ("Specialist: sales.") and starts fresh work. Gates are tasks on the Approvals page: approving one moves the workflow on, rejecting it stops the workflow. A one-minute Celery beat job (workflows_advance) moves runs on when their mission has finished (completed or partial go on; failed or cancelled stop the workflow), never while another mission works in the same folder. One workflow per workspace. API: GET /api/workflows, GET /api/workflows/runs, POST /api/workflows/start, POST /api/workflows/runs/{id}/cancel. Voice: start_workflow and get_workflows. workflow_runs table by migration r19.
+BLOCKERS: none
+NEXT TASK: Proactive next steps from JAI's memory graph; a Workflows page on the dashboard
+
+---
+
+TASK ID: WORKFLOW-COMMAND-1011
+TASK NAME: A typed or spoken command starts a workflow
+STATUS: COMPLETE
+FILES CREATED: none
+FILES MODIFIED: apps/backend/app/core/command/service.py, apps/backend/app/core/councils/service.py, apps/backend/tests/test_workflows.py
+COMMANDS RUN: git apply; docker build (test target); pytest against pgvector
+TESTS RUN: full backend suite including test_a_typed_or_spoken_command_starts_the_workflow
+RESULT: "Run waiting-list growth for Plexecute", typed in the Command Center, went to a one-off research and QA answer: workflows were wired only into the voice brain's tools. The command path now recognises "run/start/begin/launch <workflow> for <product>" as the workflow intent (a controlled intent, like the others), starts the workflow in the workspace the command names, and answers with its steps; the launching command itself does not count as a mission busy in the folder.
+BLOCKERS: none
+NEXT TASK: Proactive next steps
+
+---
+
+TASK ID: GROWTH-TEMPLATE-1011
+TASK NAME: The waiting-list growth step looks where audiences are, not at employers
+STATUS: COMPLETE
+FILES CREATED: none
+FILES MODIFIED: apps/backend/app/core/councils/templates.py, apps/backend/app/core/councils/service.py, apps/backend/tests/test_workflows.py
+COMMANDS RUN: git apply; docker build (test target); pytest against pgvector
+TESTS RUN: full backend suite including test_the_growth_step_looks_where_audiences_are_and_not_at_employers
+RESULT: The first run of Waiting-list growth spent its searches on NHS trusts' staff wellbeing pages for the employers target, which brings no waiting-list sign-ups and found none before. The growth step now has no employers; creators (target 30) are found through talent agency and management pages and creators' own collaborations pages, and subreddit rules are read at old.reddit.com without a login, the routes that worked. A workflow's missions are titled with the step's name ("Waiting-list growth for Plexecute: Find the audiences") instead of its brief.
+BLOCKERS: none
+NEXT TASK: Proactive next steps
+
+---
+
+TASK ID: SPECIALISTS-BRING-THEIR-TRADE
+TASK NAME: Every specialist works with its trade's skills and knowledge, and Richard says a thing once
+STATUS: COMPLETE
+FILES CREATED: apps/backend/app/core/command/expertise.py, apps/backend/tests/test_specialists_bring_their_trade.py
+FILES MODIFIED: apps/backend/app/core/knowledge/skill_packs.py, apps/backend/app/core/command/mission_org.py, apps/backend/app/core/command/sandbox_engine.py, apps/backend/app/core/command/requirements.py, apps/backend/app/core/command/service.py, apps/backend/app/core/command/work_type.py
+COMMANDS RUN: backend test suite (run by the installer)
+TESTS RUN: a marketing specialist is offered every marketing skill (influencer-marketing, link-building, public-relations, directory-submissions, referrals) and software roles are unchanged; playbooks are chosen for the work, not the job title, and go into the specialist's brief in full with its field knowledge (the Verifier's brief carries none); the requirements step lists the job's professional standard and every standing rule; the job is set out by the specialist from a one-line request, choosing only skills it has; standing rules are learned from Richard's brief and, once per product, from his recent briefs, never twice; in tests no model is asked and nothing is learned; one-line requests ("Find free places to market Plexecute", "Find investors for Plexecute") are missions for their specialist and questions are not
+RESULT: Richard, 10 November: "should I have to tell my marketing employee how to market? ... I shouldn't have to send it big detailed prompts". That day the Marketing Lead needed a 200-word brief, and still came back with 9 of 80 rows: the skills made for the job were installed but never offered to it, it opened one skill, it never consulted the field knowledge, and Richard's corrections were forgotten by the next mission. Now JAI learns his standing rules for each product (no podcasts, never claim customers, nothing paid, keep the AI Coach line), sets out each specialist job as a senior specialist would from his request, the product's own description and those rules, derives the requirements from it so the Verifier holds the work to that standard, and hands the specialist its chosen playbooks and field knowledge in full. A one-line request names the product and JAI does the rest. Lists are built the way a researcher builds them: round-up and directory pages first, then each name looked up.
+BLOCKERS: None
+NEXT TASK: Richard types "Find free places to market Plexecute" with nothing else; parallel sub-agents for list work that splits naturally
+
+---
+
+TASK ID: SEARCH-SERVICES
+TASK NAME: JAI's web search asks Exa and Tavily first, with SearXNG as the last resort
+STATUS: COMPLETE
+FILES CREATED: apps/backend/tests/test_search_services.py
+FILES MODIFIED: apps/backend/app/core/internet/__init__.py, apps/backend/app/core/config.py, apps/backend/.env.example
+COMMANDS RUN: backend test suite (run by the installer); a live search through Exa and Tavily after the restart
+TESTS RUN: Exa answers first with its key, titles and links only, and the result says which service found it; a used allowance moves the search to Tavily and Exa is not asked again for a while; with both out, SearXNG still answers; a service with no key is never asked
+RESULT: On 10 November every engine JAI's SearXNG asks had blocked Richard's home connection (CAPTCHA, too many requests, access denied) and Bing searched only the first word of each query, so "UK fitness YouTubers" returned GOV.UK. Two list missions came back with 9 of 80 and 0 of 40. Web search (and so research_web and every specialist) now asks Exa, then Tavily: both have free monthly allowances with no card on file, so they cannot charge anything. A service that has used its allowance, had its key turned down or is limiting requests rests for a while and the next is asked; SearXNG and DuckDuckGo remain the last resort. Keys are in apps/backend/.env only.
+BLOCKERS: None
+NEXT TASK: Richard reruns "Find free places to market Plexecute"
+
+---
+
+TASK ID: RESTORE-SPECIALIST-ROUNDS
+TASK NAME: Specialist missions carry on until done again, with their full step allowance
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/mission_org.py, apps/backend/app/core/command/sandbox_engine.py, apps/backend/app/core/command/alarms.py, apps/backend/tests/test_work_goes_to_its_specialist.py
+COMMANDS RUN: backend test suite (run by the installer)
+TESTS RUN: a specialist's package has the builder's full step allowance and no one-round cap; its method says work until every target is met and the next round carries on from what is saved, with no self-check scripts; a stuck round of research steps up to Sonnet, software still to Opus
+RESULT: Richard, 10 November: "when adding upgrades you've also been removing upgrades ... now it's delivering partial completions". He was right. That morning (commit ae0099a) research, sales, marketing and writing missions were cut to one round of 100 steps and $2, told to stop early and report a short list, and never continued; research was also kept on Haiku even when a round got stuck. Every list mission after that came back "partial". Restored: specialist missions go round after round until verified or their spending allowance is used, with the full 250 steps a round; a round that completes nothing moves research up to Sonnet. Kept from the day: research on Haiku first, JAI's search tools instead of scraping, Exa and Tavily search, the specialists' playbooks and Richard's standing rules.
+BLOCKERS: None
+NEXT TASK: Richard reruns "Find free places to market Plexecute"
+
+---
+
+TASK ID: ROLE-AGENTS-RUN-MISSIONS
+TASK NAME: Each specialist's own agent runs its missions, with its trade's tools; the builder keeps software
+STATUS: COMPLETE
+FILES CREATED: apps/backend/app/core/command/role_mission.py, apps/backend/tests/test_role_missions.py
+FILES MODIFIED: apps/backend/app/core/command/mission_org.py, apps/backend/app/core/command/agent_executor.py, apps/backend/app/core/command/service.py, apps/backend/app/core/command/sandbox_engine.py, apps/backend/app/core/agents/workspace_ops.py, apps/backend/app/core/agents/toolbox.py, apps/backend/app/tools/workspace_runtime/__init__.py, apps/backend/app/core/councils/templates.py, apps/backend/app/core/config.py
+COMMANDS RUN: backend test suite (run by the installer)
+TESTS RUN: marketing, sales, research and business briefs go to that role's agent, software, a named skill and "in parallel" work to the builder, and role agents can be switched off; each role has its trade's tools (the Sales agent's prospecting, the Partnerships agent's shortlist, the Marketing agent's drafting and images) and nothing that runs commands, deletes, pushes, sends or publishes; Luna does the work and Sonnet takes a stuck round, each standing in when the other provider has no credit; the agent introduces itself as its role, not as a software engineer; a role mission stops at its own allowance; the spreadsheet tool writes a real .xlsx inside the product's folder and refuses paths outside it; the waiting-list workflow asks for no podcasts, nothing paid and no fitness-first creators, and its pitches are signed by Richard and claim no customers
+RESULT: Richard's audit request on 10 November found that since 8 November every mission had gone through one software-builder process (commits 921183c, a06769a, ae0099a): his 31 agents existed but missions never used them, specialists in missions could not reach their own business tools (16 business tools and the Sales agent's prospecting), the evidence-based report and the knowledge graph were skipped in sandbox missions, the "Selected agents" box was fixed text, and the waiting-list workflow's briefs contradicted his rules. Now a specialist's mission is run by that role's own agent inside JAI, the way the role works: its trade's tools, web search through Exa and Tavily, spreadsheets and documents in the product's folder, its playbooks, field knowledge and Richard's standing rules, on GPT-6 Luna as Plexecute uses (Sonnet 5.5 when a round completed nothing), through the mission engine's rounds, independent check, evidence-based report and knowledge graph, within a hard allowance of $2.50 (about £2) per mission. The builder and its sandbox keep software, named skills and work Richard asks to split in parallel. The report names the agent that really worked, and the waiting-list workflow follows his rules.
+BLOCKERS: None
+NEXT TASK: Richard types "Find free places to market Plexecute"
+
+---
+
+TASK ID: ANY-MISSION
+TASK NAME: JAI takes any mission: every business agent gets its own work, and the Orchestrator splits a mission that needs several agents
+STATUS: COMPLETE
+FILES CREATED: apps/backend/app/core/councils/planner.py, apps/backend/tests/test_any_mission.py
+FILES MODIFIED: apps/backend/app/core/command/expertise.py, apps/backend/app/core/command/sandbox_engine.py, apps/backend/app/core/command/work_type.py, apps/backend/app/core/command/service.py, apps/backend/app/core/command/mission_org.py, apps/backend/app/core/councils/service.py, apps/backend/app/core/councils/engine.py, apps/backend/app/core/config.py
+COMMANDS RUN: backend test suite (run by the installer)
+TESTS RUN: onboarding, community, analytics and growth briefs go to their own agents and software named in them stays with the builder; only a short request for several kinds of work and more than one thing to do is put to the Orchestrator (never a detailed brief, a workflow's own step, a continuation or a one-agent job); the Orchestrator's plan is checked (real agents, at least two agents, no trailing gate, no words that inherit an old checklist) and it is asked once and never without a model; each step names its agent and is new work; a split mission runs agent by agent on LangGraph, waits for Richard at its gate and completes; the mission handler splits only when the Orchestrator says so and runs one mission when a workflow is already open; the one builder's brief carries its playbooks in full and Richard's rules, and the Verifier's does not
+RESULT: Richard, 10 November: "get JAI working with all of its skills, knowledge and agents doing any mission it's given". (1) The Onboarding, Community, Analytics and Growth agents now get their own work, beside the nine roles routed before. (2) A mission that needs several agents ("Launch Plexecute: research the competitors, write the launch plan, then the launch posts") is split by the Orchestrator into two to six steps, each done by its own agent as its own mission (the role's agent for specialist work, the builder for software), on the LangGraph workflow engine, with a gate where Richard must review something; one-agent jobs run as before. (3) The builder's sandbox missions are recorded in the knowledge graph (requirements and the Verifier's evidence), which they skipped before. (4) The Lead Builder starts software missions with the engineering playbooks the brief calls for (test-driven development, systematic debugging and verification before completion by default) in full, its fields' knowledge and Richard's standing rules for the product in its brief, instead of a list of skills it might open. Not changed, on purpose: software stays with one builder unless Richard asks for work "in parallel" (the 8 November evidence that made the video and deck succeed), and the evidence-based report writer still runs only for missions done inside JAI (role agents and the in-process engine), because the sandbox does not hand back the tool-by-tool record it needs; the result card heads every report either way.
+BLOCKERS: None
+NEXT TASK: Richard runs the five acceptance missions
+
+---
+
+TASK ID: JOB-AIMS-AT-CUSTOMERS
+TASK NAME: A specialist's job aims at the product's customers, keeps unconfirmed entries, and the agent opens only addresses it found
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/expertise.py, apps/backend/app/core/command/requirements.py, apps/backend/app/core/command/role_mission.py, apps/backend/tests/test_role_missions.py
+COMMANDS RUN: backend test suite (run by the installer)
+TESTS RUN: the job is written to aim at the product's customers and the people who reach them, as one .xlsx for a list, with targets as aims and unconfirmed entries kept with what is still to check; the requirements step never writes a requirement that drops unconfirmed entries; the role agent opens only addresses a search or page gave it and marks requirements as it meets them; the job is written with Richard's recent requests for the product
+RESULT: The first acceptance mission ("Find free places to market Plexecute", 10 November) ran on the Marketing Lead alone, on Luna, with Richard's rules, but its job was written for startup directories, student unions and startup press as .md and .csv files, required every entry to pass four live-page checks or be dropped, and the agent typed web addresses from memory (made-up domains failed); after 17 minutes nothing was marked done. Now the job is written from Richard's request and his recent requests for the product, aims at the product's customers and the people who reach them, keeps lists in one .xlsx, treats targets as aims and keeps unconfirmed entries with what is still to check; the agent opens only addresses it was given by a search or a page and marks each requirement as soon as it is met.
+BLOCKERS: None
+NEXT TASK: Richard reruns "Find free places to market Plexecute"
+
+---
+
+TASK ID: SAFE-SPREADSHEETS
+TASK NAME: Saving a spreadsheet never wipes its other sheets; agents and the Verifier can read workbooks; role agents save as they go
+STATUS: COMPLETE
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/agents/workspace_ops.py, apps/backend/app/core/agents/toolbox.py, apps/backend/app/core/command/agent_executor.py, apps/backend/app/core/command/role_mission.py, apps/backend/tests/test_role_missions.py
+COMMANDS RUN: backend test suite (run by the installer)
+TESTS RUN: the workbook reader reads JAI's and Excel's workbooks; saving one sheet keeps the others, append adds rows under a sheet (a repeated header is skipped), the previous copy goes to .jai/backups, and read_file shows every sheet's rows; the role agent is reminded every 12 steps to save and mark what is met
+RESULT: The rerun of "Find free places to market Plexecute" (10 November, Marketing Lead on Luna, 22p) saved its workbook once, with one sheet, and the spreadsheet tool replaced the whole file, losing the Creators and Partnerships sheets of the earlier mission (recovered by Richard from the folder's git history as Plexecute-Free-Marketing-Database-before.xlsx). It found UK StudyTubers but never saved them, and the Verifier could not read the workbook, so almost every requirement was left waiting. Now write_spreadsheet updates a workbook: unnamed sheets are kept, a named sheet is replaced or appended to, and the old copy is backed up first; read_file shows a workbook's sheets and rows to the agent and the Verifier; and every 12 steps the role agent is told to save what it has found and mark what is met.
+BLOCKERS: None
+NEXT TASK: Richard restores the earlier workbook and reruns the mission
+
+---
+
+TASK ID: NO-NUL-IN-RECORDS
+TASK NAME: Binary files and command output never reach PostgreSQL as NUL bytes; a whole list mission is tested end to end
+STATUS: COMPLETE
+FILES CREATED: apps/backend/tests/test_binary_xlsx_command_regression.py, apps/backend/tests/test_list_mission_end_to_end.py
+FILES MODIFIED: apps/backend/app/core/command/agent_executor.py, apps/backend/app/core/command/tool_runtime.py, apps/backend/app/core/workspaces/fs_inspector.py, apps/backend/app/core/agents/toolbox.py, docker-compose.yml
+COMMANDS RUN: backend test suite (run by the installer)
+TESTS RUN: binary command output is omitted and a stray NUL in a command log is escaped; read_file pages through a workbook as sheets and rows; a rejected command log or feed write rolls back only its own savepoint and the mission's session still commits; any other binary file is described, not read; NULs are stripped from tool results; a whole list mission runs on the Marketing Lead, the independent Verifier reads the workbook's rows and a binary file as a note, and the session commits on PostgreSQL
+RESULT: Plexecute partnership mission 0bd089e9 (12 November) failed because its Verifier ran `head -c 1000` on the Excel workbook and JAI recorded the raw output, NUL bytes included, in PostgreSQL, which poisoned the session. ChatGPT diagnosed it and wrote the core fix (binary command output omitted, workbooks read as sheets and rows with paging, the Verifier told to read workbooks with read_file, feed, audit and command-run writes each in their own savepoint, Temporal's database connections capped in docker-compose). Claude reviewed it against the repo and added: any other binary file is described instead of read as text, NULs are stripped from every tool result and recorded action, and an end-to-end test runs a whole list mission through the role agent and the independent Verifier on PostgreSQL.
+BLOCKERS: None
+NEXT TASK: Richard carries on mission 0bd089e9
+
+---
+
 TASK ID: JAI-UNDERSTANDS-AND-FINISHES
 TASK NAME: JAI reads a request by understanding it, its business agents get their full skills, rounds remember their research, the agent goes back to its checklist, and the agent that did the work learns from it
 STATUS: COMPLETE
@@ -14574,7 +15055,7 @@ FILES CREATED: None
 FILES MODIFIED: apps/backend/app/core/command/understanding.py, apps/backend/app/core/command/resume.py, apps/backend/tests/test_jai_understands_and_finishes.py, docker-compose.yml (ChatGPT's Temporal connection caps, already in use on Richard's machine, saved to git)
 COMMANDS RUN: backend test suite on PostgreSQL (run by the installer); after the restart, a dry run of the reading on Richard's own sentence (one model call, no mission started)
 TESTS RUN: with the booking mission, an investors mission, a failed carry-on attempt whose words are almost Richard's and a carry-on of that attempt that never ran, the model is shown only the two missions that hold work, each with the files it wrote; when the model names the failed attempt anyway its reading is not used
-RESULT: First live use of the reading (14 November 16:58, mission 8940a36e, 4p): Richard typed a plain follow-up about the booking database and the model chose mission ae4655c8, the failed carry-on of earlier that day (wrong workspace, investors checklist, no workbook found, nothing written), because its wording was almost his; the mission that built the workbook was passed over, and the builder's sandbox could not start in that workspace. A mission that was itself a carry-on and wrote no file is no longer offered to the model, nor to the backup carry-on rules; each mission is listed with the files it wrote and whether it was itself a carry-on, and the model is told to choose the mission that holds the work, not the one whose wording is closest. When Richard names a mission by its id ("finish mission 0bd089e9"), that mission is taken with no model asked: its workspace and agent come from its own record.
+RESULT: First live use of the reading (14 November 16:58, mission 8940a36e, 4p): Richard typed a plain follow-up about the booking database and the model chose mission ae4655c8, the failed carry-on of earlier that day (wrong workspace, investors checklist, no workbook found, nothing written), because its wording was almost his; the mission that built the workbook was passed over, and the builder's sandbox could not start in that workspace. A mission that was itself a carry-on and wrote no file is no longer offered to the model, nor to the backup carry-on rules; each mission is listed with the files it wrote and whether it was itself a carry-on, and the model is told to choose the mission that holds the work, not the one whose wording is closest.
 BLOCKERS: None
 NEXT TASK: Richard repeats his follow-up once the installer's dry run names the booking mission, Plexecute and the Partnerships Lead
 
