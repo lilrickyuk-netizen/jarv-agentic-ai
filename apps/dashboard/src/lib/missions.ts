@@ -32,9 +32,20 @@ export interface MissionResult {
 }
 
 const POLL_MS = 1200;
-// Generous: long builds and multi-agent missions are normal. The mission keeps
-// running on the server if the page stops following it.
-const FOLLOW_LIMIT_MS = 30 * 60 * 1000;
+// After the first ten minutes the card asks every ten seconds: a mission that runs for
+// hours (a BRAG video takes one to two) is still followed to its end, without asking
+// every second. 18 November: the card stopped following after 30 minutes and showed
+// RUNNING for a mission that had finished.
+const SLOW_AFTER_MS = 10 * 60 * 1000;
+const SLOW_POLL_MS = 10 * 1000;
+// A page left open does not ask about one mission for ever; the mission keeps running
+// on the server and its result is in the mission history.
+const FOLLOW_LIMIT_MS = 24 * 60 * 60 * 1000;
+
+/** How long to wait before asking again, by how long the mission has been followed. */
+export function pollDelay(followedMs: number): number {
+  return followedMs > SLOW_AFTER_MS ? SLOW_POLL_MS : POLL_MS;
+}
 
 export interface RunMissionOptions {
   workspaceId?: string;
@@ -79,7 +90,7 @@ export async function followMission(start: MissionResult | string, options: RunM
     if (Date.now() - started > FOLLOW_LIMIT_MS) {
       return { ...mission, response_text: 'JAI is still working on this mission. Its result will appear in the mission history.' };
     }
-    await sleep(POLL_MS, options.signal);
+    await sleep(pollDelay(Date.now() - started), options.signal);
     const latest = await apiClient.get<MissionResult>(`/api/command/tasks/${mission.task_id}`);
     if (latest.data) {
       mission = latest.data;

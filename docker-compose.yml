@@ -437,6 +437,9 @@ services:
     networks:
       - jarv-web
     mem_limit: 4g
+    # Docker's init (tini) as PID 1: it reaps the processes a render leaves behind. Without it uvicorn is PID 1 and
+    # never reaps them (17 November: every hung Hyperframes render left its Chromium processes defunct, over 1,000).
+    init: true
     restart: unless-stopped
 
   # Wave 6, documents: Docling (MIT, IBM Research) reads PDFs, Word, PowerPoint, Excel and scans (OCR) into text.

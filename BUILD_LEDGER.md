@@ -9,7 +9,7 @@
 ## CURRENT STATUS
 - **Updated**: 2026-11-17 22:00 (read this section and the last entries at the bottom before any change)
 - **Current Phase**: REPAIR CONTINUATION (10-15): missions run on the Claude Agent SDK engine (MISSION_ENGINE=claude) since 2026-11-15; the booking database is being scaled to thousands of UK and US businesses, chains first
-- **Current Task**: SIGN-OFF-ENDS-IT COMPLETE (18 November, commit 8779d5d); next: the sandbox's init, Hyperframes pinned, the mission card's refresh, an independent creative check, then MYCO
+- **Current Task**: FOUR-FIXES-18NOV (installer install-four-fixes.sh: the sandbox's init, Hyperframes 0.9.58 installed, the mission card follows long missions, an independent creative check for video skill runs; backend and dashboard tests, sandbox rebuilt, dashboard rebuilt; no paid run)
 - **Richard's rule (16 November)**: no paid mission until every part is proven working for free first; only proven open-source code and open data, no home-made loops
 - **Last verified on Richard's machine (update)**: 2026-11-16 11:33, full suite alone 1297 passed, 1 skipped (commit 6f9d231); 12:05 paid booking run 1c19fd8c: 50 businesses, 45 published emails, 50 contactable, 25 passed over with reasons, 7 of 8 requirements done, 11.3 min, $1.16; independent check still open on R5 (each email confirmed on its cited page)
 - **Free probes on Richard's machine (16 November 12:40)**: the Name Suggestion Index lists 1,364 different UK and US chains (587 UK, 1,137 US) across 23 bookable categories; an official website on Wikidata for 149 of a sample of 150
@@ -15010,4 +15010,18 @@ RESULT: Mission a04751ab (17-18 November, Richard's ad brief) was verified at 01
 RESEARCH: the mechanism's own record (sign_off.py, 9 November: the sign-off exists so JAI does not re-run finished work); mission a04751ab's record on Richard's machine
 BLOCKERS: None
 NEXT TASK: Richard runs install-sign-off.sh; then the sandbox's init, Hyperframes pinned, the mission card's refresh, an independent creative check
+
+---
+
+TASK ID: FOUR-FIXES-18NOV
+TASK NAME: The sandbox reaps finished processes; renders use the Hyperframes version that works; the mission card follows a mission to its end; video skill runs get an independent creative check
+STATUS: IN_PROGRESS (checked on Claude's side; Richard's installer runs the backend and dashboard tests and rebuilds the sandbox and dashboard)
+FILES CREATED: apps/backend/tests/test_eighteen_november_fixes.py, apps/dashboard/__tests__/mission-follow.test.ts
+FILES MODIFIED: docker-compose.yml, services/openhands/Dockerfile, apps/dashboard/src/lib/missions.ts, apps/backend/app/core/command/mission_org.py, apps/backend/tests/test_openhands_sandbox.py, BUILD_LEDGER.md
+COMMANDS RUN: on Claude's side: the sandbox's compose entry and Dockerfile read (PID 1 is uvicorn, no init); Hyperframes' repository cloned and its tags and commits from v0.9.58 to v0.9.65 read; npx's lookup tested with a package installed globally (npm 10: `npx <name>` with no version ran the installed one); the dashboard's mission follower read (FOLLOW_LIMIT_MS 30 minutes); mission_org's effort tiers and the unused _creative_check read; ruff on the changed Python
+TESTS RUN: tests/test_eighteen_november_fixes.py (openhands has init: true; the Dockerfile installs hyperframes@0.9.58), tests/test_openhands_sandbox.py (a video skill job is P1 then VER: the checker runs on the lead model after P1, judges as a stranger scrolling past from contact sheets, within 40 steps and $2), __tests__/mission-follow.test.ts (1.2 s for ten minutes, then 10 s). The full backend and dashboard suites run in Richard's installer
+RESULT: (1) docker-compose.yml: openhands init: true (Docker's tini as PID 1 reaps orphaned processes; 17 November: over 1,000 defunct Chromium processes after hung renders). (2) services/openhands/Dockerfile: ARG HYPERFRAMES_VERSION=0.9.58 installed globally, so the skills' `npx hyperframes` runs it instead of fetching the newest; 0.9.64 hung at capture start with 0 frames on Richard's machine, 0.9.58 rendered each ad in about 73 s, and v0.9.65 (17 November) changes nothing in capture; `npx hyperframes@latest` (3 lines in the skills) still fetches the newest. (3) apps/dashboard/src/lib/missions.ts: the card follows a mission for up to 24 hours, asking every 1.2 s for ten minutes and then every 10 s (it stopped at 30 minutes and showed RUNNING for missions that had finished). (4) mission_org: a BRAG or BRAG Slim run is followed by an independent Verifier (_creative_verifier: Opus, high effort, 40 steps, $2) that makes contact sheets and judges every requirement, the creative ones as a stranger scrolling past, scene by scene; unmet sends the work to another round within the mission's allowance and idle-round brake; other named skills still check themselves. The card's "0s, 0 tokens" while running is the server's figure until a round ends; not changed.
+RESEARCH: Docker run reference (--init: an init process that forwards signals and reaps processes) and the Compose specification (init); npm's npx documentation (a name with no specifier matches the version in the local project) and a test of a globally installed package; heygen-com/hyperframes tags and commits v0.9.58 to v0.9.65; Anthropic, "Building effective agents" (evaluator-optimizer: one model generates, another evaluates against clear criteria); Richard's BRAG ads of 17 and 18 November and their records
+BLOCKERS: None
+NEXT TASK: Richard runs install-four-fixes.sh; then MYCO
 

@@ -79,6 +79,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV CHROME_PATH=/usr/bin/chromium PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium PUPPETEER_SKIP_DOWNLOAD=1 \
     JAI_SKILLS_DIR=/jai/skills
 
+# Hyperframes, the renderer the BRAG and Hyperframes skills call as `npx hyperframes`: installed once at the version
+# that renders in this sandbox, which npx then uses instead of fetching the newest (npx runs an installed package
+# when the command names no version). 17 November: 0.9.64 hung at capture start with 0 frames, render after render;
+# 0.9.58 rendered each 22-second ad in about 73 seconds. 0.9.65 (17 November) changes nothing in capture. Raise it
+# only after a render of the newer version passes here.
+ARG HYPERFRAMES_VERSION=0.9.58
+RUN npm install -g "hyperframes@${HYPERFRAMES_VERSION}" && npm cache clean --force
+
 # The agent's user, and git for it: commits it makes are authored as JAI; the workspace folders belong to the
 # Windows user, so git is told they are safe.
 RUN useradd --create-home --uid 1000 --shell /bin/bash openhands \

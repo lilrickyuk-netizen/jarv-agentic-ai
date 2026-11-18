@@ -77,6 +77,8 @@ SPECIALIST_CHECK = (" Judge only this mission's requirements by opening the deli
                     "them. A target the deliverable honestly reports as not reached (18 of 30 found) is unmet, with "
                     "the count as evidence. Be brief: open the deliverable, check each requirement once, and report.")
 SPECIALIST_CHECK_STEPS, SPECIALIST_CHECK_COST = 20, 0.5
+# The independent judge of a video skill's work: Opus, which looks at stills, within its own small allowance.
+CREATIVE_CHECK_STEPS, CREATIVE_CHECK_COST = 40, 2.0
 # A specialist's round: the builder's full step allowance, within the mission's own spending allowance (restored 10
 # November, after a morning's cut to 100 steps and $2 in one round left every list mission "partial"; the hours the
 # cut was meant to stop came from scraping with Python and broken search, both since fixed).
@@ -1448,6 +1450,26 @@ class MissionTeam:
         return (len(self.packages) == 1 and self.packages[0].id == SKILL_PACKAGE_ID
                 and self.packages[0].title.endswith(SKILL_TITLE_END))
 
+    def _creative_verifier(self, skill: Dict[str, Any]) -> Package:
+        """The independent judge of a video skill's work: a checker who did not make it opens the stills and judges
+        every requirement, the brief's creative ones as a stranger scrolling past would. 17 November: two BRAG ads
+        passed their maker's own check ("emotional: a line about failure is on screen") and Richard found them
+        neither emotional nor entertaining; the evaluator in Anthropic's evaluator-optimizer pattern is a second
+        model with clear criteria, and the Verifier's "unmet" sends the work back for another round, within the
+        mission's spending allowance and its idle-round brake."""
+        return Package(
+            id=VERIFIER_ID, title="Independent check of the video", specialist="verifier",
+            goal=self._creative_check(skill) + (
+                " Then judge the brief's own creative requirements as a stranger scrolling past would, never by "
+                "whether a line or a scene exists: would the first 2 seconds stop them, do they feel what the brief "
+                "asks, are they taught something true, are they entertained, is the destination sold rather than "
+                "the app? A requirement is met only when the stills show it working; say what falls short, scene "
+                "by scene, so the next round can fix it. What only Richard can judge (his pride in it, whether he "
+                "posts it) is waiting on him, not unmet."),
+            owns=[], depends_on=[SKILL_PACKAGE_ID], requirements=[],
+            done_when="each requirement judged met or unmet with evidence seen in this run's stills",
+            model="lead", effort="high", max_steps=CREATIVE_CHECK_STEPS, max_cost=CREATIVE_CHECK_COST)
+
     @staticmethod
     def _creative_check(skill: Dict[str, Any]) -> str:
         return (f"Check every requirement yourself. This is {skill['skill']} creative work, so judge how it looks, "
@@ -1586,6 +1608,8 @@ class MissionTeam:
             # There is no separate integration stage; the Verifier is the one independent judge.
             if skill is not None:
                 self.packages = [self._skill_package(skill, open_ids)]
+                if skill["skill"] in SKILL_RUNS:
+                    self.packages.append(self._creative_verifier(skill))
             elif PARALLEL_ASKED.search(mission or ""):
                 await self._plan(router, mission, known)
                 writers = [p for p in self.packages if p.specialist not in ("environment", "verifier", "builder")]
@@ -1640,11 +1664,15 @@ class MissionTeam:
                                      + (f" ({why})" if why else "") + ", so that specialist does it with its own "
                                      "skills; the independent Verifier checks every requirement at the end.")
             if skill is not None:
-                # The skill checks its own work (BRAG looks at its stills and runs its own gate) and Richard judges
-                # the result: a generic Verifier has neither the skill's knowledge nor his taste, and on 9 November
-                # it added minutes and cost to every BRAG run. The specialist's own report decides.
-                self.approach = self.approach or ("One specialist runs the skill end to end and checks its own "
-                                                  "work by the skill's rules; Richard judges the result.")
+                # A video skill's work is judged by a checker who did not make it (_creative_verifier); any other
+                # skill checks its own work by its rules (9 November: a generic Verifier after it added minutes
+                # and cost without the skill's knowledge). Richard has the last word either way.
+                self.approach = self.approach or (
+                    "One specialist runs the skill end to end; an independent checker who did not make it looks at "
+                    "its stills and judges every requirement; Richard has the last word."
+                    if skill["skill"] in SKILL_RUNS else
+                    "One specialist runs the skill end to end and checks its own work by the skill's rules; "
+                    "Richard judges the result.")
             else:
                 self.approach = self.approach or ("One builder works through the acceptance ledger item by item; "
                                                   "the independent Verifier checks every requirement at the end.")

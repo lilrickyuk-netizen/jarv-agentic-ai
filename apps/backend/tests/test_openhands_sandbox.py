@@ -372,10 +372,11 @@ def test_parallel_writers_only_when_asked_after_the_skeleton_is_green(monkeypatc
     assert result["success"] is True
 
 
-def test_a_one_skill_job_is_one_specialist_running_the_skill_judged_by_its_own_report(monkeypatch):
+def test_a_video_skill_job_is_one_specialist_running_the_skill_then_an_independent_creative_check(monkeypatch):
     """8 November: "make the Plexecute launch video with your BRAG Slim skill" went through the full team (nine
-    packages, environment, integration) for what the skill does alone in minutes. 9 November: the Verifier after it
-    added time and cost without the skill's knowledge; the skill checks itself and Richard judges the video."""
+    packages, environment, integration) for what the skill does alone in minutes. 17 November: two BRAG ads passed
+    their maker's own check and Richard found them neither emotional nor entertaining, so a checker who did not make
+    the video now judges its stills, within its own small allowance."""
     from app.core.knowledge.skill_packs import named_skill
 
     assert named_skill("Make the Plexecute launch video with your BRAG Slim skill.")["skill"] == "brag-slim"
@@ -385,14 +386,16 @@ def test_a_one_skill_job_is_one_specialist_running_the_skill_judged_by_its_own_r
         assert named_skill(planned) is None, planned
 
     result, done, planned = _sandbox_team(monkeypatch, "Make the Plexecute launch video with your BRAG Slim skill.")
-    assert [(d[0], d[1]) for d in done] == [("P1", "creation")] and planned == []
+    assert [(d[0], d[1]) for d in done] == [("P1", "creation"), ("VER", "verifier")] and planned == []
     assert "Invoke the brag-slim skill" in done[0][3] and "open the images and look" in done[0][3]
     assert done[0][2] == "lead"  # BRAG Slim is written for Opus 5.5 alone
+    assert done[1][2] == "lead" and done[1][4] == ["P1"]  # the checker looks at stills, after the video is made
+    assert "stranger scrolling past" in done[1][3] and "contact sheets" in done[1][3]
     assert result["success"] is True and result["verification"]["verified"] is True
-    assert "your call" in result["answer"]
-    assert [p["id"] for p in result["team"]["packages"]] == ["P1"]
-    card = result["team"]["packages"][0]
+    assert [p["id"] for p in result["team"]["packages"]] == ["P1", "VER"]
+    card, check = result["team"]["packages"]
     assert card["effort"] == "high" and card["max_steps"] >= 200 and card["max_cost"] >= 10
+    assert check["max_cost"] <= 2.0 and check["max_steps"] <= 40
 
 
 @pytest.mark.integration
