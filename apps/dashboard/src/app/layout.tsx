@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
+import { StarrySky } from '@/components/starry-sky'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -16,7 +17,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.className} jai-theme`}>{children}</body>
+      <body className={`${inter.className} jai-theme`}>
+        <StarrySky />
+        {children}
+      </body>
     </html>
   )
 }

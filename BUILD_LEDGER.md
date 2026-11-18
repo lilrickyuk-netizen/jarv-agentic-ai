@@ -15597,7 +15597,7 @@ NEXT TASK: the procrastination carousel (mission 36b4435e), then the confidence 
 
 TASK ID: CARD-SHOWS-FOLDER
 TASK NAME: A running mission's card shows the folder its brief names, not "no folder"
-STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-evening-fixes.sh on Richard's machine)
+STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-evening-fixes.sh, version 2, on Richard's machine)
 FILES CREATED: None
 FILES MODIFIED: apps/backend/app/api/command.py, apps/backend/tests/test_extra_rounds_and_safe_reads.py, BUILD_LEDGER.md
 COMMANDS RUN: on Claude's side: the dashboard's command page (folder ? folder : 'no folder') and api/command._folder read
@@ -15609,7 +15609,7 @@ NEXT TASK: Richard runs install-evening-fixes.sh
 
 TASK ID: TYPE-WHILE-MISSIONS-RUN
 TASK NAME: Richard can type and send while missions run (the dashboard's two chat boxes stay open)
-STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-evening-fixes.sh on Richard's machine)
+STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-evening-fixes.sh, version 2, on Richard's machine)
 FILES CREATED: None
 FILES MODIFIED: apps/dashboard/src/app/dashboard/command/page.tsx, apps/dashboard/src/app/dashboard/page.tsx, apps/dashboard/__tests__/command-page.test.tsx, BUILD_LEDGER.md
 COMMANDS RUN: on Claude's side: both pages read (disabled={loading} and disabled={commandLoading} on the box and the send button); the worker's concurrency read (celery --concurrency=4) and the sandbox's (OPENHANDS_MAX_RUNS 4)
@@ -15621,7 +15621,7 @@ NEXT TASK: Richard runs install-evening-fixes.sh
 
 TASK ID: CAROUSEL-RUNS-ON-SOCIAL
 TASK NAME: A new carousel runs on the social skill without Richard naming it
-STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-evening-fixes.sh on Richard's machine)
+STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-evening-fixes.sh, version 2, on Richard's machine)
 FILES CREATED: None
 FILES MODIFIED: apps/backend/app/core/knowledge/skill_packs.py, apps/backend/tests/test_skill_for_the_work.py, apps/backend/tests/test_extra_rounds_and_safe_reads.py, BUILD_LEDGER.md
 COMMANDS RUN: on Claude's side: missions 36b4435e and 8c49d86c compared (cards and slides)
@@ -15630,3 +15630,15 @@ RESULT: The procrastination carousel made by the builder without a skill (36b443
 RESEARCH: the two missions' cards and slides
 BLOCKERS: None
 NEXT TASK: Richard runs install-evening-fixes.sh
+
+TASK ID: STARRY-GLASS-THEME
+TASK NAME: Every page sits on a black starry sky with shooting stars; panels are near-transparent glass with sharp corners; buttons are glass with an electric-blue neon outline
+STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-evening-fixes.sh, version 2, on Richard's machine)
+FILES CREATED: apps/dashboard/src/components/starry-sky.tsx, apps/dashboard/__tests__/starry-sky.test.tsx
+FILES MODIFIED: apps/dashboard/src/app/layout.tsx, apps/dashboard/src/app/globals.css, BUILD_LEDGER.md
+COMMANDS RUN: on Claude's side: the theme layer (html body.jai-theme), the cockpit's and intelligence field's backgrounds and the three.js renderers (already transparent) read; a page using the new styles rendered in Chromium and looked at (panels, tabs, a disabled button, the red Cancel button, a text box, shooting stars)
+TESTS RUN: __tests__/starry-sky.test.tsx (shooting stars every 30 seconds at new places, then cleared; the sky in the root layout, behind everything; glass and neon rules present)
+RESULT: Richard asked for a black starry sky with shooting stars in different places every 30 seconds on every page, behind the intelligence field too; sharper corners and near-transparent glass on every block and panel; glass buttons with a glowing electric-blue neon outline. StarrySky (a canvas of stars redrawn on resize, plus two shooting stars at random places every 30 seconds; none with reduced motion) is mounted once in the root layout at z-index -1, so it is behind every page, the login included. The theme layer makes each page's own backgrounds transparent (the cockpit, the intelligence field's panel, the Tailwind page backgrounds), turns panels, cards, side bars, the chat and the display into 3% white glass with a 2px blur and 4px corners, and every button (switches excepted) into glass with a neon outline and glow; the chosen tab glows brighter, disabled buttons dim, and stop, cancel and delete buttons keep red in the same neon style.
+RESEARCH: the dashboard's own theme layer and components
+BLOCKERS: None
+NEXT TASK: Richard runs install-evening-fixes.sh, version 2

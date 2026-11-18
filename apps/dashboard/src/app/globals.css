@@ -646,3 +646,91 @@ html body.jai-theme .border-rose-100, html body.jai-theme .border-rose-200, html
   .ov-agent, .ov-agent.is-left, .ov-agent.is-right { position: static; flex-direction: row; text-align: left; }
   .ov-orb { width: min(86vw, 420px); }
 }
+
+/* ------------------------------------------------------------------------------------------------------------
+   18 November: the starry glass theme, on every page. A black sky with stars and shooting stars (StarrySky,
+   mounted once in the root layout) sits behind everything, the intelligence field included; panels and cards are
+   near-transparent glass with sharp corners; buttons are glass with a glowing electric-blue neon outline.
+   ------------------------------------------------------------------------------------------------------------ */
+:root { --radius: 4px; --neon: 0, 200, 255; --glass-line: rgba(125, 211, 252, .16); }
+
+/* The sky. */
+.starry-sky { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; background: #000; }
+.starry-sky-stars { position: absolute; inset: 0; width: 100%; height: 100%; }
+.shooting-star { position: absolute; height: 2px; border-radius: 2px; transform-origin: 0 50%;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(190, 235, 255, .55) 60%, #fff);
+  filter: drop-shadow(0 0 6px rgba(var(--neon), .9)); opacity: 0;
+  transform: rotate(var(--angle)) translateX(-30vw) scaleX(.35);
+  animation: shooting-star 1.6s cubic-bezier(.25, .6, .4, 1) forwards; }
+@keyframes shooting-star {
+  0% { opacity: 0; transform: rotate(var(--angle)) translateX(-30vw) scaleX(.35); }
+  12% { opacity: 1; }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(var(--angle)) translateX(40vw) scaleX(1); }
+}
+@media (prefers-reduced-motion: reduce) { .shooting-star { display: none; } }
+
+/* Every page's own backgrounds give way to the sky. */
+html body.jai-theme { background: #000; }
+html body.jai-theme .min-h-screen.bg-background, html body.jai-theme .bg-background,
+html body.jai-theme .cockpit, html body.jai-theme .cockpit-header, html body.jai-theme .cockpit-panel.core-panel,
+html body.jai-theme .jai-overview, html body.jai-theme .ov-main, html body.jai-theme .ov-top,
+html body.jai-theme .bg-gradient-to-br { background: transparent !important; }
+html body.jai-theme .cockpit-grid { display: none; }
+
+/* Glass: panels, cards, side bars and the chat, near enough see-through, with sharp corners. */
+html body.jai-theme .bg-card, html body.jai-theme .cockpit-panel:not(.core-panel), html body.jai-theme .cockpit-nav,
+html body.jai-theme .ov-side, html body.jai-theme .ov-chat, html body.jai-theme .ov-composer, html body.jai-theme .ov-chip,
+html body.jai-theme .ov-agent-tag, html body.jai-theme .jai-display, html body.jai-theme .ov-screen .jai-display,
+html body.jai-theme .mission-result, html body.jai-theme .voice-operator, html body.jai-theme nav.bg-card\/80,
+html body.jai-theme .bg-white, html body.jai-theme .bg-gray-50, html body.jai-theme .bg-gray-100,
+html body.jai-theme .bg-slate-50, html body.jai-theme .bg-slate-100, html body.jai-theme .bg-gray-800,
+html body.jai-theme .bg-muted, html body.jai-theme .bg-secondary {
+  background: rgba(255, 255, 255, .03) !important;
+  -webkit-backdrop-filter: blur(2px) saturate(120%); backdrop-filter: blur(2px) saturate(120%);
+  border-color: var(--glass-line) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05) !important;
+}
+html body.jai-theme .bg-card, html body.jai-theme .cockpit-panel, html body.jai-theme .jai-display,
+html body.jai-theme .ov-chat, html body.jai-theme .ov-composer, html body.jai-theme .ov-agent-tag, html body.jai-theme .ov-chip,
+html body.jai-theme .ov-link, html body.jai-theme .side-services li, html body.jai-theme .mission-result,
+html body.jai-theme .rounded, html body.jai-theme .rounded-sm, html body.jai-theme .rounded-md, html body.jai-theme .rounded-lg,
+html body.jai-theme .rounded-xl, html body.jai-theme .rounded-2xl, html body.jai-theme .rounded-3xl { border-radius: 4px !important; }
+html body.jai-theme input:not([type=checkbox]):not([type=radio]):not([type=range]),
+html body.jai-theme select, html body.jai-theme textarea {
+  background-color: rgba(255, 255, 255, .03); border-radius: 3px;
+}
+
+/* Buttons: glass with a glowing electric-blue neon outline. Switches keep their own look. */
+html body.jai-theme button:not(.mini-switch):not([role="switch"]),
+html body.jai-theme a.bg-primary, html body.jai-theme .ov-btn {
+  background: rgba(var(--neon), .06) !important;
+  -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  border: 1px solid rgba(var(--neon), .9) !important;
+  border-radius: 4px;
+  color: #e6f9ff !important;
+  box-shadow: 0 0 4px rgba(var(--neon), .85), 0 0 14px rgba(var(--neon), .35), inset 0 0 8px rgba(var(--neon), .16) !important;
+  text-shadow: 0 0 6px rgba(var(--neon), .45);
+  transition: box-shadow .2s, background .2s, opacity .2s;
+}
+html body.jai-theme button:not(.mini-switch):not([role="switch"]):hover:not(:disabled),
+html body.jai-theme a.bg-primary:hover {
+  background: rgba(var(--neon), .14) !important;
+  box-shadow: 0 0 6px rgba(var(--neon), 1), 0 0 22px rgba(var(--neon), .55), inset 0 0 12px rgba(var(--neon), .25) !important;
+}
+/* The chosen tab or option glows brightest. */
+html body.jai-theme button:not(.mini-switch):not([role="switch"]):is(.bg-primary, [aria-pressed="true"], [aria-selected="true"], .ov-send) {
+  background: rgba(var(--neon), .2) !important;
+}
+html body.jai-theme button:not(.mini-switch):not([role="switch"]):disabled { opacity: .4; box-shadow: 0 0 3px rgba(var(--neon), .4) !important; text-shadow: none; }
+/* Round icon buttons (the microphone and send) stay round. */
+html body.jai-theme .ov-icon, html body.jai-theme .rounded-full { border-radius: 999px !important; }
+/* Stop, cancel and delete keep their warning colour, in the same neon style. */
+html body.jai-theme button:not(.mini-switch):not([role="switch"]):is(.text-red-600, .text-red-700, .border-red-200, .border-red-300, .bg-red-600, .bg-destructive,
+  .ov-interrupt, .voice-interrupt),
+html body.jai-theme button:not(.mini-switch):not([role="switch"]):is(.text-red-600, .text-red-700, .border-red-200, .border-red-300, .bg-red-600, .bg-destructive,
+  .ov-interrupt, .voice-interrupt):hover {
+  border-color: rgba(255, 92, 120, .95) !important; color: #ffe3e8 !important;
+  background: rgba(255, 92, 120, .07) !important; text-shadow: 0 0 6px rgba(255, 92, 120, .45);
+  box-shadow: 0 0 4px rgba(255, 92, 120, .85), 0 0 14px rgba(255, 92, 120, .35), inset 0 0 8px rgba(255, 92, 120, .15) !important;
+}
