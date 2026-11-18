@@ -325,6 +325,15 @@ def sales_send_due(self: Task) -> dict[str, Any]:
     return run_async(run())
 
 
+@celery_app.task(name="stop_idle_image_generator", bind=True)
+def stop_idle_image_generator(self: Task) -> dict[str, Any]:
+    """Stop ComfyUI when it has made no image for 10 minutes, so its memory goes back to the rest of JAI (Celery beat).
+    18 November: it held 5.7 GB for 19 hours with nothing to make and the computer swapped until services died."""
+    from app.core.creative import images
+
+    return run_async(images.stop_if_idle())
+
+
 @celery_app.task(name="knowledge_refresh", bind=True)
 def knowledge_refresh(self: Task) -> dict[str, Any]:
     """Re-fetch every catalogue source; changed pages get a new version of their passages (Celery beat)."""

@@ -15546,3 +15546,15 @@ RESULT: Every BRAG run spent its first steps installing kokoro-onnx and soundfil
 RESEARCH: Hyperframes 0.9.58 source (tts/python.ts, tts/manager.ts, core/cacheDir.ts, media-use tts-local-provider.mjs); OpenHands Software Agent SDK 1.58.2 terminal source; kokoro-onnx on PyPI (0.6.1, 19 August 2026, Python 3.10 to 3.13, model files v1.0); soundfile 0.14.0 (Arch Linux and CERN package indexes)
 BLOCKERS: None
 NEXT TASK: Richard runs install-voice-and-facts.sh once no mission is running
+
+TASK ID: IMAGE-GENERATOR-ON-DEMAND
+TASK NAME: The image generator (ComfyUI) starts when an image is asked for and stops after 10 minutes with no image
+STATUS: IN_PROGRESS (built on Claude's side 18 November; installed with install-voice-and-facts.sh, version 2)
+FILES CREATED: apps/backend/tests/test_image_generator_on_demand.py
+FILES MODIFIED: apps/backend/app/core/creative/images.py, apps/backend/app/core/celery.py, apps/backend/app/workers/tasks.py, apps/backend/tests/test_images.py, BUILD_LEDGER.md
+COMMANDS RUN: Richard's read-only check (proxy-check.txt, 18 November 12:27): free -h, docker stats, restart counts, the docker-proxy, backend and worker logs
+TESTS RUN: tests/test_image_generator_on_demand.py (a stopped generator is started and waited for; an idle one is stopped, a busy or recently used one is not; making an image marks it busy only while it works; the worker's schedule has the check); tests/test_images.py (the ComfyUI conversation now begins with its readiness check)
+RESULT: Richard saw services dropping and "docker proxy" messages. The docker-proxy had not restarted in 20 hours (its log lines are haproxy reloads and its standing warning about the event stream's timeouts). The cause was memory: Docker had 10 GB with 105 MB free and 10 GB of swap in use; ComfyUI held 5.7 GB for 19 hours with no image to make; Chatterbox was killed (exit 137). images.generate already asks ComfyUI to release its model after each image, which does not give the memory back. Now images.generate starts ComfyUI through the restricted Docker proxy (docker_ops.switch, already allowed for the Command Center's switches) when it does not answer, and waits up to 180 seconds for it; it records when it was last used and that it is busy (Redis). A Celery beat task every 2 minutes stops ComfyUI when it is running, not busy, and has made no image for 10 minutes. Postgres, Redis and the docker-proxy are never touched.
+RESEARCH: Richard's proxy-check.txt; app/core/ops/docker_ops.py (SWITCHABLE, switch, the proxy's ALLOW_START and ALLOW_STOP); ComfyUI's /system_stats and /free routes
+BLOCKERS: None
+NEXT TASK: Richard runs install-voice-and-facts.sh (version 2) once the comparison mission finishes

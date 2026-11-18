@@ -8,10 +8,16 @@ rest of JAI keeps its share.
 
 Every image is saved into the workspace (assets/images/ unless another path inside it is given) and recorded in the
 workspace's ASSET_LICENCES.md with the model, its licence and the prompt, so where each asset came from is known.
+
+18 November: ComfyUI held 5.7 GB of the computer's memory for 19 hours with nothing to make, while Docker had about
+10 GB in all; the computer swapped and other services were killed. Releasing the model after each image does not
+give that memory back, stopping the container does. So ComfyUI is started when an image is asked for (through JAI's
+restricted Docker proxy, docker_ops.switch) and stopped when it has made nothing for IDLE_STOP_MINUTES.
 """
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 import re
 import time
@@ -19,6 +25,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 MODEL = "FLUX.1-schnell (GGUF Q4_K_S)"
 LICENCE = "Apache-2.0 (FLUX.1-schnell); commercial use allowed"
@@ -29,6 +37,11 @@ VAE = "ae.safetensors"
 SIZES = {"square": (1024, 1024), "landscape": (1344, 768), "portrait": (768, 1344), "wide": (1536, 640),
          "thumbnail": (1280, 720), "story": (768, 1344), "banner": (1536, 512)}
 GENERATE_TIMEOUT = 600.0
+# Starting ComfyUI and its first answer; it loads the model on the first image, not at start.
+WAKE_SECONDS = 180.0
+IDLE_STOP_MINUTES = 10
+LAST_USED_KEY = "comfyui:last_used"
+BUSY_KEY = "comfyui:busy"
 
 
 def comfyui_url() -> str:
@@ -66,6 +79,81 @@ class ImageUnavailable(RuntimeError):
     """JAI's image generator is not running or cannot make this image."""
 
 
+async def _mark(busy: Optional[bool]) -> None:
+    """Record that an image is being made (busy) or was just made; a Redis failure never stops the image."""
+    try:
+        from app.core.redis import get_redis
+
+        redis = await get_redis()
+        await redis.set(LAST_USED_KEY, str(time.time()))
+        if busy:
+            await redis.set(BUSY_KEY, "1", ex=int(GENERATE_TIMEOUT + WAKE_SECONDS + 60))
+        elif busy is False:
+            await redis.delete(BUSY_KEY)
+    except Exception as exc:  # noqa: BLE001 - the record is a convenience, the image is the job
+        logger.info(f"image generator use not recorded: {exc}")
+
+
+async def _answers(client: httpx.AsyncClient, base: str) -> bool:
+    try:
+        return (await client.get(f"{base}/system_stats", timeout=5.0)).status_code == 200
+    except httpx.HTTPError:
+        return False
+
+
+async def wake(client: httpx.AsyncClient, base: str, wait_seconds: float = WAKE_SECONDS) -> bool:
+    """Start ComfyUI if it is stopped and wait until it answers; False when it cannot be started from here."""
+    if await _answers(client, base):
+        return True
+    from app.core.ops import docker_ops
+
+    ops = docker_ops.get_docker_ops()
+    if not ops.available:
+        return False
+    try:
+        await ops.switch("comfyui", True)
+    except (docker_ops.OpsRefused, docker_ops.OpsUnavailable) as exc:
+        logger.warning(f"image generator could not be started: {exc}")
+        return False
+    deadline = time.monotonic() + wait_seconds
+    while time.monotonic() < deadline:
+        if await _answers(client, base):
+            return True
+        await asyncio.sleep(3.0)
+    return False
+
+
+async def stop_if_idle(now: Optional[float] = None, idle_minutes: float = IDLE_STOP_MINUTES) -> Dict[str, Any]:
+    """Stop ComfyUI when it is running and has made no image for idle_minutes (Celery beat). Seen running with no
+    record of use, it gets idle_minutes from now."""
+    from app.core.ops import docker_ops
+    from app.core.redis import get_redis
+
+    ops = docker_ops.get_docker_ops()
+    if not ops.available:
+        return {"stopped": False, "reason": "container operations are not configured"}
+    now = time.time() if now is None else now
+    try:
+        running = any(c.service == "comfyui" and c.state == "running" for c in await ops.containers())
+        if not running:
+            return {"stopped": False, "reason": "not running"}
+        redis = await get_redis()
+        if await redis.get(BUSY_KEY):
+            return {"stopped": False, "reason": "making an image"}
+        last = await redis.get(LAST_USED_KEY)
+        if last is None:
+            await redis.set(LAST_USED_KEY, str(now))
+            return {"stopped": False, "reason": "first seen running"}
+        idle = (now - float(last)) / 60
+        if idle < idle_minutes:
+            return {"stopped": False, "reason": f"used {idle:.0f} minutes ago"}
+        await ops.switch("comfyui", False)
+    except (docker_ops.OpsRefused, docker_ops.OpsUnavailable) as exc:
+        return {"stopped": False, "reason": str(exc)}
+    logger.warning(f"Stopped the image generator: no image for {idle:.0f} minutes")
+    return {"stopped": True, "reason": f"no image for {idle:.0f} minutes"}
+
+
 async def generate(prompt: str, width: int = 1024, height: int = 1024, seed: Optional[int] = None,
                    client: Optional[httpx.AsyncClient] = None) -> Dict[str, Any]:
     """Make one image on the GPU; returns the PNG bytes, seed and seconds taken."""
@@ -79,13 +167,15 @@ async def generate(prompt: str, width: int = 1024, height: int = 1024, seed: Opt
     started = time.monotonic()
     own = client is None
     client = client or httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=5.0))
+    await _mark(busy=True)
     try:
+        await wake(client, base)
         try:
             queued = await client.post(f"{base}/prompt", json={"prompt": workflow(prompt, width, height, seed)})
         except httpx.HTTPError as exc:
-            raise ImageUnavailable(f"JAI's image generator could not be reached ({type(exc).__name__}): it is switched "
-                                   "off or still starting. Switch it on in the Command Center (JAI's services panel) "
-                                   "(it needs the NVIDIA GPU and about 7 GB of memory).") from exc
+            raise ImageUnavailable(f"JAI's image generator could not be reached ({type(exc).__name__}): it did not "
+                                   f"start within {int(WAKE_SECONDS)} seconds. Switch it on in the Command Center "
+                                   "(JAI's services panel); it needs the NVIDIA GPU and about 7 GB of memory.") from exc
         if queued.status_code >= 400:
             raise ImageUnavailable(f"The image generator refused the image: {queued.text[:300]}")
         prompt_id = queued.json().get("prompt_id")
@@ -117,6 +207,7 @@ async def generate(prompt: str, width: int = 1024, height: int = 1024, seed: Opt
         return {"png": png.content, "seed": seed, "seconds": round(time.monotonic() - started, 1),
                 "width": width, "height": height}
     finally:
+        await _mark(busy=False)
         if own:
             await client.aclose()
 

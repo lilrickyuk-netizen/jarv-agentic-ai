@@ -58,6 +58,8 @@ def test_an_image_is_made_collected_and_the_memory_released():
         if request.url.path == "/free":
             assert json.loads(request.content) == {"unload_models": True, "free_memory": True}
             return httpx.Response(200)
+        if request.url.path == "/system_stats":
+            return httpx.Response(200, json={"system": {}})
         return httpx.Response(404)
 
     settings.COMFYUI_URL = "http://comfyui:8188"
@@ -67,7 +69,7 @@ def test_an_image_is_made_collected_and_the_memory_released():
     finally:
         settings.COMFYUI_URL = ""
     assert made["png"] == PNG and made["seed"] == 7
-    assert ("POST", "/free") in seen and seen[0] == ("POST", "/prompt")
+    assert ("POST", "/free") in seen and seen[:2] == [("GET", "/system_stats"), ("POST", "/prompt")]
 
 
 def test_a_failed_image_and_a_generator_that_is_off_are_reported_plainly(monkeypatch):

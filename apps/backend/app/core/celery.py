@@ -90,6 +90,11 @@ celery_app.conf.update(
             "schedule": 24 * 3600.0,
             "options": {"expires": 3600},
         },
+        "image-generator-idle": {
+            "task": "stop_idle_image_generator",
+            "schedule": 120.0,
+            "options": {"expires": 110},
+        },
         "knowledge-refresh": {
             "task": "knowledge_refresh",
             "schedule": float(getattr(settings, "KNOWLEDGE_REFRESH_INTERVAL_HOURS", 168)) * 3600,
@@ -100,6 +105,15 @@ celery_app.conf.update(
 
 # Declarative registry of scheduled jobs (surfaced via /api/scheduler/jobs).
 SCHEDULED_JOBS = [
+    {
+        "name": "image_generator_idle",
+        "task": "stop_idle_image_generator",
+        "interval_seconds": 120.0,
+        "enabled": True,
+        "type": "ops/memory",
+        "description": "Stop the image generator (ComfyUI, about 6 GB) when it has made no image for 10 minutes; "
+                       "it starts again by itself when an image is asked for.",
+    },
     {
         "name": "workflows_advance",
         "task": "workflows_advance",
