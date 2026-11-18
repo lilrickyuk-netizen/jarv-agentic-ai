@@ -15573,7 +15573,7 @@ NEXT TASK: the free OpenMontage test video, then two carousels, then MYCO Phase 
 
 TASK ID: EXTRA-ROUNDS-OWN-CHECKS
 TASK NAME: A later round checks only its own mission, ffprobe needs no approval, and a fact file is added to, never rewritten
-STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-round-fixes.sh on Richard's machine)
+STATUS: COMPLETE (18 November 16:29 on Richard's machine: 1339 passed, 1 skipped, commit a03c89b; free checks: a later round of new work in PLEXECUTE_IMAGES ignores the music edit's ledger there, ffprobe is a safe read)
 FILES CREATED: apps/backend/tests/test_extra_rounds_and_safe_reads.py
 FILES MODIFIED: apps/backend/app/core/command/ledger.py, apps/backend/app/core/workspaces/fs_inspector.py, apps/backend/app/core/command/mission_org.py, BUILD_LEDGER.md
 COMMANDS RUN: on Claude's side: mission a00ac5ea's card and Richard's log extract read; ledger.requirements, resume.CARRY_ON, work_type.richard_brief and fs_inspector.classify_command read
@@ -15581,4 +15581,4 @@ TESTS RUN: tests/test_extra_rounds_and_safe_reads.py (new work and its later rou
 RESULT: Mission a00ac5ea (OpenMontage, 18 November) finished its video in round 1 (42.5 s, 1080x1920, sound effects only; Richard: "a major improvement"), but its later rounds took over the music edit's acceptance ledger (R1-R6, brag-no-music.mp4, .jai/verify-video.py) because ledger.requirements matched "carry on" in the progress notes JAI appends to a later round, not in Richard's brief; the card then showed "6 of 6" and "0 of 6" together, and the round waited on Richard to approve ffprobe on its own MP4. Now the carry-on test reads only Richard's words (work_type.richard_brief), ffprobe is a read-only safe command, and a video run that refreshes an old .jai/product.md adds to it and never deletes or rewrites the rest. Richard will give JAI each video's story himself, so no variety rule was added.
 RESEARCH: mission a00ac5ea's card and logs; the acceptance-ledger and command-policy code
 BLOCKERS: None
-NEXT TASK: Richard runs install-round-fixes.sh, then the two carousels, then MYCO Phase 1
+NEXT TASK: the two Plexecute carousels, then MYCO Phase 1
