@@ -15582,3 +15582,15 @@ RESULT: Mission a00ac5ea (OpenMontage, 18 November) finished its video in round 
 RESEARCH: mission a00ac5ea's card and logs; the acceptance-ledger and command-policy code
 BLOCKERS: None
 NEXT TASK: the two Plexecute carousels, then MYCO Phase 1
+
+TASK ID: CAROUSEL-IS-A-MISSION
+TASK NAME: A carousel or infographic in Richard's folder is the Lead Builder's mission in the sandbox, not a one-off research and QA answer
+STATUS: IN_PROGRESS (built on Claude's side 18 November; waits for install-carousel-fix.sh on Richard's machine)
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/work_type.py, apps/backend/tests/test_extra_rounds_and_safe_reads.py, BUILD_LEDGER.md
+COMMANDS RUN: on Claude's side: mission d1aadd3e's card read; service._detect_intent's folder branch and work_type.specialist_for read
+TESTS RUN: tests/test_extra_rounds_and_safe_reads.py (the carousel brief is an agent_task and runs no video skill)
+RESULT: Mission d1aadd3e, "Make 1 Instagram and TikTok carousel for Plexecute in C:\...\PLEXECUTE_IMAGES: 5 things that kill procrastination", matched no specialist's words (the 17 November carousels named the social skill), so _detect_intent's folder branch did not make it a mission; it went to the one-off research and QA answer (113 s), which made no slides and reported an earlier mission's pending approvals. Carousels and infographics now join video and motion work as the Lead Builder's visual work in the sandbox (work_type._BUILDER_KEEPS), where it can draw, render and check the slides. They never start BRAG or OpenMontage (skill_packs.skill_for matches video work only).
+RESEARCH: mission d1aadd3e's card; the routing code
+BLOCKERS: None
+NEXT TASK: Richard runs install-carousel-fix.sh, then the procrastination carousel again

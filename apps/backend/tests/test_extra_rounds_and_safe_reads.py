@@ -60,3 +60,15 @@ def test_an_old_fact_file_is_added_to_and_never_rewritten(tmp_path):
     rule = product_facts_rule(tmp_path, "Use your BRAG skill")
     assert "Read the product's real website" in rule and "never delete or rewrite the rest" in rule
     assert "never delete" not in product_facts_rule(tmp_path / "empty", "Use your BRAG skill")
+
+
+def test_a_carousel_in_richards_folder_is_the_builders_mission_and_not_a_video_skill_run():
+    """18 November, mission d1aadd3e: the procrastination carousel went to research and QA and made no slides."""
+    from app.core.command.service import CommandService
+    from app.core.knowledge.skill_packs import skill_for
+
+    brief = ('Make 1 Instagram and TikTok carousel for Plexecute in C:\\Users\\lilri\\Projects\\PLEXECUTE_IMAGES: "5 things '
+             'that kill procrastination". Publish and post nothing.')
+    assert CommandService._detect_intent(brief) == "agent_task"
+    assert skill_for(brief) is None
+

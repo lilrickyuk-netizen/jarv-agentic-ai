@@ -24,8 +24,11 @@ _ENGINEERING = re.compile(
 
 # Video and motion work stays with the Lead Builder too: on 9 November it made a good ad in minutes for about four
 # pounds, and BRAG runs only when Richard asks for it.
-_BUILDER_KEEPS = re.compile(r"\b(video|videos|animation|animated|motion graphics|ad film|reel|reels)\b",
-                            re.I)
+# Visual work the Lead Builder makes and renders in the sandbox: video, motion and social graphics. 18 November: "Make
+# 1 Instagram and TikTok carousel for Plexecute in C:\\...\\PLEXECUTE_IMAGES" matched no specialist, went to the one-off
+# research and QA answer, and made no slides.
+_BUILDER_KEEPS = re.compile(r"\b(video|videos|animation|animated|motion graphics|ad film|reel|reels|carousels?|"
+                            r"infographics?)\b", re.I)
 
 # (specialist, what the brief says, the skills to start with, in the order to use them). First match wins, so the
 # more specific kinds of work come first.
