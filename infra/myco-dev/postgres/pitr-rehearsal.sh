@@ -44,6 +44,12 @@ say "target time $TARGET; waiting for $SEGMENT to be archived"
 for _ in $(seq 1 60); do [ -f "$ARCHIVE/$SEGMENT" ] && break; sleep 1; done
 [ -f "$ARCHIVE/$SEGMENT" ] || fail "WAL segment $SEGMENT was not archived within 60 seconds (archive_command)"
 
+# A restored copy refuses to recover with fewer of these than the server it came from had (PostgreSQL checks them
+# against the WAL), so it is started with the server's own values.
+MATCH=""
+for setting in max_connections max_worker_processes max_wal_senders max_prepared_transactions max_locks_per_transaction; do
+  MATCH="$MATCH -c $setting=$(psql -Atc "SHOW $setting")"
+done
 say "restoring to the target time"
 chmod 700 "$WORK/data"
 touch "$WORK/data/recovery.signal"
@@ -54,7 +60,7 @@ recovery_target_action = 'promote'
 archive_mode = off
 CONF
 pg_ctl -D "$WORK/data" -l "$WORK/restore.log" -w -t 180 \
-  -o "-p $RESTORE_PORT -c listen_addresses='' -k $WORK -c shared_buffers=64MB" start >/dev/null \
+  -o "-p $RESTORE_PORT -c listen_addresses='' -k $WORK -c shared_buffers=64MB$MATCH" start >/dev/null \
   || { cat "$WORK/restore.log"; fail "the restored copy did not start"; }
 for _ in $(seq 1 90); do
   [ "$(psql -h "$WORK" -p "$RESTORE_PORT" -Atc 'SELECT pg_is_in_recovery()' 2>/dev/null)" = "f" ] && break

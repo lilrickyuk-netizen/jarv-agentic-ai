@@ -49,6 +49,8 @@ def test_the_stack_is_pinned_to_the_specs_baseline_and_locked_down():
     mounts = [m for m in openhands["volumes"] if isinstance(m, str)]
     assert "./infra/myco-dev/sandbox-profile.sh:/etc/profile.d/myco-dev.sh:ro" in mounts
     assert "./infra/myco-dev/connection.env:/etc/myco-dev.env:ro" in mounts
+    # ...and in its environment, so a shell that is not a login shell inherits them too.
+    assert {"path": "./infra/myco-dev/connection.env", "required": False} in openhands["env_file"]
     assert "infra/myco-dev/connection.env" in repo_path(".gitignore").read_text()
 
 
@@ -66,6 +68,11 @@ def test_postgres_archives_its_wal_and_keeps_the_three_authorities_apart():
     assert "PASSWORD '" not in init  # passwords come from the environment, never the file
     rehearsal = repo_path("infra", "myco-dev", "postgres", "pitr-rehearsal.sh").read_text()
     assert "recovery_target_time" in rehearsal and '"before-backup,kept"' in rehearsal
+    # A restored copy must allow at least what the server had (max_connections 150 here, 100 by default).
+    assert "for setting in max_connections max_worker_processes max_wal_senders" in rehearsal and "$MATCH" in rehearsal
+    # Temporal's databases are made up front and its setup only builds their tables.
+    assert "CREATE DATABASE temporal OWNER temporal;" in init and "CREATE DATABASE temporal_visibility OWNER temporal;" in init
+    assert _compose()["services"]["myco-temporal"]["environment"]["SKIP_DB_CREATE"] == "true"
     assert "PITR REHEARSAL PASS" in rehearsal
 
 

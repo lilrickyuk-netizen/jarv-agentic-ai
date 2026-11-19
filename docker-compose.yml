@@ -437,6 +437,11 @@ services:
       # MYCO's dev-stack connection settings for the agent's login shell (written by scripts/myco-dev-stack.sh).
       - ./infra/myco-dev/sandbox-profile.sh:/etc/profile.d/myco-dev.sh:ro
       - ./infra/myco-dev/connection.env:/etc/myco-dev.env:ro
+    # MYCO's dev-stack connection settings in the container's own environment as well, so the agent's shell has them
+    # whether it starts as a login shell (/etc/profile.d) or not (inherited).
+    env_file:
+      - path: ./infra/myco-dev/connection.env
+        required: false
     networks:
       - jarv-web
       # MYCO's local development stack, by name only (myco-postgres, myco-redis, ...): no port is published.
@@ -622,6 +627,8 @@ services:
       POSTGRES_SEEDS: myco-postgres
       DBNAME: temporal
       VISIBILITY_DBNAME: temporal_visibility
+      # Both databases already exist (infra/myco-dev/postgres/10-myco-databases.sh); its setup builds their tables.
+      SKIP_DB_CREATE: "true"
       DEFAULT_NAMESPACE: local-c0001
       DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
       SQL_MAX_CONNS: "10"

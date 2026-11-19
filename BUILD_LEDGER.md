@@ -15678,3 +15678,15 @@ RESULT: Phase 2 of MYCO needs PostgreSQL with PgBouncer, Redis, Neo4j, MinIO, Te
 RESEARCH: MYCO v3.2 spec sections 36 and 40 and Phase 2; PostgreSQL 18.6 release (13 August 2026); Redis 8.10 release notes; Neo4j 2026.08.1 release notes; OpenTelemetry Collector contrib releases; Redpanda release notes (v26.2.6, 22 October 2026); Temporal CLI server reference; CloudNativePG 1.30 connection pooling; PgBouncer 1.25.2 security release and 1.26.1; MinIO image removal (jacar.es) and Chainguard's MinIO image
 BLOCKERS: None
 NEXT TASK: Richard runs install-myco-dev-stack.sh, then reruns MYCO Phase 2 (tag v3.2-phase-02-durable-data-cells) in team mode
+
+TASK ID: MYCO-DEV-STACK-FIXES
+TASK NAME: The three faults the MYCO dev stack's install checks found on Richard's machine
+STATUS: IN_PROGRESS (install-myco-dev-fixes.sh applies and rechecks them)
+FILES CREATED: None
+FILES MODIFIED: infra/myco-dev/postgres/pitr-rehearsal.sh, infra/myco-dev/postgres/10-myco-databases.sh, docker-compose.yml, apps/backend/tests/test_myco_dev_stack.py, BUILD_LEDGER.md
+COMMANDS RUN: Richard's install-myco-dev-stack.sh (11 of 14 checks passed) and myco-diagnose.txt; on Claude's side the rehearsal rerun against a PostgreSQL server with 150 connections until it passed, and Temporal's role checked as owner of its databases
+TESTS RUN: tests/test_myco_dev_stack.py, tests/test_service_switches.py, tests/test_docker.py
+RESULT: 1. The PITR rehearsal's restored copy started with PostgreSQL's default 100 connections; recovery refuses fewer than the server it came from (150), so it now starts with the server's own max_connections, max_worker_processes, max_wal_senders, max_prepared_transactions and max_locks_per_transaction. 2. Temporal's setup did not create its databases and restarted every minute ("database temporal does not exist"); temporal and temporal_visibility are now made with the other databases (and on the existing server by the installer), with SKIP_DB_CREATE so its setup only builds their tables. 3. The sandbox had all 19 settings for a login shell but none for a shell started without one; they are now in its container environment too (env_file, optional), so either way of starting the agent's shell has them.
+RESEARCH: myco-diagnose.txt (PostgreSQL's FATAL "recovery aborted because of insufficient parameter settings"; Temporal's auto-setup log); PostgreSQL documentation on hot standby parameter checks during recovery
+BLOCKERS: None
+NEXT TASK: Richard runs install-myco-dev-fixes.sh, then MYCO Phase 2
