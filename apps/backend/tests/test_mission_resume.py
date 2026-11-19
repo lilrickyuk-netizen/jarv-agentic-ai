@@ -35,6 +35,25 @@ def test_a_brief_that_says_carry_on_or_names_the_same_phase_carries_on():
     assert not wants_to_carry_on("Make a launch video for Plexecute 2", "Build MYCO Phase 0")
 
 
+def test_a_brief_that_says_it_is_new_work_never_carries_on():
+    old = "Build MYCO Phase 2 in C:\\Users\\lilri\\Projects\\MYCO. Tag: v3.2-phase-02-data"
+    new = "Build MYCO Phase 2 in C:\\Users\\lilri\\Projects\\MYCO. Tag: v3.2-phase-02-durable-data-cells."
+    assert wants_to_carry_on(new, "Build MYCO Phase 2 in C:\\Users\\lilri\\Projects\\MYCO")  # same phase, no tag
+    assert not wants_to_carry_on(new, old)  # the same phase built to another tag is other work
+    assert wants_to_carry_on(new, new + " (first attempt)")
+    for fresh in ("This is a new mission: do not carry on from earlier Phase 2 missions. " + new,
+                  "Start fresh. " + new, "Don't carry on, build MYCO Phase 2 from scratch"):
+        assert not wants_to_carry_on(fresh, "Build MYCO Phase 2 in C:\\Users\\lilri\\Projects\\MYCO")
+    assert wants_to_carry_on("Carry on with MYCO Phase 2", "Build MYCO Phase 2")
+
+
+def test_a_fresh_brief_takes_over_no_mission_state():
+    async def run():
+        async with AsyncTestingSessionLocal() as db:
+            assert await last_state(db, uuid4(), None, "New mission: build MYCO Phase 2") is None
+    asyncio.run(run())
+
+
 def test_done_work_keeps_its_evidence_and_the_rest_is_open_again():
     task = Task(id=uuid4(), title="Phase 0", task_type="command", workspace_id=uuid4(), status="failed")
     out = carried(EARLIER["requirements"], task)

@@ -6,7 +6,9 @@ brief, so "carry on building MYCO Phase 0" re-planned work that was already done
 
 When a new mission says to carry on (carry on, continue, resume, finish, where it left off) or names the same phase
 as a recent mission on the same project that was not verified complete (in the same workspace, or in another one
-when both name the project's folder or this workspace), it takes that mission's state over:
+when both name the project's folder or this workspace), it takes that mission's state over. A brief that says it
+is new work ("start fresh", "new mission", "do not carry on") never does, and nor does one naming another release
+tag for the same phase:
 
 - its requirement list, every status and evidence kept, so the team plans only what is still open;
 - a short account of where it left off: each package's outcome, what the Verifier found unmet, the last report.
@@ -29,6 +31,15 @@ from app.models.task import Task
 CARRY_ON = re.compile(r"\b(carry on|carry-on|continue|continuing|resume|pick up|left off|finish|complete the rest)\b",
                       re.I)
 PHASE = re.compile(r"\bphase\s*(\d+)\b", re.I)
+# Richard saying this mission is new work: it never takes over an earlier mission's requirements (19 November: a
+# rewritten MYCO Phase 2 brief took over the cancelled Phase 2 mission's wrong requirement list, because both named
+# Phase 2).
+FRESH = re.compile(r"\b(start (it |this )?(fresh|afresh|over|from scratch)|fresh start|from scratch|"
+                   r"(this is a |a |as a )?new mission|(do not|don't|dont|never) carry on|not a continuation|"
+                   r"ignore (the |any )?(earlier|previous|last|old) missions?)\b", re.I)
+# A release tag a phase is built to (v3.2-phase-02-durable-data-cells): two briefs naming different tags are
+# different work even when they name the same phase.
+TAG = re.compile(r"\bv\d+(?:\.\d+)*-phase-[a-z0-9.-]*[a-z0-9]", re.I)
 LOOK_BACK_DAYS = 21
 
 
@@ -40,7 +51,8 @@ def _phases(text: str) -> set:
 
 
 def _folders(text: str) -> set:
-    return {m.group(1).lower() for m in FOLDER.finditer(text or "")}
+    # A full stop after the folder ends the sentence, not the folder's name ("in ...\\Projects\\MYCO.").
+    return {m.group(1).lower().rstrip(".") for m in FOLDER.finditer(text or "")}
 
 
 def same_work(brief: str, earlier_brief: str) -> bool:
@@ -71,10 +83,13 @@ async def _workspace_name(db: AsyncSession, workspace_id: UUID) -> str:
 def wants_to_carry_on(brief: str, earlier_brief: str) -> bool:
     """The new brief says to carry on, or it is about the same phase as the earlier mission, and both are about
     the same project."""
-    if not same_work(brief, earlier_brief):
+    if FRESH.search(brief or "") or not same_work(brief, earlier_brief):
         return False
     if CARRY_ON.search(brief or ""):
         return True
+    mine, theirs = {t.lower() for t in TAG.findall(brief or "")}, {t.lower() for t in TAG.findall(earlier_brief or "")}
+    if mine and theirs and not mine & theirs:
+        return False  # the same phase, built to another tag
     shared = _phases(brief) & _phases(earlier_brief)
     return bool(shared)
 
@@ -109,7 +124,7 @@ async def last_state(db: AsyncSession, workspace_id: Optional[UUID], current_tas
     folder). A "carry on" that names its subject takes over the unfinished mission sharing the most topic words
     with it; one that names nothing ("carry on") takes over the most recent. A brief that names no folder may
     carry on a mission in another of the same owner's workspaces when it is plainly about that work."""
-    if workspace_id is None:
+    if workspace_id is None or FRESH.search(brief or ""):
         return None
     from app.models.workspace import Workspace
 

@@ -15669,7 +15669,7 @@ NEXT TASK: Richard runs install-stars-behind.sh (the dashboard only; missions ke
 
 TASK ID: MYCO-DEV-STACK
 TASK NAME: MYCO's local development stack: pinned official images, locked down, sized for Richard's laptop, switched by JAI, reached by the sandbox over the network only
-STATUS: IN_PROGRESS (built on Claude's side 19 November; install-myco-dev-stack.sh on Richard's machine pulls and verifies the images, runs the backend tests, starts the stack and runs its checks and the PITR rehearsal)
+STATUS: COMPLETE (installed on Richard's machine 19 November: 1354 backend tests passed; every service checked; with MYCO-DEV-STACK-FIXES, every check passed including a real point-in-time restore through JAI)
 FILES CREATED: infra/myco-dev/postgres/10-myco-databases.sh, infra/myco-dev/postgres/pitr-rehearsal.sh, infra/myco-dev/pgbouncer/pgbouncer.ini, infra/myco-dev/otel/collector.yaml, infra/myco-dev/temporal/development-sql.yaml, infra/myco-dev/sandbox-profile.sh, services/myco-pgbouncer/Dockerfile, services/myco-pgbouncer/entrypoint.sh, apps/backend/tests/test_myco_dev_stack.py
 FILES MODIFIED: docker-compose.yml, .gitignore, apps/backend/app/core/ops/docker_ops.py, apps/backend/app/core/agents/toolbox.py, apps/backend/app/core/command/tool_runtime.py, apps/backend/app/core/safety/permission_policy.py, apps/backend/app/api/v1/agent_tools.py, BUILD_LEDGER.md
 COMMANDS RUN: on Claude's side: the MYCO v3.2 spec's Phase 2 and dependency baseline (section 40) read; docker compose config (valid); the database setup script run against a real PostgreSQL server configured like myco-postgres (each role reaches only its own database; Temporal's role can create its databases); the PITR rehearsal script run against it until it passed (it caught two faults first: the WAL-switch right was granted in the wrong database, and the backup label is renamed after recovery)
@@ -15681,7 +15681,7 @@ NEXT TASK: Richard runs install-myco-dev-stack.sh, then reruns MYCO Phase 2 (tag
 
 TASK ID: MYCO-DEV-STACK-FIXES
 TASK NAME: The three faults the MYCO dev stack's install checks found on Richard's machine
-STATUS: IN_PROGRESS (install-myco-dev-fixes.sh applies and rechecks them)
+STATUS: COMPLETE (installed 19 November: 51 tests passed; Temporal up with namespace local-c0001 and no restarts; the sandbox has the 19 settings either way its shell starts; PITR rehearsal PASS through JAI)
 FILES CREATED: None
 FILES MODIFIED: infra/myco-dev/postgres/pitr-rehearsal.sh, infra/myco-dev/postgres/10-myco-databases.sh, docker-compose.yml, apps/backend/tests/test_myco_dev_stack.py, BUILD_LEDGER.md
 COMMANDS RUN: Richard's install-myco-dev-stack.sh (11 of 14 checks passed) and myco-diagnose.txt; on Claude's side the rehearsal rerun against a PostgreSQL server with 150 connections until it passed, and Temporal's role checked as owner of its databases
@@ -15690,3 +15690,15 @@ RESULT: 1. The PITR rehearsal's restored copy started with PostgreSQL's default 
 RESEARCH: myco-diagnose.txt (PostgreSQL's FATAL "recovery aborted because of insufficient parameter settings"; Temporal's auto-setup log); PostgreSQL documentation on hot standby parameter checks during recovery
 BLOCKERS: None
 NEXT TASK: Richard runs install-myco-dev-fixes.sh, then MYCO Phase 2
+
+TASK ID: MISSION-STARTS-FRESH-WHEN-TOLD
+TASK NAME: A brief that says it is new work never takes over an earlier mission's requirements
+STATUS: IN_PROGRESS (install-fresh-missions.sh)
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/resume.py, apps/backend/tests/test_mission_resume.py, BUILD_LEDGER.md
+COMMANDS RUN: the carry-on rules checked against the 19 November Phase 2 briefs
+TESTS RUN: tests/test_mission_resume.py, tests/test_carry_on_keeps_its_mission.py (and the backend suite)
+RESULT: Mission 53790d63 (MYCO Phase 2, rewritten from the spec) took over the cancelled Phase 2 mission 6d0d04a5 because both named Phase 2, and with it that mission's 40 requirements, which were the wrong ones; no Phase 2 work was done against the new brief. Now a brief that says "start fresh", "new mission", "from scratch" or "do not carry on" never carries on, and a brief naming another release tag for the same phase (v3.2-phase-02-...) is other work. A folder name followed by a full stop ("...\\Projects\\MYCO.") now matches the folder.
+RESEARCH: Mission 53790d63's card (plan step "Resume: carry on from mission 6d0d04a5 (0 of 40 requirements already done)")
+BLOCKERS: The mission also ran on OpenAI with no OpenAI credit left (Claude was marked out of credit); Richard checks the Anthropic balance
+NEXT TASK: Richard reruns MYCO Phase 2 with "This is a new mission" at the start of the brief
