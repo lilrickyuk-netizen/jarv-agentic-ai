@@ -53,10 +53,22 @@ SWITCHABLE = {
     "serena": ("Code understanding", "Serena's language servers; up to 2 GB"),
     "openhands": ("Engineering sandbox", "OpenHands, where JAI's specialists build and test; up to 4 GB"),
 }
+# MYCO's local development stack (docker-compose.yml, profile "myco"; installed by scripts/myco-dev-stack.sh), in the
+# order it starts: the database first, what depends on it after. Switched on and off together as "myco"; JAI's
+# specialists restart them and run the PITR rehearsal (myco-pitr) through the dev_services tool, and nothing else.
+MYCO_DEV_STACK = ("myco-postgres", "myco-pgbouncer", "myco-redis", "myco-neo4j", "myco-minio", "myco-temporal",
+                  "myco-redpanda", "myco-otel")
+MYCO_PITR = "myco-pitr"
+# A switch that starts or stops several services together: name -> its services in start order.
+SWITCH_GROUPS = {"myco": MYCO_DEV_STACK}
+SWITCHABLE["myco"] = ("MYCO dev stack", "PostgreSQL, PgBouncer, Redis, Neo4j, MinIO, Temporal, Redpanda and the "
+                                        "OpenTelemetry Collector for building MYCO; about 3 GB while it runs")
+OPTIONAL_SERVICES = OPTIONAL_SERVICES | frozenset(MYCO_DEV_STACK) | {MYCO_PITR}
+PITR_SECONDS = 300
 # How long a switched-off service gets to close down before Docker stops it outright.
 STOP_GRACE_SECONDS = 15
-# Jobs that run once and exit (database migrations): exited with code 0 is their finished state.
-ONE_SHOT_SERVICES = frozenset({"migrate"})
+# Jobs that run once and exit (database migrations, the PITR rehearsal): exited with code 0 is their finished state.
+ONE_SHOT_SERVICES = frozenset({"migrate", MYCO_PITR})
 
 
 def container_problem(container: "Container") -> Optional[str]:
@@ -226,34 +238,121 @@ class DockerOps:
         found = {c.service: c for c in await self.containers()}
         out = []
         for service, (label, about) in SWITCHABLE.items():
+            if service in SWITCH_GROUPS:
+                members = [found[m] for m in SWITCH_GROUPS[service] if m in found]
+                running = [c for c in members if c.state == "running"]
+                installed = len(members) == len(SWITCH_GROUPS[service])
+                out.append({"service": service, "label": label, "about": about, "installed": installed,
+                            "on": installed and len(running) == len(members),
+                            "status": (f"{len(running)} of {len(SWITCH_GROUPS[service])} running" if installed
+                                       else "not installed")})
+                continue
             container = found.get(service)
             out.append({"service": service, "label": label, "about": about, "installed": container is not None,
                         "on": bool(container and container.state == "running"),
                         "status": container.status if container else "not installed"})
         return out
 
+    async def _start_stop(self, container: "Container", on: bool) -> None:
+        # Docker answers a stop only when the container has exited: up to STOP_GRACE_SECONDS for it to close
+        # down, then it is killed. The request waits that long and more (a 10-second wait made every switch-off
+        # of the video maker and image generator report a failure while they were still closing down).
+        response = await self._request("POST", f"/containers/{container.id}/{'start' if on else 'stop'}",
+                                       params={} if on else {"t": str(STOP_GRACE_SECONDS)},
+                                       timeout=httpx.Timeout(STOP_GRACE_SECONDS + 50.0, connect=5.0))
+        if response.status_code not in (204, 304, 200):
+            raise OpsUnavailable(f"{'Starting' if on else 'Stopping'} {container.name} failed: "
+                                 f"HTTP {response.status_code}")
+
+    async def _dev_stack(self) -> Dict[str, "Container"]:
+        found = {c.service: c for c in await self.containers() if c.service in MYCO_DEV_STACK + (MYCO_PITR,)}
+        missing = [m for m in MYCO_DEV_STACK if m not in found]
+        if missing:
+            raise OpsRefused("MYCO's dev stack is not installed on this computer (missing: "
+                             f"{', '.join(missing)}). Richard installs it with scripts/myco-dev-stack.sh.")
+        return found
+
+    async def dev_status(self) -> Dict[str, Any]:
+        """Each MYCO dev-stack service: running or not, and its health where it reports one."""
+        found = await self._dev_stack()
+        services = [{"service": m, "state": found[m].state, "health": found[m].health, "status": found[m].status}
+                    for m in MYCO_DEV_STACK]
+        return {"services": services, "all_running": all(s["state"] == "running" for s in services)}
+
+    async def dev_restart(self, service: str) -> Dict[str, Any]:
+        """Restart one MYCO dev-stack service, or "all": every one stopped (last first) and started again in order,
+        as a host restart does. Only those services; JAI's own are never touched here."""
+        service = (service or "").strip().lower()
+        found = await self._dev_stack()
+        if service == "all":
+            for name in reversed(MYCO_DEV_STACK):
+                if found[name].state == "running":
+                    await self._start_stop(found[name], False)
+            for name in MYCO_DEV_STACK:
+                await self._start_stop(found[name], True)
+            logger.warning("Restarted MYCO's dev stack (every service, stopped and started in order)")
+            return {"restarted": list(MYCO_DEV_STACK), "mode": "stopped then started in order, as a host restart"}
+        if service not in MYCO_DEV_STACK:
+            raise OpsRefused(f"'{service}' is not one of MYCO's dev-stack services ({', '.join(MYCO_DEV_STACK)}, "
+                             "or all).")
+        container = found[service]
+        response = await self._request("POST", f"/containers/{container.id}/restart", params={"t": "20"},
+                                       timeout=httpx.Timeout(80.0, connect=5.0))
+        if response.status_code not in (204, 200):
+            raise OpsUnavailable(f"Restart of {container.name} failed: HTTP {response.status_code}")
+        logger.warning(f"Restarted MYCO dev-stack service {service}")
+        return {"restarted": [service], "mode": "restart"}
+
+    async def dev_pitr_rehearsal(self, wait_seconds: float = PITR_SECONDS, poll_seconds: float = 2.0) -> Dict[str, Any]:
+        """Run the PITR rehearsal container once and wait for its verdict (its exit code and its log)."""
+        import asyncio
+
+        found = await self._dev_stack()
+        rehearsal = found.get(MYCO_PITR)
+        if rehearsal is None:
+            raise OpsRefused("The PITR rehearsal (myco-pitr) is not installed; scripts/myco-dev-stack.sh creates it.")
+        if rehearsal.state == "running":
+            raise OpsRefused("A PITR rehearsal is already running; wait for it to finish.")
+        await self._start_stop(rehearsal, True)
+        waited = 0.0
+        state: Dict[str, Any] = {}
+        while waited < wait_seconds:
+            await asyncio.sleep(poll_seconds)
+            waited += poll_seconds
+            response = await self._request("GET", f"/containers/{rehearsal.id}/json")
+            response.raise_for_status()
+            state = response.json().get("State") or {}
+            if not state.get("Running"):
+                break
+        log = await self.logs(MYCO_PITR, 60)
+        if state.get("Running"):
+            return {"passed": False, "exit_code": None, "log": log,
+                    "reason": f"The rehearsal had not finished after {int(wait_seconds)} seconds."}
+        code = state.get("ExitCode")
+        return {"passed": code == 0 and "PITR REHEARSAL PASS" in log, "exit_code": code, "log": log}
+
     async def switch(self, service: str, on: bool) -> Dict[str, Any]:
         """Start or stop one of the SWITCHABLE services, and nothing else."""
         service = (service or "").strip().lower()
         if service not in SWITCHABLE:
             raise OpsRefused(f"'{service}' is not one of the services switched on and off from the Command Center.")
-        matches = [c for c in await self.containers() if c.service == service]
-        if not matches:
+        members = SWITCH_GROUPS.get(service, (service,))
+        found: Dict[str, List[Container]] = {}
+        for container in await self.containers():
+            if container.service in members:
+                found.setdefault(container.service, []).append(container)
+        if any(m not in found for m in members):
             raise OpsRefused(f"{SWITCHABLE[service][0]} is not installed on this computer.")
+        # A group starts its first service (the database) before the rest, then the rest together, and stops all of
+        # them together, so switching the eight-service MYCO stack answers within the dashboard's 30 seconds.
+        import asyncio
+
+        waves = [members[:1], members[1:]] if on else [members]
         changed: List[str] = []
-        for container in matches:
-            if (container.state == "running") == on:
-                continue
-            # Docker answers a stop only when the container has exited: up to STOP_GRACE_SECONDS for it to close
-            # down, then it is killed. The request waits that long and more (a 10-second wait made every switch-off
-            # of the video maker and image generator report a failure while they were still closing down).
-            response = await self._request("POST", f"/containers/{container.id}/{'start' if on else 'stop'}",
-                                           params={} if on else {"t": str(STOP_GRACE_SECONDS)},
-                                           timeout=httpx.Timeout(STOP_GRACE_SECONDS + 50.0, connect=5.0))
-            if response.status_code not in (204, 304, 200):
-                raise OpsUnavailable(f"{'Starting' if on else 'Stopping'} {container.name} failed: "
-                                     f"HTTP {response.status_code}")
-            changed.append(container.name)
+        for wave in waves:
+            due = [c for name in wave for c in found[name] if (c.state == "running") != on]
+            await asyncio.gather(*(self._start_stop(c, on) for c in due))
+            changed.extend(c.name for c in due)
         logger.warning(f"Switched {service} {'on' if on else 'off'} ({', '.join(changed) or 'already so'})")
         return {"service": service, "label": SWITCHABLE[service][0], "on": on, "changed": changed}
 

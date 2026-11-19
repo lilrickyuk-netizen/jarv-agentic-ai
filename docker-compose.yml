@@ -434,12 +434,255 @@ services:
       - type: bind
         source: ${WORKSPACE_MOUNT_SOURCE:-/mnt/c/Users/lilri/OneDrive/Desktop}
         target: /host/workspaces
+      # MYCO's dev-stack connection settings for the agent's login shell (written by scripts/myco-dev-stack.sh).
+      - ./infra/myco-dev/sandbox-profile.sh:/etc/profile.d/myco-dev.sh:ro
+      - ./infra/myco-dev/connection.env:/etc/myco-dev.env:ro
     networks:
       - jarv-web
+      # MYCO's local development stack, by name only (myco-postgres, myco-redis, ...): no port is published.
+      - myco-dev
     mem_limit: 4g
     # Docker's init (tini) as PID 1: it reaps the processes a render leaves behind. Without it uvicorn is PID 1 and
     # never reaps them (17 November: every hung Hyperframes render left its Chromium processes defunct, over 1,000).
     init: true
+    restart: unless-stopped
+
+  # MYCO's local development stack (MYCO spec v3.2, Phase 2 "Durable data foundation", local-development mapping:
+  # region local, cell local-c0001). Official images pinned to the spec's dependency baseline (section 40), each
+  # sized for this computer, all on MYCO's private network with no route to the internet and no port published.
+  # JAI's engineering sandbox reaches them by name over that network only; it gets the connection settings in its
+  # shell (infra/myco-dev/sandbox-profile.sh). Installed by scripts/myco-dev-stack.sh; switched on and off together
+  # from the Command Center ("MYCO dev stack"); JAI's specialists restart them and run the PITR rehearsal with the
+  # dev_services tool. Every image is set in .env by the installer (the tag it verified), with these as defaults.
+  myco-postgres:
+    profiles: ["myco"]
+    image: ${MYCO_DEV_POSTGRES_IMAGE:-postgres:18.6}
+    container_name: myco-postgres
+    environment:
+      POSTGRES_USER: myco_admin
+      POSTGRES_PASSWORD: ${MYCO_DEV_PG_ADMIN_PASSWORD:-}
+      POSTGRES_DB: postgres
+      MYCO_DEV_KEYCLOAK_DB_PASSWORD: ${MYCO_DEV_KEYCLOAK_DB_PASSWORD:-}
+      MYCO_DEV_GLOBAL_DB_PASSWORD: ${MYCO_DEV_GLOBAL_DB_PASSWORD:-}
+      MYCO_DEV_CELL_DB_PASSWORD: ${MYCO_DEV_CELL_DB_PASSWORD:-}
+      MYCO_DEV_TEMPORAL_DB_PASSWORD: ${MYCO_DEV_TEMPORAL_DB_PASSWORD:-}
+      MYCO_DEV_BACKUP_DB_PASSWORD: ${MYCO_DEV_BACKUP_DB_PASSWORD:-}
+    # WAL archiving for point-in-time recovery (Phase 2 "PITR/WAL archive configuration"): every finished segment is
+    # copied into its own volume, which the rehearsal restores from.
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_command=test ! -f /wal-archive/%f && cp %p /wal-archive/%f
+      - -c
+      - max_wal_senders=4
+      - -c
+      - shared_buffers=192MB
+      - -c
+      - max_connections=150
+      - -c
+      - password_encryption=scram-sha-256
+    volumes:
+      # PostgreSQL 18's official image keeps its data under /var/lib/postgresql/18/docker.
+      - myco_dev_pg_data:/var/lib/postgresql
+      - myco_dev_wal_archive:/wal-archive
+      - ./infra/myco-dev/postgres/10-myco-databases.sh:/docker-entrypoint-initdb.d/10-myco-databases.sh:ro
+    # Asked over TCP: the image's first-start setup server listens on its socket only, so this waits for the real one.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U myco_admin -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    networks:
+      - myco-dev
+    mem_limit: 768m
+    restart: unless-stopped
+
+  myco-pgbouncer:
+    profiles: ["myco"]
+    build:
+      context: ./services/myco-pgbouncer
+      args:
+        POSTGRES_IMAGE: ${MYCO_DEV_POSTGRES_IMAGE:-postgres:18.6}
+        PGBOUNCER_VERSION: ${MYCO_DEV_PGBOUNCER_VERSION:-1.26.1}
+    image: myco-dev-pgbouncer:${MYCO_DEV_PGBOUNCER_VERSION:-1.26.1}
+    container_name: myco-pgbouncer
+    environment:
+      MYCO_DEV_KEYCLOAK_DB_PASSWORD: ${MYCO_DEV_KEYCLOAK_DB_PASSWORD:-}
+      MYCO_DEV_GLOBAL_DB_PASSWORD: ${MYCO_DEV_GLOBAL_DB_PASSWORD:-}
+      MYCO_DEV_CELL_DB_PASSWORD: ${MYCO_DEV_CELL_DB_PASSWORD:-}
+    volumes:
+      - ./infra/myco-dev/pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+    depends_on:
+      myco-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-p", "6432"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    networks:
+      - myco-dev
+    mem_limit: 96m
+    restart: unless-stopped
+
+  # The PITR rehearsal (infra/myco-dev/postgres/pitr-rehearsal.sh): runs once when started and exits 0 on a pass.
+  myco-pitr:
+    profiles: ["myco"]
+    image: ${MYCO_DEV_POSTGRES_IMAGE:-postgres:18.6}
+    container_name: myco-pitr
+    user: postgres
+    entrypoint: ["bash", "/pitr-rehearsal.sh"]
+    environment:
+      MYCO_DEV_BACKUP_DB_PASSWORD: ${MYCO_DEV_BACKUP_DB_PASSWORD:-}
+    volumes:
+      - myco_dev_wal_archive:/wal-archive
+      - ./infra/myco-dev/postgres/pitr-rehearsal.sh:/pitr-rehearsal.sh:ro
+    depends_on:
+      myco-postgres:
+        condition: service_healthy
+    networks:
+      - myco-dev
+    mem_limit: 512m
+    restart: "no"
+
+  myco-redis:
+    profiles: ["myco"]
+    image: ${MYCO_DEV_REDIS_IMAGE:-redis:8.10.1}
+    container_name: myco-redis
+    environment:
+      REDISCLI_AUTH: ${MYCO_DEV_REDIS_PASSWORD:-}
+    # Append-only file fsynced every second: a restart keeps what was written (Redis is never MYCO's authority, but a
+    # restart test still expects it back).
+    command: ["sh", "-c", "exec redis-server --appendonly yes --appendfsync everysec --requirepass \"$$REDISCLI_AUTH\" --maxmemory 256mb --maxmemory-policy noeviction"]
+    volumes:
+      - myco_dev_redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    networks:
+      - myco-dev
+    mem_limit: 320m
+    restart: unless-stopped
+
+  myco-neo4j:
+    profiles: ["myco"]
+    image: ${MYCO_DEV_NEO4J_IMAGE:-neo4j:2026.08.1}
+    container_name: myco-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/${MYCO_DEV_NEO4J_PASSWORD:-}
+      NEO4J_server_memory_heap_initial__size: 384m
+      NEO4J_server_memory_heap_max__size: 512m
+      NEO4J_server_memory_pagecache_size: 256m
+      NEO4J_dbms_usage__report_enabled: "false"
+    volumes:
+      - myco_dev_neo4j_data:/data
+      - myco_dev_neo4j_logs:/logs
+    networks:
+      - myco-dev
+    mem_limit: 1280m
+    restart: unless-stopped
+
+  # MinIO, the spec's local object store. MinIO stopped publishing its images in 2025 and archived its repository in
+  # 2026 (minio/minio no longer pulls); Chainguard builds MinIO from the open-source code and publishes it free. The
+  # installer pins the exact build it pulled by digest in .env. It runs as user 65532 (the installer prepares its
+  # volume).
+  myco-minio:
+    profiles: ["myco"]
+    image: ${MYCO_DEV_MINIO_IMAGE:-cgr.dev/chainguard/minio:latest}
+    container_name: myco-minio
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: myco-dev
+      MINIO_ROOT_PASSWORD: ${MYCO_DEV_MINIO_PASSWORD:-}
+      MINIO_BROWSER: "off"
+    volumes:
+      - myco_dev_minio_data:/data
+    networks:
+      - myco-dev
+    mem_limit: 512m
+    restart: unless-stopped
+
+  # Temporal for the cell's durable workflows, on myco-postgres (its own two databases), with the cell's namespace
+  # local-c0001 created at start. The same image JAI's own Temporal already runs on this computer.
+  myco-temporal:
+    profiles: ["myco"]
+    image: ${MYCO_DEV_TEMPORAL_IMAGE:-temporalio/auto-setup:1.28.1}
+    container_name: myco-temporal
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: ${MYCO_DEV_TEMPORAL_DB_PASSWORD:-}
+      POSTGRES_SEEDS: myco-postgres
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+      DEFAULT_NAMESPACE: local-c0001
+      DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml
+      SQL_MAX_CONNS: "10"
+      SQL_MAX_IDLE_CONNS: "2"
+      SQL_VIS_MAX_CONNS: "4"
+      SQL_VIS_MAX_IDLE_CONNS: "1"
+    volumes:
+      - ./infra/myco-dev/temporal:/etc/temporal/config/dynamicconfig:ro
+    depends_on:
+      myco-postgres:
+        condition: service_healthy
+    networks:
+      - myco-dev
+    mem_limit: 768m
+    restart: unless-stopped
+
+  # Redpanda (Kafka protocol) for the cell's event stream. One core and 1 GB, overprovisioned for a laptop; fsync
+  # stays on, so a restart keeps every acknowledged event for the replay test.
+  myco-redpanda:
+    profiles: ["myco"]
+    image: ${MYCO_DEV_REDPANDA_IMAGE:-redpandadata/redpanda:v26.2.6}
+    container_name: myco-redpanda
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --memory=1G
+      - --reserve-memory=0M
+      - --overprovisioned
+      - --check=false
+      - --kafka-addr=internal://0.0.0.0:9092
+      - --advertise-kafka-addr=internal://myco-redpanda:9092
+      - --pandaproxy-addr=internal://0.0.0.0:8082
+      - --advertise-pandaproxy-addr=internal://myco-redpanda:8082
+      - --schema-registry-addr=internal://0.0.0.0:8081
+      - --rpc-addr=0.0.0.0:33145
+      - --advertise-rpc-addr=myco-redpanda:33145
+      - --default-log-level=warn
+    volumes:
+      - myco_dev_redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+    networks:
+      - myco-dev
+    mem_limit: 1536m
+    restart: unless-stopped
+
+  myco-otel:
+    profiles: ["myco"]
+    image: ${MYCO_DEV_OTEL_IMAGE:-otel/opentelemetry-collector-contrib:0.161.0}
+    container_name: myco-otel
+    command: ["--config=/etc/otelcol/collector.yaml"]
+    volumes:
+      - ./infra/myco-dev/otel/collector.yaml:/etc/otelcol/collector.yaml:ro
+      - myco_dev_otel_data:/var/lib/otelcol
+    networks:
+      - myco-dev
+    mem_limit: 256m
     restart: unless-stopped
 
   # Wave 6, documents: Docling (MIT, IBM Research) reads PDFs, Word, PowerPoint, Excel and scans (OCR) into text.
@@ -669,6 +912,23 @@ volumes:
     name: jai_openhands_home
   knowledge_data:
     name: jai_knowledge_data
+  # MYCO's local development stack: named so they survive a change of Compose project name.
+  myco_dev_pg_data:
+    name: myco_dev_pg_data
+  myco_dev_wal_archive:
+    name: myco_dev_wal_archive
+  myco_dev_redis_data:
+    name: myco_dev_redis_data
+  myco_dev_neo4j_data:
+    name: myco_dev_neo4j_data
+  myco_dev_neo4j_logs:
+    name: myco_dev_neo4j_logs
+  myco_dev_minio_data:
+    name: myco_dev_minio_data
+  myco_dev_redpanda_data:
+    name: myco_dev_redpanda_data
+  myco_dev_otel_data:
+    name: myco_dev_otel_data
 
 networks:
   jarv-network:
@@ -694,5 +954,9 @@ networks:
   # JAI's knowledge network (Wave 6), with no route to the internet: the backend, the worker, Docling, the knowledge
   # service and promptfoo. Their model calls reach OpenAI only through the backend's gateway.
   jarv-knowledge:
+    driver: bridge
+    internal: true
+  # MYCO's local development stack and JAI's engineering sandbox only, with no route to the internet.
+  myco-dev:
     driver: bridge
     internal: true

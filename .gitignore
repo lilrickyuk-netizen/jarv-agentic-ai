@@ -108,3 +108,5 @@ services/postiz/social.env
 
 # Third-party skill packs, cloned at pinned commits by scripts/skill-packs.sh (never committed)
 /skill-packs/
+# MYCO dev-stack connection settings with its passwords (scripts/myco-dev-stack.sh writes them)
+infra/myco-dev/connection.env

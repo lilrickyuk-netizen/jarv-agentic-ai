@@ -319,6 +319,17 @@ WORKSPACE_TOOLS: Dict[str, ToolSpec] = {
                                       "media": {"type": "array", "items": {"type": "string"},
                                                 "description": "Paths in the workspace of images or videos"}},
                                      ["text"]), "workspace"),
+    "dev_services": ToolSpec("dev_services", "MYCO's local development stack (PostgreSQL myco-postgres, PgBouncer "
+                             "myco-pgbouncer, Redis myco-redis, Neo4j myco-neo4j, MinIO myco-minio, Temporal "
+                             "myco-temporal, Redpanda myco-redpanda, OpenTelemetry Collector myco-otel), which your "
+                             "shell reaches by name; its connection settings are the MYCO_* variables in your "
+                             "shell (env | grep ^MYCO_). action status: which services run. action restart with "
+                             "service (one of those names, or all to stop and start every one as a host restart "
+                             "does): for restart-persistence tests. action pitr_rehearsal: a real point-in-time "
+                             "restore of myco-postgres from its WAL archive, with the verdict and its log (takes "
+                             "up to 5 minutes). Nothing else on the computer can be touched with it.",
+                             _schema({"action": {"type": "string", "enum": ["status", "restart", "pitr_rehearsal"]},
+                                      "service": {"type": "string"}}, ["action"]), "workspace"),
     "read_document": ToolSpec("read_document", "Read a PDF, Word, PowerPoint, Excel, HTML or scanned document as "
                               "text with its headings and tables (Docling; scans are read with OCR): a file in "
                               "the workspace (path) or a public address (url). Long documents come in parts: pass "
@@ -771,6 +782,8 @@ class AgentToolbox:
             return await rt.social_draft(str(args.get("text", "")), list(args.get("channels") or []) or None, media)
         if name == "social_channels":
             return await rt.social_channels()
+        if name == "dev_services":
+            return await rt.dev_services(str(args.get("action") or ""), str(args.get("service") or ""))
         if name in CODE_TOOLS:
             return await self._code_call(name, args)
         if name == "read_document":

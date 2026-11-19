@@ -113,6 +113,8 @@ TOOL_POLICIES: Dict[str, ToolPolicy] = {p.tool_id: p for p in [
     ToolPolicy("social_channels", "network_read", RISK_LOW, 1),
     # A draft only: Postiz holds it until Richard schedules it himself (publishing stays his hard boundary).
     ToolPolicy("social_draft", "write", RISK_MEDIUM, 2),
+    # MYCO's dev stack only (never JAI's own services): restarts for persistence tests and the PITR rehearsal.
+    ToolPolicy("dev_services", "execute", RISK_MEDIUM, 3),
     # Wave 5: Serena's language servers answer questions about the workspace's code (read-only).
     ToolPolicy("code_overview", "read", RISK_LOW, 1),
     ToolPolicy("code_find_symbol", "read", RISK_LOW, 1),

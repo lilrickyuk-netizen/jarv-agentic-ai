@@ -93,7 +93,9 @@ def test_the_proxy_allows_start_and_stop_and_still_no_general_post():
 
 def test_switched_off_services_never_make_jai_degraded():
     for service in docker_ops.SWITCHABLE:
-        assert service in docker_ops.OPTIONAL_SERVICES, service
+        # A group switch (MYCO's dev stack) is optional through every service it switches.
+        for member in docker_ops.SWITCH_GROUPS.get(service, (service,)):
+            assert member in docker_ops.OPTIONAL_SERVICES, member
     for core in ("backend", "worker", "postgres", "redis", "dashboard", "scheduler"):
         assert core not in docker_ops.OPTIONAL_SERVICES
 

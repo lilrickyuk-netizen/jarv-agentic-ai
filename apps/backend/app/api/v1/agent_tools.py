@@ -36,6 +36,7 @@ JAI_TOOLS = (
     "fetch_url", "read_document", "use_browser", "code_overview", "code_find_symbol", "code_references",
     "code_implementations", "code_diagnostics", "check_package_registry", "check_cve", "asset_licence_check",
     "run_prompt_checks", "generate_image", "make_voiceover", "make_video", "social_channels", "social_draft",
+    "dev_services",
 )
 # Tools that add something: not for the independent Verifier, which only looks and tests.
 ADDS = {"memory_add", "knowledge_graph_add", "generate_image", "make_voiceover", "make_video", "social_draft"}

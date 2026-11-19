@@ -72,6 +72,8 @@ _TOOL_AUTHORITY = {
     "make_video": 2,
     "social_channels": 1,
     "social_draft": 2,
+    # MYCO's dev stack: restarting its services and the PITR rehearsal are build-and-test work (Level 3).
+    "dev_services": 3,
     "code_overview": 1, "code_find_symbol": 1, "code_references": 1, "code_implementations": 1,
     "code_diagnostics": 1,
     "read_document": 1, "use_browser": 2, "knowledge_graph_search": 1, "knowledge_graph_add": 1,
@@ -1189,6 +1191,41 @@ class ToolRuntime:
             return {"success": False, "error": str(exc)}
         await self._record("social_channels", {}, True, f"{len(found)} channel(s) connected")
         return {"success": True, "channels": found}
+
+    async def dev_services(self, action: str, service: str = "") -> Dict[str, Any]:
+        """MYCO's local development stack: its status, a restart of one service or all of them, or the PITR
+        rehearsal. Only the dev stack's own services (docker_ops.MYCO_DEV_STACK); JAI's are never reachable here."""
+        action = (action or "").strip().lower()
+        if action not in ("status", "restart", "pitr_rehearsal"):
+            return {"success": False, "error": "action is status, restart or pitr_rehearsal."}
+        if action == "restart" and not (service or "").strip():
+            return {"success": False, "error": "restart needs service: a dev-stack service name, or all."}
+        denied = await self._enforce("dev_services", content=f"MYCO dev stack {action} {service}".strip())
+        if denied:
+            return denied
+        from app.core.ops import docker_ops
+
+        ops = docker_ops.get_docker_ops()
+        inputs = {"action": action, "service": service} if service else {"action": action}
+        try:
+            if action == "status":
+                result = await ops.dev_status()
+                summary = f"{sum(s['state'] == 'running' for s in result['services'])} of " \
+                          f"{len(result['services'])} running"
+                ok = True
+            elif action == "restart":
+                result = await ops.dev_restart(service)
+                summary, ok = f"restarted {', '.join(result['restarted'])}", True
+            else:
+                result = await ops.dev_pitr_rehearsal()
+                ok = bool(result.get("passed"))
+                summary = "PITR rehearsal passed" if ok else \
+                    f"PITR rehearsal failed (exit {result.get('exit_code')})"
+        except (docker_ops.OpsRefused, docker_ops.OpsUnavailable) as exc:
+            await self._record("dev_services", inputs, False, str(exc)[:200])
+            return {"success": False, "error": str(exc)}
+        await self._record("dev_services", inputs, ok, summary)
+        return {"success": ok, **result}
 
     async def social_draft(self, text: str, channels: Optional[List[str]] = None,
                            media_host_paths: Optional[List[str]] = None) -> Dict[str, Any]:

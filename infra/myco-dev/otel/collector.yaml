@@ -1,0 +1,46 @@
+# MYCO's local OpenTelemetry Collector (spec Phase 2; the Wiring Truth Engine reads journeys from it later).
+# Receives OTLP over gRPC (4317) and HTTP (4318) on MYCO's private network only, keeps its memory bounded, and
+# writes every trace, metric and log to a rotating file in its volume.
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 200
+    spike_limit_mib: 50
+  batch: {}
+
+exporters:
+  debug:
+    verbosity: basic
+  file:
+    path: /var/lib/otelcol/telemetry.jsonl
+    rotation:
+      max_megabytes: 50
+      max_backups: 3
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [file, debug]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [file, debug]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [file, debug]
