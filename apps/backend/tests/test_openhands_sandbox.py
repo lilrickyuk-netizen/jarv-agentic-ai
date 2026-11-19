@@ -72,6 +72,13 @@ def test_the_terminal_stays_in_the_workspace_and_authority_is_never_exceeded():
     # A package's paths are guidance in its brief, never a block: the engineer may fix what the job needs.
     assert check_file("create", ROOT + "/apps/web/page.tsx", SCOPE) is None
     assert check_command("cd apps/api && cd .. && ls", ROOT, SCOPE) is None
+    # 19 November: a path after a `cd` in the same command is read from where that `cd` went.
+    assert check_command("cd packages/contracts && ls ../domain/src", ROOT, SCOPE) is None
+    assert check_command("cd packages/contracts; tsc -p ../domain/tsconfig.json", ROOT, SCOPE) is None
+    assert check_command("pushd apps/api && cat ../../packages/domain/src/index.ts", ROOT, SCOPE) is None
+    assert "outside this mission's workspace" in check_command("cd packages && ls ../../Plexecute", ROOT, SCOPE)
+    assert "outside this mission's workspace" in check_command(f"cd {ROOT}/apps && cat ../../Other/x", ROOT, SCOPE)
+    assert "outside this mission's workspace" in check_command("cd .. && ls Plexecute/../Other", ROOT, SCOPE)
     assert "outside this mission's workspace" in check_file("view", "/host/workspaces/Other/a.md", SCOPE)
     assert "secret" in check_file("view", ROOT + "/.ssh/id_rsa", SCOPE)
     # 8 November: a specialist checking its Node version was refused these; the terminal could already read them.

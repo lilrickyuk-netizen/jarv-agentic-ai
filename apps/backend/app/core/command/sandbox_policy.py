@@ -186,12 +186,22 @@ def check_command(command: str, cwd: str, scope: Scope) -> Optional[str]:
                 if target.strip("'\"") in _DANGEROUS_RM_TARGETS or resolved in ("/", _norm(scope.root)) \
                         or _inside(scope.root, resolved):
                     return f"Not run: deleting {target} would delete the workspace or more."
-    for word in _words(command):
-        resolved = _resolve(word, cwd or scope.root, scope.home)
+    # Paths are read from where the shell is when it reaches them: a `cd` earlier in the same command moves it
+    # (19 November: "cd packages/contracts && tsc ../domain/src" named MYCO's own packages/domain and was refused,
+    # read as if the shell were still in the workspace's top folder).
+    here = cwd or scope.root
+    words = list(_words(command))
+    for i, word in enumerate(words):
+        resolved = _resolve(word, here, scope.home)
         if resolved and _outside(resolved, scope):
             return (f"Not run: {word} is outside this mission's workspace ({scope.root}). Work only inside it; "
                     f"other projects are not this mission's.")
+        if i and words[i - 1] in ("cd", "pushd") and not _SEPARATOR.fullmatch(word) and not word.startswith("-"):
+            here = resolved or _norm(str(PurePosixPath(here) / word.strip("'\"")))
     return None
+
+
+_SEPARATOR = re.compile(r"[;&|()<>]+")
 
 
 # The sandbox's own system folders, which the file editor may view (never change): the toolchain the specialists

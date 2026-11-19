@@ -15702,3 +15702,15 @@ RESULT: Mission 53790d63 (MYCO Phase 2, rewritten from the spec) took over the c
 RESEARCH: Mission 53790d63's card (plan step "Resume: carry on from mission 6d0d04a5 (0 of 40 requirements already done)")
 BLOCKERS: The mission also ran on OpenAI with no OpenAI credit left (Claude was marked out of credit); Richard checks the Anthropic balance
 NEXT TASK: Richard reruns MYCO Phase 2 with "This is a new mission" at the start of the brief
+
+TASK ID: CD-IN-THE-SAME-COMMAND
+TASK NAME: A path after a cd in the same command is read from where the cd went
+STATUS: IN_PROGRESS (install-cd-paths.sh, after MYCO Phase 2's mission finishes)
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/sandbox_policy.py, apps/backend/tests/test_openhands_sandbox.py, BUILD_LEDGER.md
+COMMANDS RUN: the sandbox policy's command check run standalone on the new cases
+TESTS RUN: tests/test_openhands_sandbox.py (and the backend suite)
+RESULT: Mission 0cd14507 (MYCO Phase 2) had "Not run: ../domain/src is outside this mission's workspace" for a command that first went into a package folder: the path named MYCO's own packages/domain, but every path was read as if the shell were still in the workspace's top folder. The check now follows cd and pushd through the command; paths to other projects are still refused, after a cd as before.
+RESEARCH: Mission 0cd14507's card
+BLOCKERS: None
+NEXT TASK: Richard installs it once mission 0cd14507 has finished
