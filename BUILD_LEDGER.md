@@ -15726,3 +15726,15 @@ RESULT: 1. Footage: Pexels has paused new API keys; OpenMontage already reads PI
 RESEARCH: Pexels API page (new key issuance paused); Pixabay API documentation (video search, free key, 24-hour caching, no permanent hotlinking); OpenMontage README (PIXABAY_API_KEY, PEXELS_API_KEY, zero-key archives); Keycloak 26.7.4 and 26.7.5 release notes (26.7.5 has 14 security fixes; the spec pins 26.7.4, so 26.7.5 is Richard's decision for MYCO); OPA v1.20.2; HashiCorp Vault 2.1.1 (Business Source License: allowed for MYCO, which is not a secrets-management product); SPIRE v1.15.4 (two security fixes); MYCO v3.2 spec Phase 3 and section 40
 BLOCKERS: Not reproduced, so not changed: the Verifier's evidence counting for combined test runs and agents ignoring a plan's stop steps (Phase 2 counted correctly); the "Command blocked" approval mid-mission needs its Approvals entry next time it appears; JAI's voice stuck on "Listening" needs voice-diagnose.txt
 NEXT TASK: Richard runs install-footage-phase3.sh, tests footage on a new video, then runs MYCO Phase 3
+
+TASK ID: PLEXECUTE-CONTENT-PLAYBOOK
+TASK NAME: Richard's standing content rules for Plexecute, written down for every content mission
+STATUS: IN_PROGRESS (written 22 November for Richard to review; wired into content missions and the Verifier with the competitor-research and voice-library installer)
+FILES CREATED: infra/plexecute/content-playbook.md
+FILES MODIFIED: BUILD_LEDGER.md
+COMMANDS RUN: None
+TESTS RUN: None yet (the wiring's tests come with the installer)
+RESULT: What Plexecute is in Richard's words; organic content with no call to action (ads only when a brief says "ad"); research before creating (JAI finds the competitor accounts itself, ranks their videos by outlier score and builds each piece from named outliers); never generic; natural voice or none, chosen to fit each piece; every piece different; licensed sources saved; care with health and money claims; Richard's story wins when he gives one.
+RESEARCH: Richard's messages of 22 November
+BLOCKERS: None
+NEXT TASK: Richard reviews it; then the competitor-research, voice-library and playbook installer
