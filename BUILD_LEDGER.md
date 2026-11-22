@@ -15693,7 +15693,7 @@ NEXT TASK: Richard runs install-myco-dev-fixes.sh, then MYCO Phase 2
 
 TASK ID: MISSION-STARTS-FRESH-WHEN-TOLD
 TASK NAME: A brief that says it is new work never takes over an earlier mission's requirements
-STATUS: IN_PROGRESS (install-fresh-missions.sh)
+STATUS: COMPLETE (installed and tested on Richard's machine, 22 November)
 FILES CREATED: None
 FILES MODIFIED: apps/backend/app/core/command/resume.py, apps/backend/tests/test_mission_resume.py, BUILD_LEDGER.md
 COMMANDS RUN: the carry-on rules checked against the 19 November Phase 2 briefs
@@ -15705,7 +15705,7 @@ NEXT TASK: Richard reruns MYCO Phase 2 with "This is a new mission" at the start
 
 TASK ID: CD-IN-THE-SAME-COMMAND
 TASK NAME: A path after a cd in the same command is read from where the cd went
-STATUS: IN_PROGRESS (install-cd-paths.sh, after MYCO Phase 2's mission finishes)
+STATUS: COMPLETE (installed and tested on Richard's machine, 22 November)
 FILES CREATED: None
 FILES MODIFIED: apps/backend/app/core/command/sandbox_policy.py, apps/backend/tests/test_openhands_sandbox.py, BUILD_LEDGER.md
 COMMANDS RUN: the sandbox policy's command check run standalone on the new cases
@@ -15717,7 +15717,7 @@ NEXT TASK: Richard installs it once mission 0cd14507 has finished
 
 TASK ID: FOOTAGE-PHASE3-STACK-AND-FIXES
 TASK NAME: Free licensed footage for the video studio, MYCO's Phase 3 services, folder mounts, video caps, live running cards, git config reads
-STATUS: IN_PROGRESS (install-footage-phase3.sh on Richard's machine)
+STATUS: COMPLETE (installed and tested on Richard's machine, 22 November)
 FILES CREATED: infra/myco-dev/vault/config.hcl, infra/myco-dev/vault/start.sh, infra/sandbox/env/README.md, apps/backend/tests/test_twenty_two_november_fixes.py
 FILES MODIFIED: docker-compose.yml, .gitignore, infra/sandbox/profile.sh (moved from infra/myco-dev/sandbox-profile.sh), infra/myco-dev/postgres/initdb/10-myco-databases.sh and infra/myco-dev/postgres/rehearsal/pitr-rehearsal.sh (moved into folders), apps/backend/app/core/ops/docker_ops.py, apps/backend/app/core/agents/toolbox.py, apps/backend/app/core/command/mission_org.py, apps/backend/app/core/command/sandbox_engine.py, apps/backend/app/core/security.py, apps/backend/app/core/workspaces/fs_inspector.py, apps/backend/app/api/command.py, apps/backend/tests/test_myco_dev_stack.py, apps/backend/tests/test_openmontage_studio.py, apps/backend/tests/test_eight_november_fixes.py, apps/backend/tests/test_extra_rounds_and_safe_reads.py, BUILD_LEDGER.md
 COMMANDS RUN: docker compose config (valid); the Pixabay-key redaction checked on real log lines; every MYCO bind mount checked to be a folder
@@ -15729,7 +15729,7 @@ NEXT TASK: Richard runs install-footage-phase3.sh, tests footage on a new video,
 
 TASK ID: PLEXECUTE-CONTENT-PLAYBOOK
 TASK NAME: Richard's standing content rules for Plexecute, written down for every content mission
-STATUS: IN_PROGRESS (written 22 November for Richard to review; wired into content missions and the Verifier with the competitor-research and voice-library installer)
+STATUS: COMPLETE (wired into content missions and their independent check by RESEARCH-BEFORE-CONTENT; moved to apps/backend/app/core/knowledge/playbooks/plexecute.md)
 FILES CREATED: infra/plexecute/content-playbook.md
 FILES MODIFIED: BUILD_LEDGER.md
 COMMANDS RUN: None
@@ -15738,3 +15738,15 @@ RESULT: What Plexecute is in Richard's words; organic content with no call to ac
 RESEARCH: Richard's messages of 22 November
 BLOCKERS: None
 NEXT TASK: Richard reviews it; then the competitor-research, voice-library and playbook installer
+
+TASK ID: RESEARCH-BEFORE-CONTENT
+TASK NAME: Every content piece is researched from the niche's outliers first and follows its product's playbook
+STATUS: COMPLETE when install-research-skills.sh passes on Richard's machine
+FILES CREATED: apps/backend/app/core/knowledge/content_rules.py, apps/backend/tests/test_research_before_content.py
+FILES MODIFIED: apps/backend/app/core/knowledge/skill_packs.py (two MIT packs pinned: social-media-skills/skills at f28cef2, Melvynx/video-agent-skills at f454292; 20 free research and craft skills for content, marketing, growth, creation and research), apps/backend/app/core/command/mission_org.py (research rule and playbook in every content skill run, the studio, carousels and content or creation specialist missions; the creative check judges the research and the playbook, organic unless the brief says ad), apps/backend/app/core/knowledge/playbooks/plexecute.md (moved from infra/plexecute/content-playbook.md; the black stick-figure series and no music added), services/openhands/Dockerfile (yt-dlp 2026.10.26 in /opt/yt-dlp with yt-dlp-ejs, Node as its JavaScript runtime), services/openhands/tests/test_sandbox.py, scripts/skill-packs.sh, apps/backend/tests/test_openmontage_studio.py, apps/backend/tests/test_voice_and_product_facts.py, BUILD_LEDGER.md
+COMMANDS RUN: git ls-remote and git clone of both packs and yt-dlp; licence and paid-service review of each listed skill
+TESTS RUN: content_rules checked directly here (no backend dependencies in this session); the backend suite and the sandbox's own tests run in Docker by the installer
+RESULT: A content mission now finds the competitor accounts itself from what the product is, lists their Shorts with view counts through yt-dlp (free, no account), scores each video against its creator's median, saves the outliers and a watchlist in .jai/research/, and builds the piece from named outliers, changing topic, words and visuals. Plexecute's playbook goes into the brief and into the independent checker's brief, which marks missing research, a call to action on organic content, a robotic voice, music or a stock quote as unmet. Left out on purpose: outliers, insta-audit and studio-script's TikTok and Instagram route (Treg, paid), vox and codex-images (ElevenLabs and Codex), and every skill built on a paid generator (Synthesia, Suno, Kling, Veo, Runway, HeyGen, Luma, Opus Clip, Descript, Canva, Ideogram, Nano Banana, Flux).
+RESEARCH: Melvynx/video-agent-skills references/viral-research.md (outlier scoring against the channel median, yt-dlp); social-media-skills/skills competitor-analysis and viral-reverse-engineering; yt-dlp's EJS requirement for YouTube (a JavaScript runtime, with deno the default and node selectable by --js-runtimes)
+BLOCKERS: None
+NEXT TASK: The first black stick-figure episode, then five more on different topics; then the natural voice library

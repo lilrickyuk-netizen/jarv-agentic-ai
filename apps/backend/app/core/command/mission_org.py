@@ -85,6 +85,7 @@ CREATIVE_CHECK_STEPS, CREATIVE_CHECK_COST = 40, 2.0
 PRODUCT_FACTS, PRODUCT_ASSETS, PRODUCT_FACTS_DAYS = ".jai/product.md", ".jai/product-assets", 30
 # OpenMontage, the video studio built into the sandbox (skill_packs.STUDIO): its code, its Python environment and a
 # browser for its character renders are in /opt/openmontage; its projects are written into the mission's folder.
+from app.core.knowledge import content_rules  # noqa: E402
 from app.core.knowledge.skill_packs import STUDIO, STUDIO_HOME  # noqa: E402
 
 
@@ -160,6 +161,20 @@ SKILL_RUNS: Dict[str, Dict[str, Any]] = {
     "openmontage": {"model": "lead", "effort": "high", "max_steps": 200, "max_cost": 6.0, "no_takeover": True,
                     "max_seconds": VIDEO_RUN_SECONDS},
 }
+
+# 22 November: content is researched first and follows its product's playbook (knowledge/content_rules). A skill run
+# is content when it makes a video or comes from a content pack; a specialist's mission is when content or creation
+# is the trade.
+CONTENT_PACKS = frozenset({"social-media-skills", "video-agent-skills"})
+CONTENT_SPECIALISTS = frozenset({"content", "creation"})
+
+
+def is_content_skill(skill: Dict[str, Any]) -> bool:
+    from app.core.knowledge.skill_packs import CAROUSEL_SKILL
+
+    return (skill.get("skill") in SKILL_RUNS or skill.get("pack") in CONTENT_PACKS
+            or (skill.get("pack"), skill.get("skill")) == CAROUSEL_SKILL)
+
 
 # The specialists a mission can call on, with each role's working standard. A sub-agent is briefed with its role's
 # standard, so it works the way a senior person in that role works.
@@ -1466,7 +1481,7 @@ class MissionTeam:
         return job
 
     def _builder_package(self, open_ids: List[str], skeleton: bool = False,
-                         kind: Optional[Dict[str, Any]] = None) -> Package:
+                         kind: Optional[Dict[str, Any]] = None, mission: str = "") -> Package:
         """Tier 2: the one builder. With writers after it (tier 3) it only gets the environment and skeleton green.
         When the mission is a specialist's work (kind, from work_type.specialist_for) it works as that specialist."""
         if skeleton:
@@ -1488,11 +1503,12 @@ class MissionTeam:
                      + " and follow them: they are how this work is done well. Work from real, current sources and "
                        "keep to everything the brief says.") if skills else (
                 f" This is {role.lower()} work: do it to that standard, from real, current sources.")
+            makes = (self._content_rules(mission) if kind["specialist"] in CONTENT_SPECIALISTS else "")
             return Package(id=BUILDER_ID, title=f"The {role} does the mission",
                            specialist="builder", acting_as=kind["specialist"],
                            goal=("Do the work the brief asks for and write it into the deliverable, then check "
                                  "the deliverable against every requirement and say what was found against each "
-                                 "target." + start + SPECIALIST_WORK_RULE),
+                                 "target." + start + makes + SPECIALIST_WORK_RULE),
                            owns=[], depends_on=[], requirements=open_ids,
                            done_when="the deliverable is written and checked against each requirement, with what "
                                      "was found against every target",
@@ -1510,7 +1526,7 @@ class MissionTeam:
         if skill["skill"] == STUDIO:
             return Package(
                 id=SKILL_PACKAGE_ID, title=f"The {skill['skill']}{SKILL_TITLE_END}", specialist=skill["sandbox"][0],
-                goal=studio_goal() + VIDEO_TOOLS_READY + self._product_facts(mission),
+                goal=studio_goal() + VIDEO_TOOLS_READY + self._product_facts(mission) + self._content_rules(mission),
                 owns=[], depends_on=[], requirements=open_ids,
                 done_when="the finished video and everything the brief names are in the workspace, and OpenMontage's "
                           "own review and the brief's checks pass", **run)
@@ -1523,7 +1539,8 @@ class MissionTeam:
                   "into your working folder), never from memory or a guess. Install what the skill needs yourself. "
                   "Where the skill says to look at your own output (stills, contact sheets), open the images and "
                   "look, then fix what you see before you finish. Run the brief's own acceptance checks last."
-                  + (VIDEO_TOOLS_READY + self._product_facts(mission) if skill["skill"] in SKILL_RUNS else "")),
+                  + (VIDEO_TOOLS_READY + self._product_facts(mission) if skill["skill"] in SKILL_RUNS else "")
+                  + (self._content_rules(mission) if is_content_skill(skill) else "")),
             owns=[], depends_on=[], requirements=open_ids,
             done_when="every deliverable the brief names exists, passes the brief's checks and meets the skill's own "
                       "quality rules", **run)
@@ -1534,12 +1551,21 @@ class MissionTeam:
         container = fs_inspector.host_to_container(self.workspace_root) if self.workspace_root else None
         return product_facts_rule(container, mission)
 
+    def _content_rules(self, mission: str) -> str:
+        """A content piece's research rule and its product's playbook (content_rules)."""
+        from app.core.knowledge import content_rules
+        from app.core.workspaces import fs_inspector
+
+        root = getattr(self, "workspace_root", None)
+        container = fs_inspector.host_to_container(root) if root else None
+        return content_rules.research_rule(mission, container) + content_rules.playbook_for(mission, root)
+
     def _skill_run(self) -> bool:
         """A one-skill job: the skill's specialist alone, with no Verifier after it."""
         return (len(self.packages) == 1 and self.packages[0].id == SKILL_PACKAGE_ID
                 and self.packages[0].title.endswith(SKILL_TITLE_END))
 
-    def _creative_verifier(self, skill: Dict[str, Any]) -> Package:
+    def _creative_verifier(self, skill: Dict[str, Any], mission: str = "") -> Package:
         """The independent judge of a video skill's work: a checker who did not make it opens the stills and judges
         every requirement, the brief's creative ones as a stranger scrolling past would. 17 November: two BRAG ads
         passed their maker's own check ("emotional: a line about failure is on screen") and Richard found them
@@ -1551,10 +1577,13 @@ class MissionTeam:
             goal=self._creative_check(skill) + (
                 " Then judge the brief's own creative requirements as a stranger scrolling past would, never by "
                 "whether a line or a scene exists: would the first 2 seconds stop them, do they feel what the brief "
-                "asks, are they taught something true, are they entertained, is the destination sold rather than "
-                "the app? A requirement is met only when the stills show it working; say what falls short, scene "
+                "asks, are they taught something true, are they entertained, "
+                + ("is the destination sold rather than the app? " if content_rules.is_ad(mission) else
+                   "is it worth watching for its own sake, with nothing sold? ")
+                + "A requirement is met only when the stills show it working; say what falls short, scene "
                 "by scene, so the next round can fix it. What only Richard can judge (his pride in it, whether he "
-                "posts it) is waiting on him, not unmet."),
+                "posts it) is waiting on him, not unmet."
+                + content_rules.content_check(mission, getattr(self, "workspace_root", None))),
             owns=[], depends_on=[SKILL_PACKAGE_ID], requirements=[],
             done_when="each requirement judged met or unmet with evidence seen in this run's stills",
             model="lead", effort="high", max_steps=CREATIVE_CHECK_STEPS, max_cost=CREATIVE_CHECK_COST)
@@ -1702,7 +1731,7 @@ class MissionTeam:
             if skill is not None:
                 self.packages = [self._skill_package(skill, open_ids, mission)]
                 if skill["skill"] in SKILL_RUNS:
-                    self.packages.append(self._creative_verifier(skill))
+                    self.packages.append(self._creative_verifier(skill, mission))
             elif PARALLEL_ASKED.search(mission or ""):
                 await self._plan(router, mission, known)
                 writers = [p for p in self.packages if p.specialist not in ("environment", "verifier", "builder")]
@@ -1731,7 +1760,7 @@ class MissionTeam:
                     # and Richard's standing rules for the product in its brief. The specification stays the
                     # authority, so the job is not rewritten for it.
                     self.job = await self._builder_job(router, mission)
-                self.packages = [self._builder_package(open_ids, kind=kind)]
+                self.packages = [self._builder_package(open_ids, kind=kind, mission=mission)]
                 # The routing model was asked and was unsure, and nothing matched: the builder has it by default.
                 if not kind and self.route["source"] == "default" and self.route["confidence"] > 0:
                     await alarms.raise_once(

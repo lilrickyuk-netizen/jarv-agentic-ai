@@ -34,6 +34,7 @@ real outlier and a real Plexecute topic.
 ## Voice and look
 
 - Narration is a natural human voice or no voice. Never a robotic text-to-speech voice in a finished piece.
+- No music.
 - Choose the voice and its energy to fit the piece and the outliers it adapts: calm and reflective for a quote
   loop, punchy and fast for a hook-led reel.
 - Every piece has a different subject, story and look from the ones before it.
@@ -49,3 +50,21 @@ backs them, named in the piece's notes.
 ## Richard gives the story
 
 When a brief gives the story, that is the story. The research decides the format, hook and pacing that carry it.
+
+## Series
+
+A series keeps one look and one format across its episodes; each episode takes a different Plexecute topic.
+
+### The black stick-figure series
+
+- Look: a plain black background, white stick figures and simple white line drawings, one accent colour at most.
+  Nothing else on screen: no stock footage, no photos, no gradients, no logo.
+- One mechanism per episode: a single idea about how people grow, plan or follow through, shown as it happens
+  (a habit compounding, a plan collapsing, a streak breaking and restarting), never a quote read out.
+- Data on screen: counters, tallies, timelines or simple charts that make the mechanism visible, every number
+  either illustrative and labelled as such, or sourced in the episode's notes.
+- Hook in the first 2 seconds: the figure is already in the situation; no title card, no intro.
+- Sound: no voice, or a natural human voice that fits the episode. No music.
+- 20 to 45 seconds, 9:16, every frame readable on a phone.
+- No call to action and no end card.
+- Each episode names, in its notes, the outlier videos its hook and pacing adapt.

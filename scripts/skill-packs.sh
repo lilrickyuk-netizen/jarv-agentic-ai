@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Clones JAI's third-party skill packs (Superpowers, UI/UX Pro Max, Marketing Skills, No AI Slop, ECC, BRAG,
 # Hyperframes, and from 17 November Context Engineering, Agent Skills, Compound Engineering, Trail of Bits and
-# Playwright CLI) into skill-packs/<name>, each at the exact commit pinned in
+# Playwright CLI, and from 22 November Social Media Skills and Video Agent Skills) into
+# skill-packs/<name>, each at the exact commit pinned in
 # apps/backend/app/core/knowledge/skill_packs.py (only its skills folder, for a large repository), and checks each
 # one's licence is still the one pinned (MIT; Apache 2.0 for Hyperframes and Playwright CLI; CC BY-SA 4.0 for Trail
 # of Bits). skill-packs/ is git-ignored and mounted read-only into the backend, the worker and the engineering

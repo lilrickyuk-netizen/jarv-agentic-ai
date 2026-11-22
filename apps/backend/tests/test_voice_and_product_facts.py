@@ -62,6 +62,7 @@ def test_only_video_skill_runs_get_the_ready_tools_and_the_fact_file(tmp_path, m
     monkeypatch.setattr(fs_inspector, "host_to_container", lambda host: tmp_path)
     team = SimpleNamespace(workspace_root="C:\\Users\\lilri\\Projects\\PLEXECUTE_IMAGES")
     team._product_facts = lambda mission: mission_org.MissionTeam._product_facts(team, mission)
+    team._content_rules = lambda mission: mission_org.MissionTeam._content_rules(team, mission)
     brag = mission_org.MissionTeam._skill_package(team, {"skill": "brag", "sandbox": ["product_designer"]}, ["R1"],
                                                   "Use your BRAG skill")
     assert mission_org.VIDEO_TOOLS_READY in brag.goal and ".jai/product.md" in brag.goal

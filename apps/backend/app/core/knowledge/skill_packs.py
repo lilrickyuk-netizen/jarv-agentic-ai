@@ -1,7 +1,7 @@
 """
 JAI Backend - Third-party skill packs (Upgrades 1-5)
 
-Twelve skill libraries (MIT; Hyperframes and Playwright CLI under Apache 2.0; Trail of Bits under CC BY-SA 4.0),
+Fourteen skill libraries (MIT; Hyperframes and Playwright CLI under Apache 2.0; Trail of Bits under CC BY-SA 4.0),
 each pinned to one commit and cloned by scripts/skill-packs.sh into the
 git-ignored folder skill-packs/ (mounted read-only into the backend, the worker and the engineering sandbox):
 
@@ -19,6 +19,9 @@ git-ignored folder skill-packs/ (mounted read-only into the backend, the worker 
   (addyosmani/agent-skills), Compound Engineering (EveryInc/compound-engineering-plugin), Trail of Bits'
   differential review (trailofbits/skills) and Playwright CLI (microsoft/playwright-cli), with ECC's
   iterative-retrieval: the skills Richard listed that JAI did not have.
+- 22 November: Social Media Skills (social-media-skills/skills) and Video Agent Skills (Melvynx/video-agent-skills):
+  competitor and outlier research before any content is made, and the hook and short-form script craft. Only their
+  free skills: the ones that need Treg, Codex, ElevenLabs or another paid service are not listed.
 
 Two ways in, both selective so no task pays for knowledge it does not need:
 
@@ -94,6 +97,17 @@ PACKS: Dict[str, Dict[str, str]] = {
     "playwright-cli": {"repo": "microsoft/playwright-cli", "commit": "b21724888b8100b05ef8dee3a92f2bb03bf4dcde",
                        "root": "skills", "title": "Playwright CLI", "publisher": "Microsoft",
                        "copyright": "Copyright (c) Microsoft Corporation", "licence": "Apache-2.0"},
+    # 22 November: research before creating. Frank Heijdenrijk's social media skills: competitor analysis, viral
+    # reverse engineering, hooks and the short-form script formats (MIT). Only the skills that need no paid service.
+    "social-media-skills": {"repo": "social-media-skills/skills", "commit": "f28cef2b7067ec64e79c9d85421c022c06659e03",
+                            "root": "skills", "title": "Social Media Skills", "publisher": "Frank Heijdenrijk",
+                            "copyright": "Copyright (c) 2026 Frank Heijdenrijk"},
+    # Melvyn Malherbe's video agent skills: studio-script's viral research (a niche's outliers scored against each
+    # channel's median, free on YouTube with yt-dlp) and steal (a reference video's pacing and style measured with
+    # yt-dlp and ffmpeg) (MIT). Its skills that need Treg, Codex or ElevenLabs are left out.
+    "video-agent-skills": {"repo": "Melvynx/video-agent-skills", "commit": "f4542923f7f796a1fa0e544cbfc1109d5eec87d8",
+                           "root": "skills", "title": "Video Agent Skills", "publisher": "Melvyn Malherbe",
+                           "copyright": "Copyright (c) 2026 Melvyn Malherbe"},
 }
 
 CODING, DEBUG, DEVOPS, QA, VERIFY = "coding_agent", "debugging_agent", "devops", "qa", "verifier"
@@ -108,6 +122,8 @@ ENGINEERING_ROLES = (CODING, DEBUG, QA, DEVOPS, INFRA, ENVIRONMENT)
 WRITERS = (CONTENT, MARKETING, SALES, SUPPORT, COMMUNITY, DOCS, ONBOARD, PARTNER, GROWTH, BUSINESS)
 # The trades whose specialists do missions as research and writing (work_type's specialists): each is offered every
 # skill tagged for its trade, not only the ones first chosen for the sandbox.
+# The sandbox specialists who make content: each researches the niche before it creates.
+RESEARCH_MAKERS = (CREATION, CONTENT, MARKETING)
 FIELD_ROLES = (MARKETING, GROWTH, SUPPORT, SALES, ONBOARD, COMMUNITY, PARTNER, CONTENT, ANALYTICS, BUSINESS,
                RESEARCH, FINANCE, LEGAL)
 
@@ -289,6 +305,31 @@ SKILLS: List[Dict] = [
     _s("trailofbits", "differential-review", (SECURITY_ROLE, QA, VERIFY), (SECURITY_ROLE, QA)),
     # Browser testing and captures with the playwright-cli command (the sandbox has the shell it needs).
     _s("playwright-cli", "playwright-cli", (QA, CREATION, VERIFY), (QA, CREATION)),
+    # ----- 22 November: research before creating (content_rules.research_rule) -----------------------------------
+    # Richard: "it must search competitors first", "it must not use generic content quotes and stories". The niche's
+    # outliers (views against each creator's median) decide the hook, structure and pacing; the piece changes the
+    # topic, the words and the visuals.
+    _s("video-agent-skills", "studio-script", (CONTENT, MARKETING, GROWTH, CREATION, RESEARCH), RESEARCH_MAKERS),
+    _s("video-agent-skills", "steal", (CREATION, CONTENT, MARKETING), RESEARCH_MAKERS),
+    _s("social-media-skills", "competitor-analysis", (CONTENT, MARKETING, GROWTH, RESEARCH), RESEARCH_MAKERS),
+    _s("social-media-skills", "viral-reverse-engineering", (CONTENT, MARKETING, GROWTH, CREATION), RESEARCH_MAKERS),
+    _s("social-media-skills", "audience-research", (CONTENT, MARKETING, GROWTH, RESEARCH), RESEARCH_MAKERS),
+    _s("social-media-skills", "content-research-and-sourcing", (CONTENT, MARKETING, RESEARCH), RESEARCH_MAKERS),
+    _s("social-media-skills", "trend-jacking", (CONTENT, MARKETING, GROWTH), RESEARCH_MAKERS),
+    _s("social-media-skills", "idea-generation-and-ideation", (CONTENT, MARKETING, CREATION), RESEARCH_MAKERS),
+    _s("social-media-skills", "content-pillars", (CONTENT, MARKETING, GROWTH), (CONTENT, MARKETING)),
+    # The craft: hooks and the short-form formats, written from that research.
+    _s("social-media-skills", "hook-writer", (CONTENT, MARKETING, CREATION), RESEARCH_MAKERS),
+    _s("social-media-skills", "short-form-video-script", (CONTENT, CREATION, MARKETING), RESEARCH_MAKERS),
+    _s("social-media-skills", "scripting-and-storyboarding", (CONTENT, CREATION), RESEARCH_MAKERS),
+    _s("social-media-skills", "tiktok-script", (CONTENT, CREATION, MARKETING), RESEARCH_MAKERS),
+    _s("social-media-skills", "reels-script", (CONTENT, CREATION, MARKETING), RESEARCH_MAKERS),
+    _s("social-media-skills", "youtube-shorts", (CONTENT, CREATION, MARKETING), RESEARCH_MAKERS),
+    _s("social-media-skills", "storytelling-and-narrative", (CONTENT, CREATION, MARKETING), RESEARCH_MAKERS),
+    _s("social-media-skills", "educational-content-and-how-to", (CONTENT, CREATION), RESEARCH_MAKERS),
+    _s("social-media-skills", "infographic-and-data-viz", (CONTENT, CREATION), RESEARCH_MAKERS),
+    _s("social-media-skills", "carousel-writer", (CONTENT, MARKETING, CREATION), RESEARCH_MAKERS),
+    _s("social-media-skills", "caption-writer", (CONTENT, MARKETING, COMMUNITY), (CONTENT, MARKETING)),
 ]
 
 # Files inside a skill folder that are not guidance for the agent (the pack's own tests and evaluation sets).

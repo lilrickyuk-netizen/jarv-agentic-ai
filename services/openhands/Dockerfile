@@ -135,6 +135,17 @@ RUN git clone --quiet https://github.com/calesthio/OpenMontage.git /opt/openmont
         > /etc/profile.d/jai-studio.sh && chmod 644 /etc/profile.d/jai-studio.sh
 ENV OPENMONTAGE_HOME=/opt/openmontage PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 
+# yt-dlp (Unlicense), for research before content is made (22 November): a niche's channels and their Shorts with
+# view counts (the video-agent-skills studio-script viral research and steal skills), free and with no account.
+# Its own environment, so its dependencies never touch the sandbox service's. YouTube needs a JavaScript runtime:
+# the [default] extra brings yt-dlp-ejs, and /etc/yt-dlp.conf points it at the Node installed above.
+ARG YT_DLP_VERSION=2026.10.26
+RUN python3 -m venv /opt/yt-dlp \
+    && /opt/yt-dlp/bin/pip install --no-cache-dir "yt-dlp[default]==${YT_DLP_VERSION}" \
+    && ln -s /opt/yt-dlp/bin/yt-dlp /usr/local/bin/yt-dlp \
+    && printf -- '--js-runtimes node\n' > /etc/yt-dlp.conf \
+    && yt-dlp --version
+
 WORKDIR /jai
 COPY app ./app
 COPY tests ./tests

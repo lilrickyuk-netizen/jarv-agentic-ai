@@ -280,6 +280,20 @@ def test_the_sandbox_can_render_video(tool, flag):
     assert out.returncode == 0, out.stderr[-400:]
 
 
+def test_the_sandbox_has_yt_dlp_for_research_with_node_as_its_javascript_runtime():
+    """Research before content (22 November): yt-dlp lists a niche's channels and their Shorts with view counts.
+    YouTube needs a JavaScript runtime, and the sandbox has Node, so yt-dlp's config names it. No network here."""
+    import shutil
+    import subprocess
+
+    assert shutil.which("yt-dlp"), "yt-dlp is missing from the sandbox"
+    out = subprocess.run(["yt-dlp", "--version"], capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0 and out.stdout.strip().startswith("2026."), out.stderr[-400:]
+    assert "--js-runtimes node" in open("/etc/yt-dlp.conf", encoding="utf-8").read()
+    ejs = subprocess.run(["/opt/yt-dlp/bin/python", "-c", "import yt_dlp_ejs"], capture_output=True, timeout=60)
+    assert ejs.returncode == 0, "yt-dlp-ejs (YouTube's challenge solver) is missing"
+
+
 def test_the_sandbox_renders_a_real_mp4_with_sound(tmp_path):
     import json as _json
     import subprocess
