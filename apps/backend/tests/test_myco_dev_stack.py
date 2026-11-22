@@ -47,18 +47,46 @@ def test_the_stack_is_pinned_to_the_specs_baseline_and_locked_down():
     openhands = services["openhands"]
     assert "myco-dev" in openhands["networks"]
     mounts = [m for m in openhands["volumes"] if isinstance(m, str)]
-    assert "./infra/myco-dev/sandbox-profile.sh:/etc/profile.d/myco-dev.sh:ro" in mounts
-    assert "./infra/myco-dev/connection.env:/etc/myco-dev.env:ro" in mounts
+    assert "./infra/sandbox/profile.sh:/etc/profile.d/jai-sandbox.sh:ro" in mounts
+    assert "./infra/sandbox/env:/etc/jai-sandbox:ro" in mounts
     # ...and in its environment, so a shell that is not a login shell inherits them too.
-    assert {"path": "./infra/myco-dev/connection.env", "required": False} in openhands["env_file"]
-    assert "infra/myco-dev/connection.env" in repo_path(".gitignore").read_text()
+    assert {"path": "./infra/sandbox/env/myco-dev.env", "required": False} in openhands["env_file"]
+    assert {"path": "./infra/sandbox/env/studio.env", "required": False} in openhands["env_file"]
+    assert "infra/sandbox/env/*.env" in repo_path(".gitignore").read_text()
+    assert "/etc/jai-sandbox/*.env" in repo_path("infra", "sandbox", "profile.sh").read_text()
+
+
+def test_the_stack_mounts_folders_so_an_update_never_stops_a_restart():
+    """19 November: myco-postgres would not restart after an update replaced its mounted setup script (Docker keeps
+    the old file); every MYCO service and the sandbox's settings are mounted as folders."""
+    services = _compose()["services"]
+    for name in STACK + (docker_ops.MYCO_PITR,):
+        for mount in services[name].get("volumes", []):
+            source = mount.split(":")[0]
+            if source.startswith("./"):
+                assert repo_path(*source[2:].split("/")).is_dir(), f"{name} mounts the file {source}"
+    assert services["myco-pitr"]["entrypoint"] == ["bash", "/rehearsal/pitr-rehearsal.sh"]
+
+
+def test_phase_three_identity_policy_and_secrets_are_pinned_to_the_spec():
+    services = _compose()["services"]
+    assert services["myco-keycloak"]["image"].endswith(":-quay.io/keycloak/keycloak:26.7.4}")
+    assert services["myco-keycloak"]["environment"]["KC_DB_URL"] == "jdbc:postgresql://myco-postgres:5432/keycloak"
+    assert services["myco-opa"]["image"].endswith(":-openpolicyagent/opa:1.20.2}")
+    assert services["myco-vault"]["image"].endswith(":-hashicorp/vault:2.1.1}")
+    assert services["myco-vault"]["user"] == "vault"
+    start = repo_path("infra", "myco-dev", "vault", "start.sh").read_text()
+    assert "vault operator unseal" in start and "MYCO_DEV_VAULT_UNSEAL_KEY" in start
+    assert 'storage "file"' in repo_path("infra", "myco-dev", "vault", "config.hcl").read_text()
+    for name in ("myco-keycloak", "myco-opa", "myco-vault"):
+        assert name in STACK
 
 
 def test_postgres_archives_its_wal_and_keeps_the_three_authorities_apart():
     postgres = _compose()["services"]["myco-postgres"]
     command = " ".join(postgres["command"])
     assert "archive_mode=on" in command and "/wal-archive/%f" in command and "wal_level=replica" in command
-    init = repo_path("infra", "myco-dev", "postgres", "10-myco-databases.sh").read_text()
+    init = repo_path("infra", "myco-dev", "postgres", "initdb", "10-myco-databases.sh").read_text()
     for database, owner in (("keycloak", "keycloak"), ("myco_global", "myco_global"),
                             ("myco_cell_local_c0001", "myco_cell_c0001")):
         assert f"CREATE DATABASE {database} OWNER {owner};" in init
@@ -66,7 +94,7 @@ def test_postgres_archives_its_wal_and_keeps_the_three_authorities_apart():
     # Function rights are per database: the WAL switch is granted where the rehearsal calls it.
     assert init.index("\\connect myco_pitr_rehearsal") < init.index("GRANT EXECUTE ON FUNCTION pg_switch_wal()")
     assert "PASSWORD '" not in init  # passwords come from the environment, never the file
-    rehearsal = repo_path("infra", "myco-dev", "postgres", "pitr-rehearsal.sh").read_text()
+    rehearsal = repo_path("infra", "myco-dev", "postgres", "rehearsal", "pitr-rehearsal.sh").read_text()
     assert "recovery_target_time" in rehearsal and '"before-backup,kept"' in rehearsal
     # A restored copy must allow at least what the server had (max_connections 150 here, 100 by default).
     assert "for setting in max_connections max_worker_processes max_wal_senders" in rehearsal and "$MATCH" in rehearsal
@@ -135,7 +163,7 @@ def test_the_command_center_switches_the_whole_stack_in_order(monkeypatch):
     ops = fake.ops()
     listed = {s["service"]: s for s in asyncio.run(ops.switches())}
     assert listed["myco"]["label"] == "MYCO dev stack" and listed["myco"]["installed"] is True
-    assert listed["myco"]["on"] is False and listed["myco"]["status"] == "0 of 8 running"
+    assert listed["myco"]["on"] is False and listed["myco"]["status"] == f"0 of {len(STACK)} running"
     asyncio.run(ops.switch("myco", True))
     started = _posts(fake)
     assert started[0] == ("start", "myco-postgres")  # the database first, then the rest together

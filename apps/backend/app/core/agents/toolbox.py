@@ -321,7 +321,8 @@ WORKSPACE_TOOLS: Dict[str, ToolSpec] = {
                                      ["text"]), "workspace"),
     "dev_services": ToolSpec("dev_services", "MYCO's local development stack (PostgreSQL myco-postgres, PgBouncer "
                              "myco-pgbouncer, Redis myco-redis, Neo4j myco-neo4j, MinIO myco-minio, Temporal "
-                             "myco-temporal, Redpanda myco-redpanda, OpenTelemetry Collector myco-otel), which your "
+                             "myco-temporal, Redpanda myco-redpanda, OpenTelemetry Collector myco-otel, Keycloak "
+                             "myco-keycloak, OPA myco-opa, Vault myco-vault), which your "
                              "shell reaches by name; its connection settings are the MYCO_* variables in your "
                              "shell (env | grep ^MYCO_). action status: which services run. action restart with "
                              "service (one of those names, or all to stop and start every one as a host restart "

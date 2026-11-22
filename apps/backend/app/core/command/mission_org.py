@@ -96,7 +96,12 @@ def studio_goal() -> str:
             f"{STUDIO_HOME}/.venv/bin/python from {STUDIO_HOME}, and before anything else run "
             "`export OPENMONTAGE_PROJECTS_DIR=\"<this mission's workspace folder>/openmontage-projects\"` in your "
             "terminal so every project, checkpoint and render is saved in Richard's folder. Use only free tools: no "
-            "paid provider is configured, so never ask for an API key. When the brief names a reference video, "
+            "paid provider is configured, so never ask for an API key. Real footage is free: when PIXABAY_API_KEY "
+            "is set in your shell (Richard's free Pixabay key), OpenMontage's Pixabay source gives licensed stock "
+            "video, and Archive.org, NASA and Wikimedia Commons need no key; use real footage wherever the brief "
+            "or the reference calls for filmed shots, never a clip of a real, identifiable person in a misleading "
+            "way, and save each clip's source page and licence in the project (sources.json beside the render). "
+            "When the brief names a reference video, "
             "start from it the way the guide describes (keep its pacing, hook and structure; change the topic). "
             "Where OpenMontage asks the human to approve a stage, Richard's brief is his answer: if it approves the "
             "creative stages in advance, write that stage's checkpoint with human_approved=True and the brief as "
@@ -146,10 +151,14 @@ RESEARCH = "research"
 SPECIALIST_WORK_RULE = (" Tests and checklists that earlier missions left in this folder are not yours to keep "
                         "passing: write this mission's checks in a new file named for this work, and leave the old "
                         "ones alone.")
+# Video skill runs stay on the lead model (Sonnet) and are never handed to Opus when they stop short. 22 November:
+# an OpenMontage video is capped at 45 minutes and $6 (a run took 55 minutes and was cancelled for taking too long).
+VIDEO_RUN_SECONDS = 45 * 60
 SKILL_RUNS: Dict[str, Dict[str, Any]] = {
-    "brag-slim": {"model": "lead", "effort": "high", "max_steps": 200, "max_cost": 10.0},
-    "brag": {"model": "lead", "effort": "high", "max_steps": 200, "max_cost": 10.0},
-    "openmontage": {"model": "lead", "effort": "high", "max_steps": 200, "max_cost": 10.0},
+    "brag-slim": {"model": "lead", "effort": "high", "max_steps": 200, "max_cost": 10.0, "no_takeover": True},
+    "brag": {"model": "lead", "effort": "high", "max_steps": 200, "max_cost": 10.0, "no_takeover": True},
+    "openmontage": {"model": "lead", "effort": "high", "max_steps": 200, "max_cost": 6.0, "no_takeover": True,
+                    "max_seconds": VIDEO_RUN_SECONDS},
 }
 
 # The specialists a mission can call on, with each role's working standard. A sub-agent is briefed with its role's
@@ -417,6 +426,10 @@ class Package:
     effort: Optional[str] = None
     max_steps: Optional[int] = None
     max_cost: Optional[float] = None
+    # How long its sandbox run may take (seconds); None: the sandbox's own limit (RUN_TIMEOUT_SECONDS).
+    max_seconds: Optional[int] = None
+    # Never handed to Opus when it stops short (video skill runs: the lead model finishes or stops).
+    no_takeover: bool = False
     # What the specialist actually used in the sandbox: each tool with how often, and the skills it loaded.
     tools_used: Dict[str, int] = field(default_factory=dict)
     skills_used: List[str] = field(default_factory=list)
@@ -446,7 +459,7 @@ class Package:
                 "tools_used": dict(self.tools_used), "skills_used": list(self.skills_used), "step": self.step, "steps": self.steps, "owns": self.owns,
                 "depends_on": self.depends_on, "requirements": self.requirements,
                 "doing_now": self.doing, "summary": self.summary[:400], "success": self.success,
-                "tool_calls": self.calls, "cost_usd": round(self.cost_usd, 4)}
+                "tool_calls": self.calls, "cost_usd": round(self.cost_usd, 4), "tokens": int(self.tokens or 0)}
 
 
 def _clean_path(value: Any) -> Optional[str]:
@@ -803,6 +816,9 @@ class MissionTeam:
             phase=phase, usage=self.lead.usage.summary(), started_at=self._started_at, root=self.workspace_root,
             agent_said=next((p.doing for p in reversed(working) if p.doing), None))
         record.update(self.progress_extra())
+        # Everything the mission has used so far, finished packages (already in the lead's count) and the ones still
+        # working, for the running card (22 November: it said "0s · 0 tokens" until the mission ended).
+        record["tokens_so_far"] = int(self.lead.tokens or 0) + sum(int(p.tokens or 0) for p in working)
         try:
             from app.core.command import alarms
 

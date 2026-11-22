@@ -11,6 +11,7 @@ Commands that need Richard's approval are recorded as ``blocked`` and are not
 dispatched until they are approved.
 """
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -119,10 +120,25 @@ async def _owned_task(db: AsyncSession, operator: str, task_id: UUID) -> Task:
     return task
 
 
-def _mission_view(task: Task, events: List[LiveOperationsFeedItem]) -> MissionStatusResponse:
+def _so_far(task: Task, status: str, live: Optional[Dict[str, Any]]) -> tuple:
+    """Time and tokens for the card: the recorded totals once a mission has finished; while it works, the time
+    since it started and the tokens its live progress record has counted (22 November: running cards said
+    "0s · 0 tokens" until the end)."""
+    seconds, tokens = float(task.execution_duration_seconds or 0), int(task.tokens_used or 0)
+    if status in lifecycle.IN_FLIGHT:
+        if task.started_at:
+            started = task.started_at if task.started_at.tzinfo else task.started_at.replace(tzinfo=timezone.utc)
+            seconds = max(seconds, round((datetime.now(timezone.utc) - started).total_seconds()))
+        tokens = max(tokens, int((live or {}).get("tokens_so_far") or 0))
+    return seconds, tokens
+
+
+def _mission_view(task: Task, events: List[LiveOperationsFeedItem],
+                  live: Optional[Dict[str, Any]] = None) -> MissionStatusResponse:
     res = task.result if isinstance(task.result, dict) else {}
     meta = task.meta_data or {}
     status = lifecycle.normalise(task.status)
+    seconds, tokens = _so_far(task, status, live)
     if status in lifecycle.IN_FLIGHT:
         text = "Mission accepted and queued for execution." if status == lifecycle.QUEUED else \
             "JAI is working on this mission."
@@ -137,7 +153,7 @@ def _mission_view(task: Task, events: List[LiveOperationsFeedItem]) -> MissionSt
         response_text=text, plan_steps=list(res.get("plan_steps") or []),
         selected_agents=list(res.get("selected_agents") or []),
         provider=res.get("provider") or meta.get("provider"), model=res.get("model") or meta.get("model"),
-        execution_time=float(task.execution_duration_seconds or 0), tokens_used=int(task.tokens_used or 0),
+        execution_time=float(seconds), tokens_used=int(tokens),
         approval_reason=meta.get("blocked_reason"),
         error=task.error_message if status in (lifecycle.FAILED, lifecycle.PARTIAL) else None,
         finished=status in lifecycle.TERMINAL or status in (lifecycle.BLOCKED, lifecycle.WAITING_ON_APPROVAL),
@@ -199,8 +215,11 @@ async def mission_status(
     task_id: UUID, operator: CurrentUserId, db: AsyncSession = Depends(get_db),
 ) -> MissionStatusResponse:
     """Current state, outcome, status history, and recent events of a mission."""
+    from app.core.command import progress
+
     task = await _owned_task(db, operator, task_id)
-    return _mission_view(task, await _events(db, task.id))
+    live = await progress.load(task.id) if lifecycle.normalise(task.status) in lifecycle.IN_FLIGHT else None
+    return _mission_view(task, await _events(db, task.id), live)
 
 
 @router.post("/tasks/{task_id}/cancel", response_model=MissionStatusResponse)

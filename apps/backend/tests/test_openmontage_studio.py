@@ -48,7 +48,15 @@ def test_the_studio_package_runs_openmontage_in_richards_folder_and_never_publis
     assert "/opt/openmontage/AGENT_GUIDE.md" in package.goal and "OPENMONTAGE_PROJECTS_DIR" in package.goal
     assert "never the publish stage" in package.goal and "never ask for an API key" in package.goal
     assert mission_org.VIDEO_TOOLS_READY in package.goal and ".jai/product.md" in package.goal
-    assert package.max_cost == 10.0
+    # 22 November: a studio video is capped at 45 minutes and $6, and never handed to Opus.
+    assert package.max_cost == 6.0 and package.max_seconds == 45 * 60 and package.no_takeover is True
+    from app.core.command.sandbox_engine import RUN_TIMEOUT_SECONDS, SandboxSpecialist
+
+    runtime_team = SimpleNamespace(runtime=SimpleNamespace(task_id="abcd1234"))
+    assert SandboxSpecialist(runtime_team, package, BRIEF, None).timeout_seconds == 45 * 60
+    other = mission_org.Package(id="P2", title="x", specialist="coding_agent", goal="g", owns=[], depends_on=[],
+                                requirements=[], done_when="d")
+    assert SandboxSpecialist(runtime_team, other, BRIEF, None).timeout_seconds == RUN_TIMEOUT_SECONDS
     check = mission_org.MissionTeam._creative_check(STUDIO_SKILL)
     assert "/opt/openmontage/skills/meta/reviewer.md" in check and "reference video" in check
 
@@ -60,3 +68,20 @@ def test_the_studio_folder_is_a_place_to_work_and_other_projects_are_still_refus
     assert "outside this mission's workspace" in check_command("ls /host/workspaces/Other", "/opt/openmontage",
                                                                SCOPE)
     assert "outside this mission's workspace" in check_command("ls", "/opt", SCOPE)
+
+
+def test_the_studio_uses_free_licensed_footage_and_the_key_never_reaches_a_log():
+    """22 November: Pexels has paused new keys; OpenMontage reads Richard's free Pixabay key (PIXABAY_API_KEY, from
+    the sandbox's studio settings) and the zero-key archives, and keeps each clip's source and licence."""
+    from app.core.command.mission_org import studio_goal
+    from app.core.security import redact_text
+
+    goal = studio_goal()
+    assert "PIXABAY_API_KEY" in goal and "Archive.org, NASA and Wikimedia Commons need no key" in goal
+    assert "sources.json" in goal and "never ask for an API key" in goal
+    key = "12345678-0123456789abcdef0123456789abcdef"
+    for line in (f"GET https://pixabay.com/api/videos/?key={key}&q=storm", f"PIXABAY_API_KEY={key}", f"using {key}"):
+        assert key not in redact_text(line)
+    for kept in ("commit 72c4a9a", "/tmp/jai-check/logs/20261122-093727-3df8768e.log",
+                 "uuid 0190e3a4-1234-7abc-8def-0123456789ab", "https://pixabay.com/api/videos/?q=storm&per_page=5"):
+        assert redact_text(kept) == kept

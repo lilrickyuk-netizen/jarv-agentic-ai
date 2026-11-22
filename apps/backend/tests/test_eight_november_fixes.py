@@ -75,6 +75,13 @@ def test_a_writer_that_stops_short_is_taken_over_once_by_opus(monkeypatch):
     result = asyncio.run(specialist.run([{"id": "R1", "text": "api", "status": "open"}]))
     assert runs == ["claude-sonnet-5-5", "claude-opus-5-5"] and result["success"] is True
     assert "took the package over" in result["answer"] and abs(result["cost_usd"] - 1.9) < 1e-9
+    # 22 November: a video skill run is never handed to Opus; the lead model's own result stands.
+    video = Package("P1", "video", "creation", "g", [], [], ["R1"], "d", model="lead", no_takeover=True)
+    runs.clear()
+    answers[:] = [{"success": False, "answer": "Stopped at the 45-minute limit.", "steps": 90, "cost_usd": 3.0}]
+    result = asyncio.run(sandbox_engine.SandboxSpecialist(team, video, "m", "", poll_seconds=0.01).run(
+        [{"id": "R1", "text": "video", "status": "open"}]))
+    assert runs == ["claude-sonnet-5-5"] and result["success"] is False and "took the package over" not in result["answer"]
 
 
 # ----- each mission's own allowance -------------------------------------------------------------------------------

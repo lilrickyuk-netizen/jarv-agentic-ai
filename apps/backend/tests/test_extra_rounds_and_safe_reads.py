@@ -49,6 +49,14 @@ def test_reading_a_videos_streams_needs_no_approval():
                             "-of json plexecute-who-finishes-the-week.mp4") == "safe"
 
 
+def test_reading_gits_settings_needs_no_approval_and_changing_them_still_does():
+    for read in ("git config --get user.email", "git config --list", "git config -l --show-origin",
+                 "git config --get init.defaultBranch"):
+        assert classify_command(read) == "safe", read
+    for change in ("git config user.email x@y.z", "git config --global user.name JAI", "git config --unset core.x"):
+        assert classify_command(change) != "safe", change
+
+
 def test_an_old_fact_file_is_added_to_and_never_rewritten(tmp_path):
     from app.core.command.mission_org import product_facts_rule
 

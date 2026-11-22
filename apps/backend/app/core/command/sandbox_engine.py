@@ -242,7 +242,10 @@ class SandboxSpecialist:
                  timeout_seconds: float = RUN_TIMEOUT_SECONDS):
         self.team, self.package, self.mission, self.known = team, package, mission, known
         self.client = client
-        self.poll_seconds, self.timeout_seconds = poll_seconds, timeout_seconds
+        # A package with its own time limit (an OpenMontage video: VIDEO_RUN_SECONDS) is stopped at that limit.
+        own = getattr(package, "max_seconds", None)
+        self.poll_seconds = poll_seconds
+        self.timeout_seconds = float(own) if own and timeout_seconds == RUN_TIMEOUT_SECONDS else timeout_seconds
         self.run_id = f"{str(team.runtime.task_id or 'mission')[:8]}-{package.id}-{uuid4().hex[:8]}"
 
     def _brief(self, requirements: List[Dict[str, Any]]) -> str:
@@ -390,6 +393,7 @@ class SandboxSpecialist:
         # round with an honest count, so they are never handed to Opus.
         if (not result.get("success") and self.package.id != "VER" and self.package.specialist != "builder"
                 and getattr(self.package, "model", None) != "research" and model != lead
+                and not getattr(self.package, "no_takeover", False)
                 and lead.startswith("claude") and not _no_credit(result) and await self._allowance(lead) > 0):
             # The specialist stopped short: Opus takes the package over once, from the files already on disk.
             stopped = str(result.get("answer") or "")[:600]
@@ -529,6 +533,9 @@ class SandboxSpecialist:
                         self.package.tools.append(call["tool"])
             self.package.step = int(view.get("steps") or 0)
             self.package.steps = int(view.get("max_iterations") or 0)
+            live = view.get("tokens") or {}
+            if live:  # what this run has used so far, for the running card (replaced by the result's own count)
+                self.package.tokens = int(live.get("input") or 0) + int(live.get("output") or 0)
             if view.get("doing_now"):
                 self.package.doing = str(view["doing_now"])[:300]
             await self.team.save_progress()

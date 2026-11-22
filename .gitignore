@@ -108,5 +108,7 @@ services/postiz/social.env
 
 # Third-party skill packs, cloned at pinned commits by scripts/skill-packs.sh (never committed)
 /skill-packs/
-# MYCO dev-stack connection settings with its passwords (scripts/myco-dev-stack.sh writes them)
+# The sandbox's settings with their passwords and keys (JAI's installers write them; infra/sandbox/env/README.md)
+infra/sandbox/env/*.env
+# The earlier place of the MYCO dev-stack settings (the installers move them)
 infra/myco-dev/connection.env

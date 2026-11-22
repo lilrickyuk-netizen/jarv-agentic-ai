@@ -57,12 +57,15 @@ SWITCHABLE = {
 # order it starts: the database first, what depends on it after. Switched on and off together as "myco"; JAI's
 # specialists restart them and run the PITR rehearsal (myco-pitr) through the dev_services tool, and nothing else.
 MYCO_DEV_STACK = ("myco-postgres", "myco-pgbouncer", "myco-redis", "myco-neo4j", "myco-minio", "myco-temporal",
-                  "myco-redpanda", "myco-otel")
+                  "myco-redpanda", "myco-otel",
+                  # Phase 3: identity, policy and secrets.
+                  "myco-keycloak", "myco-opa", "myco-vault")
 MYCO_PITR = "myco-pitr"
 # A switch that starts or stops several services together: name -> its services in start order.
 SWITCH_GROUPS = {"myco": MYCO_DEV_STACK}
-SWITCHABLE["myco"] = ("MYCO dev stack", "PostgreSQL, PgBouncer, Redis, Neo4j, MinIO, Temporal, Redpanda and the "
-                                        "OpenTelemetry Collector for building MYCO; about 3 GB while it runs")
+SWITCHABLE["myco"] = ("MYCO dev stack", "PostgreSQL, PgBouncer, Redis, Neo4j, MinIO, Temporal, Redpanda, the "
+                                        "OpenTelemetry Collector, Keycloak, OPA and Vault for building MYCO; about "
+                                        "4 GB while it runs")
 OPTIONAL_SERVICES = OPTIONAL_SERVICES | frozenset(MYCO_DEV_STACK) | {MYCO_PITR}
 PITR_SECONDS = 300
 # How long a switched-off service gets to close down before Docker stops it outright.

@@ -49,6 +49,10 @@ _VALUE_PATTERNS = [
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     # Database / broker URLs that embed credentials: scheme://user:pass@host
     re.compile(r"(?i)\b[a-z][a-z0-9+.\-]*://[^\s:/@]+:[^\s:/@]+@[^\s]+"),
+    # Pixabay API keys (digits, a dash, 32 hex characters), and any key or token passed in a URL's query string
+    # (Pixabay's API takes ?key=...).
+    re.compile(r"\b\d{5,12}-[0-9a-f]{24,40}\b"),
+    re.compile(r"(?i)(?<=[?&])(?:key|api_key|apikey|access_token|token|client_secret)=[^&\s'\"]{8,}"),
     # key=secret / key: secret style assignments (.env-ish), value >= 8 chars
     re.compile(r"(?i)(password|passwd|secret|token|api[_-]?key|access[_-]?key|refresh[_-]?token|client[_-]?secret|webhook[_-]?secret)\s*[:=]\s*['\"]?[^\s'\"]{8,}"),
 ]

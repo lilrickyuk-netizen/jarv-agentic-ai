@@ -540,6 +540,8 @@ SAFE_COMMAND_PREFIXES = (
     "git ls-files", "git ls-tree", "git describe", "git check-ignore", "git cat-file",
     "git shortlog", "git blame", "git grep", "git stash list", "git tag -l", "git tag --list",
     "git for-each-ref", "git show-ref", "git verify-tag", "git merge-base", "git name-rev",
+    # Reading git's settings (who commits, which branch is the default); writing them is never on this list.
+    "git config --get", "git config --list", "git config -l",
     "yarn --version", "jq --version", "rg --version", "gcc --version", "make --version",
     "task --version", "task --list", "task --list-all", "terraform version", "terraform -version",
     "helm version", "syft version", "trivy version", "trivy --version", "gitleaks version",
