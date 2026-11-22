@@ -44,7 +44,11 @@ def test_the_sandbox_has_yt_dlp_pinned_in_its_own_environment_with_node_for_yout
     dockerfile = repo_path("services", "openhands", "Dockerfile").read_text()
     assert "ARG YT_DLP_VERSION=2026.10.26" in dockerfile
     assert '"yt-dlp[default]==${YT_DLP_VERSION}"' in dockerfile and "python3 -m venv /opt/yt-dlp" in dockerfile
-    assert "--js-runtimes node" in dockerfile
+    # Deno, yt-dlp's default JavaScript runtime for YouTube, from Deno's official binary image; and yt-dlp with
+    # youtube-transcript-api in OpenMontage's own environment, which its reference-video tools import.
+    assert "ARG DENO_IMAGE=denoland/deno:bin-2.9.8" in dockerfile and "COPY --from=deno /deno /usr/local/bin/deno" in dockerfile
+    assert '/opt/openmontage/.venv/bin/pip install --no-cache-dir "yt-dlp[default]==${YT_DLP_VERSION}"' in dockerfile
+    assert "youtube-transcript-api==${YOUTUBE_TRANSCRIPT_API_VERSION}" in dockerfile
     # After OpenMontage, so adding it never makes Docker rebuild the studio or the toolchain.
     assert dockerfile.index("ARG OPENMONTAGE_COMMIT") < dockerfile.index("ARG YT_DLP_VERSION")
     assert "Social Media Skills and Video Agent Skills" in repo_path("scripts", "skill-packs.sh").read_text()
@@ -86,7 +90,7 @@ def _team(tmp_path, monkeypatch):
     monkeypatch.setattr(fs_inspector, "host_to_container", lambda host: tmp_path)
     team = SimpleNamespace(workspace_root=ROOT)
     team._product_facts = lambda mission: mission_org.MissionTeam._product_facts(team, mission)
-    team._content_rules = lambda mission: mission_org.MissionTeam._content_rules(team, mission)
+    team._content_rules = lambda mission, studio=False: mission_org.MissionTeam._content_rules(team, mission, studio)
     team._creative_check = mission_org.MissionTeam._creative_check
     return mission_org, team
 
@@ -95,6 +99,11 @@ def test_a_studio_video_researches_first_and_carries_the_playbook(tmp_path, monk
     mission_org, team = _team(tmp_path, monkeypatch)
     package = mission_org.MissionTeam._skill_package(team, skill_packs.STUDIO_SKILL, ["R1"], EPISODE)
     assert "RESEARCH BEFORE YOU CREATE" in package.goal and "black stick-figure series" in package.goal
+    # The outliers become OpenMontage's own references: its analyst and research director do the rest, with no
+    # second scriptwriting method competing with its stages, and no music unless the brief asks.
+    assert "skills/meta/video-reference-analyst.md" in package.goal and "VideoAnalysisBrief" in package.goal
+    assert "no music unless the brief asks for music" in package.goal
+    assert "competitor-analysis" not in package.goal and "steal skill" not in package.goal
     check = mission_org.MissionTeam._creative_verifier(team, skill_packs.STUDIO_SKILL, EPISODE)
     assert ".jai/research/" in check.goal and "call to action" in check.goal
     assert "worth watching for its own sake" in check.goal and "destination sold" not in check.goal
@@ -108,7 +117,8 @@ def test_a_carousel_researches_first_and_software_does_not(tmp_path, monkeypatch
     mission_org, team = _team(tmp_path, monkeypatch)
     social = next(e for e in skill_packs.SKILLS if (e["pack"], e["skill"]) == skill_packs.CAROUSEL_SKILL)
     carousel = mission_org.MissionTeam._skill_package(team, social, ["R1"], "Make a carousel for Plexecute")
-    assert "RESEARCH BEFORE YOU CREATE" in carousel.goal
+    assert "RESEARCH BEFORE YOU CREATE" in carousel.goal and "competitor-analysis" in carousel.goal
+    assert "video-reference-analyst" not in carousel.goal
     other = mission_org.MissionTeam._skill_package(team, {"skill": "frontend-design", "sandbox": ["coding_agent"]},
                                                    ["R1"], "Use your frontend-design skill")
     assert "RESEARCH BEFORE YOU CREATE" not in other.goal and "PLAYBOOK" not in other.goal

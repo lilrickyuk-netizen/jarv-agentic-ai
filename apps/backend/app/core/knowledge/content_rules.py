@@ -29,6 +29,8 @@ RESEARCH_DIR = ".jai/research"
 WATCHLIST = f"{RESEARCH_DIR}/watchlist.md"
 # A creator's video is an outlier when it beat that creator's own median by this much.
 OUTLIER_SCORE = 3
+# OpenMontage's own skill for a video given as a reference ("make me something like this").
+STUDIO_REFERENCE_SKILL = "skills/meta/video-reference-analyst.md"
 # Only a brief that asks for an ad gets one; everything else is organic, with no call to action.
 _AD = re.compile(r"\b(?:ad|ads|advert|adverts|advertisement|advertisements|ad films?|paid ads?)\b", re.IGNORECASE)
 _NOT_AD = re.compile(r"\b(?:not|no|never|isn'?t|without)\s+(?:an?\s+)?(?:ad|ads|advert)\b", re.IGNORECASE)
@@ -62,8 +64,10 @@ def playbook_for(mission: str, workspace_root: Optional[str] = None) -> str:
             f"loosen them):{ad}\n\n{text}\n")
 
 
-def research_rule(mission: str = "", container_root: Optional[Path] = None) -> str:
-    """Research before creating: find the niche's outliers, save them, and build the piece from them."""
+def research_rule(mission: str = "", container_root: Optional[Path] = None, studio: bool = False) -> str:
+    """Research before creating: find the niche's outliers, save them, and build the piece from them. In OpenMontage
+    (studio) the outliers become the references its own pipeline starts from: its video-reference-analyst and
+    research director do the rest, so no second scriptwriting method competes with its stages."""
     watch = container_root / WATCHLIST if container_root is not None else None
     start = (f" Start from {WATCHLIST}, the competitor accounts earlier missions found: refresh their latest videos "
              "and add any new account that keeps appearing, never deleting one."
@@ -71,24 +75,39 @@ def research_rule(mission: str = "", container_root: Optional[Path] = None) -> s
              f" No watchlist exists yet: find the accounts yourself from what the product is and what the brief is "
              f"about, and save them to {WATCHLIST} (handle, link, why it is in the niche) for the missions after this "
              "one.")
-    return (
+    find = (
         " RESEARCH BEFORE YOU CREATE, every time: nothing is made from a stock quote, a stock story or a cliché."
-        " Invoke the studio-script skill and do its viral research (references/viral-research.md) on YouTube with "
-        "yt-dlp, which is free and needs no account: search the brief's theme and the product's topics "
+        " First find what is over-performing in this niche, the way the studio-script skill's viral research "
+        "(references/viral-research.md) does it, on YouTube with yt-dlp, which is free and needs no account: search "
+        "the brief's theme and the product's topics "
         "(`yt-dlp --flat-playlist --print \"%(channel_url)s\t%(channel)s\" \"ytsearch30:<theme> shorts\"`), keep "
         "the channels that keep appearing, list each one's last 30 Shorts with their view counts, and score every "
         "video against that channel's own median. Skip its Treg route for TikTok and Instagram: that is a paid "
-        "service JAI does not use. Use the competitor-analysis and viral-reverse-engineering skills to say why each "
-        f"outlier works (hook, structure, pacing, format)." + start +
+        "service JAI does not use." + start +
         f" Write {RESEARCH_DIR}/<today>-<topic>.md: each outlier (a score of {OUTLIER_SCORE} or more) with its link, "
-        "channel, views, the channel's median, its score, its first 3 seconds word for word and why it works, then "
-        "which outliers this piece adapts and what it takes from each. To match an outlier's pacing and look, use "
-        f"the steal skill (yt-dlp and ffmpeg); anything you download of another creator's stays in {RESEARCH_DIR}/ "
-        "for measuring and never goes into the piece. Then make the piece from that file: keep the outliers' hook "
-        "shape, structure and pacing, and change the topic, the words and the visuals. Never copy a line, a clip or "
-        "a frame. When the brief gives the story, that is the story: the research decides how it is told. If "
-        "YouTube cannot be reached, say so in the research file and in your report, and work from the watchlist's "
-        "saved findings; never invent an outlier or a view count.")
+        "channel, views, the channel's median and its score, then which outliers this piece adapts and why.")
+    if studio:
+        make = (
+            f" Then give OpenMontage the one or two strongest outliers that fit this brief as its reference videos "
+            f"(their YouTube links): follow its own {STUDIO_REFERENCE_SKILL} so its video_analyzer opens each link "
+            "(yt-dlp is installed in its environment) and writes the VideoAnalysisBrief, and its research director "
+            "starts from that brief, as its pipeline describes, and makes ours different. When Richard's brief names "
+            "a reference video of its own, that one leads and the outliers support it. Add to the research file what "
+            "OpenMontage took from each reference. Its music plan: no music unless the brief asks for music; sound "
+            "design or silence instead. Keep the references' hook shape, structure and pacing, and change the topic, "
+            "the words and the visuals. Never copy a line, a clip or a frame, and nothing downloaded of another "
+            "creator's goes into the video.")
+    else:
+        make = (
+            " Use the competitor-analysis and viral-reverse-engineering skills to say why each outlier works (hook, "
+            "structure, pacing, format) and put its first 3 seconds, word for word, in the research file. To match "
+            "an outlier's pacing and look, use the steal skill (yt-dlp and ffmpeg); anything you download of another "
+            f"creator's stays in {RESEARCH_DIR}/ for measuring and never goes into the piece. Then make the piece "
+            "from that file: keep the outliers' hook shape, structure and pacing, and change the topic, the words and "
+            "the visuals. Never copy a line, a clip or a frame.")
+    return (find + make + " When the brief gives the story, that is the story: the research decides how it is "
+            "told. If YouTube cannot be reached, say so in the research file and in your report, and work from the "
+            "watchlist's saved findings; never invent an outlier or a view count.")
 
 
 def content_check(mission: str = "", workspace_root: Optional[str] = None) -> str:

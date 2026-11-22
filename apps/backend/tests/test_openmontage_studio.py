@@ -44,7 +44,7 @@ def test_the_studio_package_runs_openmontage_in_richards_folder_and_never_publis
     monkeypatch.setattr(fs_inspector, "host_to_container", lambda host: tmp_path)
     team = SimpleNamespace(workspace_root="C:\\Users\\lilri\\Projects\\PLEXECUTE_IMAGES")
     team._product_facts = lambda mission: mission_org.MissionTeam._product_facts(team, mission)
-    team._content_rules = lambda mission: mission_org.MissionTeam._content_rules(team, mission)
+    team._content_rules = lambda mission, studio=False: mission_org.MissionTeam._content_rules(team, mission, studio)
     package = mission_org.MissionTeam._skill_package(team, STUDIO_SKILL, ["R1"], BRIEF)
     assert "/opt/openmontage/AGENT_GUIDE.md" in package.goal and "OPENMONTAGE_PROJECTS_DIR" in package.goal
     assert "never the publish stage" in package.goal and "never ask for an API key" in package.goal

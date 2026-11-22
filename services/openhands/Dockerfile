@@ -6,9 +6,11 @@
 ARG NODE_IMAGE=node:24.21.0-bookworm-slim
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.17
 ARG MISE_IMAGE=ghcr.io/jdx/mise:2026.10.4
+ARG DENO_IMAGE=denoland/deno:bin-2.9.8
 FROM ${NODE_IMAGE} AS node
 FROM ${UV_IMAGE} AS uv
 FROM ${MISE_IMAGE} AS mise
+FROM ${DENO_IMAGE} AS deno
 
 FROM python:3.12-slim-bookworm
 
@@ -135,16 +137,25 @@ RUN git clone --quiet https://github.com/calesthio/OpenMontage.git /opt/openmont
         > /etc/profile.d/jai-studio.sh && chmod 644 /etc/profile.d/jai-studio.sh
 ENV OPENMONTAGE_HOME=/opt/openmontage PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 
-# yt-dlp (Unlicense), for research before content is made (22 November): a niche's channels and their Shorts with
-# view counts (the video-agent-skills studio-script viral research and steal skills), free and with no account.
-# Its own environment, so its dependencies never touch the sandbox service's. YouTube needs a JavaScript runtime:
-# the [default] extra brings yt-dlp-ejs, and /etc/yt-dlp.conf points it at the Node installed above.
+# Research before content (22 November). yt-dlp (Unlicense) lists a niche's channels and their Shorts with view
+# counts, free and with no account, for the outlier research (video-agent-skills' studio-script viral research), and
+# OpenMontage's own reference-video tools need it too: its video_downloader and video_analyzer import yt_dlp, and its
+# transcript_fetcher imports youtube-transcript-api, neither of which its requirements.txt installs, so a reference
+# given as a link could not be opened. YouTube needs a JavaScript runtime: Deno, yt-dlp's default runtime and the
+# one OpenMontage's install instructions name, copied from Deno's official binary image as its README shows.
+# yt-dlp[default] brings yt-dlp-ejs, YouTube's challenge solver. The command-line yt-dlp has its own environment, so
+# its dependencies never touch the sandbox service's.
 ARG YT_DLP_VERSION=2026.10.26
-RUN python3 -m venv /opt/yt-dlp \
+ARG YOUTUBE_TRANSCRIPT_API_VERSION=1.2.5
+COPY --from=deno /deno /usr/local/bin/deno
+RUN deno --version \
+    && python3 -m venv /opt/yt-dlp \
     && /opt/yt-dlp/bin/pip install --no-cache-dir "yt-dlp[default]==${YT_DLP_VERSION}" \
     && ln -s /opt/yt-dlp/bin/yt-dlp /usr/local/bin/yt-dlp \
-    && printf -- '--js-runtimes node\n' > /etc/yt-dlp.conf \
-    && yt-dlp --version
+    && yt-dlp --version \
+    && /opt/openmontage/.venv/bin/pip install --no-cache-dir "yt-dlp[default]==${YT_DLP_VERSION}" \
+        "youtube-transcript-api==${YOUTUBE_TRANSCRIPT_API_VERSION}" \
+    && chown -R openhands:openhands /opt/openmontage/.venv
 
 WORKDIR /jai
 COPY app ./app

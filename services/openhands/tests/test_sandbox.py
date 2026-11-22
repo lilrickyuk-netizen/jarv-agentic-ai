@@ -280,18 +280,22 @@ def test_the_sandbox_can_render_video(tool, flag):
     assert out.returncode == 0, out.stderr[-400:]
 
 
-def test_the_sandbox_has_yt_dlp_for_research_with_node_as_its_javascript_runtime():
-    """Research before content (22 November): yt-dlp lists a niche's channels and their Shorts with view counts.
-    YouTube needs a JavaScript runtime, and the sandbox has Node, so yt-dlp's config names it. No network here."""
+def test_the_sandbox_and_openmontage_have_yt_dlp_with_deno_for_youtube():
+    """Research before content (22 November): yt-dlp lists a niche's channels and their Shorts with view counts, and
+    OpenMontage's own reference-video tools import yt_dlp and youtube_transcript_api to open a reference given as a
+    link. YouTube needs a JavaScript runtime: Deno, yt-dlp's default. No network here."""
     import shutil
     import subprocess
 
-    assert shutil.which("yt-dlp"), "yt-dlp is missing from the sandbox"
+    for tool in ("yt-dlp", "deno"):
+        assert shutil.which(tool), f"{tool} is missing from the sandbox"
     out = subprocess.run(["yt-dlp", "--version"], capture_output=True, text=True, timeout=60)
     assert out.returncode == 0 and out.stdout.strip().startswith("2026."), out.stderr[-400:]
-    assert "--js-runtimes node" in open("/etc/yt-dlp.conf", encoding="utf-8").read()
-    ejs = subprocess.run(["/opt/yt-dlp/bin/python", "-c", "import yt_dlp_ejs"], capture_output=True, timeout=60)
-    assert ejs.returncode == 0, "yt-dlp-ejs (YouTube's challenge solver) is missing"
+    assert subprocess.run(["deno", "--version"], capture_output=True, timeout=60).returncode == 0
+    for python, modules in (("/opt/yt-dlp/bin/python", "yt_dlp, yt_dlp_ejs"),
+                            ("/opt/openmontage/.venv/bin/python", "yt_dlp, yt_dlp_ejs, youtube_transcript_api")):
+        found = subprocess.run([python, "-c", f"import {modules}"], capture_output=True, text=True, timeout=60)
+        assert found.returncode == 0, f"{python}: {found.stderr[-400:]}"
 
 
 def test_the_sandbox_renders_a_real_mp4_with_sound(tmp_path):

@@ -1526,7 +1526,8 @@ class MissionTeam:
         if skill["skill"] == STUDIO:
             return Package(
                 id=SKILL_PACKAGE_ID, title=f"The {skill['skill']}{SKILL_TITLE_END}", specialist=skill["sandbox"][0],
-                goal=studio_goal() + VIDEO_TOOLS_READY + self._product_facts(mission) + self._content_rules(mission),
+                goal=studio_goal() + VIDEO_TOOLS_READY + self._product_facts(mission)
+                + self._content_rules(mission, studio=True),
                 owns=[], depends_on=[], requirements=open_ids,
                 done_when="the finished video and everything the brief names are in the workspace, and OpenMontage's "
                           "own review and the brief's checks pass", **run)
@@ -1551,14 +1552,16 @@ class MissionTeam:
         container = fs_inspector.host_to_container(self.workspace_root) if self.workspace_root else None
         return product_facts_rule(container, mission)
 
-    def _content_rules(self, mission: str) -> str:
-        """A content piece's research rule and its product's playbook (content_rules)."""
+    def _content_rules(self, mission: str, studio: bool = False) -> str:
+        """A content piece's research rule and its product's playbook (content_rules). In OpenMontage the outliers
+        become its reference videos, and its own stages do the rest."""
         from app.core.knowledge import content_rules
         from app.core.workspaces import fs_inspector
 
         root = getattr(self, "workspace_root", None)
         container = fs_inspector.host_to_container(root) if root else None
-        return content_rules.research_rule(mission, container) + content_rules.playbook_for(mission, root)
+        return (content_rules.research_rule(mission, container, studio=studio)
+                + content_rules.playbook_for(mission, root))
 
     def _skill_run(self) -> bool:
         """A one-skill job: the skill's specialist alone, with no Verifier after it."""
