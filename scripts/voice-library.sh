@@ -41,12 +41,33 @@ get() {
 get test_clean.tar.gz
 get libritts_r_failed_speech_restoration_examples.tar.gz || echo "   (continuing without the list of failed restorations)"
 # The speakers' list (speakers.tsv, SPEAKERS.txt: who is a woman and who a man) is in the documentation archive.
-get doc.tar.gz || { echo "   The dataset's documentation (its list of speakers) could not be downloaded"; exit 1; }
+# 22 November: its copy did not match the dataset's md5sum.txt (the list may be older than the archive), so each
+# mirror's copy is fetched; one matching the md5 sum is used, otherwise a copy two independent mirrors agree on.
+get_doc() {
+  local expected base sum
+  expected=$(md5_of doc.tar.gz)
+  rm -rf "$CACHE/doc-mirrors"; mkdir -p "$CACHE/doc-mirrors"
+  for base in $MIRRORS; do
+    host=$(echo "$base" | cut -d/ -f3)
+    curl -fsL --retry 3 --retry-delay 5 -o "$CACHE/doc-mirrors/$host" "$base/doc.tar.gz" || continue
+    sum=$(md5sum "$CACHE/doc-mirrors/$host" | awk '{print $1}')
+    echo "   doc.tar.gz from $host: $sum"
+    if [ -n "$expected" ] && [ "$sum" = "$expected" ]; then
+      cp "$CACHE/doc-mirrors/$host" "$CACHE/doc.tar.gz"; echo "   doc.tar.gz: checked against md5sum.txt"; return 0
+    fi
+  done
+  agreed=$(md5sum "$CACHE/doc-mirrors"/* 2>/dev/null | awk '{print $1}' | sort | uniq -c | awk '$1 >= 2 {print $2}' | head -1)
+  [ -n "$agreed" ] || return 1
+  cp "$(md5sum "$CACHE/doc-mirrors"/* | awk -v h="$agreed" '$1 == h {print $2; exit}')" "$CACHE/doc.tar.gz"
+  echo "   doc.tar.gz: the same on two mirrors ($agreed), used (md5sum.txt lists ${expected:-none})"
+}
+get_doc || { echo "   The dataset's documentation (its list of speakers) could not be confirmed from two mirrors"; exit 1; }
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/data" "$WORK/failed" "$WORK/out"
 tar xzf "$CACHE/test_clean.tar.gz" -C "$WORK/data"
 mkdir -p "$WORK/data/doc" && tar xzf "$CACHE/doc.tar.gz" -C "$WORK/data/doc"
+echo "   speakers lists in the documentation: $(find "$WORK/data" -name speakers.tsv -o -name SPEAKERS.txt | wc -l)"
 [ -f "$CACHE/libritts_r_failed_speech_restoration_examples.tar.gz" ] && tar xzf "$CACHE/libritts_r_failed_speech_restoration_examples.tar.gz" -C "$WORK/failed"
 python3 scripts/voice_library_pick.py "$WORK/data" "$WORK/failed" "$WORK/out"
 chmod 644 "$WORK/out"/*
