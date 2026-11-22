@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds JAI's narration voice library: real human voices for Chatterbox Turbo to speak in, instead of a reference
 # made with a text-to-speech voice. Downloads LibriTTS-R's clean test set (CC BY 4.0, openslr.org/141, 1.2 GB, kept in
-# ~/.cache/jai-voice-library so a rerun does not download it again), checks it against the dataset's own md5 sums,
+# ~/.cache/jai-voice-library so a rerun does not download it again) and its documentation (the speakers' list),
+# checks them against the dataset's own md5 sums,
 # chooses one clean 9 to 15 second clip per speaker (scripts/voice_library_pick.py, up to 8 women and 8 men across
 # calm to lively), and copies them with library.json into Chatterbox's voice folder (the jai_voice_refs volume),
 # beside George. Run again to rebuild it; nothing else in the folder is touched.
@@ -39,10 +40,13 @@ get() {
 [ -n "$(md5_of test_clean.tar.gz)" ] || { echo "   test_clean.tar.gz is not in the dataset's md5sum.txt"; exit 1; }
 get test_clean.tar.gz
 get libritts_r_failed_speech_restoration_examples.tar.gz || echo "   (continuing without the list of failed restorations)"
+# The speakers' list (speakers.tsv, SPEAKERS.txt: who is a woman and who a man) is in the documentation archive.
+get doc.tar.gz || { echo "   The dataset's documentation (its list of speakers) could not be downloaded"; exit 1; }
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/data" "$WORK/failed" "$WORK/out"
 tar xzf "$CACHE/test_clean.tar.gz" -C "$WORK/data"
+mkdir -p "$WORK/data/doc" && tar xzf "$CACHE/doc.tar.gz" -C "$WORK/data/doc"
 [ -f "$CACHE/libritts_r_failed_speech_restoration_examples.tar.gz" ] && tar xzf "$CACHE/libritts_r_failed_speech_restoration_examples.tar.gz" -C "$WORK/failed"
 python3 scripts/voice_library_pick.py "$WORK/data" "$WORK/failed" "$WORK/out"
 chmod 644 "$WORK/out"/*

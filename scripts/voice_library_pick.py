@@ -53,21 +53,52 @@ def failed(folder: Optional[Path]) -> Set[str]:
     return found
 
 
-def measure(path: Path) -> Optional[Dict[str, float]]:
-    """Seconds, peak and loudness (dBFS) of a 16-bit mono WAV, or None for any other format."""
+def _samples(path: Path):
+    """(rate, samples scaled to 16-bit) of a mono WAV in 16-bit PCM or 32-bit float, read chunk by chunk so a float
+    file (which Python's wave module refuses) is read too; None for anything else."""
+    import struct
+
     try:
-        with wave.open(str(path), "rb") as f:
-            if f.getsampwidth() != 2 or f.getnchannels() != 1:
-                return None
-            rate, frames = f.getframerate(), f.readframes(f.getnframes())
-    except (OSError, wave.Error, EOFError):
+        data = path.read_bytes()
+    except OSError:
         return None
-    samples = array.array("h")
-    samples.frombytes(frames)
-    if sys.byteorder == "big":
-        samples.byteswap()
-    if not samples:
+    if data[:4] != b"RIFF" or data[8:12] != b"WAVE":
         return None
+    pos, fmt, body = 12, None, None
+    while pos + 8 <= len(data):
+        cid, size = data[pos:pos + 4], struct.unpack("<I", data[pos + 4:pos + 8])[0]
+        chunk = data[pos + 8:pos + 8 + size]
+        if cid == b"fmt ":
+            fmt = struct.unpack("<HHIIHH", chunk[:16])
+            if fmt[0] == 0xFFFE and len(chunk) >= 26:  # WAVE_FORMAT_EXTENSIBLE: the real format is in the subformat
+                fmt = (struct.unpack("<H", chunk[24:26])[0],) + fmt[1:]
+        elif cid == b"data":
+            body = chunk
+        pos += 8 + size + (size & 1)
+    if fmt is None or body is None or fmt[1] != 1:
+        return None
+    tag, rate, bits = fmt[0], fmt[2], fmt[5]
+    if tag == 1 and bits == 16:
+        samples = array.array("h")
+        samples.frombytes(body[:len(body) // 2 * 2])
+        if sys.byteorder == "big":
+            samples.byteswap()
+        return rate, samples
+    if tag == 3 and bits == 32:
+        floats = array.array("f")
+        floats.frombytes(body[:len(body) // 4 * 4])
+        if sys.byteorder == "big":
+            floats.byteswap()
+        return rate, array.array("h", (max(-32768, min(32767, int(x * 32767))) for x in floats))
+    return None
+
+
+def measure(path: Path) -> Optional[Dict[str, float]]:
+    """Seconds, peak and loudness (dBFS) of a mono WAV, or None for a format it cannot read."""
+    read = _samples(path)
+    if read is None or not read[1]:
+        return None
+    rate, samples = read
     peak = max(abs(s) for s in samples)
     rms = math.sqrt(sum(s * s for s in samples) / len(samples)) or 1.0
     return {"seconds": len(samples) / rate, "peak": peak, "dbfs": 20 * math.log10(rms / 32768)}
@@ -77,24 +108,44 @@ def pace(words_per_second: float) -> str:
     return "calm" if words_per_second < 2.4 else "steady" if words_per_second < 2.9 else "lively"
 
 
+COUNTS: Dict[str, int] = {}
+
+
+def _count(reason: str) -> None:
+    COUNTS[reason] = COUNTS.get(reason, 0) + 1
+
+
 def candidates(root: Path, refused: Set[str]) -> Dict[str, List[Dict]]:
     by_speaker: Dict[str, List[Dict]] = {}
     for wav in sorted(root.rglob("*.wav")):
         utterance = wav.stem
-        if not UTTERANCE.fullmatch(utterance) or utterance in refused:
+        _count("clips")
+        if not UTTERANCE.fullmatch(utterance):
+            _count("name not an utterance id")
+            continue
+        if utterance in refused:
+            _count("restoration failed")
             continue
         text_file = wav.with_suffix(".normalized.txt")
         if not text_file.is_file():
+            _count("no transcript")
             continue
         text = " ".join(text_file.read_text(encoding="utf-8", errors="replace").split())
         words = len(text.split())
         if words < 18 or not text.endswith((".", "!", "?")):
+            _count("short or unfinished sentence")
             continue
         m = measure(wav)
-        if m is None or not (MIN_SECONDS <= m["seconds"] <= MAX_SECONDS):
+        if m is None:
+            _count("audio format not readable")
+            continue
+        if not (MIN_SECONDS <= m["seconds"] <= MAX_SECONDS):
+            _count("not 9 to 15 seconds")
             continue
         if m["peak"] >= 32000 or not (-30.0 <= m["dbfs"] <= -14.0):  # clipped, too quiet or too loud
+            _count("clipped, too quiet or too loud")
             continue
+        _count("passed")
         by_speaker.setdefault(utterance.split("_")[0], []).append(
             {"path": wav, "utterance": utterance, "text": text, "seconds": round(m["seconds"], 1),
              "words_per_second": round(words / m["seconds"], 2), "dbfs": round(m["dbfs"], 1)})
@@ -112,6 +163,7 @@ def spread(items: List[Dict], count: int) -> List[Dict]:
 
 def choose(root: Path, refused: Set[str]) -> List[Dict]:
     gender = genders(root)
+    COUNTS["speakers with a gender"] = len(gender)
     best = []
     for speaker, clips in candidates(root, refused).items():
         if speaker not in gender:
@@ -129,6 +181,7 @@ def choose(root: Path, refused: Set[str]) -> List[Dict]:
 def main(argv: List[str]) -> int:
     root, failed_dir, out = Path(argv[1]), Path(argv[2]) if argv[2] != "-" else None, Path(argv[3])
     chosen = choose(root, failed(failed_dir))
+    print("   " + ", ".join(f"{k}: {v}" for k, v in COUNTS.items()))
     if len(chosen) < 4:
         print(f"Only {len(chosen)} voices passed the checks; the library was not written.")
         return 1

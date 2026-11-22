@@ -77,6 +77,24 @@ def test_the_picker_keeps_clean_clips_of_the_right_length_across_paces(tmp_path)
     assert not {v["speaker"] for v in voices} & {"101", "102"}  # a failed restoration and a clipped clip
 
 
+def test_the_picker_reads_float_wavs_and_says_why_clips_were_left_out(tmp_path, capsys):
+    """22 November: the first build on Richard's machine kept no voice and could not say why."""
+    import struct
+
+    picker = _picker()
+    floats = array.array("f", (0.2 * math.sin(i / 7) for i in range(24000 * 11)))
+    body = floats.tobytes()
+    fmt = struct.pack("<HHIIHH", 3, 1, 24000, 24000 * 4, 4, 32)
+    path = tmp_path / "float.wav"
+    path.write_bytes(b"RIFF" + struct.pack("<I", 4 + 8 + len(fmt) + 8 + len(body)) + b"WAVE"
+                     + b"fmt " + struct.pack("<I", len(fmt)) + fmt + b"data" + struct.pack("<I", len(body)) + body)
+    measured = picker.measure(path)
+    assert measured is not None and round(measured["seconds"]) == 11 and -20 < measured["dbfs"] < -15
+    (tmp_path / "empty").mkdir()
+    assert picker.main(["pick", str(tmp_path / "empty"), "-", str(tmp_path / "out")]) == 1
+    assert "speakers with a gender: 0" in capsys.readouterr().out
+
+
 def test_the_library_lists_only_voices_whose_clip_is_there(tmp_path):
     root = _library(tmp_path)
     assert [v["id"] for v in voice_library.voices(root)] == ["woman-calm-1089", "man-lively-237"]
