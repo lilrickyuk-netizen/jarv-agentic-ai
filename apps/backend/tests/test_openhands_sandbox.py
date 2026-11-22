@@ -392,6 +392,7 @@ def test_a_video_skill_job_is_one_specialist_running_the_skill_then_an_independe
                     "Use your test-driven-development skill and your systematic-debugging skill"):
         assert named_skill(planned) is None, planned
 
+    monkeypatch.setattr(settings, "VIDEO_INDEPENDENT_CHECK", True)  # Richard turned it off by default (22 November)
     result, done, planned = _sandbox_team(monkeypatch, "Make the Plexecute launch video with your BRAG Slim skill.")
     assert [(d[0], d[1]) for d in done] == [("P1", "creation"), ("VER", "verifier")] and planned == []
     assert "Invoke the brag-slim skill" in done[0][3] and "open the images and look" in done[0][3]

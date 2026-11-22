@@ -389,6 +389,9 @@ class Settings(BaseSettings):
     # and runs on Sonnet (VIDEO_MODEL) at medium effort. A footage video had cost about £10 over three rounds.
     VIDEO_MISSION_MAX_COST_USD: float = Field(default=4.0, ge=0, le=100)
     VIDEO_MODEL: str = "claude-sonnet-5-5"
+    # Richard, 22 November: "im the verifier when it comes to videos". A video's independent checker (a second agent
+    # judging its stills) runs only when this is on; the maker still runs its own technical checks.
+    VIDEO_INDEPENDENT_CHECK: bool = False
     OPENHANDS_FALLBACK_MODEL: str = "gpt-6-sol"
     OPENHANDS_MAX_COST_PER_PACKAGE_USD: float = Field(default=6.0, gt=0, le=100)
     # The one builder (tier 2) works through a whole ledger in one session, so it gets more steps than a specialist;

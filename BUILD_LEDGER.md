@@ -15775,3 +15775,15 @@ RESEARCH: OpenMontage README, Makefile, render_demo.py, remotion-composer; remot
 BLOCKERS: None
 NEXT TASK: Richard decides whether footage videos are made by JAI at all; the stick-figure series continues on its template
 
+TASK ID: RICHARD-JUDGES-VIDEOS
+TASK NAME: No independent checker agent on videos by default: Richard judges them, the maker runs only technical checks
+STATUS: COMPLETE when install-openmontage-proper.sh version 2 passes on Richard's machine
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/config.py (VIDEO_INDEPENDENT_CHECK, off), apps/backend/app/core/command/mission_org.py (the creative checker is added only when it is on; the studio checks its own MP4 with ffprobe and freezedetect and does not grade its own creative work), apps/backend/tests/test_openhands_sandbox.py, apps/backend/tests/test_video_cost.py, BUILD_LEDGER.md
+COMMANDS RUN: None beyond the installer
+TESTS RUN: tests/test_video_cost.py, tests/test_openhands_sandbox.py (with the checker switched on, the video job is still one maker then the checker)
+RESULT: Richard, 22 November: "ditch the verifier phase when it comes to videos... im the verifier". The checker cost up to $2 a video, did not catch episode 1's missing sound or empty frame, and on mission 3ccf69f7 it failed on a provider with no credit and held the mission open. A video mission is now the maker alone (the one-skill path carousels already use), which checks its MP4's tracks, size, length and ending itself; VIDEO_INDEPENDENT_CHECK=true in apps/backend/.env brings the checker back.
+RESEARCH: Missions 9f5fd769, 033cbe6e and 3ccf69f7
+BLOCKERS: None
+NEXT TASK: Episode 2 of the stick-figure series
+

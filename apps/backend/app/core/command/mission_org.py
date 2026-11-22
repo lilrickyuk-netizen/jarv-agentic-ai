@@ -113,7 +113,10 @@ def studio_goal() -> str:
             "skill describes. Never write your own render pipeline, caption timing or text layout system around "
             "them: if one of its tools fails, read its error and fix the setup it names, or use the other composer. "
             "Copy the final MP4 to the workspace folder the brief names. Where the studio's instructions say to look "
-            "at your output, open the stills and look, then fix what you see before you finish. Once the final "
+            "at your output, open the stills and look, then fix what you see before you finish. Before you finish, "
+            "check the final MP4 yourself: ffprobe shows a video and an audio track at the size and length the "
+            "brief asks for, and ffmpeg's freezedetect shows no frozen ending. Richard judges the video himself, so "
+            "report what you made plainly and do not grade your own creative work. Once the final "
             "render passes OpenMontage's review and the brief's checks, stop: never re-source footage or render "
             "again a video that already passes.")
 
@@ -1744,7 +1747,8 @@ class MissionTeam:
             if skill is not None:
                 self.packages = [self._skill_package(skill, open_ids, mission)]
                 if skill["skill"] in SKILL_RUNS:
-                    self.packages.append(self._creative_verifier(skill, mission))
+                    if settings.VIDEO_INDEPENDENT_CHECK:
+                        self.packages.append(self._creative_verifier(skill, mission))
                     # A video's whole mission, every round and its check, within the video allowance.
                     from app.core.command import mission_budget
 

@@ -70,3 +70,14 @@ def test_the_sandbox_installs_openmontages_remotion_composer_from_its_lockfile()
     assert "npx remotion browser ensure" in dockerfile
     assert dockerfile.index("ARG OPENMONTAGE_COMMIT") < dockerfile.index("npx remotion browser ensure")
     assert "Remotion's packages are not installed" not in dockerfile
+
+
+def test_richard_is_the_judge_of_videos_and_the_maker_runs_only_technical_checks():
+    """22 November, Richard: "im the verifier when it comes to videos"."""
+    from app.core.command.mission_org import studio_goal
+
+    assert settings.VIDEO_INDEPENDENT_CHECK is False
+    source = repo_path("apps", "backend", "app", "core", "command", "mission_org.py").read_text()
+    assert "if settings.VIDEO_INDEPENDENT_CHECK:" in source
+    goal = studio_goal()
+    assert "freezedetect" in goal and "Richard judges the video himself" in goal
