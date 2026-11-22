@@ -298,6 +298,15 @@ def test_the_sandbox_and_openmontage_have_yt_dlp_with_deno_for_youtube():
         assert found.returncode == 0, f"{python}: {found.stderr[-400:]}"
 
 
+def test_openmontages_remotion_composer_is_installed_from_its_lockfile():
+    """22 November: OpenMontage's captions, titles and stat cards are its Remotion composer's components."""
+    from pathlib import Path
+
+    composer = Path("/opt/openmontage/remotion-composer")
+    for package in ("remotion", "@remotion/cli", "@remotion/captions"):
+        assert (composer / "node_modules" / package / "package.json").is_file(), package
+
+
 def test_the_sandbox_renders_a_real_mp4_with_sound(tmp_path):
     import json as _json
     import subprocess

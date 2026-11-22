@@ -385,6 +385,10 @@ class Settings(BaseSettings):
     # What one mission may spend on AI across all its rounds, re-queues included (US dollars). When it is reached the
     # mission stops, keeps its progress and reports; "carry on" starts a new allowance. 0 turns the cap off.
     MISSION_MAX_COST_USD: float = Field(default=12.0, ge=0, le=500)
+    # 22 November: a video mission (OpenMontage, BRAG) may spend at most this across all its rounds and its check,
+    # and runs on Sonnet (VIDEO_MODEL) at medium effort. A footage video had cost about £10 over three rounds.
+    VIDEO_MISSION_MAX_COST_USD: float = Field(default=4.0, ge=0, le=100)
+    VIDEO_MODEL: str = "claude-sonnet-5-5"
     OPENHANDS_FALLBACK_MODEL: str = "gpt-6-sol"
     OPENHANDS_MAX_COST_PER_PACKAGE_USD: float = Field(default=6.0, gt=0, le=100)
     # The one builder (tier 2) works through a whole ledger in one session, so it gets more steps than a specialist;

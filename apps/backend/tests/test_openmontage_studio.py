@@ -50,7 +50,10 @@ def test_the_studio_package_runs_openmontage_in_richards_folder_and_never_publis
     assert "never the publish stage" in package.goal and "never ask for an API key" in package.goal
     assert mission_org.VIDEO_TOOLS_READY in package.goal and ".jai/product.md" in package.goal
     # 22 November: a studio video is capped at 45 minutes and $6, and never handed to Opus.
-    assert package.max_cost == 6.0 and package.max_seconds == 45 * 60 and package.no_takeover is True
+    assert package.max_cost == 4.0 and package.max_seconds == 45 * 60 and package.no_takeover is True
+    assert package.model == "claude-sonnet-5-5" and package.effort == "medium"
+    # It composes with OpenMontage's own composers and stops once a render passes (22 November).
+    assert "/opt/openmontage/remotion-composer" in package.goal and "never re-source footage" in package.goal
     from app.core.command.sandbox_engine import RUN_TIMEOUT_SECONDS, SandboxSpecialist
 
     runtime_team = SimpleNamespace(runtime=SimpleNamespace(task_id="abcd1234"))

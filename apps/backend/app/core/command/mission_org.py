@@ -106,9 +106,16 @@ def studio_goal() -> str:
             "start from it the way the guide describes (keep its pacing, hook and structure; change the topic). "
             "Where OpenMontage asks the human to approve a stage, Richard's brief is his answer: if it approves the "
             "creative stages in advance, write that stage's checkpoint with human_approved=True and the brief as "
-            "the reason, and carry on; never the publish stage, because nothing is published or posted. Copy the "
-            "final MP4 to the workspace folder the brief names. Where the studio's instructions say to look at "
-            "your output, open the stills and look, then fix what you see before you finish.")
+            "the reason, and carry on; never the publish stage, because nothing is published or posted. "
+            "Compose with OpenMontage's own composers as its skills describe: its Remotion composer "
+            f"({STUDIO_HOME}/remotion-composer, installed, with its word-level captions, titles, stat cards and "
+            "transitions; read its SCENE_TYPES.md) for footage with captions, or a HyperFrames composition as its "
+            "skill describes. Never write your own render pipeline, caption timing or text layout system around "
+            "them: if one of its tools fails, read its error and fix the setup it names, or use the other composer. "
+            "Copy the final MP4 to the workspace folder the brief names. Where the studio's instructions say to look "
+            "at your output, open the stills and look, then fix what you see before you finish. Once the final "
+            "render passes OpenMontage's review and the brief's checks, stop: never re-source footage or render "
+            "again a video that already passes.")
 
 
 # The sandbox has Hyperframes and its voice (Kokoro through kokoro-onnx, HYPERFRAMES_PYTHON) built in.
@@ -159,8 +166,10 @@ VIDEO_RUN_SECONDS = 45 * 60
 SKILL_RUNS: Dict[str, Dict[str, Any]] = {
     "brag-slim": {"model": "lead", "effort": "high", "max_steps": 200, "max_cost": 10.0, "no_takeover": True},
     "brag": {"model": "lead", "effort": "high", "max_steps": 200, "max_cost": 10.0, "no_takeover": True},
-    "openmontage": {"model": "lead", "effort": "high", "max_steps": 200, "max_cost": 6.0, "no_takeover": True,
-                    "max_seconds": VIDEO_RUN_SECONDS},
+    # 22 November: on Sonnet at medium effort, within the video's own allowance for the whole mission
+    # (VIDEO_MISSION_MAX_COST_USD), after a footage video cost about £10 over three rounds.
+    "openmontage": {"model": settings.VIDEO_MODEL, "effort": "medium", "max_steps": 200, "max_cost": 4.0,
+                    "no_takeover": True, "max_seconds": VIDEO_RUN_SECONDS},
 }
 
 # 22 November: content is researched first and follows its product's playbook (knowledge/content_rules). A skill run
@@ -1736,6 +1745,11 @@ class MissionTeam:
                 self.packages = [self._skill_package(skill, open_ids, mission)]
                 if skill["skill"] in SKILL_RUNS:
                     self.packages.append(self._creative_verifier(skill, mission))
+                    # A video's whole mission, every round and its check, within the video allowance.
+                    from app.core.command import mission_budget
+
+                    await mission_budget.set_allowance(self.runtime.task_id,
+                                                       float(settings.VIDEO_MISSION_MAX_COST_USD or 0))
             elif PARALLEL_ASKED.search(mission or ""):
                 await self._plan(router, mission, known)
                 writers = [p for p in self.packages if p.specialist not in ("environment", "verifier", "builder")]

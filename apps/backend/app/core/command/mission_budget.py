@@ -107,9 +107,25 @@ async def reset(task_id: Any) -> None:
         logger.info(f"mission spend not reset: {exc}")
 
 
+async def own_allowance(task_id: Any) -> float:
+    """The allowance set for this one mission (set_allowance), or 0 when none was set."""
+    if task_id is None:
+        return 0.0
+    try:
+        return float(await asyncio.wait_for((await _redis()).get(ALLOWANCE_KEY.format(task_id)), timeout=2) or 0)
+    except Exception as exc:  # noqa: BLE001
+        logger.info(f"mission allowance not read: {exc}")
+        return 0.0
+
+
 async def left(task_id: Any) -> Optional[float]:
-    """What the mission may still spend, or None when there is no allowance."""
+    """What the mission may still spend, or None when there is no allowance. A mission's own allowance (a video's,
+    the bench's) is the limit when it is lower than the setting: 22 November, a footage video ran three rounds and
+    about £10 under the general $12 allowance."""
     allowance = cap()
+    own = await own_allowance(task_id)
+    if own > 0:
+        allowance = min(allowance, own) if allowance > 0 else own
     if allowance <= 0:
         return None
     return max(0.0, allowance - await spent(task_id))

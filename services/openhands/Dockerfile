@@ -120,8 +120,7 @@ ENV HYPERFRAMES_PYTHON=/opt/kokoro/bin/python
 # studio keeps its working files in its own folder; its projects go into the mission's folder
 # (OPENMONTAGE_PROJECTS_DIR). Its Python environment has its own requirements plus what its reference-video analysis
 # and character renders import (faster-whisper, PySceneDetect with OpenCV, Playwright with its Chromium). It renders
-# through the Hyperframes installed above. Remotion's packages are not installed: its character pipeline renders
-# with Hyperframes.
+# through the Hyperframes installed above. Its Remotion composer is installed further down (22 November).
 ARG OPENMONTAGE_COMMIT=2e003e65fa99a0f329478a2c1cdcf26bc481933a
 RUN git clone --quiet https://github.com/calesthio/OpenMontage.git /opt/openmontage \
     && git -C /opt/openmontage checkout --quiet "${OPENMONTAGE_COMMIT}" \
@@ -156,6 +155,18 @@ RUN deno --version \
     && /opt/openmontage/.venv/bin/pip install --no-cache-dir "yt-dlp[default]==${YT_DLP_VERSION}" \
         "youtube-transcript-api==${YOUTUBE_TRANSCRIPT_API_VERSION}" \
     && chown -R openhands:openhands /opt/openmontage/.venv
+
+# OpenMontage's Remotion composer (22 November): the second half of OpenMontage's own setup (its README: requirements,
+# then `npm install` in remotion-composer), left out on 18 November. Without it the studio had no word-level captions,
+# title, stat-card or transition components, and the agent wrote its own caption and layout code instead, slowly and
+# badly. Installed exactly as its package-lock.json pins it (npm ci), with the headless Chrome Remotion renders with
+# (`remotion browser ensure`), so a render needs no download. OpenMontage's render_demo.py renders its zero-key demos
+# with it. Remotion is free for individuals and companies of up to three people (remotion.dev/license).
+RUN cd /opt/openmontage/remotion-composer \
+    && npm ci --no-audit --no-fund \
+    && npx remotion browser ensure \
+    && npm cache clean --force \
+    && chown -R openhands:openhands /opt/openmontage/remotion-composer
 
 WORKDIR /jai
 COPY app ./app
