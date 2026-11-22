@@ -113,7 +113,8 @@ def studio_goal() -> str:
 
 # The sandbox has Hyperframes and its voice (Kokoro through kokoro-onnx, HYPERFRAMES_PYTHON) built in.
 VIDEO_TOOLS_READY = (" Hyperframes and its voice (npx hyperframes tts) are already installed in this sandbox, with "
-                     "the voice models kept between runs: use them as they are, without installing them again.")
+                     "the voice models kept between runs: use them as they are, without installing them again. "
+                     "Where the brief has a VOICE rule, the narration follows it instead.")
 _REFRESH_FACTS = re.compile(r"\b(refresh|re-?read|update)\b[^.]{0,40}\b(product|site|website)\b", re.IGNORECASE)
 
 
@@ -1561,7 +1562,7 @@ class MissionTeam:
         root = getattr(self, "workspace_root", None)
         container = fs_inspector.host_to_container(root) if root else None
         return (content_rules.research_rule(mission, container, studio=studio)
-                + content_rules.playbook_for(mission, root))
+                + content_rules.voice_rule(studio=studio) + content_rules.playbook_for(mission, root))
 
     def _skill_run(self) -> bool:
         """A one-skill job: the skill's specialist alone, with no Verifier after it."""

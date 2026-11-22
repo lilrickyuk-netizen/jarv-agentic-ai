@@ -1113,8 +1113,11 @@ class ToolRuntime:
         denied = await self._enforce("make_voiceover", path=host_path, content=text)
         if denied:
             return denied
-        from app.core.creative import voiceover
+        from app.core.creative import voice_library, voiceover
 
+        if voice and voice_library.voices() and voice_library.find(voice) is None and voice != "george":
+            listed = ", ".join(v["id"] for v in voice_library.voices())
+            return {"success": False, "error": f"{voice} is not in JAI's voice library. Choose one of: {listed}."}
         try:
             spoken = await voiceover.speak(text, voice)
         except voiceover.VoiceoverUnavailable as exc:
@@ -1128,7 +1131,7 @@ class ToolRuntime:
             self._note_licence(licence_file, (
                 f"\n## {shown_as or host_path}\n- Narration made by JAI on "
                 f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} with Chatterbox Turbo (MIT), voice "
-                f"{spoken['voice']} (reference made with Kokoro, Apache-2.0), {spoken['seconds']}s\n"))
+                f"{spoken['voice']} {voice_library.licence_line(spoken['voice'])}, {spoken['seconds']}s\n"))
         await self._record("make_voiceover", {"path": host_path, "characters": len(text)}, ok,
                            f"{spoken['seconds']}s of narration" if ok else (res.reason or "blocked"))
         return {"success": ok, "path": host_path, "seconds": spoken["seconds"], "voice": spoken["voice"],

@@ -431,6 +431,8 @@ class Settings(BaseSettings):
     VOICE_PIPELINE_STT_MODEL: str = "gpt-transcribe"
     VOICE_PIPELINE_TTS: str = "chatterbox"
     VOICE_PIPELINE_CHATTERBOX_VOICE: str = "george"
+    # Chatterbox's voice folder, read-only, with the voice library's library.json (app/core/creative/voice_library).
+    VOICE_LIBRARY_DIR: str = "/srv/voices"
     VOICE_PIPELINE_KOKORO_VOICE: str = "bm_george"
     VOICE_PIPELINE_SPEED: float = Field(default=1.0, ge=0.5, le=2.0)
     VOICE_PIPELINE_TTS_MODEL: str = "gpt-4o-mini-tts"

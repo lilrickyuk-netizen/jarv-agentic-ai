@@ -293,10 +293,14 @@ WORKSPACE_TOOLS: Dict[str, ToolSpec] = {
                                     "enum": ["general", "news", "it", "science"]},
                                     "time_range": {"type": "string", "enum": ["day", "week", "month", "year"]},
                                     "limit": {"type": "integer"}}, ["query"]), "workspace"),
-    "make_voiceover": ToolSpec("make_voiceover", "Record narration in JAI's own natural British voice (on JAI's GPU, "
-                               "free) and save it in the workspace as a WAV (assets/audio/ by default), recorded in "
-                               "ASSET_LICENCES.md. Write the text exactly as it should be spoken.",
-                               _schema({"text": {"type": "string"}, "path": _PATH_PROP}, ["text"]), "workspace"),
+    "make_voiceover": ToolSpec("make_voiceover", "Record narration in a natural human voice (Chatterbox on JAI's "
+                               "GPU, free) and save it in the workspace as a WAV (assets/audio/ by default), recorded "
+                               "in ASSET_LICENCES.md. voice: one id from JAI's voice library (the content brief lists "
+                               "them, with gender and pace), chosen to fit the piece; without it, JAI's own voice. "
+                               "Write the text exactly as it should be spoken; Chatterbox also reads [laugh] and "
+                               "[chuckle] where a real person would.",
+                               _schema({"text": {"type": "string"}, "path": _PATH_PROP, "voice": {"type": "string"}},
+                                       ["text"]), "workspace"),
     "make_video": ToolSpec("make_video", "Make a short video for social media (15 to 120 seconds): JAI writes the "
                            "narration from your brief, narrates it in its own voice, makes the footage on its GPU (or "
                            "uses Pexels stock footage when set up), adds subtitles and saves the MP4 and its script "
@@ -817,6 +821,7 @@ class AgentToolbox:
                 return await rt.scan_workspace(host)
             if name == "make_voiceover":
                 return await rt.make_voiceover(host, str(args.get("text", "")),
+                                               voice=str(args.get("voice") or "").strip() or None,
                                                licence_file=self._resolve_host("ASSET_LICENCES.md")[0],
                                                shown_as=str(args["path"]))
             if name == "make_video":

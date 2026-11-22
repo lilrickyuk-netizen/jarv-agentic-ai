@@ -110,6 +110,28 @@ def research_rule(mission: str = "", container_root: Optional[Path] = None, stud
             "watchlist's saved findings; never invent an outlier or a view count.")
 
 
+def voice_rule(studio: bool = False, root: Optional[Path] = None) -> str:
+    """The narration: a natural human voice from JAI's voice library, chosen for the piece, or no voice at all."""
+    from app.core.creative import voice_library
+
+    listed = voice_library.describe(root)
+    if not listed:
+        return (" VOICE: JAI's voice library is not built on this computer, so this piece has no voice: tell it with "
+                "on-screen text and sound. Never a text-to-speech voice (Kokoro, Piper, `npx hyperframes tts`).")
+    where = (" In OpenMontage, make each narration section with make_voiceover into the project's "
+             "assets/narration/ folder instead of its tts_selector, record make_voiceover (Chatterbox Turbo) and the "
+             "voice as each narration asset's source_tool, and run its own sample, timing and flat-voice checks on "
+             "them." if studio else "")
+    return (" VOICE: a natural human voice or none. When the piece is narrated, use JAI's make_voiceover tool with "
+            "one voice from JAI's voice library, chosen to fit this piece and the references it adapts (gender, "
+            "pace and energy), and a different voice from the last pieces when another fits as well: " + listed
+            + ". Write the narration the way that person would say it, with [chuckle] or [laugh] only where "
+            "a real person would. Never Kokoro, Piper, `npx hyperframes tts` or another text-to-speech voice in a "
+            "finished piece: they sound robotic." + where + " Check the first section (its length and loudness "
+            "with ffmpeg, and the words against the script) before making the rest, and say in the research file "
+            "which voice was chosen and why.")
+
+
 def content_check(mission: str = "", workspace_root: Optional[str] = None) -> str:
     """What the independent checker of a content piece judges besides the craft."""
     organic = "" if is_ad(mission) else (
@@ -121,5 +143,8 @@ def content_check(mission: str = "", workspace_root: Optional[str] = None) -> st
                 if product_of(mission, workspace_root) else "")
     return (f" Open the newest research file in {RESEARCH_DIR}/: it must list real outliers (each with its link, "
             "views, the channel's median and its score) and say which ones the piece adapts. Missing research, or a "
-            "piece whose hook and structure do not trace back to the outliers it names, is unmet." + organic
+            "piece whose hook and structure do not trace back to the outliers it names, is unmet. A narrated piece "
+            "must be narrated with make_voiceover in a voice from JAI's voice library (ASSET_LICENCES.md names the "
+            "voice); any other text-to-speech voice, or narration with no voice named there, is unmet."
+            + organic
             + playbook)
