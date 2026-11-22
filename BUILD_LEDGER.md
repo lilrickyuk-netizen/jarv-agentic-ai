@@ -15765,7 +15765,7 @@ NEXT TASK: The motivation video for Plexecute's TikTok with a natural voice from
 
 TASK ID: OPENMONTAGE-COMPOSER-AND-VIDEO-COST
 TASK NAME: OpenMontage set up as its README says (its Remotion composer), and a video mission held to one small allowance
-STATUS: COMPLETE when install-openmontage-proper.sh passes on Richard's machine
+STATUS: COMPLETE (22 November on Richard's machine: install-openmontage-proper.sh version 1; OpenMontage's own zero-key demo rendered with the Remotion composer; its emoji glyphs showed as boxes, so the emoji font does not reach Remotion's headless Chrome yet)
 FILES CREATED: apps/backend/tests/test_video_cost.py
 FILES MODIFIED: services/openhands/Dockerfile (remotion-composer installed with npm ci from its package-lock.json and `npx remotion browser ensure`), services/openhands/tests/test_sandbox.py, apps/backend/app/core/command/mission_budget.py (a mission's own allowance limits it, not only role missions), apps/backend/app/core/config.py (VIDEO_MISSION_MAX_COST_USD 4, VIDEO_MODEL Sonnet 5.5), apps/backend/app/core/command/mission_org.py (OpenMontage on Sonnet at medium effort, the video allowance set for the whole mission, compose with OpenMontage's own composers, stop once the render passes), apps/backend/tests/test_openmontage_studio.py, BUILD_LEDGER.md
 COMMANDS RUN: OpenMontage at 2e003e65 read again (README setup and zero-key paths, Makefile demo target, render_demo.py, remotion-composer package.json and package-lock.json, the showcase videos' providers); mission_budget and sandbox_engine read (left() ignored a mission's own allowance)
@@ -15777,7 +15777,7 @@ NEXT TASK: Richard decides whether footage videos are made by JAI at all; the st
 
 TASK ID: RICHARD-JUDGES-VIDEOS
 TASK NAME: No independent checker agent on videos by default: Richard judges them, the maker runs only technical checks
-STATUS: COMPLETE when install-openmontage-proper.sh version 2 passes on Richard's machine
+STATUS: COMPLETE (22 November 20:55 on Richard's machine: version 2 top-up, commit fbf4279; backend 1381 passed, 1 skipped; video allowance $4.0 on claude-sonnet-5-5, independent checker off)
 FILES CREATED: None
 FILES MODIFIED: apps/backend/app/core/config.py (VIDEO_INDEPENDENT_CHECK, off), apps/backend/app/core/command/mission_org.py (the creative checker is added only when it is on; the studio checks its own MP4 with ffprobe and freezedetect and does not grade its own creative work), apps/backend/tests/test_openhands_sandbox.py, apps/backend/tests/test_video_cost.py, BUILD_LEDGER.md
 COMMANDS RUN: None beyond the installer
