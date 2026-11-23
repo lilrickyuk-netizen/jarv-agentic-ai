@@ -28,8 +28,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.task import Task
 
-CARRY_ON = re.compile(r"\b(carry on|carry-on|continue|continuing|resume|pick up|left off|finish|complete the rest)\b",
-                      re.I)
+# "finish" only as an instruction to finish earlier work ("finish it", "finish the rest", "finish the mission"),
+# never a brief's last step: on 23 November four new video briefs ending "...save it and finish" took over the
+# Plexecute folder's old carousel ledger (R1-R10, .jai/check-carousel.sh) and one carried on a cancelled mission.
+CARRY_ON = re.compile(r"\b(carry on|carry-on|continue|continuing|resume|pick up|left off|complete the rest|"
+                      r"finish (?:it|this|that|off|up|the rest|what (?:you|we|it) started|the (?:job|mission|work|"
+                      r"task|edit|video|build)))\b", re.I)
 PHASE = re.compile(r"\bphase\s*(\d+)\b", re.I)
 # Richard saying this mission is new work: it never takes over an earlier mission's requirements (19 November: a
 # rewritten MYCO Phase 2 brief took over the cancelled Phase 2 mission's wrong requirement list, because both named

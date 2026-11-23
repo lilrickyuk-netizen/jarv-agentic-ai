@@ -15799,3 +15799,15 @@ RESEARCH: SYSTRAN/faster-whisper and PyAV-Org/PyAV release history; OpenMontage 
 BLOCKERS: None
 NEXT TASK: Richard runs the balcony edit again
 
+
+TASK ID: AUDIT-BATCH1-NEW-BRIEF-NEVER-TAKES-OLD-LEDGER
+TASK NAME: A new brief ending "...and finish" is never read as carry on, so it never takes over the workspace's old acceptance ledger or a cancelled mission
+STATUS: IN_PROGRESS
+FILES CREATED: apps/backend/tests/test_new_brief_never_takes_an_old_ledger.py
+FILES MODIFIED: apps/backend/app/core/command/resume.py (CARRY_ON: "finish" only as "finish it / the rest / the mission ...")
+COMMANDS RUN: the new pattern checked directly against the four briefs of 23 November and seven carry-on phrasings
+TESTS RUN: the backend suite could not run in this session (package installs blocked); the pattern check passed
+RESULT: Cause found in the read-only audit of 23 November: four video briefs ending "save it ... and finish" matched CARRY_ON, so ledger.requirements took the Plexecute folder's carousel ledger (R1-R10, .jai/check-carousel.sh) and resume.py carried one brief on from cancelled mission a8071ee1.
+RESEARCH: audit report (Claude Doc "JAI audit: what stops it running 24/7"); ledger.py, resume.py, mission_org.py
+BLOCKERS: full backend test run needed before COMPLETE
+NEXT TASK: the rest of audit batch 1 (atelier mode in the video instructions, working files in the project, true model on the card, permanent image settings, playwright-cli and whisper commands), then batches 2 and 3
