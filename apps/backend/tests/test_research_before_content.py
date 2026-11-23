@@ -95,30 +95,42 @@ def _team(tmp_path, monkeypatch):
     return mission_org, team
 
 
-def test_a_studio_video_researches_first_and_carries_the_playbook(tmp_path, monkeypatch):
+def test_a_studio_video_researches_only_when_asked_and_only_with_openmontage(tmp_path, monkeypatch):
+    """23 November: JAI's own research ran on top of OpenMontage's, so an edit spent 25 of 46 minutes researching
+    twice. A studio brief gets no JAI research; OpenMontage researches with its own tools only when asked."""
     mission_org, team = _team(tmp_path, monkeypatch)
     package = mission_org.MissionTeam._skill_package(team, skill_packs.STUDIO_SKILL, ["R1"], EPISODE)
-    assert "RESEARCH BEFORE YOU CREATE" in package.goal and "black stick-figure series" in package.goal
-    # The outliers become OpenMontage's own references: its analyst and research director do the rest, with no
-    # second scriptwriting method competing with its stages, and no music unless the brief asks.
-    assert "skills/meta/video-reference-analyst.md" in package.goal and "VideoAnalysisBrief" in package.goal
-    assert "no music unless the brief asks for music" in package.goal
-    assert "competitor-analysis" not in package.goal and "steal skill" not in package.goal
+    assert "RESEARCH BEFORE YOU CREATE" not in package.goal and "No research" in package.goal
+    assert "black stick-figure series" in package.goal and "No music unless the brief asks" in package.goal
+    asked = mission_org.MissionTeam._skill_package(team, skill_packs.STUDIO_SKILL, ["R1"],
+                                                   EPISODE + " Research the viral videos first.")
+    assert "OpenMontage's own research tools" in asked.goal and "RESEARCH BEFORE YOU CREATE" not in asked.goal
+    assert "competitor-analysis" not in asked.goal and "steal skill" not in asked.goal
     check = mission_org.MissionTeam._creative_verifier(team, skill_packs.STUDIO_SKILL, EPISODE)
-    assert ".jai/research/" in check.goal and "call to action" in check.goal
+    assert ".jai/research/" not in check.goal and "call to action" in check.goal
     assert "worth watching for its own sake" in check.goal and "destination sold" not in check.goal
     assert "black stick-figure series" in check.goal  # the checker reads the playbook it judges by
+    assert ".jai/research/" in mission_org.MissionTeam._creative_verifier(
+        team, skill_packs.STUDIO_SKILL, EPISODE + " Research it first.").goal
     ad = mission_org.MissionTeam._creative_verifier(team, skill_packs.STUDIO_SKILL,
                                                     "Use OpenMontage to make a video ad for Plexecute")
     assert "destination sold" in ad.goal
 
 
-def test_a_carousel_researches_first_and_software_does_not(tmp_path, monkeypatch):
+def test_research_runs_only_when_the_brief_asks():
+    assert content_rules.asks_research("Research the outliers, then make a carousel")
+    assert not content_rules.asks_research("Make a carousel for Plexecute")
+    assert not content_rules.asks_research("Remake it from the reference. No research.")
+
+
+def test_a_carousel_researches_when_asked_and_software_never_does(tmp_path, monkeypatch):
     mission_org, team = _team(tmp_path, monkeypatch)
     social = next(e for e in skill_packs.SKILLS if (e["pack"], e["skill"]) == skill_packs.CAROUSEL_SKILL)
-    carousel = mission_org.MissionTeam._skill_package(team, social, ["R1"], "Make a carousel for Plexecute")
-    assert "RESEARCH BEFORE YOU CREATE" in carousel.goal and "competitor-analysis" in carousel.goal
-    assert "video-reference-analyst" not in carousel.goal
+    asked = mission_org.MissionTeam._skill_package(team, social, ["R1"],
+                                                   "Research the niche, then make a carousel for Plexecute")
+    assert "RESEARCH BEFORE YOU CREATE" in asked.goal and "competitor-analysis" in asked.goal
+    plain = mission_org.MissionTeam._skill_package(team, social, ["R1"], "Make a carousel for Plexecute")
+    assert "RESEARCH BEFORE YOU CREATE" not in plain.goal
     other = mission_org.MissionTeam._skill_package(team, {"skill": "frontend-design", "sandbox": ["coding_agent"]},
                                                    ["R1"], "Use your frontend-design skill")
     assert "RESEARCH BEFORE YOU CREATE" not in other.goal and "PLAYBOOK" not in other.goal
@@ -131,7 +143,10 @@ def test_a_content_specialist_mission_researches_first_and_a_sales_one_does_not(
     monkeypatch.setattr(fs_inspector, "host_to_container", lambda host: tmp_path)
     team = MissionTeam.__new__(MissionTeam)
     team.workspace_root = ROOT
-    content = team._builder_package(["R1"], kind={"specialist": "content", "skills": ()}, mission=EPISODE)
+    content = team._builder_package(["R1"], kind={"specialist": "content", "skills": ()},
+                                    mission=EPISODE + " Research it first.")
     assert "RESEARCH BEFORE YOU CREATE" in content.goal and "black stick-figure series" in content.goal
+    plain = team._builder_package(["R1"], kind={"specialist": "content", "skills": ()}, mission=EPISODE)
+    assert "RESEARCH BEFORE YOU CREATE" not in plain.goal
     sales = team._builder_package(["R1"], kind={"specialist": "sales", "skills": ()}, mission="Build a lead list")
     assert "RESEARCH BEFORE YOU CREATE" not in sales.goal

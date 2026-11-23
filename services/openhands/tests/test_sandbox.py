@@ -307,6 +307,22 @@ def test_openmontages_remotion_composer_is_installed_from_its_lockfile():
         assert (composer / "node_modules" / package / "package.json").is_file(), package
 
 
+def test_openmontages_transcription_reads_a_video_file_itself(tmp_path):
+    """23 November: PyAV 19 removed the option faster-whisper passes when it opens a file, so OpenMontage could not
+    transcribe any video. faster-whisper's own file reader opens a real file here (no model, no network)."""
+    import subprocess
+
+    clip = tmp_path / "tone.mp4"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+                    "-c:a", "aac", str(clip)], check=True, timeout=60)
+    code = ("import av, sys; from faster_whisper.audio import decode_audio; "
+            "assert int(av.__version__.split('.')[0]) < 19, av.__version__; "
+            f"a = decode_audio('{clip}'); assert len(a) > 8000, len(a)")
+    run = subprocess.run(["/opt/openmontage/.venv/bin/python", "-c", code], capture_output=True, text=True,
+                         timeout=120)
+    assert run.returncode == 0, run.stderr[-600:]
+
+
 def test_the_sandbox_renders_a_real_mp4_with_sound(tmp_path):
     import json as _json
     import subprocess

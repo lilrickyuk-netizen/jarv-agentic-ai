@@ -15787,3 +15787,15 @@ RESEARCH: Missions 9f5fd769, 033cbe6e and 3ccf69f7
 BLOCKERS: None
 NEXT TASK: Episode 2 of the stick-figure series
 
+TASK ID: OPENMONTAGE-DIRECT-AND-WORKING-TRANSCRIPTION
+TASK NAME: OpenMontage used through its tools directly, research only when asked, and its transcription working
+STATUS: COMPLETE when install-openmontage-direct.sh passes on Richard's machine
+FILES CREATED: None
+FILES MODIFIED: services/openhands/Dockerfile (PyAV held at 18.1 or later, below 19, in OpenMontage's environment), services/openhands/tests/test_sandbox.py (faster-whisper's own file reader opens a real file), apps/backend/app/core/command/mission_org.py (studio_goal: OpenMontage's tools and craft skills used directly, no stage checkpoints, forms or schema validation, illustrations from generate_image, faster-whisper for speech, VideoCompose remotion_render; research only when the brief asks, with OpenMontage's own tools), apps/backend/app/core/knowledge/content_rules.py (asks_research, studio_research; the checker asks for a research file only when research was asked for), apps/backend/tests/test_research_before_content.py, apps/backend/tests/test_openmontage_studio.py, BUILD_LEDGER.md
+COMMANDS RUN: faster-whisper's tags v1.0.3 to v1.2.1 read (every release calls av.open with metadata_errors and needs av>=11); PyAV's tags v17.0.1 to v19.0.2 read (metadata_errors is in v18.1.1 and earlier and gone from v19.0.0, 29 September 2026); OpenMontage lib/checkpoint.py read (the GATE VIOLATION is raised when a gated stage is written completed without human_approved; there is no setting to turn gates off)
+TESTS RUN: the sandbox's own tests (faster-whisper reads a real file with the installed PyAV); tests/test_research_before_content.py; tests/test_openmontage_studio.py; the backend suite
+RESULT: Mission f9aa4750 (23 November, editing Richard's balcony clip) ran 46 minutes and £1.97 without reaching an edit: about 25 minutes went on research done twice (JAI's own rule, added 22 November, on top of OpenMontage's research stage, which the brief also asked for), and the rest on OpenMontage's staged forms and approval gates. Its transcription also failed on every file (faster-whisper with PyAV 19). Now the studio reads OpenMontage's guide and the craft skills it needs, then uses its tools directly (video_analyzer, faster-whisper, generate_image for illustrations, VideoCompose with the Remotion composer), writing none of the staged forms, which exist for a person approving each stage; the 22 November seven-rules render and today's transcription already used the tools this way. JAI adds no research to OpenMontage missions; OpenMontage researches with its own tools only when a brief asks, and other content missions research only when asked. PyAV is held below 19 so faster-whisper reads files again.
+RESEARCH: SYSTRAN/faster-whisper and PyAV-Org/PyAV release history; OpenMontage 2e003e65 lib/checkpoint.py; BUILD_LEDGER OPENMONTAGE studio entry (18 November: gates answered by Richard's brief)
+BLOCKERS: None
+NEXT TASK: Richard runs the balcony edit again
+

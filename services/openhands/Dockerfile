@@ -142,7 +142,9 @@ ENV OPENMONTAGE_HOME=/opt/openmontage PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwrigh
 # transcript_fetcher imports youtube-transcript-api, neither of which its requirements.txt installs, so a reference
 # given as a link could not be opened. YouTube needs a JavaScript runtime: Deno, yt-dlp's default runtime and the
 # one OpenMontage's install instructions name, copied from Deno's official binary image as its README shows.
-# yt-dlp[default] brings yt-dlp-ejs, YouTube's challenge solver. The command-line yt-dlp has its own environment, so
+# yt-dlp[default] brings yt-dlp-ejs, YouTube's challenge solver. PyAV is held below 19 (23 November): PyAV 19.0.0
+# (29 September 2026) removed av.open's metadata_errors option, which every faster-whisper release up to 1.2.1 passes
+# when it reads a file, so OpenMontage's transcription failed on every video; PyAV 18.1 still has it. The command-line yt-dlp has its own environment, so
 # its dependencies never touch the sandbox service's.
 ARG YT_DLP_VERSION=2026.10.26
 ARG YOUTUBE_TRANSCRIPT_API_VERSION=1.2.5
@@ -153,7 +155,7 @@ RUN deno --version \
     && ln -s /opt/yt-dlp/bin/yt-dlp /usr/local/bin/yt-dlp \
     && yt-dlp --version \
     && /opt/openmontage/.venv/bin/pip install --no-cache-dir "yt-dlp[default]==${YT_DLP_VERSION}" \
-        "youtube-transcript-api==${YOUTUBE_TRANSCRIPT_API_VERSION}" \
+        "youtube-transcript-api==${YOUTUBE_TRANSCRIPT_API_VERSION}" "av>=18.1,<19" \
     && chown -R openhands:openhands /opt/openmontage/.venv
 
 # OpenMontage's Remotion composer (22 November): the second half of OpenMontage's own setup (its README: requirements,

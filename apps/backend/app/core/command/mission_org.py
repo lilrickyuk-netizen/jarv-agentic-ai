@@ -90,35 +90,46 @@ from app.core.knowledge.skill_packs import STUDIO, STUDIO_HOME  # noqa: E402
 
 
 def studio_goal() -> str:
-    """The studio specialist's job: OpenMontage's own agent workflow, run end to end inside the mission's folder."""
-    return (f"Make this mission's video with OpenMontage, the video studio installed at {STUDIO_HOME}, following its "
-            f"own instructions yourself from start to finish: read {STUDIO_HOME}/AGENT_GUIDE.md first and do what it "
-            "says (choose the pipeline, read its manifest and stage skills, use its tools). Run its Python as "
+    """The studio specialist's job: OpenMontage's tools used directly inside the mission's folder.
+
+    23 November: missions spent most of their time and money on OpenMontage's staged paperwork (proposal, research
+    brief, scene plan and edit forms, each validated against its schemas, and approval gates that raise "GATE
+    VIOLATION" when a stage is written completed without a human's approval), and one edit ran 46 minutes and £1.97
+    without reaching the render. Those stages exist for a person approving each step at a keyboard; Richard's brief
+    is his approval. So the studio uses OpenMontage's tools and craft skills directly and writes none of its forms."""
+    return (f"Make this mission's video with OpenMontage, the video studio installed at {STUDIO_HOME}. Read "
+            f"{STUDIO_HOME}/AGENT_GUIDE.md and only the skills this job needs for their craft guidance (the "
+            "composer's SCENE_TYPES.md, the reviewer, the stage skill for this kind of video), then do the work "
+            "with OpenMontage's tools directly. Do not run its staged pipeline: write no stage checkpoints, no "
+            "proposal, research brief, script, scene plan or decision-log files, and validate nothing against its "
+            "schemas; those exist for a person approving each stage, and Richard's brief is his approval, so never "
+            "stop for one, and never the publish stage, because nothing is published or posted. No music unless "
+            "the brief asks for music: sound design or silence instead. Run its Python as "
             f"{STUDIO_HOME}/.venv/bin/python from {STUDIO_HOME}, and before anything else run "
             "`export OPENMONTAGE_PROJECTS_DIR=\"<this mission's workspace folder>/openmontage-projects\"` in your "
-            "terminal so every project, checkpoint and render is saved in Richard's folder. Use only free tools: no "
+            "terminal so every project file and render is saved in Richard's folder. Use only free tools: no "
             "paid provider is configured, so never ask for an API key. Real footage is free: when PIXABAY_API_KEY "
             "is set in your shell (Richard's free Pixabay key), OpenMontage's Pixabay source gives licensed stock "
             "video, and Archive.org, NASA and Wikimedia Commons need no key; use real footage wherever the brief "
             "or the reference calls for filmed shots, never a clip of a real, identifiable person in a misleading "
             "way, and save each clip's source page and licence in the project (sources.json beside the render). "
-            "When the brief names a reference video, "
-            "start from it the way the guide describes (keep its pacing, hook and structure; change the topic). "
-            "Where OpenMontage asks the human to approve a stage, Richard's brief is his answer: if it approves the "
-            "creative stages in advance, write that stage's checkpoint with human_approved=True and the brief as "
-            "the reason, and carry on; never the publish stage, because nothing is published or posted. "
-            "Compose with OpenMontage's own composers as its skills describe: its Remotion composer "
+            "Illustrations and drawn scenes come from JAI's generate_image tool (FLUX on Richard's GPU, free): one "
+            "image per scene, opened and remade if it misses the scene or the colours; never draw them with code. "
+            "When the brief names a reference video, study it with OpenMontage's video_analyzer (decode audio as "
+            "below) and match its pacing, hook, structure and look. For speech, transcribe with faster-whisper "
+            "(word_timestamps=True) and time the captions to its words. "
+            "Compose with OpenMontage's own composers: its Remotion composer "
             f"({STUDIO_HOME}/remotion-composer, installed, with its word-level captions, titles, stat cards and "
-            "transitions; read its SCENE_TYPES.md) for footage with captions, or a HyperFrames composition as its "
-            "skill describes. Never write your own render pipeline, caption timing or text layout system around "
-            "them: if one of its tools fails, read its error and fix the setup it names, or use the other composer. "
-            "Copy the final MP4 to the workspace folder the brief names. Where the studio's instructions say to look "
-            "at your output, open the stills and look, then fix what you see before you finish. Before you finish, "
-            "check the final MP4 yourself: ffprobe shows a video and an audio track at the size and length the "
-            "brief asks for, and ffmpeg's freezedetect shows no frozen ending. Richard judges the video himself, so "
-            "report what you made plainly and do not grade your own creative work. Once the final "
-            "render passes OpenMontage's review and the brief's checks, stop: never re-source footage or render "
-            "again a video that already passes.")
+            "transitions; call VideoCompose with operation remotion_render and your edit decisions) for footage, "
+            "speech and captions, or a HyperFrames composition as its skill describes. Never write your own render "
+            "pipeline, caption timing or text layout system around them: if one of its tools fails, read its error "
+            "and fix the setup it names, or use the other composer. "
+            "Copy the final MP4 to the workspace folder the brief names. Look at stills of your render and fix what "
+            "you see. Before you finish, check the final MP4 yourself: ffprobe shows a video and an audio track at "
+            "the size and length the brief asks for, and ffmpeg's freezedetect shows no frozen ending. Richard "
+            "judges the video himself, so report what you made plainly and do not grade your own creative work. "
+            "Once the final render passes these checks, stop: never re-source footage or render again a video that "
+            "already passes.")
 
 
 # The sandbox has Hyperframes and its voice (Kokoro through kokoro-onnx, HYPERFRAMES_PYTHON) built in.
@@ -1566,15 +1577,19 @@ class MissionTeam:
         return product_facts_rule(container, mission)
 
     def _content_rules(self, mission: str, studio: bool = False) -> str:
-        """A content piece's research rule and its product's playbook (content_rules). In OpenMontage the outliers
-        become its reference videos, and its own stages do the rest."""
+        """A content piece's research rule (only when the brief asks; OpenMontage researches with its own tools) and
+        its product's playbook (content_rules)."""
         from app.core.knowledge import content_rules
         from app.core.workspaces import fs_inspector
 
         root = getattr(self, "workspace_root", None)
         container = fs_inspector.host_to_container(root) if root else None
-        return (content_rules.research_rule(mission, container, studio=studio)
-                + content_rules.voice_rule(studio=studio) + content_rules.playbook_for(mission, root))
+        if studio:
+            research = content_rules.studio_research(mission)
+        else:
+            research = (content_rules.research_rule(mission, container)
+                        if content_rules.asks_research(mission) else "")
+        return research + content_rules.voice_rule(studio=studio) + content_rules.playbook_for(mission, root)
 
     def _skill_run(self) -> bool:
         """A one-skill job: the skill's specialist alone, with no Verifier after it."""

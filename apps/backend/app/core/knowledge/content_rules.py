@@ -64,6 +64,25 @@ def playbook_for(mission: str, workspace_root: Optional[str] = None) -> str:
             f"loosen them):{ad}\n\n{text}\n")
 
 
+# 23 November, Richard: research only when he asks for it. JAI's own research also ran on top of OpenMontage's, so
+# an edit spent 25 of its 46 minutes researching twice before it reached the clip.
+_ASKS_RESEARCH = re.compile(r"\bresearch", re.IGNORECASE)
+_NO_RESEARCH = re.compile(r"\b(no|without|skip|don'?t)\s+research", re.IGNORECASE)
+
+
+def asks_research(mission: str) -> bool:
+    text = mission or ""
+    return bool(_ASKS_RESEARCH.search(text)) and not _NO_RESEARCH.search(text)
+
+
+def studio_research(mission: str) -> str:
+    """OpenMontage researches with its own tools, and only when the brief asks; JAI adds no research of its own."""
+    if asks_research(mission):
+        return (" The brief asks for research: do it once, with OpenMontage's own research tools and skills, and "
+                "keep it to what this video needs.")
+    return " No research: the brief and its reference are the starting point."
+
+
 def research_rule(mission: str = "", container_root: Optional[Path] = None, studio: bool = False) -> str:
     """Research before creating: find the niche's outliers, save them, and build the piece from them. In OpenMontage
     (studio) the outliers become the references its own pipeline starts from: its video-reference-analyst and
@@ -141,9 +160,11 @@ def content_check(mission: str = "", workspace_root: Optional[str] = None) -> st
                 "robotic text-to-speech voice, music, a stock motivational quote or story, or a health or money "
                 "claim without a named source is unmet." + playbook_for(mission, workspace_root)
                 if product_of(mission, workspace_root) else "")
-    return (f" Open the newest research file in {RESEARCH_DIR}/: it must list real outliers (each with its link, "
-            "views, the channel's median and its score) and say which ones the piece adapts. Missing research, or a "
-            "piece whose hook and structure do not trace back to the outliers it names, is unmet. A narrated piece "
+    research = (f" Open the newest research file in {RESEARCH_DIR}/: it must list real outliers (each with its "
+                "link, views, the channel's median and its score) and say which ones the piece adapts. Missing "
+                "research, or a piece whose hook and structure do not trace back to the outliers it names, is unmet."
+                if asks_research(mission) else "")
+    return (research + " A narrated piece "
             "must be narrated with make_voiceover in a voice from JAI's voice library (ASSET_LICENCES.md names the "
             "voice); any other text-to-speech voice, or narration with no voice named there, is unmet."
             + organic

@@ -54,6 +54,9 @@ def test_the_studio_package_runs_openmontage_in_richards_folder_and_never_publis
     assert package.model == "claude-sonnet-5-5" and package.effort == "medium"
     # It composes with OpenMontage's own composers and stops once a render passes (22 November).
     assert "/opt/openmontage/remotion-composer" in package.goal and "never re-source footage" in package.goal
+    # 23 November: OpenMontage's tools directly, none of its staged forms, checkpoints or approval stops.
+    assert "write no stage checkpoints" in package.goal and "validate nothing against its schemas" in package.goal
+    assert "generate_image" in package.goal and "faster-whisper" in package.goal
     from app.core.command.sandbox_engine import RUN_TIMEOUT_SECONDS, SandboxSpecialist
 
     runtime_team = SimpleNamespace(runtime=SimpleNamespace(task_id="abcd1234"))
