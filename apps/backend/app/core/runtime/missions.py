@@ -393,6 +393,12 @@ async def cancel_mission(db: AsyncSession, task: Task, *, actor: str, reason: st
         return False
     lifecycle.transition(task, lifecycle.CANCELLED, actor=actor, reason=reason or "cancelled by operator")
     _feed(db, task, "Mission cancelled", reason or "Cancelled by the operator.", severity="warning")
+    from app.core.creative import render_jobs
+
+    if (task.meta_data or {}).get("render_job"):  # its renders stop with it, queued or running
+        stopped = await render_jobs.cancel(task)
+        if stopped:
+            _feed(db, task, "Renders cancelled", f"Stopped {', '.join(stopped)} in the sandbox.")
     celery_id = (task.meta_data or {}).get("celery_task_id")
     if celery_id:
         try:

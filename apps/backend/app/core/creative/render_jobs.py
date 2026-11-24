@@ -19,6 +19,9 @@ retried. Now:
 4. When it has ended, its facts are kept on the mission (exit code, output path, ffprobe size, length and streams,
    freezedetect, the last 50 log lines) and the mission is queued to carry on the usual way; its next round starts
    with the facts in the maker's brief (MissionTeam._brief): look only if it failed, or to check the finished video.
+5. One render per mission: while the mission has a render queued or running, start_render refuses and gives that
+   job's id and status (the sandbox's queue refuses a second one for the mission too). Cancelling a mission cancels
+   its renders in the sandbox (24 November: mission 6c748110 had 1 running and 2 queued, all its own).
 """
 from __future__ import annotations
 
@@ -93,6 +96,9 @@ async def start(*, task_id: Optional[UUID], container_root: str, host_root: str,
     """Hand a checked render to the sandbox and keep its job on the mission. {"success", "job_id", ...}."""
     if task_id is None:
         return {"success": False, "error": "start_render needs a mission to pause and resume."}
+    current = rendering(await _meta(task_id))
+    if current is not None:
+        return _already(current["job_id"], str(current.get("status")))
     job_id = f"render-{str(task_id)[:8]}-{uuid4().hex[:8]}"
     owned = client is None
     client = client or httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=5.0))
@@ -109,6 +115,13 @@ async def start(*, task_id: Optional[UUID], container_root: str, host_root: str,
         return {"success": False, "error": f"The sandbox did not start the render: {answer.status_code} "
                                            f"{answer.text[:300]}"}
     view = answer.json()
+    if view.get("existing"):  # the sandbox already has this mission's render queued or running
+        job_id = str(view.get("job_id") or job_id)
+        await _mark(task_id, {"job_id": job_id, "command": str(view.get("command") or "")[:2000],
+                              "cwd": view.get("cwd"), "output": view.get("output"), "status": view.get("status"),
+                              "started_at": view.get("started_at") or view.get("queued_at"),
+                              "log": view.get("log"), "host_root": host_root})
+        return _already(job_id, str(view.get("status")))
     job = {"job_id": job_id, "command": command[:2000], "cwd": cwd, "output": output, "status": view.get("status"),
            "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
            "log": view.get("log"), "host_root": host_root}
@@ -117,6 +130,52 @@ async def start(*, task_id: Optional[UUID], container_root: str, host_root: str,
             "next": ("The render is running with no AI. Stop now: end your turn with your report, the render's "
                      "requirement open (`R<n>: open — rendering, job " + job_id + "`). The mission pauses and comes "
                      "back to you with the render's facts when it ends.")}
+
+
+def _already(job_id: str, status: str) -> Dict[str, Any]:
+    return {"success": False, "already": True, "job_id": job_id, "status": status,
+            "error": (f"This mission's render {job_id} is already {status}; one render per mission. End your turn "
+                      f"now with the render's requirement open (`R<n>: open — rendering, job {job_id}`): the "
+                      f"mission comes back to you with its facts when it ends.")}
+
+
+async def _meta(task_id: UUID) -> Optional[Dict[str, Any]]:
+    from sqlalchemy import select
+
+    from app.core.runtime.missions import session_factory
+    from app.models.task import Task
+
+    async with session_factory()() as db:
+        meta = (await db.execute(select(Task.meta_data).where(Task.id == task_id))).scalar_one_or_none()
+    return meta if isinstance(meta, dict) else None
+
+
+async def cancel(task: Any, client: Optional[httpx.AsyncClient] = None) -> List[str]:
+    """Stop a cancelled mission's queued and running renders in the sandbox and mark its render cancelled on the
+    record (the caller saves it). Returns the job ids the sandbox stopped."""
+    from app.core.redis import get_redis
+
+    owned = client is None
+    client = client or httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=5.0))
+    try:
+        answer = await client.post(f"{_sandbox()}/renders/cancel", headers=_headers(),
+                                   json={"mission": str(task.id)[:8]})
+        stopped = list(answer.json().get("cancelled") or []) if answer.status_code == 200 else []
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning(f"could not cancel the renders of {task.id}: {exc}")
+        stopped = []
+    finally:
+        if owned:
+            await client.aclose()
+    meta = dict(task.meta_data or {})
+    if isinstance(meta.get("render_job"), dict) and meta["render_job"].get("status") in ("queued", "running"):
+        meta["render_job"] = {**meta["render_job"], "status": "cancelled"}
+        task.meta_data = meta
+    try:
+        await (await get_redis()).srem(ACTIVE_KEY, str(task.id))
+    except Exception as exc:  # noqa: BLE001 - the watcher skips cancelled missions anyway
+        logger.warning(f"could not clear {task.id} from the active renders: {exc}")
+    return stopped
 
 
 RENDER_KEYS = ("render_job", "render_result")

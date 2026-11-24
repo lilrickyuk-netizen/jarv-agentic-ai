@@ -76,15 +76,15 @@ def test_one_render_at_a_time_the_next_waits_its_turn(monkeypatch):
     monkeypatch.setitem(server.SECRETS, "OPENHANDS_TOKEN", "sandbox-token-for-tests")
     client = TestClient(server.app)
     folder = _workspace()
-    for job, d in (("render-q-0001", 3), ("render-q-0002", 1)):
+    for job, d in (("render-q-0001", 3), ("render-q2-0002", 1)):   # two missions' renders
         client.post("/renders", headers=AUTH, json={
             "job_id": job, "workspace": str(folder), "cwd": str(folder),
             "command": RENDER.format(d=d, out=f"{job}.mp4"), "output": f"{job}.mp4"})
-    second = client.get("/renders/render-q-0002", headers=AUTH).json()
+    second = client.get("/renders/render-q2-0002", headers=AUTH).json()
     assert second["status"] == "queued" and second["position"] >= 1
-    first, second = _wait(client, "render-q-0001"), _wait(client, "render-q-0002")
+    first, second = _wait(client, "render-q-0001"), _wait(client, "render-q2-0002")
     assert first["status"] == second["status"] == "finished"
-    assert renders.JOBS["render-q-0002"].started_at >= renders.JOBS["render-q-0001"].ended_at  # never together
+    assert renders.JOBS["render-q2-0002"].started_at >= renders.JOBS["render-q-0001"].ended_at  # never together
 
 
 def test_a_render_outside_the_workspace_or_without_the_token_is_refused(monkeypatch):
@@ -95,3 +95,64 @@ def test_a_render_outside_the_workspace_or_without_the_token_is_refused(monkeypa
     assert client.post("/renders", headers=AUTH, json=body).status_code == 400
     assert client.post("/renders", json={**body, "cwd": str(folder)}).status_code == 401
     assert client.get("/renders/render-x-0001", headers=AUTH).status_code == 404
+
+
+# 24 November: mission 6c748110 had 1 render running and 2 queued, all its own. One render per mission, and a
+# cancelled mission's renders stop.
+SLOW = ("ffmpeg -loglevel error -y -re -f lavfi -i testsrc=size=320x240:rate=25:duration=60 -c:v libx264 "
+        "-pix_fmt yuv420p {out}")
+
+
+def _job_processes(folder: Path) -> list:
+    import subprocess
+
+    out = subprocess.run(["ps", "-eo", "args"], capture_output=True, text=True).stdout
+    return [line for line in out.splitlines() if str(folder) in line or "slow-" in line and "ffmpeg" in line]
+
+
+def test_a_mission_gets_one_render_a_second_request_returns_the_first(monkeypatch):
+    monkeypatch.setitem(server.SECRETS, "OPENHANDS_TOKEN", "sandbox-token-for-tests")
+    client = TestClient(server.app)
+    folder = _workspace()
+    body = {"workspace": str(folder), "cwd": str(folder), "command": SLOW.format(out="one.mp4"), "output": "one.mp4"}
+    first = client.post("/renders", headers=AUTH, json={**body, "job_id": "render-onemiss-0001"}).json()
+    again = client.post("/renders", headers=AUTH, json={**body, "job_id": "render-onemiss-0002"}).json()
+    try:
+        assert first["existing"] is False and again["existing"] is True
+        assert again["job_id"] == "render-onemiss-0001" and "render-onemiss-0002" not in renders.JOBS
+        assert [j.id for j in renders.active_for("render-onemiss-")] == ["render-onemiss-0001"]
+    finally:
+        client.post("/renders/cancel", headers=AUTH, json={"mission": "onemiss"})
+
+
+def test_cancelling_a_mission_stops_its_running_render_and_drops_its_queued_one(monkeypatch):
+    monkeypatch.setitem(server.SECRETS, "OPENHANDS_TOKEN", "sandbox-token-for-tests")
+    client = TestClient(server.app)
+    folder = _workspace()
+    client.post("/renders", headers=AUTH, json={"job_id": "render-cancela-0001", "workspace": str(folder),
+                                                 "cwd": str(folder), "command": SLOW.format(out="slow-a.mp4"),
+                                                 "output": "slow-a.mp4"})
+    client.post("/renders", headers=AUTH, json={"job_id": "render-cancelb-0001", "workspace": str(folder),
+                                                 "cwd": str(folder), "command": SLOW.format(out="slow-b.mp4"),
+                                                 "output": "slow-b.mp4"})
+    deadline = time.time() + 30
+    while renders.JOBS["render-cancela-0001"].status != "running" and time.time() < deadline:
+        time.sleep(0.2)
+    time.sleep(1)
+    assert renders.JOBS["render-cancela-0001"].status == "running"
+    assert renders.JOBS["render-cancelb-0001"].status == "queued"
+    assert client.post("/renders/cancel", json={"mission": "cancelb"}).status_code == 401
+    dropped = client.post("/renders/cancel", headers=AUTH, json={"mission": "cancelb"}).json()
+    assert dropped["cancelled"] == ["render-cancelb-0001"]
+    began = time.time()
+    stopped = client.post("/renders/cancel", headers=AUTH, json={"mission": "cancela"}).json()
+    assert stopped["cancelled"] == ["render-cancela-0001"] and time.time() - began < 15
+    view = client.get("/renders/render-cancela-0001", headers=AUTH).json()
+    assert view["status"] == "cancelled" and view["facts"].get("cancelled") is True
+    deadline = time.time() + 15
+    while time.time() < deadline and any("slow-a.mp4" in line for line in _job_processes(folder)):
+        time.sleep(0.2)
+    left = [line for line in _job_processes(folder) if "slow-a.mp4" in line]
+    assert not left, left   # its process group is gone
+    assert client.get("/renders/render-cancelb-0001", headers=AUTH).json()["status"] == "cancelled"
+    assert renders.counts() == {"running": 0, "queued": 0}

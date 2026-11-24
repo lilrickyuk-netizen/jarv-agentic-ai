@@ -15979,3 +15979,15 @@ RESULT: The render a round starts stays on the mission's record when the round's
 RESEARCH: lifecycle.py, service._finish, continuation.continue_mission, runtime/missions._auto_continue
 BLOCKERS: None
 NEXT TASK: Installer against f5728f7 on Richard's machine (backend only)
+
+TASK ID: ONE-RENDER-PER-MISSION-AND-CANCEL
+TASK NAME: Richard, 24 November 14:56: mission 6c748110 queued its own render three times (1 running, 2 queued). One render per mission; cancelling a mission cancels its renders; tests
+STATUS: COMPLETE (backend 1444 passed, 1 skipped; sandbox suite all passed apart from the 13 image tests)
+FILES CREATED: None
+FILES MODIFIED: services/openhands/app/renders.py (mission_of, active_for, submit returns the mission's render already queued or running, cancel and _stop: a queued render dropped, a running one stopped with its process group, SIGTERM then SIGKILL; a render cancelled while starting is stopped; run() keeps a cancelled render cancelled), services/openhands/app/server.py (POST /renders answers existing; POST /renders/cancel {mission}), apps/backend/app/core/creative/render_jobs.py (start refuses while the mission's render is queued or running and returns that job's id and status, also when the sandbox returns the mission's render; cancel), apps/backend/app/core/command/tool_runtime.py (the refusal recorded), apps/backend/app/core/runtime/missions.py (cancel_mission cancels the mission's renders), services/openhands/tests/test_sandbox_renders.py, apps/backend/tests/test_renders_without_ai.py, BUILD_LEDGER.md
+COMMANDS RUN: the sandbox render tests run 7 times in a row (one failure on the first run of the cancel test led to closing the race of a render cancelled while its process starts)
+TESTS RUN: sandbox: a second render for a mission returns the first (existing true, one job); cancelling a mission drops its queued render and stops its running one within seconds, its processes gone, the queue empty, without the token refused; backend: two start_render calls in one mission give one render handed to the sandbox, the second refused with the first's id and status (fails without the guard); the sandbox returning the mission's render is refused the same way; cancelling a mission asks the sandbox to cancel its renders, marks its render cancelled and clears it from the active set; both whole suites
+RESULT: A mission has at most one render queued or running, at JAI's gate and in the sandbox's queue. Cancelling a mission stops its renders.
+RESEARCH: renders.py, render_jobs.py, runtime/missions.cancel_mission
+BLOCKERS: None
+NEXT TASK: Installer for Richard's machine (f5728f7, or the same with the render-wait installer applied)

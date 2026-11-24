@@ -403,3 +403,96 @@ def test_a_render_started_during_a_round_survives_the_rounds_outcome(no_models):
     assert saved.meta_data["render_job"]["job_id"] == "render-x-1"               # not wiped by the round
     assert saved.meta_data["status_history"][-1]["to"] == lifecycle.NEEDS_CONTINUATION
     assert continued is False                                                   # the runner waits for the render
+
+
+# ----- one render per mission; a cancelled mission's renders stop (24 November, mission 6c748110) ------------------
+
+@pytest.mark.skipif(_SQLITE, reason="the render is kept on the mission in its own session")
+def test_two_start_render_calls_in_one_mission_give_one_render(monkeypatch, no_models):
+    monkeypatch.setattr(settings, "OPENHANDS_URL", "http://openhands:8010")
+    answer, seen = _sandbox([{}])
+
+    async def run():
+        async with AsyncTestingSessionLocal() as db:
+            _, ws = await _seed_owner(db)
+            task_id = await _mission(db, ws, lifecycle.RUNNING)
+        outs = []
+        async with httpx.AsyncClient(transport=httpx.MockTransport(answer)) as client:
+            for command in ("ffmpeg -y -i a.mp4 final.mp4", "ffmpeg -y -i b.mp4 final.mp4"):
+                outs.append(await render_jobs.start(task_id=task_id, container_root="/host/workspaces/x",
+                                                    host_root="C:\\P\\x", command=command, cwd="/host/workspaces/x",
+                                                    output="final.mp4", client=client))
+        return outs, (await _get(task_id)).meta_data
+
+    (first, second), meta = asyncio.run(run())
+    assert first["success"] and not second["success"] and second["already"]
+    assert second["job_id"] == first["job_id"] and second["status"] == "queued"
+    assert "already queued" in second["error"] and "End your turn" in second["error"]
+    assert [s for s in seen if s[0] == "POST"] == [seen[0]]                    # one render handed to the sandbox
+    assert meta["render_job"]["job_id"] == first["job_id"]
+
+
+def test_the_sandbox_returning_the_missions_render_is_one_render_too(monkeypatch, no_models):
+    """Belt and braces: if the record lost the render, the sandbox's queue still gives back the mission's own."""
+    monkeypatch.setattr(settings, "OPENHANDS_URL", "http://openhands:8010")
+
+    def answer(request):
+        return httpx.Response(200, json={"job_id": "render-abcd1234-11112222", "status": "running",
+                                         "existing": True, "command": "npx hyperframes render", "cwd": "/w",
+                                         "output": "final.mp4", "started_at": "2026-11-24T14:00:00+00:00"})
+
+    async def marked(task_id, job):
+        marked.job = job
+
+    monkeypatch.setattr(render_jobs, "_mark", marked)
+
+    async def no_meta(task_id):
+        return {}
+
+    monkeypatch.setattr(render_jobs, "_meta", no_meta)
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(answer)) as client:
+            return await render_jobs.start(task_id=__import__("uuid").uuid4(), container_root="/w", host_root="",
+                                           command="ffmpeg -i a final.mp4", cwd="/w", output="final.mp4",
+                                           client=client)
+
+    out = asyncio.run(run())
+    assert not out["success"] and out["already"] and out["job_id"] == "render-abcd1234-11112222"
+    assert marked.job["job_id"] == "render-abcd1234-11112222" and marked.job["status"] == "running"
+
+
+@pytest.mark.skipif(_SQLITE, reason="the runner's cancel writes the mission")
+def test_cancelling_a_mission_cancels_its_renders_in_the_sandbox(monkeypatch, no_models):
+    from app.core.runtime.missions import cancel_mission
+
+    monkeypatch.setattr(settings, "OPENHANDS_URL", "http://openhands:8010")
+    asked = []
+
+    def answer(request):
+        asked.append((request.url.path, json.loads(request.content)))
+        return httpx.Response(200, json={"cancelled": ["render-x-1"]})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(render_jobs.httpx, "AsyncClient",
+                        lambda **kw: real(transport=httpx.MockTransport(answer), **kw))
+
+    async def run():
+        task_id = await _rendering_mission(status=lifecycle.NEEDS_CONTINUATION)
+        from sqlalchemy import select
+
+        from app.core.redis import get_redis
+        from app.models.task import Task
+
+        async with AsyncTestingSessionLocal() as db:
+            task = (await db.execute(select(Task).where(Task.id == task_id))).scalar_one()
+            cancelled = await cancel_mission(db, task, actor="richard", reason="cancelled by Richard")
+            await db.commit()
+        active = await (await get_redis()).sismember(render_jobs.ACTIVE_KEY, str(task_id))
+        return task_id, cancelled, await _get(task_id), active
+
+    task_id, cancelled, saved, active = asyncio.run(run())
+    assert cancelled and saved.status == lifecycle.CANCELLED
+    assert asked == [("/renders/cancel", {"mission": str(task_id)[:8]})]
+    assert saved.meta_data["render_job"]["status"] == "cancelled" and render_jobs.rendering(saved.meta_data) is None
+    assert not active

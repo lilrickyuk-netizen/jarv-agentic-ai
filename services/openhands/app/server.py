@@ -15,6 +15,7 @@ API (all but /health need the bearer token JAI shares with this service):
   POST /runs/{run_id}/stop     stop it where it is
   POST /renders                start a render with no AI: {job_id, workspace, command, cwd, output} (app/renders.py)
   GET  /renders/{job_id}       its status, and when it has ended its facts (exit code, ffprobe, freezedetect, log)
+  POST /renders/cancel         stop a mission's queued and running renders: {mission} (the job ids' "render-<mission>-")
 """
 from __future__ import annotations
 
@@ -398,7 +399,19 @@ def start_render(request: RenderRequest, authorization: Optional[str] = Header(d
         job = renders.submit(request.job_id, str(workspace), request.command, str(cwd), request.output)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-    return job.view()
+    # The mission's render already queued or running is returned instead of a second one (existing: true).
+    return {**job.view(), "existing": job.id != request.job_id}
+
+
+class RenderCancel(BaseModel):
+    mission: str = Field(min_length=4, max_length=60, pattern=r"^[A-Za-z0-9_.:-]+$")
+
+
+@app.post("/renders/cancel")
+def cancel_renders(request: RenderCancel, authorization: Optional[str] = Header(default=None)) -> Dict[str, Any]:
+    """Stop a mission's queued and running renders (its mission was cancelled)."""
+    _authorised(authorization)
+    return {"cancelled": renders.cancel(f"render-{request.mission}-")}
 
 
 @app.get("/renders/{job_id}")

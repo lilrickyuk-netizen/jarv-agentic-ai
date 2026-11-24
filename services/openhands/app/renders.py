@@ -10,7 +10,12 @@ process and the mission pauses. The process:
   them), with no command timeout;
 - writes everything it prints to .jai/renders/<job>.log in the mission's workspace;
 - waits its turn: one render at a time on this computer, the rest queue (two processor renders at once crashed the
-  sandbox before).
+  sandbox before);
+- is the mission's only one: while a mission has a render queued or running, a new one for it is not queued and
+  the existing one is returned (24 November: mission 6c748110 had 1 running and 2 queued, each round handing over a
+  new render before the last ended);
+- can be cancelled (POST /renders/cancel): a queued render is dropped, a running one is stopped with its whole
+  process group (the renderer, Chromium, ffmpeg).
 
 When it ends, the facts are worked out here, where the file is: the exit code, whether the output exists and its
 size, ffprobe's width, height, length and streams, ffmpeg's freezedetect on the whole video, and the last 50 lines
@@ -23,6 +28,7 @@ import logging
 import os
 import queue
 import re
+import signal
 import subprocess
 import threading
 import time
@@ -36,6 +42,7 @@ logger = logging.getLogger("jai.sandbox.renders")
 AGENT_USER = os.environ.get("JAI_AGENT_USER", "openhands")
 LOG_DIR = ".jai/renders"
 LOG_LINES = 50
+STOP_SECONDS = 10  # how long a cancelled render has to stop before it is killed
 FREEZE = re.compile(r"freeze_(start|duration|end): ([\d.]+)")
 
 
@@ -46,7 +53,7 @@ def _iso(moment: Optional[float]) -> Optional[str]:
 class Job:
     def __init__(self, job_id: str, workspace: str, command: str, cwd: str, output: str):
         self.id, self.workspace, self.command, self.cwd, self.output = job_id, workspace, command, cwd, output
-        self.status = "queued"  # queued, running, finished, failed
+        self.status = "queued"  # queued, running, finished, failed, cancelled
         self.exit_code: Optional[int] = None
         self.queued_at = time.time()
         self.started_at: Optional[float] = None
@@ -82,11 +89,27 @@ def queue_position(job_id: str) -> int:
     return len(ahead)
 
 
+def mission_of(job_id: str) -> str:
+    """The mission part of a job id ("render-<mission>-<n>" -> "render-<mission>-")."""
+    return job_id.rsplit("-", 1)[0] + "-"
+
+
+def active_for(prefix: str) -> List[Job]:
+    with _LOCK:
+        return [j for j in JOBS.values() if j.id.startswith(prefix) and j.status in ("queued", "running")]
+
+
 def submit(job_id: str, workspace: str, command: str, cwd: str, output: str) -> Job:
+    """Queue a render, or return the mission's render already queued or running (job.id tells which)."""
     global _WORKER
     with _LOCK:
         if job_id in JOBS:
             raise ValueError(f"Render {job_id} exists already.")
+        mission = mission_of(job_id)
+        existing = next((j for j in JOBS.values() if j.id.startswith(mission)
+                         and j.status in ("queued", "running")), None)
+        if existing is not None:
+            return existing
         job = Job(job_id, workspace, command, cwd, output)
         JOBS[job_id] = job
         if _WORKER is None or not _WORKER.is_alive():
@@ -135,12 +158,52 @@ def run(job: Job) -> None:
         job.process = subprocess.Popen(["bash", "-lc", f"cd {_quote(job.cwd)} && {job.command}"], cwd=job.cwd,
                                        stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                        start_new_session=True, **_as_agent())
+        if job.status == "cancelled":  # cancelled while it was starting
+            _stop(job.process)
         job.exit_code = job.process.wait()
     job.ended_at = time.time()
+    if job.status == "cancelled":
+        job.facts = {"exit_code": job.exit_code, "cancelled": True, "log_tail": _tail(job.log)}
+        logger.info("render %s cancelled after %ss", job.id, int(job.ended_at - job.started_at))
+        return
     job.facts = facts(job)
     job.status = "finished" if job.exit_code == 0 and job.facts.get("output_exists") else "failed"
     logger.info("render %s %s (exit %s) in %ss", job.id, job.status, job.exit_code,
                 int(job.ended_at - job.started_at))
+
+
+def cancel(prefix: str) -> List[str]:
+    """Cancel every queued or running render whose id starts with prefix (a mission's: "render-<mission>-"). A
+    running one is sent SIGTERM with its process group, then SIGKILL if it has not stopped in STOP_SECONDS."""
+    stopped = []
+    for job in active_for(prefix):
+        with _LOCK:
+            was = job.status
+            job.status = "cancelled"
+            if was == "queued":
+                job.ended_at = time.time()
+                job.facts = {"cancelled": True}
+        if was == "running" and job.process is not None:
+            _stop(job.process)
+        stopped.append(job.id)
+    return stopped
+
+
+def _stop(process: subprocess.Popen) -> None:
+    try:
+        group = os.getpgid(process.pid)
+    except ProcessLookupError:
+        return
+    for sig, wait in ((signal.SIGTERM, STOP_SECONDS), (signal.SIGKILL, STOP_SECONDS)):
+        try:
+            os.killpg(group, sig)
+        except ProcessLookupError:
+            return
+        try:
+            process.wait(timeout=wait)
+            return
+        except subprocess.TimeoutExpired:
+            continue
 
 
 def _quote(path: str) -> str:

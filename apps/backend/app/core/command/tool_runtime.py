@@ -1271,7 +1271,8 @@ class ToolRuntime:
                                       command=command, cwd=where, output=output)
         await self._record("start_render", inputs, bool(out.get("success")),
                            f"render {out.get('job_id')} {out.get('status')}" if out.get("success")
-                           else str(out.get("error"))[:200])
+                           else f"refused: render {out.get('job_id')} is already {out.get('status')}"
+                           if out.get("already") else str(out.get("error"))[:200])
         return out
 
     async def social_draft(self, text: str, channels: Optional[List[str]] = None,
