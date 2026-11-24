@@ -15931,3 +15931,15 @@ RESULT: A Claude session can open any still or contact sheet it makes or is give
 RESEARCH: claude-agent-sdk 0.2.188 source; affaan-m/ECC at d2ef268 hooks and scripts
 BLOCKERS: None
 NEXT TASK: A small installer for these changes against a6fbd76 on Richard's machine; then episode 2 again on the new engine
+
+TASK ID: INSTALLER-STILL-FIX
+TASK NAME: A small installer for CLAUDE-SESSIONS-OPEN-FULL-SIZE-STILLS against a6fbd76 on Richard's machine
+STATUS: COMPLETE (delivered as install-jai-still-fix.sh); IN_PROGRESS until it has run on Richard's machine
+FILES CREATED: install-jai-still-fix.sh (delivered, not committed)
+FILES MODIFIED: BUILD_LEDGER.md
+COMMANDS RUN: git format-patch 0dcf852..14fdbe8 (2 commits); applied with git am --3way onto 0dcf852 (tree 6174ebe6, the code a6fbd76 has) gives tree f56cbc1a, the same as 14fdbe8; the installer run end to end with Docker stood in, and on a wrong commit (stops, nothing changed)
+TESTS RUN: on Richard's machine: the backend suite and the sandbox suite inside the rebuilt sandbox image, before anything is restarted
+RESULT: Same safety as the earlier installers; rebuilds only the sandbox (its code layer) and the backend's test image
+RESEARCH: None beyond the task above
+BLOCKERS: None
+NEXT TASK: Richard runs install-jai-still-fix.sh, then sends episode 2 again
