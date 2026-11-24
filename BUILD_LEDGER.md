@@ -15943,3 +15943,15 @@ RESULT: Same safety as the earlier installers; rebuilds only the sandbox (its co
 RESEARCH: None beyond the task above
 BLOCKERS: None
 NEXT TASK: Richard runs install-jai-still-fix.sh, then sends episode 2 again
+
+TASK ID: INSTALLER-STILL-FIX-RAN
+TASK NAME: The still-fix installer on Richard's machine; Docker builds no longer depend on Windows
+STATUS: COMPLETE (Richard's machine at 9593de7: backend answering, sandbox ready, "sandbox: opens full-size stills")
+FILES CREATED: None
+FILES MODIFIED: BUILD_LEDGER.md
+COMMANDS RUN: on Richard's machine: the sandbox build failed three times on "error getting credentials" with "UtilAcceptVsock:271: accept4 failed 110" (WSL's link to Windows programs broken, a known WSL fault that only wsl --shutdown clears; Docker in Ubuntu fetched logins through Windows' docker-credential-desktop.exe). credsStore removed from Ubuntu's ~/.docker/config.json (backup at ~/.docker/config.json.bak); every image JAI builds from is public. The installer then ran to DONE
+TESTS RUN: the installer's backend suite and sandbox suite on Richard's machine (passed: it restarts only after both pass)
+RESULT: Installed. Rule for every future installer: run Docker with a config that has no credential helper (DOCKER_CONFIG pointing at a folder holding {}), because Docker Desktop can write credsStore back into Ubuntu's config when it restarts.
+RESEARCH: claudeissues.com issue 53250 and microsoft/WSL#13864 (accept4 failed 110 breaks WSL interop until wsl --shutdown)
+BLOCKERS: None
+NEXT TASK: Richard sends episode 2 (Gold) again on the new engine, then episode 3 on OpenHands
