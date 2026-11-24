@@ -29,7 +29,12 @@ WORKDIR /opt/comfyui
 EXPOSE 8188
 HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8188/system_stats || exit 1
-# --offline: the interface never calls out; --reserve-vram 3.5: leaves room on the 6 GB card for JAI's voice
-# (Chatterbox and Kokoro stay loaded), so images offload part of the model to memory and take longer instead.
+# --offline: the interface never calls out. The fast, stable settings found on 23 November, made permanent here
+# (ComfyUI v0.44.0, comfy/cli_args.py): --reserve-vram 1.0 keeps 1 GB of the 6 GB card for the system and gives the
+# rest to FLUX (3.5 GB was kept for the voice, so most of the model was offloaded and an image took about 6 minutes);
+# --disable-pinned-memory stops ComfyUI pinning system memory, which WSL's shared memory could not spare after a
+# restart; --cache-none keeps no node results between images, the least RAM and VRAM, since every image is a new
+# prompt anyway. Chatterbox, the natural voice on the same card, is switched off while an image is made and back on
+# after it (app/core/creative/images.py).
 CMD ["python", "main.py", "--listen", "0.0.0.0", "--port", "8188", "--disable-auto-launch", "--offline", \
-     "--reserve-vram", "3.5", "--disable-metadata"]
+     "--reserve-vram", "1.0", "--disable-pinned-memory", "--cache-none", "--disable-metadata"]

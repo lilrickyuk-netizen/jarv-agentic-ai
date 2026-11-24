@@ -416,3 +416,35 @@ def test_the_model_sees_the_images_it_opens():
     # LiteLLM files the entry under its own key.
     assert any(v.get("supports_vision") is True for k, v in litellm.model_cost.items() if "claude-opus-5-5" in k)
     assert "jai-check" in server.ENGINEERING_RULES
+
+
+def test_playwright_cli_is_installed_at_its_skills_version_and_opens_the_sandboxs_chromium():
+    """24 November (audit batch 1): the playwright-cli skill was offered and its command was installed nowhere. It is
+    Microsoft's @playwright/cli at the version its pinned skill was written for, opening the sandbox's Chromium."""
+    import shutil
+    import subprocess
+    import tempfile
+
+    assert shutil.which("playwright-cli"), "playwright-cli is missing from the sandbox"
+    version = subprocess.run(["playwright-cli", "--version"], capture_output=True, text=True, timeout=60)
+    assert version.returncode == 0 and version.stdout.strip() == "0.1.24", version.stdout + version.stderr
+    profile = Path("/etc/profile.d/jai-playwright-cli.sh").read_text()
+    assert "PLAYWRIGHT_MCP_EXECUTABLE_PATH=/usr/bin/chromium" in profile and "PLAYWRIGHT_MCP_SANDBOX=false" in profile
+    work = tempfile.mkdtemp(prefix="pwcli-")
+    try:
+        opened = subprocess.run(["playwright-cli", "open", "data:text/html,<title>JAI check</title><h1>Hi</h1>"],
+                                capture_output=True, text=True, timeout=120, cwd=work)
+        assert opened.returncode == 0 and "JAI check" in opened.stdout, opened.stdout[-600:] + opened.stderr[-600:]
+        snap = subprocess.run(["playwright-cli", "snapshot"], capture_output=True, text=True, timeout=60, cwd=work)
+        assert 'heading "Hi"' in snap.stdout, snap.stdout[-600:]
+    finally:
+        subprocess.run(["playwright-cli", "close"], capture_output=True, timeout=60, cwd=work)
+
+
+def test_the_rules_point_speech_at_faster_whisper_and_working_files_into_the_workspace():
+    """24 November (audit batch 1): skills that name a whisper command use faster-whisper, which is installed; check
+    frames saved in /tmp could not be opened by the file editor, so working files stay in the workspace."""
+    rules = server.ENGINEERING_RULES
+    assert "faster-whisper" in rules and "word_timestamps=True" in rules and "no whisper or whisper-cli" in rules
+    assert ".jai/work/" in rules and "never in /tmp" in rules
+    assert "playwright-cli" in rules

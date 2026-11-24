@@ -13,6 +13,11 @@ workspace's ASSET_LICENCES.md with the model, its licence and the prompt, so whe
 10 GB in all; the computer swapped and other services were killed. Releasing the model after each image does not
 give that memory back, stopping the container does. So ComfyUI is started when an image is asked for (through JAI's
 restricted Docker proxy, docker_ops.switch) and stopped when it has made nothing for IDLE_STOP_MINUTES.
+
+24 November (audit batch 1): ComfyUI now takes all but 1 GB of the 6 GB card (services/comfyui/Dockerfile), so the
+natural voice, Chatterbox, which holds its model on the same card, is switched off while an image is made and
+switched back on straight after, when it was on before. The live conversation itself keeps running; it speaks with
+Kokoro for those moments, as it does whenever Chatterbox is off.
 """
 from __future__ import annotations
 
@@ -42,6 +47,10 @@ WAKE_SECONDS = 180.0
 IDLE_STOP_MINUTES = 10
 LAST_USED_KEY = "comfyui:last_used"
 BUSY_KEY = "comfyui:busy"
+# The natural voice on the same graphics card, switched off while an image is made.
+GPU_VOICE = "chatterbox"
+# When the voice was last switched back on after an image (voiceover.speak waits for it to finish starting).
+VOICE_BACK_KEY = "comfyui:voice_back"
 
 
 def comfyui_url() -> str:
@@ -123,6 +132,51 @@ async def wake(client: httpx.AsyncClient, base: str, wait_seconds: float = WAKE_
     return False
 
 
+async def pause_voice() -> bool:
+    """Switch the natural voice off for an image; True when it was running (so it is switched back on after)."""
+    from app.core.ops import docker_ops
+
+    ops = docker_ops.get_docker_ops()
+    if not ops.available:
+        return False
+    try:
+        if not any(c.service == GPU_VOICE and c.state == "running" for c in await ops.containers()):
+            return False
+        await ops.switch(GPU_VOICE, False)
+    except (docker_ops.OpsRefused, docker_ops.OpsUnavailable) as exc:
+        logger.warning(f"the natural voice could not be switched off for an image: {exc}")
+        return False
+    return True
+
+
+async def resume_voice() -> None:
+    """Switch the natural voice back on after an image; a failure is logged, never raised."""
+    from app.core.ops import docker_ops
+
+    try:
+        await docker_ops.get_docker_ops().switch(GPU_VOICE, True)
+    except (docker_ops.OpsRefused, docker_ops.OpsUnavailable) as exc:
+        logger.warning(f"the natural voice could not be switched back on after an image: {exc}")
+        return
+    try:
+        from app.core.redis import get_redis
+
+        await (await get_redis()).set(VOICE_BACK_KEY, str(time.time()), ex=600)
+    except Exception as exc:  # noqa: BLE001 - only a hint for voiceovers
+        logger.info(f"voice restart not recorded: {exc}")
+
+
+async def voice_back_since() -> Optional[float]:
+    """When the natural voice was last switched back on after an image (None: not recently)."""
+    try:
+        from app.core.redis import get_redis
+
+        value = await (await get_redis()).get(VOICE_BACK_KEY)
+        return float(value) if value is not None else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 async def stop_if_idle(now: Optional[float] = None, idle_minutes: float = IDLE_STOP_MINUTES) -> Dict[str, Any]:
     """Stop ComfyUI when it is running and has made no image for idle_minutes (Celery beat). Seen running with no
     record of use, it gets idle_minutes from now."""
@@ -168,7 +222,9 @@ async def generate(prompt: str, width: int = 1024, height: int = 1024, seed: Opt
     own = client is None
     client = client or httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=5.0))
     await _mark(busy=True)
+    paused = False
     try:
+        paused = await pause_voice()
         await wake(client, base)
         try:
             queued = await client.post(f"{base}/prompt", json={"prompt": workflow(prompt, width, height, seed)})
@@ -208,6 +264,8 @@ async def generate(prompt: str, width: int = 1024, height: int = 1024, seed: Opt
                 "width": width, "height": height}
     finally:
         await _mark(busy=False)
+        if paused:
+            await resume_voice()
         if own:
             await client.aclose()
 

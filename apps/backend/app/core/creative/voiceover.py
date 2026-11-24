@@ -51,6 +51,32 @@ def to_wav(pcm: bytes, rate: int = RATE) -> bytes:
     return buffer.getvalue()
 
 
+# How long a voiceover waits for the natural voice when it was switched back on after an image moments ago.
+RESTART_WAIT_SECONDS = 120.0
+
+
+async def _wait_if_starting(client: httpx.AsyncClient, base: str, wait_seconds: float = RESTART_WAIT_SECONDS) -> None:
+    """The natural voice is switched off while an image is made and back on after (creative/images.py); a voiceover
+    asked for in the moments after waits for it to finish loading instead of failing."""
+    import asyncio
+    import time
+
+    from app.core.creative import images
+
+    since = await images.voice_back_since()
+    if since is None or time.time() - since > wait_seconds:
+        return
+    deadline = time.monotonic() + wait_seconds
+    while time.monotonic() < deadline:
+        try:
+            answer = await client.get(f"{base}/health", timeout=5.0)
+            if answer.status_code == 200 and answer.json().get("status") == "ok":  # "loading" while it loads
+                return
+        except (httpx.HTTPError, ValueError):
+            pass
+        await asyncio.sleep(3.0)
+
+
 async def speak(text: str, voice: Optional[str] = None, client: Optional[httpx.AsyncClient] = None) -> dict:
     """The whole text in JAI's voice: WAV bytes and their length in seconds."""
     from app.core.config import settings
@@ -67,6 +93,7 @@ async def speak(text: str, voice: Optional[str] = None, client: Optional[httpx.A
     pause = b"\x00\x00" * int(RATE * PAUSE_SECONDS)
     pcm = bytearray()
     try:
+        await _wait_if_starting(client, base)
         for line in lines:
             try:
                 spoken = await client.post(f"{base}/speak", json={"text": line, "voice": voice})

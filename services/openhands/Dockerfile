@@ -170,6 +170,18 @@ RUN cd /opt/openmontage/remotion-composer \
     && npm cache clean --force \
     && chown -R openhands:openhands /opt/openmontage/remotion-composer
 
+# Microsoft's Playwright CLI (Apache-2.0), the `playwright-cli` command its skill drives (24 November, audit batch 1:
+# the skill was offered and the command was installed nowhere). Pinned to 0.1.24, the version in package.json at the
+# skill pack's pinned commit (skill_packs.PACKS["playwright-cli"], b217248), so the skill and the command match. It
+# opens the sandbox's own Chromium (PLAYWRIGHT_MCP_EXECUTABLE_PATH, its documented setting) without Chrome's sandbox,
+# which needs user namespaces a container does not give; its update notice is off because the version is pinned.
+# Also in /etc/profile.d, because the agent's login shell keeps none of the image's environment.
+ARG PLAYWRIGHT_CLI_VERSION=0.1.24
+RUN npm install -g "@playwright/cli@${PLAYWRIGHT_CLI_VERSION}" && npm cache clean --force \
+    && printf 'export PLAYWRIGHT_MCP_EXECUTABLE_PATH=/usr/bin/chromium\nexport PLAYWRIGHT_MCP_SANDBOX=false\nexport NO_UPDATE_NOTIFIER=1\n' \
+        > /etc/profile.d/jai-playwright-cli.sh && chmod 644 /etc/profile.d/jai-playwright-cli.sh
+ENV PLAYWRIGHT_MCP_EXECUTABLE_PATH=/usr/bin/chromium PLAYWRIGHT_MCP_SANDBOX=false NO_UPDATE_NOTIFIER=1
+
 WORKDIR /jai
 COPY app ./app
 COPY tests ./tests

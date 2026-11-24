@@ -64,10 +64,15 @@ class Usage:
         self.calls = 0
         self.cost_usd = 0.0
         self.priced = True
+        # Which model answered each call (24 November: the mission card named the Orchestrator's model for work
+        # another model did, so Richard could not see what he was paying for).
+        self.models: Dict[str, int] = {}
 
     def add(self, usage: Optional[Dict[str, Any]], model: str, role: str) -> None:
         n = _normalise(usage or {})
         self.calls += 1
+        if model:
+            self.models[model] = self.models.get(model, 0) + 1
         for key, value in n.items():
             self.totals[key] += value
         role_totals = self.by_role.setdefault(role, {"calls": 0, "input": 0, "cached": 0, "cache_write": 0,
@@ -93,6 +98,7 @@ class Usage:
             "cache_hit_rate": round(self.totals["cached"] / sent, 3) if sent else 0.0,
             "cost_usd": round(self.cost_usd, 4) if self.priced else None,
             "by_role": self.by_role,
+            "models": dict(self.models),
         }
 
 

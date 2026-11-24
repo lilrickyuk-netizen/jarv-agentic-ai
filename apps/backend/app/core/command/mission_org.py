@@ -96,7 +96,13 @@ def studio_goal() -> str:
     brief, scene plan and edit forms, each validated against its schemas, and approval gates that raise "GATE
     VIOLATION" when a stage is written completed without a human's approval), and one edit ran 46 minutes and £1.97
     without reaching the render. Those stages exist for a person approving each step at a keyboard; Richard's brief
-    is his approval. So the studio uses OpenMontage's tools and craft skills directly and writes none of its forms."""
+    is his approval. So the studio uses OpenMontage's tools and craft skills directly and writes none of its forms.
+
+    24 November (audit batch 1): the instructions named only the templated render (VideoCompose remotion_render), so
+    effects scenes were written outside OpenMontage's Remotion project, rendered at its defaults and failed to bundle;
+    the one video Richard was impressed by (mission d8f3f5a6) used atelier mode, which OpenMontage's own guide makes
+    the default for marketing work and whose render stages the project into the composer. Check frames saved in /tmp
+    could not be opened by the file viewer, so working files stay in the mission's folder."""
     return (f"Make this mission's video with OpenMontage, the video studio installed at {STUDIO_HOME}. Read "
             f"{STUDIO_HOME}/AGENT_GUIDE.md and only the skills this job needs for their craft guidance (the "
             "composer's SCENE_TYPES.md, the reviewer, the stage skill for this kind of video), then do the work "
@@ -118,12 +124,25 @@ def studio_goal() -> str:
             "When the brief names a reference video, study it with OpenMontage's video_analyzer (decode audio as "
             "below) and match its pacing, hook, structure and look. For speech, transcribe with faster-whisper "
             "(word_timestamps=True) and time the captions to its words. "
-            "Compose with OpenMontage's own composers: its Remotion composer "
-            f"({STUDIO_HOME}/remotion-composer, installed, with its word-level captions, titles, stat cards and "
-            "transitions; call VideoCompose with operation remotion_render and your edit decisions) for footage, "
-            "speech and captions, or a HyperFrames composition as its skill describes. Never write your own render "
-            "pipeline, caption timing or text layout system around them: if one of its tools fails, read its error "
-            "and fix the setup it names, or use the other composer. "
+            "Compose with OpenMontage's own composers, in the authoring mode its AGENT_GUIDE.md sets (Composition "
+            "Authoring Mode). Marketing, brand and social pieces, and any piece with its own effects or look, are "
+            "atelier work, its default for hero work: read skills/meta/taste-direction.md and "
+            "skills/meta/bespoke-composition.md, scaffold the project with `.venv/bin/python "
+            "scripts/scaffold_atelier_project.py <slug> --root \"$OPENMONTAGE_PROJECTS_DIR\"`, set the Composition's "
+            "width, height, fps and length in its Root.tsx and calculateMetadata to the brief's (a vertical short is "
+            "1080x1920; the scaffold's 1920x1080 and 30 seconds are only defaults), hand-author the scenes, and "
+            "render with VideoCompose operation render and edit_decisions {render_runtime: \"remotion\", "
+            "composition_mode: \"atelier\", bespoke: {entry: the absolute path of its index.tsx, composition_id, public_dir, art_direction}}: VideoCompose "
+            "copies your project's source into its Remotion composer itself (_stage_atelier_project), which is where "
+            "Remotion's bundler finds its packages, so never run npx remotion render on an entry outside "
+            f"{STUDIO_HOME}/remotion-composer yourself. A HyperFrames composition is atelier too, rendered as its "
+            "skill describes. Templated work (its stock scene types through VideoCompose operation remotion_render, "
+            "with word-level captions, titles, stat cards and transitions) is for quick, plain footage-and-captions "
+            "edits. Never write your own render pipeline, caption timing or text layout system around them: if one "
+            "of its tools fails, read its error and fix the setup it names, or use the other composer. "
+            "Keep every working file you will open or look at (stills, check frames, contact sheets, drafts) in "
+            "this mission's folder under .jai/work/, never in /tmp: the file viewer opens only files inside the "
+            "mission's folder. "
             "Copy the final MP4 to the workspace folder the brief names. Look at stills of your render and fix what "
             "you see. Before you finish, check the final MP4 yourself: ffprobe shows a video and an audio track at "
             "the size and length the brief asks for, and ffmpeg's freezedetect shows no frozen ending. Richard "
@@ -475,6 +494,8 @@ class Package:
     # The specialist whose work the mission is (work_type.specialist_for): the one builder works as that specialist,
     # to its standard and with its skills. None: the Lead Builder itself.
     acting_as: Optional[str] = None
+    # The model that actually did the package's work (after any fallback or takeover), for the mission card.
+    ran_on: Optional[str] = None
 
     @property
     def role(self) -> str:
@@ -492,7 +513,7 @@ class Package:
 
     def card(self) -> Dict[str, Any]:
         return {"id": self.id, "title": self.title, "specialist": self.specialist, "role": self.role,
-                "acting_as": self.acting_as,
+                "acting_as": self.acting_as, "ran_on": self.ran_on,
                 "goal": self.goal[:1500], "done_when": self.done_when[:500], "status": self.status,
                 "model": self.model, "effort": self.effort, "max_steps": self.max_steps, "max_cost": self.max_cost,
                 "tools_used": dict(self.tools_used), "skills_used": list(self.skills_used), "step": self.step, "steps": self.steps, "owns": self.owns,
@@ -1154,6 +1175,8 @@ class MissionTeam:
         p.tokens = int(result.get("tokens") or 0)
         if executor is not None:
             p.cost_usd = float(executor.usage.cost_usd)
+            models = executor.usage.models
+            p.ran_on = max(models, key=models.get) if models else self.model
             absorb(self.lead.usage, executor.usage, p.specialist)
             self.lead.tokens += p.tokens
             self._merge_requirements(p, result.get("requirements") or mine)
@@ -1180,6 +1203,7 @@ class MissionTeam:
         p.cost_usd = float(result.get("cost_usd") or 0)
         p.tools_used = dict(result.get("tools_used") or {})
         p.skills_used = list(result.get("skills_used") or [])
+        p.ran_on = str(result.get("model") or "") or None
         p.step = int(result.get("steps") or p.step)
         detail = result.get("token_detail") or {}
         self.lead.usage.totals["input"] += int(detail.get("input") or 0) - int(detail.get("cached") or 0)
@@ -1352,6 +1376,7 @@ class MissionTeam:
             if c.get("success"):
                 p.status, p.success, p.summary = "finished", True, str(c.get("summary") or "")
                 p.step, p.calls, p.cost_usd = int(c.get("step") or 0), int(c.get("tool_calls") or 0), 0.0
+                p.ran_on = c.get("ran_on") or None
             packages.append(p)
         items = ((saved.get("requirements") or {}).get("items")) or []
         if not requirements and items:
