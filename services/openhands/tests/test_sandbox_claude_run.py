@@ -448,3 +448,27 @@ def test_a_skills_own_shell_lines_run_as_it_loads_through_jais_gate(monkeypatch,
         shutil.rmtree(folder, ignore_errors=True)
         shutil.rmtree(home / ".jai-claude-test", ignore_errors=True)
         shutil.rmtree(home / ".jai-copies-test", ignore_errors=True)
+
+
+def test_a_session_can_open_a_full_size_still(monkeypatch, gateway):
+    """24 November: episode 2 stopped twice at the first still the designer opened. Claude Code's Read tool returns a
+    picture as one message, and a 1080x1920 still is over the SDK's 1 MB default (CLIJSONDecodeError). Real Claude
+    Code opens a 1080x1920 PNG of about 4 MB and the session finishes."""
+    import subprocess
+
+    still = Path(tempfile.mkdtemp(prefix="still-")) / "still.png"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "nullsrc=s=1080x1920,geq=random(1)*255:128:128",
+                    "-frames:v", "1", str(still)], check=True)
+    os.chmod(still.parent, 0o755)
+    os.chmod(still, 0o644)
+    assert still.stat().st_size > 2 * 1024 * 1024
+    script = [([{"type": "tool_use", "id": "toolu_1", "name": "Read", "input": {"file_path": str(still)}}], "tool_use"),
+              ([{"type": "text", "text": "R1: done, the still looks right."}], "end_turn")]
+    run, backend, folder, home = _session(monkeypatch, gateway, script)
+    try:
+        assert run.status == "finished", (run.status, run.error)
+        assert "R1: done" in run.final_message
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+        shutil.rmtree(still.parent, ignore_errors=True)
+        shutil.rmtree(home / ".jai-claude-test", ignore_errors=True)

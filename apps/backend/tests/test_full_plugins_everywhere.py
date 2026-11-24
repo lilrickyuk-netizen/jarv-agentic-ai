@@ -63,3 +63,11 @@ def test_short_editing_is_offered_to_the_studio_again():
     assert entry["pack"] == "video-agent-skills"
     for role in ("creation", "content"):
         assert "short-editing" in {p.rsplit("/", 1)[-1] for p in skill_packs.sandbox_skills(role)}, role
+
+
+def test_eccs_fact_forcing_gate_is_off_for_commands_as_for_edits():
+    """24 November: ECC's GateGuard held up a sandbox video session's first commands until the agent switched it off
+    itself (GATEGUARD_BASH_ROUTINE_DISABLED=1). JAI's own gate checks every command; ECC's is off for commands as it
+    already was for edits, through ECC's own switch."""
+    disabled = set(settings.ECC_DISABLED_HOOKS.split(","))
+    assert {"pre:bash:gateguard-fact-force", "pre:edit-write:gateguard-fact-force"} <= disabled

@@ -15919,3 +15919,15 @@ RESULT: Same safety as before (only c694da0 with no tracked changes, no mission 
 RESEARCH: docker-compose.yml (the sandbox's new /jai/learned mount; Docker makes a missing bind folder as root)
 BLOCKERS: None
 NEXT TASK: Richard runs install-audit-batches.sh
+
+TASK ID: CLAUDE-SESSIONS-OPEN-FULL-SIZE-STILLS
+TASK NAME: Episode 2 (mission c0b36ca9) stopped twice on the new engine after 4-5 steps: CLIJSONDecodeError, "JSON message exceeded maximum buffer size of 1048576 bytes"
+STATUS: COMPLETE (backend 1439 passed, 1 skipped; sandbox suite all passed apart from the 13 image tests, which run inside the sandbox image)
+FILES CREATED: None
+FILES MODIFIED: services/openhands/app/claude_run.py (MESSAGE_LIMIT, max_buffer_size), apps/backend/app/core/command/claude_engine.py (the same), apps/backend/app/core/config.py (ECC_DISABLED_HOOKS adds pre:bash:gateguard-fact-force), services/openhands/tests/test_sandbox_claude_run.py, apps/backend/tests/test_claude_engine.py, apps/backend/tests/test_full_plugins_everywhere.py, BUILD_LEDGER.md
+COMMANDS RUN: the sandbox's record of both runs read on Richard's machine (status error, the error above; the gated commands before it were small listings and ffprobe); every message Claude Code sent measured in a real session with the full ECC plugin (largest 147 KB, the start-up listing); a real session opening a 1080x1920 PNG of 4.4 MB with the Read tool reproduced the error exactly (the picture comes back as one message of 1.3 MB); claude_agent_sdk read (ClaudeAgentOptions.max_buffer_size, default 1 MB in _internal/transport/subprocess_cli.py); ECC's gateguard-fact-force.js and bash-hook-dispatcher.js read (hook id pre:bash:gateguard-fact-force, honoured by ECC_DISABLED_HOOKS through scripts/lib/hook-flags.js)
+TESTS RUN: new: real Claude Code opens a 1080x1920 still of over 2 MB and the session finishes (fails with the old 1 MB limit, the same error as Richard's); the business engine passes the same limit; ECC's gate is off for commands as for edits; the whole backend suite; the sandbox suite
+RESULT: A Claude session can open any still or contact sheet it makes or is given (up to 64 MB a message), in the sandbox and the business engine. ECC's fact-forcing gate no longer holds up a session's first commands (JAI's own gate still checks every command).
+RESEARCH: claude-agent-sdk 0.2.188 source; affaan-m/ECC at d2ef268 hooks and scripts
+BLOCKERS: None
+NEXT TASK: A small installer for these changes against a6fbd76 on Richard's machine; then episode 2 again on the new engine

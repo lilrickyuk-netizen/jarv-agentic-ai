@@ -247,6 +247,8 @@ def test_the_session_is_claude_code_with_jais_rules_skills_specialists_and_gate(
         options.allowed_tools) and f"{PREFIX}*" in options.allowed_tools
     assert "Bash" in options.disallowed_tools and "Bash" not in options.allowed_tools
     assert options.cwd == str(root) and options.setting_sources == ["user"]
+    # A picture the Read tool opens comes back as one message over the SDK's 1 MB default (24 November).
+    assert options.max_buffer_size == claude_engine.MESSAGE_LIMIT >= 32 * 1024 * 1024
     assert Path(options.env["CLAUDE_CONFIG_DIR"], "skills").is_dir()          # every installed JAI skill links here
     assert options.env["CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH"] == "1" and options.env["ANTHROPIC_API_KEY"]
     assert 0 < options.max_budget_usd <= 2.5 and options.resume is None

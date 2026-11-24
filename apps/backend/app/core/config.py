@@ -510,10 +510,13 @@ class Settings(BaseSettings):
     ECC_LEARNING_DIR: str = "/app/.jai-learned"
     # ECC hooks made for a developer at a desk that do not fit an unattended mission (switched off by ECC's own
     # ECC_DISABLED_HOOKS): its formatter and type check at every stop, its plan canvas, desktop notifications, its
-    # fact-forcing edit gate and its health check of MCP servers (JAI's tools run inside the session).
+    # fact-forcing gate on edits and commands (24 November: in the sandbox it held up a video session's first
+    # commands until the agent switched it off itself) and its health check of MCP servers (JAI's tools run inside
+    # the session).
     ECC_DISABLED_HOOKS: str = ("stop:format-typecheck,post:quality-gate,stop:check-console-log,stop:desktop-notify,"
                                "session-start:plan-canvas-sessions,stop:plan-canvas-pending,"
                                "pre:edit-write:gateguard-fact-force,pre:powershell:gateguard-fact-force,"
+                               "pre:bash:gateguard-fact-force,"
                                "pre:mcp-health-check,post:mcp-health-check,pre:write:doc-file-warning")
     ROLE_AGENT_MODEL: str = "gpt-6-luna"
     ROLE_AGENT_STUCK_MODEL: str = "claude-sonnet-5-5"

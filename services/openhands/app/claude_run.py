@@ -66,6 +66,8 @@ LEARNED = Path(os.environ.get("JAI_LEARNED_DIR", "/jai/learned"))
 INLINE = re.compile(r"(?P<fenced>```[\s\S]*?(?:```|$))|(?P<escaped>\\!`[^`]+`)|(?P<inline>(?<!!)`[^`]+`)"
                     r"|!`(?P<cmd>[^`]+)`")
 INLINE_SECONDS = 120
+# The largest single message the SDK accepts from Claude Code (a picture the Read tool opened, in base64).
+MESSAGE_LIMIT = 64 * 1024 * 1024
 SERVER = "jai"
 PREFIX = f"mcp__{SERVER}__"
 # Claude Code's own tools in the session.
@@ -559,6 +561,10 @@ def options_for(sdk, run, config: Path, hooks: Hooks, server: Optional[Dict[str,
         effort=effort,
         env={**session_env(request, config, backend_url), **ecc_env(request)},
         stderr=lambda line: logger.debug("claude %s: %s", request.run_id, line),
+        # One message from Claude Code can carry a whole picture: the Read tool returns an image as a message of
+        # its own, and a 1080x1920 still is over the SDK's 1 MB default (24 November: episode 2 stopped on
+        # CLIJSONDecodeError at the first still it opened, twice). The SDK's own setting for it.
+        max_buffer_size=MESSAGE_LIMIT,
     )
 
 

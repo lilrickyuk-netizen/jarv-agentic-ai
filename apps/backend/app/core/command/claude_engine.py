@@ -80,6 +80,8 @@ WRITES = ("Write", "Edit")
 SESSION_SHARE = 0.75
 EXTRA_TURNS = 40
 TEXT_LIMIT = 30_000
+# The largest single message the SDK accepts from Claude Code (a picture the Read tool opened, in base64).
+MESSAGE_LIMIT = 64 * 1024 * 1024
 
 
 def enabled() -> bool:
@@ -800,6 +802,9 @@ class ClaudeRoleExecutor(RoleExecutor):
                  "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_TELEMETRY": "1",
                  **ecc_learning_env(folder)},
             stderr=lambda line: logger.debug(f"claude engine: {line}"),
+            # A picture the Read tool opens comes back as one message; a 1080x1920 still is over the SDK's 1 MB
+            # default (24 November: the sandbox's video sessions stopped on CLIJSONDecodeError at the first still).
+            max_buffer_size=MESSAGE_LIMIT,
         )
         self.engine_note = f"Claude Agent SDK, {engine_model()}"
         outcome, finished = "", False
