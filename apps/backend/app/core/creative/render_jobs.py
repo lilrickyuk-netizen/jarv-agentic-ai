@@ -119,6 +119,31 @@ async def start(*, task_id: Optional[UUID], container_root: str, host_root: str,
                      "back to you with the render's facts when it ends.")}
 
 
+RENDER_KEYS = ("render_job", "render_result")
+
+
+async def keep_render_state(db: Any, task: Any) -> None:
+    """Carry the render state written during a round (by start_render and the watcher, in their own sessions) onto
+    the mission's record before the round's outcome is saved. The round's session loaded the record when the round
+    began, so saving it as it was wiped the render the round had just started (24 November: episode 2 carried on
+    a minute and a half into its render and queued a second render of the same file behind it)."""
+    from sqlalchemy import select
+
+    from app.models.task import Task
+
+    with db.no_autoflush:  # read what is in the database now, not this session's older copy
+        fresh = (await db.execute(select(Task.meta_data).where(Task.id == task.id))).scalar_one_or_none()
+    if not isinstance(fresh, dict):
+        return
+    meta = dict(task.meta_data or {})
+    for key in RENDER_KEYS:
+        if key in fresh:
+            meta[key] = fresh[key]
+        else:
+            meta.pop(key, None)
+    task.meta_data = meta
+
+
 def rendering(meta: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """The mission's render while it is queued or running, else None."""
     job = (meta or {}).get("render_job")

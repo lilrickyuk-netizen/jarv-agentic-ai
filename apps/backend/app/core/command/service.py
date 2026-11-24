@@ -876,6 +876,12 @@ class CommandService:
         if current in (lifecycle.CANCELLED, lifecycle.WAITING_ON_APPROVAL) or current == status:
             return current
         try:
+            from app.core.creative import render_jobs
+
+            await render_jobs.keep_render_state(db, task)  # a render started during the round stays on the record
+        except Exception as exc:  # noqa: BLE001 - the outcome is still recorded
+            logger.warning(f"could not read the render state of {task.id}: {exc}")
+        try:
             lifecycle.transition(task, status, reason=reason or "", actor="orchestrator")
         except lifecycle.IllegalTransition as exc:
             logger.error(f"Refused mission status change for {task.id}: {exc}")

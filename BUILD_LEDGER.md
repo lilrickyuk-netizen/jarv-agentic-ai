@@ -15967,3 +15967,15 @@ RESULT: start_render, its description, its refusal and the permission gate now a
 RESEARCH: render_jobs, tool_runtime.start_render, fs_inspector.classify_command (chains are always "dangerous"), continuation.after_round
 BLOCKERS: None
 NEXT TASK: An installer for this against 9593de7 on Richard's machine (backend only: no image rebuild beyond the backend's test image)
+
+TASK ID: RENDER-STATE-KEPT-THROUGH-THE-ROUND
+TASK NAME: Episode 2 (mission 6c748110) carried on 1m28s into its render and queued a second render of the same file behind it
+STATUS: COMPLETE (backend 1441 passed, 1 skipped)
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/creative/render_jobs.py (keep_render_state), apps/backend/app/core/command/service.py (_finish keeps it), apps/backend/app/core/command/continuation.py (the same before the round's outcome), apps/backend/tests/test_renders_without_ai.py, BUILD_LEDGER.md
+COMMANDS RUN: Richard's card read (render cf1ee641 queued, "Rendering 1m 28s", continuation #3, render e18b339f queued "waiting its turn"); lifecycle.transition and record_history read: they rewrite the whole meta_data from the copy the round's session loaded when the round began, so the render_job start_render wrote in its own session during the round was wiped, and MissionRunner._auto_continue saw no render and carried the mission on
+TESTS RUN: new: a round's session loads the mission, start_render writes the render in its own session, the round saves its outcome: the render is still on the record and the runner waits (fails without the fix, passes with it); the whole backend suite
+RESULT: The render a round starts stays on the mission's record when the round's outcome is saved, in the first round and every later one; the mission waits for it instead of carrying on and queueing a duplicate.
+RESEARCH: lifecycle.py, service._finish, continuation.continue_mission, runtime/missions._auto_continue
+BLOCKERS: None
+NEXT TASK: Installer against f5728f7 on Richard's machine (backend only)

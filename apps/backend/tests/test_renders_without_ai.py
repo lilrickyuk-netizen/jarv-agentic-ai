@@ -369,3 +369,37 @@ def test_a_round_that_hands_its_render_over_waits_for_it_and_is_never_counted_id
     out, _, idle = after_round(waiting, "x", False, IDLE_ROUNDS_LIMIT - 1)              # no render: as before
     assert out == lifecycle.PARTIAL and idle == IDLE_ROUNDS_LIMIT
     assert after_round(lifecycle.COMPLETED, None, False, 0, rendering=True)[0] == lifecycle.COMPLETED
+
+
+@pytest.mark.skipif(_SQLITE, reason="two sessions write the same mission")
+def test_a_render_started_during_a_round_survives_the_rounds_outcome(no_models):
+    """24 November, episode 2: the round's session loaded the mission before start_render wrote the render (in its
+    own session), then saved its outcome over it. The render vanished from the record, the mission carried on a
+    minute and a half into the render, and queued a second render of the same file behind it. Saving the outcome
+    keeps the render, and the runner then waits for it."""
+    from sqlalchemy import select
+
+    from app.core.command.service import CommandService
+    from app.models.task import Task
+
+    async def run():
+        async with AsyncTestingSessionLocal() as db:
+            _, ws = await _seed_owner(db)
+            task_id = await _mission(db, ws, lifecycle.RUNNING)
+        async with AsyncTestingSessionLocal() as round_db:          # the round's session loads the mission
+            task = (await round_db.execute(select(Task).where(Task.id == task_id))).scalar_one()
+            assert "render_job" not in (task.meta_data or {})
+            await render_jobs._mark(task_id, {"job_id": "render-x-1", "status": "running", "output": "final.mp4",
+                                              "command": "npx remotion render a b final.mp4", "cwd": "/w",
+                                              "started_at": datetime.now(timezone.utc).isoformat()})
+            await CommandService._finish(CommandService.__new__(CommandService), round_db, task,
+                                         lifecycle.NEEDS_CONTINUATION, "the round's outcome")
+            await round_db.commit()
+        saved = await _get(task_id)
+        return task_id, saved, await MissionRunner()._auto_continue(task_id)
+
+    task_id, saved, continued = asyncio.run(run())
+    assert saved.status == lifecycle.NEEDS_CONTINUATION
+    assert saved.meta_data["render_job"]["job_id"] == "render-x-1"               # not wiped by the round
+    assert saved.meta_data["status_history"][-1]["to"] == lifecycle.NEEDS_CONTINUATION
+    assert continued is False                                                   # the runner waits for the render

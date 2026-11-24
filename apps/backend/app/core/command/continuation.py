@@ -401,13 +401,12 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
     else:
         outcome, reason = lifecycle.FAILED, "Continuation produced no verifiable output."
 
-    # A round that left its render in the queue waits for it (after_round).
-    from sqlalchemy import select
-
+    # A round that left its render in the queue waits for it (after_round); the render state written during the
+    # round is kept on the record this session saves.
     from app.core.creative import render_jobs
 
-    fresh = (await db.execute(select(Task.meta_data).where(Task.id == task.id))).scalar_one_or_none()
-    waiting_render = render_jobs.rendering(fresh if isinstance(fresh, dict) else None) is not None
+    await render_jobs.keep_render_state(db, task)
+    waiting_render = render_jobs.rendering(task.meta_data) is not None
     outcome, reason, idle = after_round(outcome, reason, round_progressed(
         res.get("requirements"), result.get("requirements"), runtime.calls, int(res.get("best_done") or 0)),
         int(res.get("idle_rounds") or 0), rendering=waiting_render)
