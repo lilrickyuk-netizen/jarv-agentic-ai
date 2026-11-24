@@ -15907,3 +15907,15 @@ RESULT: A Claude session in the sandbox has every skill JAI installed, Superpowe
 RESEARCH: Claude Code hooks (PreToolUse additionalContext, in the SDK's PreToolUseHookSpecificOutput), skills (disableSkillShellExecution, skillOverrides, SLASH_COMMAND_TOOL_CHAR_BUDGET); ECC's README and scripts; whisper.cpp's build instructions; claude_engine._plugins and ecc_learning_env (the business path, matched)
 BLOCKERS: Item 5 (the same video brief on both engines, compared on cost, time and result) needs Richard's sandbox, studio and Anthropic credit and cannot run in Claude's workspace; videos are on the Claude SDK already (SANDBOX_VIDEO_ENGINE claude). The 3D route in the handover's note still awaits Richard's confirmation
 NEXT TASK: One installer for every commit from 2ee98a8, against c694da0 on Richard's machine
+
+TASK ID: INSTALLER-24-NOVEMBER
+TASK NAME: One installer for every commit from 2ee98a8 (audit batches 1-3, the three additions, renders without AI, every skill and the full plugins in every session), against c694da0 on Richard's machine
+STATUS: COMPLETE (delivered as install-audit-batches.sh, replacing the earlier one); IN_PROGRESS until it has run on Richard's machine
+FILES CREATED: install-audit-batches.sh (delivered to Richard, not committed: it carries the commits as one patch series)
+FILES MODIFIED: BUILD_LEDGER.md
+COMMANDS RUN: git format-patch 2ee98a8..0dcf852 (12 commits); the series applied with git am --3way onto 2ee98a8 gives tree 6174ebe6, the same as 0dcf852; the embedded series compared byte for byte with the one made; the installer run end to end here with Docker and curl stood in (every step in order, apps/backend/.jai-learned made before the sandbox mounts it) and on the wrong commit (stops, nothing changed)
+TESTS RUN: on Richard's machine the installer runs the backend suite (PostgreSQL 16 with pgvector) and the sandbox suite inside the new sandbox image, including the image tests that cannot run here (whisper-cli, playwright-cli, Claude Agent SDK), before anything is restarted
+RESULT: Same safety as before (only c694da0 with no tracked changes, no mission running or queued, restored on any failure, never touches postgres, redis or docker-proxy, no volume or container removed). New: 12 commits, the shared ECC learning folder made first, the sandbox build includes whisper.cpp, and the checks report whisper-cli and the learning store.
+RESEARCH: docker-compose.yml (the sandbox's new /jai/learned mount; Docker makes a missing bind folder as root)
+BLOCKERS: None
+NEXT TASK: Richard runs install-audit-batches.sh
