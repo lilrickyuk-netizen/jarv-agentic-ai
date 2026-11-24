@@ -26,7 +26,7 @@ PLAN = {"split": True, "title": "Plexecute launch", "steps": [
     {"agent": "research", "title": "Research the competitors",
      "brief": "Write research/competitors.md comparing the main habit and planning apps."},
     {"agent": "marketing", "title": "Write the launch plan",
-     "brief": "Finish growth/launch-plan.md from the competitor research."},
+     "brief": "Finish the work on growth/launch-plan.md: continue from the competitor research."},
     {"gate": True, "title": "Richard reads the plan", "ask": "Read growth/launch-plan.md."},
     {"agent": "content", "title": "Write the launch posts",
      "brief": "Write growth/launch-posts.md: two weeks of posts from the plan."},
@@ -76,7 +76,10 @@ def test_the_plan_is_checked_before_it_runs():
     plan = planner._clean(PLAN)
     assert plan["title"] == "Plexecute launch"
     assert [s.get("specialist", "gate") for s in plan["steps"]] == ["research", "marketing", "gate", "content"]
-    assert "Finish" not in plan["steps"][1]["brief"] and "work on" in plan["steps"][1]["brief"].lower()
+    # A step is new work: nothing in its brief reads as carry on, so its mission never inherits an earlier checklist.
+    from app.core.command.resume import CARRY_ON
+    assert not any(CARRY_ON.search(s.get("brief", "")) for s in plan["steps"])
+    assert "work on" in plan["steps"][1]["brief"].lower()
     assert planner._clean({"split": False}) is None
     assert planner._clean({"split": True, "steps": [{"agent": "nobody", "title": "x", "brief": "y"}]}) is None
     one_agent = {"split": True, "steps": [{"agent": "sales", "title": "a", "brief": "b"},
