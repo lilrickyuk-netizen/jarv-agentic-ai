@@ -335,6 +335,16 @@ WORKSPACE_TOOLS: Dict[str, ToolSpec] = {
                              "up to 5 minutes). Nothing else on the computer can be touched with it.",
                              _schema({"action": {"type": "string", "enum": ["status", "restart", "pitr_rehearsal"]},
                                       "service": {"type": "string"}}, ["action"]), "workspace"),
+    "start_render": ToolSpec("start_render", "Render a finished video with no AI cost: give the render command "
+                             "(OpenMontage's VideoCompose or render_existing run with its Python, npx remotion "
+                             "render, npx hyperframes render, or ffmpeg), the folder it runs from (cwd: this "
+                             "workspace, or /opt/openmontage for OpenMontage's Python) and the output file. JAI "
+                             "starts it in the background (no time limit, its log in .jai/renders/, one render at "
+                             "a time) and returns its job id at once. Then stop working and end your turn: the "
+                             "mission pauses with no AI running and comes back to you with the render's facts "
+                             "(exit code, size, length, frozen frames, last log lines).",
+                             _schema({"command": {"type": "string"}, "cwd": {"type": "string"},
+                                      "output": {"type": "string"}}, ["command", "output"]), "workspace"),
     "read_document": ToolSpec("read_document", "Read a PDF, Word, PowerPoint, Excel, HTML or scanned document as "
                               "text with its headings and tables (Docling; scans are read with OCR): a file in "
                               "the workspace (path) or a public address (url). Long documents come in parts: pass "
@@ -789,6 +799,9 @@ class AgentToolbox:
             return await rt.social_channels()
         if name == "dev_services":
             return await rt.dev_services(str(args.get("action") or ""), str(args.get("service") or ""))
+        if name == "start_render":
+            return await rt.start_render(str(args.get("command") or ""), str(args.get("cwd") or ""),
+                                         str(args.get("output") or ""), root_host=self.root_host)
         if name in CODE_TOOLS:
             return await self._code_call(name, args)
         if name == "read_document":

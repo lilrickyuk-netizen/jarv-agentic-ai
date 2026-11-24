@@ -139,7 +139,12 @@ def _mission_view(task: Task, events: List[LiveOperationsFeedItem],
     meta = task.meta_data or {}
     status = lifecycle.normalise(task.status)
     seconds, tokens = _so_far(task, status, live)
-    if status in lifecycle.IN_FLIGHT:
+    from app.core.creative import render_jobs
+
+    job = render_jobs.rendering(meta) if status in lifecycle.IN_FLIGHT else None
+    if job is not None:
+        text = render_jobs.card_line(job)  # "Rendering (no AI cost), 4m 12s so far."
+    elif status in lifecycle.IN_FLIGHT:
         text = "Mission accepted and queued for execution." if status == lifecycle.QUEUED else \
             "JAI is working on this mission."
     elif status == lifecycle.BLOCKED:
@@ -345,6 +350,12 @@ async def working_now(operator: CurrentUserId, db: AsyncSession = Depends(get_db
                                status=str(p.get("status") or "planned"),
                                doing=(str(p.get("doing_now"))[:140] if p.get("doing_now") else None))
                   for p in packages if isinstance(p, dict) and p.get("status") in ("working", "planned")]
+        from app.core.creative import render_jobs
+
+        job = render_jobs.rendering(task.meta_data)
+        if job is not None:  # a render with no AI on it: the card says so, with the time so far
+            agents = [WorkingAgent(id="RENDER", role="Renderer", status="working",
+                                   doing=render_jobs.card_line(job)[:140])]
         if not agents and lifecycle.normalise(task.status) == "running":
             said = record.get("agent_said") or record.get("phase")
             agents = [WorkingAgent(id="JAI", role="JAI", status="working", doing=str(said)[:140] if said else None)]

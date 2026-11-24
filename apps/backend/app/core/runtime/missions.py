@@ -260,6 +260,15 @@ class MissionRunner:
             task = (await db.execute(select(Task).where(Task.id == task_id))).scalar_one_or_none()
             if task is None or lifecycle.normalise(task.status) != lifecycle.NEEDS_CONTINUATION:
                 return False
+            from app.core.creative import render_jobs
+
+            job = render_jobs.rendering(task.meta_data)
+            if job is not None:
+                # Its render runs with no AI; the render watcher (check_renders) carries it on when the render ends.
+                _feed(db, task, render_jobs.PHASE, f"Render {job['job_id']} is {job.get('status')}; the mission "
+                      "carries on by itself when it ends, with its facts.")
+                await db.commit()
+                return False
             working = await other_active_mission(
                 db, task, statuses=(lifecycle.RUNNING, lifecycle.QUEUED, lifecycle.RECOVERING))
             other = working or await newer_mission(db, task)

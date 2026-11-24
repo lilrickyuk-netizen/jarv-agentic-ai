@@ -13,6 +13,8 @@ API (all but /health need the bearer token JAI shares with this service):
                                (engine "claude": a Claude Agent SDK session, app/claude_run.py)
   GET  /runs/{run_id}?since=n  its status, steps, tokens, cost, actions from the n-th on, and its final message
   POST /runs/{run_id}/stop     stop it where it is
+  POST /renders                start a render with no AI: {job_id, workspace, command, cwd, output} (app/renders.py)
+  GET  /renders/{job_id}       its status, and when it has ended its facts (exit code, ffprobe, freezedetect, log)
 """
 from __future__ import annotations
 
@@ -37,6 +39,7 @@ MAX_RUNS = int(os.environ.get("OPENHANDS_MAX_RUNS", "4"))
 KEEP_SECONDS = 3600
 
 from app import gate as gates  # noqa: E402 - after the environment is cleaned
+from app import renders  # noqa: E402
 from app import skills as skill_packs  # noqa: E402
 
 logger = logging.getLogger("jai.openhands")
@@ -362,9 +365,45 @@ def _active() -> int:
     return sum(1 for run in RUNS.values() if run.ended_at is None)
 
 
+class RenderRequest(BaseModel):
+    job_id: str = Field(min_length=8, max_length=80, pattern=r"^[A-Za-z0-9_.:-]+$")
+    workspace: str
+    command: str = Field(min_length=1, max_length=8000)
+    cwd: str
+    output: str = Field(min_length=1, max_length=4000)
+
+
+# Where a render may run from: the mission's workspace, or OpenMontage's own folder (its Python runs from there).
+STUDIO_HOME = "/opt/openmontage"
+
+
+@app.post("/renders")
+def start_render(request: RenderRequest, authorization: Optional[str] = Header(default=None)) -> Dict[str, Any]:
+    """A render JAI's backend has already checked (its start_render tool): queued here, run with no AI."""
+    _authorised(authorization)
+    workspace = _inside(request.workspace)
+    cwd = Path(os.path.normpath(request.cwd))
+    if not (cwd == workspace or workspace in cwd.parents or str(cwd).startswith(STUDIO_HOME)) or not cwd.is_dir():
+        raise HTTPException(status_code=400, detail=f"{request.cwd} is not the workspace or the studio's folder.")
+    try:
+        job = renders.submit(request.job_id, str(workspace), request.command, str(cwd), request.output)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return job.view()
+
+
+@app.get("/renders/{job_id}")
+def render_status(job_id: str, authorization: Optional[str] = Header(default=None)) -> Dict[str, Any]:
+    _authorised(authorization)
+    job = renders.JOBS.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"No render {job_id}.")
+    return job.view()
+
+
 @app.get("/health")
 def health() -> Dict[str, Any]:
-    return {"ok": True, "runs": _active(), "max_runs": MAX_RUNS,
+    return {"ok": True, "runs": _active(), "max_runs": MAX_RUNS, "renders": renders.counts(),
             "ready": bool(SECRETS["OPENHANDS_TOKEN"] and SECRETS["JAI_GATEWAY_TOKEN"])}
 
 

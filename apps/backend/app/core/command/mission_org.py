@@ -140,6 +140,12 @@ def studio_goal() -> str:
             "with word-level captions, titles, stat cards and transitions) is for quick, plain footage-and-captions "
             "edits. Never write your own render pipeline, caption timing or text layout system around them: if one "
             "of its tools fails, read its error and fix the setup it names, or use the other composer. "
+            "Renders run without AI: start every full or final render (VideoCompose render or render_existing, npx "
+            "remotion render, npx hyperframes render, an ffmpeg encode of the whole video) with JAI's start_render "
+            "tool (the command, the folder it runs from, the output file), never in your terminal, then end your "
+            "turn at once with the render's requirement open (`R<n>: open — rendering, job <id>`): the mission "
+            "pauses with no AI running and comes back to you with the render's facts. Stills, a few test frames "
+            "and a short low-scale draft you may render in your terminal. "
             "Keep every working file you will open or look at (stills, check frames, contact sheets, drafts) in "
             "this mission's folder under .jai/work/, never in /tmp: the file viewer opens only files inside the "
             "mission's folder. "
@@ -801,6 +807,8 @@ class MissionTeam:
         # The maker's verified lessons for this mission (command/debrief) and their keys, read before the team runs.
         self.lessons: str = ""
         self.lessons_applied: List[str] = []
+        # The facts of a render this mission started, when it has ended since the last round (creative/render_jobs).
+        self.render_facts: str = ""
         # The brief of the mission this one carries on: it decides the agent (service, resume.last_state).
         self.route_from: Optional[str] = None
         # The last round of this mission completed nothing: its software work moves up to Opus (OPENHANDS_STUCK_MODEL).
@@ -1130,6 +1138,9 @@ class MissionTeam:
         for q in before:
             lines.append(f"{q.id} ({q.role}) finished before you"
                          + (" and reported: " + q.summary[:1200] if q.summary else "."))
+        facts = getattr(self, "render_facts", "")
+        if facts and p.id != VERIFIER_ID:
+            lines.append(facts)  # the render this mission started has ended (creative/render_jobs)
         lessons = getattr(self, "lessons", "")
         if lessons and p.id != VERIFIER_ID:
             # What this kind of job taught the agent before, in this workspace (command/debrief); the Verifier judges
@@ -1465,6 +1476,38 @@ class MissionTeam:
             return
         self.lessons, self.lessons_applied = await debrief.lessons_for(
             getattr(self.runtime, "db", None), getattr(self.runtime, "workspace_id", None), learner[0], mission)
+
+    async def _render_state(self) -> Dict[str, Any]:
+        """The mission's render record (meta_data), read fresh: {"job": running render or None, "facts": ...}."""
+        from sqlalchemy import select
+
+        from app.core.creative import render_jobs
+        from app.models.task import Task
+
+        task_id = getattr(self.runtime, "task_id", None)
+        db = getattr(self.runtime, "db", None)
+        if task_id is None or db is None:
+            return {"job": None, "facts": None}
+        try:
+            meta = (await db.execute(select(Task.meta_data).where(Task.id == task_id))).scalar_one_or_none() or {}
+        except Exception as exc:  # noqa: BLE001 - no render record: the round goes on as usual
+            logger.info(f"render record not read: {exc}")
+            return {"job": None, "facts": None}
+        return {"job": render_jobs.rendering(meta), "facts": meta.get("render_result")}
+
+    async def _held_for_render(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        """A round that ends with its render still queued or running pauses (needs_continuation) whatever the agent
+        reported: the render watcher carries it on with the facts, and no AI runs meanwhile."""
+        from app.core.creative import render_jobs
+
+        job = (await self._render_state())["job"]
+        if job is not None:
+            result["needs_continuation"] = True
+            result["success"] = False
+            result["rendering"] = {"job_id": job["job_id"], "status": job.get("status")}
+            result["answer"] = (f"**{render_jobs.card_line(job)}** The render runs with no AI; the mission "
+                                "carries on by itself when it ends.\n\n" + str(result.get("answer") or ""))
+        return result
 
     async def _debriefed(self, result: Dict[str, Any], mission: str) -> Dict[str, Any]:
         """24 November (audit batch 2): the same debrief business missions get (command/debrief), after every round
@@ -1951,11 +1994,16 @@ class MissionTeam:
         await self.book_spend()
         await self.save_progress()
         await self._read_lessons(mission)
+        from app.core.creative import render_jobs
+
+        rendered = await self._render_state()
+        if rendered["facts"] and rendered["job"] is None:
+            self.render_facts = render_jobs.facts_brief(rendered["facts"])
         await self._run_team(mission, known)
         team_steps = sum(p.step for p in self.packages)
         if self.sandbox:
-            return await self._debriefed(await self._sandbox_outcome(mission, team_steps, start_continuation),
-                                         mission)
+            return await self._held_for_render(await self._debriefed(
+                await self._sandbox_outcome(mission, team_steps, start_continuation), mission))
         self.phase = "integration"
         # After the sandbox's integration engineer the lead only confirms and hands over to the Verifier.
         rounds = min(max_continuations, 1) if self.sandbox else max_continuations

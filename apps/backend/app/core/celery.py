@@ -95,6 +95,11 @@ celery_app.conf.update(
             "schedule": 120.0,
             "options": {"expires": 110},
         },
+        "check-renders": {
+            "task": "check_renders",
+            "schedule": 30.0,
+            "options": {"expires": 25},
+        },
         "knowledge-refresh": {
             "task": "knowledge_refresh",
             "schedule": float(getattr(settings, "KNOWLEDGE_REFRESH_INTERVAL_HOURS", 168)) * 3600,
@@ -105,6 +110,15 @@ celery_app.conf.update(
 
 # Declarative registry of scheduled jobs (surfaced via /api/scheduler/jobs).
 SCHEDULED_JOBS = [
+    {
+        "name": "check_renders",
+        "task": "check_renders",
+        "interval_seconds": 30.0,
+        "enabled": True,
+        "type": "missions/video",
+        "description": "Check each video render running in the sandbox with no AI, and carry its mission on with the "
+                       "render's facts when it ends.",
+    },
     {
         "name": "image_generator_idle",
         "task": "stop_idle_image_generator",

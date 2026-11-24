@@ -334,6 +334,15 @@ def stop_idle_image_generator(self: Task) -> dict[str, Any]:
     return run_async(images.stop_if_idle())
 
 
+@celery_app.task(name="check_renders", bind=True)
+def check_renders(self: Task) -> dict[str, Any]:
+    """Each mission's render in the sandbox, every 30 seconds, with no AI: still going (its card shows the time so
+    far), or ended, and its mission carried on with the render's facts (creative/render_jobs)."""
+    from app.core.creative import render_jobs
+
+    return run_async(render_jobs.check_once())
+
+
 @celery_app.task(name="knowledge_refresh", bind=True)
 def knowledge_refresh(self: Task) -> dict[str, Any]:
     """Re-fetch every catalogue source; changed pages get a new version of their passages (Celery beat)."""

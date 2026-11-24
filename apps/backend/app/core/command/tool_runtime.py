@@ -74,6 +74,8 @@ _TOOL_AUTHORITY = {
     "social_draft": 2,
     # MYCO's dev stack: restarting its services and the PITR rehearsal are build-and-test work (Level 3).
     "dev_services": 3,
+    # A render handed to the sandbox with no AI (creative/render_jobs): running a command, so build-and-test work.
+    "start_render": 3,
     "code_overview": 1, "code_find_symbol": 1, "code_references": 1, "code_implementations": 1,
     "code_diagnostics": 1,
     "read_document": 1, "use_browser": 2, "knowledge_graph_search": 1, "knowledge_graph_add": 1,
@@ -1229,6 +1231,48 @@ class ToolRuntime:
             return {"success": False, "error": str(exc)}
         await self._record("dev_services", inputs, ok, summary)
         return {"success": ok, **result}
+
+    async def start_render(self, command: str, cwd: str, output: str,
+                           root_host: Optional[str] = None) -> Dict[str, Any]:
+        """A render started in the sandbox with no AI (creative/render_jobs): checked by JAI's permission gate and by
+        the sandbox's own command rules for this mission's folder, then queued there; the mission pauses on it."""
+        from pathlib import PurePosixPath
+
+        from app.core.command import sandbox_policy
+        from app.core.creative import render_jobs
+        from app.core.workspaces import fs_inspector
+
+        command, output = " ".join((command or "").split()), (output or "").strip()
+        inputs = {"command": command[:2000], "cwd": cwd, "output": output}
+        if not command or not output:
+            return {"success": False, "error": "start_render needs the render command and the output file."}
+        if not render_jobs.is_render(command):
+            await self._record("start_render", inputs, False, "refused: not a render command")
+            return {"success": False, "error": ("start_render runs renders only: OpenMontage's VideoCompose or "
+                                                 "render_existing, npx remotion render, npx hyperframes render, or "
+                                                 "ffmpeg (with a cd or export before it). Run anything else in "
+                                                 "your terminal.")}
+        denied = await self._enforce("start_render", command=command)
+        if denied:
+            return denied
+        container = fs_inspector.host_to_container(root_host or "") if root_host else None
+        if container is None:
+            return {"success": False, "error": "This mission has no workspace folder in the sandbox."}
+        root = str(container)
+        where = cwd.strip() or root
+        if not where.startswith("/"):
+            where = str(PurePosixPath(root) / where)
+        refusal = sandbox_policy.check_command(command, where, sandbox_policy.Scope(
+            root=root, authority=int(self.authority_level or 0)))
+        if refusal:
+            await self._record("start_render", inputs, False, refusal)
+            return {"success": False, "error": refusal}
+        out = await render_jobs.start(task_id=self.task_id, container_root=root, host_root=root_host or "",
+                                      command=command, cwd=where, output=output)
+        await self._record("start_render", inputs, bool(out.get("success")),
+                           f"render {out.get('job_id')} {out.get('status')}" if out.get("success")
+                           else str(out.get("error"))[:200])
+        return out
 
     async def social_draft(self, text: str, channels: Optional[List[str]] = None,
                            media_host_paths: Optional[List[str]] = None) -> Dict[str, Any]:
