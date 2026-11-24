@@ -199,8 +199,16 @@ def settled_reason(requirements) -> str:
             f"reason: {named}" + (" ..." if len(left) > 6 else "") + ". Ask for what is left as its own request.")
 
 
-def after_round(outcome: str, reason, changed: bool, idle_before: int):
-    """The outcome of a round once idle rounds are counted: (outcome, reason, idle rounds so far)."""
+def after_round(outcome: str, reason, changed: bool, idle_before: int, rendering: bool = False):
+    """The outcome of a round once idle rounds are counted: (outcome, reason, idle rounds so far).
+
+    A round that leaves its render in the queue (rendering) has done its work: the render's facts are the next
+    round's evidence, and the mission waits for them. 24 November: two rounds that each fixed the video and handed
+    the render over were counted idle, so episode 2 stopped as partial with its render still running and nothing to
+    carry it on when it ended."""
+    if rendering and outcome in (lifecycle.NEEDS_CONTINUATION, lifecycle.PARTIAL, lifecycle.FAILED):
+        return (lifecycle.NEEDS_CONTINUATION,
+                "Its render is running with no AI; the mission carries on by itself when it ends.", 0)
     idle = 0 if changed else int(idle_before or 0) + 1
     if outcome == lifecycle.NEEDS_CONTINUATION and idle >= IDLE_ROUNDS_LIMIT:
         return (lifecycle.PARTIAL,
@@ -393,11 +401,16 @@ async def continue_mission(db: AsyncSession, task: Task, *, operator: str) -> Di
     else:
         outcome, reason = lifecycle.FAILED, "Continuation produced no verifiable output."
 
-    outcome, reason, idle = after_round(outcome, reason, round_progressed(res.get("requirements"),
-                                                                          result.get("requirements"),
-                                                                          runtime.calls,
-                                                                          int(res.get("best_done") or 0)),
-                                        int(res.get("idle_rounds") or 0))
+    # A round that left its render in the queue waits for it (after_round).
+    from sqlalchemy import select
+
+    from app.core.creative import render_jobs
+
+    fresh = (await db.execute(select(Task.meta_data).where(Task.id == task.id))).scalar_one_or_none()
+    waiting_render = render_jobs.rendering(fresh if isinstance(fresh, dict) else None) is not None
+    outcome, reason, idle = after_round(outcome, reason, round_progressed(
+        res.get("requirements"), result.get("requirements"), runtime.calls, int(res.get("best_done") or 0)),
+        int(res.get("idle_rounds") or 0), rendering=waiting_render)
     checkpoint_id = str(uuid4()) if outcome == lifecycle.NEEDS_CONTINUATION else res.get("checkpoint_id")
     from app.core.command import mission_budget, result_card
 

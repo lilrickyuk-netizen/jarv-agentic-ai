@@ -1248,10 +1248,10 @@ class ToolRuntime:
             return {"success": False, "error": "start_render needs the render command and the output file."}
         if not render_jobs.is_render(command):
             await self._record("start_render", inputs, False, "refused: not a render command")
-            return {"success": False, "error": ("start_render runs renders only: OpenMontage's VideoCompose or "
-                                                 "render_existing, npx remotion render, npx hyperframes render, or "
-                                                 "ffmpeg (with a cd or export before it). Run anything else in "
-                                                 "your terminal.")}
+            return {"success": False, "error": ("start_render runs one render command only: OpenMontage's "
+                                                 "VideoCompose or render_existing, npx remotion render, npx "
+                                                 "hyperframes render, or ffmpeg. No cd, &&, ; or pipes: give the "
+                                                 "folder it runs from as cwd. Run anything else in your terminal.")}
         denied = await self._enforce("start_render", command=command)
         if denied:
             return denied

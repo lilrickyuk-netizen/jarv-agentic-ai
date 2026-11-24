@@ -337,8 +337,9 @@ WORKSPACE_TOOLS: Dict[str, ToolSpec] = {
                                       "service": {"type": "string"}}, ["action"]), "workspace"),
     "start_render": ToolSpec("start_render", "Render a finished video with no AI cost: give the render command "
                              "(OpenMontage's VideoCompose or render_existing run with its Python, npx remotion "
-                             "render, npx hyperframes render, or ffmpeg), the folder it runs from (cwd: this "
-                             "workspace, or /opt/openmontage for OpenMontage's Python) and the output file. JAI "
+                             "render, npx hyperframes render, or ffmpeg: one command, no cd, && or ;), the folder it "
+                             "runs from (cwd: this workspace, or /opt/openmontage for OpenMontage's Python) and the "
+                             "output file. JAI "
                              "starts it in the background (no time limit, its log in .jai/renders/, one render at "
                              "a time) and returns its job id at once. Then stop working and end your turn: the "
                              "mission pauses with no AI running and comes back to you with the render's facts "

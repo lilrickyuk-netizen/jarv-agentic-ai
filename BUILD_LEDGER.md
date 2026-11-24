@@ -15955,3 +15955,15 @@ RESULT: Installed. Rule for every future installer: run Docker with a config tha
 RESEARCH: claudeissues.com issue 53250 and microsoft/WSL#13864 (accept4 failed 110 breaks WSL interop until wsl --shutdown)
 BLOCKERS: None
 NEXT TASK: Richard sends episode 2 (Gold) again on the new engine, then episode 3 on OpenHands
+
+TASK ID: RENDERS-NEVER-REFUSED-OR-ABANDONED
+TASK NAME: Episode 2 (mission 6ff0f76c, £2.23): start_render refused twice every round, and the mission stopped as partial while its render was still running
+STATUS: COMPLETE (backend 1440 passed, 1 skipped)
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/creative/render_jobs.py (is_render: one render command, no chain), apps/backend/app/core/command/tool_runtime.py (start_render's refusal says one command, folder as cwd), apps/backend/app/core/agents/toolbox.py (start_render's description), apps/backend/app/core/command/mission_org.py (studio instruction), apps/backend/app/core/command/continuation.py (after_round: a round that left its render in the queue waits for it and is never counted idle), apps/backend/tests/test_renders_without_ai.py, BUILD_LEDGER.md
+COMMANDS RUN: Richard's mission cards read: every round, start_render was refused ("not a render command": the studio's own render script) then blocked by the permission gate ("cd folder && render": is_render accepted a cd before the render, the gate blocks every chain), then accepted; the round after the second render was stopped by the idle rule ("2 rounds in a row completed no new requirement") with its render queued, and a partial mission is terminal, so the render watcher would never carry it on
+TESTS RUN: is_render accepts one render command and refuses chains, pipes and redirections; start_render refuses a render folder outside the mission's; a round that hands its render over stays needs_continuation with idle 0 (also from partial or failed), a round without a render is counted as before, a completed round stays completed; the whole backend suite
+RESULT: start_render, its description, its refusal and the permission gate now agree: one render command, its folder as cwd. A mission waiting on its render is never stopped by the idle rule; it carries on by itself when the render ends.
+RESEARCH: render_jobs, tool_runtime.start_render, fs_inspector.classify_command (chains are always "dangerous"), continuation.after_round
+BLOCKERS: None
+NEXT TASK: An installer for this against 9593de7 on Richard's machine (backend only: no image rebuild beyond the backend's test image)

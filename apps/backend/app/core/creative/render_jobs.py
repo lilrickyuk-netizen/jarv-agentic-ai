@@ -37,7 +37,9 @@ logger = logging.getLogger(__name__)
 ACTIVE_KEY = "renders:active"           # Redis set of mission ids with a render queued or running
 CHECK_SECONDS = 30.0
 PHASE = "Rendering (no AI cost)"
-# A render command: what start_render accepts (each part of a chain is one of these, or a cd or export before it).
+# A render command: what start_render accepts. One command, never a chain: JAI's permission gate blocks any chained
+# command (24 November: "cd folder && render" passed this check, then the gate refused it, on every round of
+# episode 2); the folder it runs from is start_render's cwd.
 _RENDERERS = (
     re.compile(r"^(?:\S*/)?ffmpeg\b"),
     re.compile(r"^npx\s+(?:--yes\s+|-y\s+)?remotion\s+render\b"),
@@ -46,16 +48,14 @@ _RENDERERS = (
     re.compile(r"^(?:\S*/)?python3?\b.*\b(?:VideoCompose|video_compose|render_existing|hyperframes_compose)\b",
                re.S),
 )
-_SETUP = re.compile(r"^(?:cd\s+\S+|export\s+[A-Z_][A-Z0-9_]*=\S*|source\s+\S+|\.\s+\S+)$")
 
 
 def is_render(command: str) -> bool:
-    """True when every part of the command is a render, or a cd / export / source before one, and one is a render."""
-    parts = [p.strip() for p in re.split(r"\s*(?:&&|;)\s*", (command or "").strip()) if p.strip()]
-    if not parts or any(re.search(r"[|`]|\$\(|>\s*/(?!dev/null)", p) for p in parts):
+    """True when the command is one render (no chain, pipe, redirection or substitution)."""
+    command = (command or "").strip()
+    if not command or re.search(r"&&|\|\||;|[|`<>]|\$\(", command):
         return False
-    renders = [p for p in parts if any(r.search(p) for r in _RENDERERS)]
-    return bool(renders) and all(p in renders or _SETUP.match(p) for p in parts)
+    return any(r.search(command) for r in _RENDERERS)
 
 
 def _sandbox() -> str:

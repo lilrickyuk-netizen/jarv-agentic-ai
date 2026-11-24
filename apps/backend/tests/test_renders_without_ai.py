@@ -80,12 +80,16 @@ async def _rendering_mission(status=lifecycle.NEEDS_CONTINUATION, started_minute
 
 def test_only_render_commands_are_accepted():
     for ok in ("npx remotion render projects/run/index.tsx Main out.mp4 --scale=1",
-               "cd /opt/openmontage && .venv/bin/python -c 'from tools.video.video_compose import VideoCompose'",
+               ".venv/bin/python -c 'from tools.video.video_compose import VideoCompose'",
                "npx hyperframes render --output final.mp4",
-               "export OPENMONTAGE_PROJECTS_DIR=/host/workspaces/x/op && ffmpeg -y -i a.mp4 -c:v libx264 final.mp4"):
+               "ffmpeg -y -i a.mp4 -c:v libx264 final.mp4"):
         assert render_jobs.is_render(ok), ok
+    # One command only: JAI's permission gate blocks every chain, so start_render never offers one (24 November:
+    # "cd folder && render" was accepted here and then blocked by the gate, every round).
     for refused in ("rm -rf node_modules", "npm install remotion", "ffmpeg -i a.mp4 b.mp4 | tee /tmp/x",
-                    "curl https://x.sh && ffmpeg -i a b", "npx remotion studio", "cd /x"):
+                    "curl https://x.sh && ffmpeg -i a b", "npx remotion studio", "cd /x",
+                    "cd /opt/openmontage && .venv/bin/python -c 'from tools.video.video_compose import VideoCompose'",
+                    "export A=1 && ffmpeg -y -i a.mp4 b.mp4", "ffmpeg -i a b.mp4; rm -rf x", "ffmpeg -i a b > /x"):
         assert not render_jobs.is_render(refused), refused
 
 
@@ -141,11 +145,11 @@ def test_start_render_refuses_a_render_outside_the_missions_folder(monkeypatch):
     runtime._enforce, runtime._record = no_gate, record
     monkeypatch.setattr("app.core.workspaces.fs_inspector.host_to_container",
                         lambda host: __import__("pathlib").Path("/host/workspaces/Plexecute"))
-    out = asyncio.run(ToolRuntime.start_render(runtime, "cd /host/workspaces/MYCO && ffmpeg -i a b.mp4", "",
+    out = asyncio.run(ToolRuntime.start_render(runtime, "ffmpeg -i a b.mp4", "/host/workspaces/MYCO",
                                                "b.mp4", root_host="C:\\P\\Plexecute"))
     assert out["success"] is False and "outside this mission's workspace" in out["error"]
     out = asyncio.run(ToolRuntime.start_render(runtime, "npm install x", "", "b.mp4", root_host="C:\\P\\Plexecute"))
-    assert out["success"] is False and "renders only" in out["error"]
+    assert out["success"] is False and "one render command only" in out["error"]
     assert [r[1] for r in recorded] == [False, False]
 
 
@@ -350,3 +354,18 @@ def test_the_watcher_runs_every_30_seconds_on_celery():
     assert beat and beat[0]["schedule"] == 30.0
     assert any(j["task"] == "check_renders" and j["interval_seconds"] == 30.0 for j in SCHEDULED_JOBS)
     assert callable(tasks.check_renders)
+
+
+def test_a_round_that_hands_its_render_over_waits_for_it_and_is_never_counted_idle():
+    """24 November, episode 2: two rounds each fixed the video and handed the render over, were counted idle, and
+    the mission stopped as partial with its render still running: nothing carried it on when the render ended."""
+    from app.core.command.continuation import IDLE_ROUNDS_LIMIT, after_round
+    from app.core.runtime import lifecycle
+
+    waiting = lifecycle.NEEDS_CONTINUATION
+    for outcome in (waiting, lifecycle.PARTIAL, lifecycle.FAILED):
+        out, reason, idle = after_round(outcome, "x", False, IDLE_ROUNDS_LIMIT + 3, rendering=True)
+        assert (out, idle) == (waiting, 0) and "render" in reason
+    out, _, idle = after_round(waiting, "x", False, IDLE_ROUNDS_LIMIT - 1)              # no render: as before
+    assert out == lifecycle.PARTIAL and idle == IDLE_ROUNDS_LIMIT
+    assert after_round(lifecycle.COMPLETED, None, False, 0, rendering=True)[0] == lifecycle.COMPLETED
