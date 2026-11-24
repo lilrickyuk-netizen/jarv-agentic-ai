@@ -253,7 +253,7 @@ def test_the_runs_configuration_links_its_skills_and_turns_skill_shell_lines_off
                                        packs, {"ecc/skills/flagged"}, owner=None)
     assert sorted(p.name for p in (config / "skills").iterdir()) == ["verification-before-completion",
                                                                      "video-editing"]
-    assert json.loads((config / "settings.json").read_text()) == {"disableSkillShellExecution": True}
+    assert json.loads((config / "settings.json").read_text())["disableSkillShellExecution"] is True
     assert "/etc/profile.d/jai-*.sh" in (config / "shell-env.sh").read_text()
 
 
@@ -270,3 +270,23 @@ def test_the_session_has_claude_codes_tools_the_scrub_and_the_backends_limits():
     assert env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == "claude-haiku-5-5"
     assert "Bash" in claude_run.TOOLS and "Skill" in claude_run.TOOLS
     assert "invoke_skill" not in claude_run.rules_for_claude(server.ENGINEERING_RULES)
+
+
+def test_every_skill_is_listed_its_trade_in_full_the_rest_by_name_and_the_budget_fits(tmp_path, monkeypatch):
+    """Richard, 24 November: every installed skill in sandbox sessions, listed like the business path."""
+    monkeypatch.setattr(claude_run, "SESSIONS", tmp_path / "sessions")
+    packs = tmp_path / "packs"
+    folders = ["marketingskills/skills/video", "ecc/skills/video-editing", "superpowers/skills/test-driven-development"]
+    for folder in folders:
+        (packs / folder).mkdir(parents=True)
+        name = folder.rsplit("/", 1)[1]
+        (packs / folder / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {'x' * 400}\n---\nBody")
+    config = claude_run.prepare_config("run-all", folders, packs, set(), owner=None, in_full=["video"])
+    settings = json.loads((config / "settings.json").read_text())
+    assert sorted(p.name for p in (config / "skills").iterdir()) == ["test-driven-development", "video",
+                                                                     "video-editing"]
+    assert settings["skillOverrides"] == {"video-editing": "name-only", "test-driven-development": "name-only"}
+    request = server.RunRequest(run_id="run-all-skills", workspace="/tmp", brief="b", model=MODEL, engine="claude",
+                                model_token=RUN_TOKEN, skills=folders, skills_in_full=["video"])
+    budget = int(claude_run.session_env(request, config, "http://backend:8000")["SLASH_COMMAND_TOOL_CHAR_BUDGET"])
+    assert budget >= 400 + claude_run.LISTING_SPARE

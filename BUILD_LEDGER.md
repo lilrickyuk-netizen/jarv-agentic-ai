@@ -15883,3 +15883,15 @@ RESULT: The installer refuses anything but c694da0 with no tracked changes, refu
 RESEARCH: docker-compose.yml (bind-mounted backend code: no backend image rebuild needed; profiles engineer and images); apps/backend/Dockerfile test stage; docs/RUNBOOK.md section 7
 BLOCKERS: None
 NEXT TASK: Richard runs install-audit-batches.sh; then the same video brief on both engines ("... on the Claude engine" / "... on OpenHands")
+
+TASK ID: EVERY-SKILL-IN-SANDBOX-AND-VIDEOS-ON-CLAUDE
+TASK NAME: Richard, 24 November 02:39-02:40: every installed skill in sandbox Claude sessions, listed like the business path; videos on the Claude SDK
+STATUS: COMPLETE (backend 1434 passed, 1 skipped; sandbox logic tests 26 passed)
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/knowledge/skill_packs.py (all_skills), apps/backend/app/core/command/sandbox_engine.py (a Claude run is sent every skill, with its trade's named for the listing), apps/backend/app/core/config.py (SANDBOX_VIDEO_ENGINE claude), services/openhands/app/server.py (skills_in_full; up to 400 skills), services/openhands/app/claude_run.py (the listing: the trade's skills described in full, the rest name-only through Claude Code's skillOverrides, SLASH_COMMAND_TOOL_CHAR_BUDGET set to fit it whole, as backend claude_engine does), apps/backend/tests/test_audit_batch3.py, services/openhands/tests/test_sandbox_claude_run.py, BUILD_LEDGER.md
+COMMANDS RUN: every pinned pack's SKILL.md searched for inline !`command` lines (superpowers, marketingskills, brag, hyperframes, social-media-skills, ECC, video-agent-skills, playwright-cli): none uses one; the four matches are ordinary text
+TESTS RUN: the backend suite; the sandbox suite's logic tests (new: every skill linked, the trade in full and the rest name-only, the budget fits)
+RESULT: A Claude session in the sandbox is offered every installed skill; videos run there by default ("... on OpenHands" in a brief keeps one on OpenHands).
+RESEARCH: Claude Code skills listing (code.claude.com/docs/en/skills, as recorded for claude_engine.skill_listing)
+BLOCKERS: The comparison of one video brief on both engines needs Richard's sandbox, studio and Anthropic credit: it cannot run in Claude's workspace (no Docker Hub, no OpenMontage or GPU, and tests never spend credit)
+NEXT TASK: FULL-PLUGINS-IN-EVERY-SESSION

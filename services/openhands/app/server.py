@@ -61,7 +61,7 @@ class RunRequest(BaseModel):
     output_cost_per_token: Optional[float] = Field(default=None, ge=0)
     jai_tools: bool = True  # JAI's own capabilities, from its MCP server
     # The skill packs' skills for this specialist ("pack/root/skill" folders under /jai/skills), loaded on demand.
-    skills: List[str] = Field(default_factory=list, max_length=200)
+    skills: List[str] = Field(default_factory=list, max_length=400)
     # What cached input costs (US dollars per token): Anthropic and OpenAI charge a tenth for a cache read, so the
     # per-run budget must count it at that price, not at the full input price.
     cache_read_cost_per_token: Optional[float] = Field(default=None, ge=0)
@@ -74,6 +74,9 @@ class RunRequest(BaseModel):
     # A Claude session's own token for JAI's gateway (issued by the backend for this run only), its light model for
     # Claude Code's background work, and its call timeout and retries.
     model_token: Optional[SecretStr] = None
+    # A Claude session is offered every skill; these (the specialist's own trade) are described in full in its
+    # listing, the rest are listed by name and opened the same way.
+    skills_in_full: List[str] = Field(default_factory=list, max_length=400)
     light_model: str = ""
     api_timeout_ms: int = Field(default=180000, ge=30000, le=600000)
     max_retries: int = Field(default=3, ge=0, le=10)

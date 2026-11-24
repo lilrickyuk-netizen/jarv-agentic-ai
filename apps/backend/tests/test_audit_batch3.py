@@ -56,13 +56,14 @@ def test_software_stays_on_openhands_and_the_rest_moves_to_the_claude_engine():
     assert sandbox_engine.engine_for(carousel, _team(carousel), "Make a carousel", SONNET) == "claude"
 
 
-def test_video_moves_only_after_richard_compares_both_engines_and_a_brief_can_choose():
+def test_videos_run_on_the_claude_sdk_and_a_brief_can_choose_openhands():
+    """Richard, 24 November 02:39: "videos should be changing that was the whole point"."""
     video = _video()
     team = _team(video)
-    assert settings.SANDBOX_VIDEO_ENGINE == "openhands"
-    assert sandbox_engine.engine_for(video, team, "Use OpenMontage to make a reel", SONNET) == "openhands"
-    assert sandbox_engine.engine_for(video, team, "Use OpenMontage to make a reel on the Claude engine",
-                                     SONNET) == "claude"
+    assert settings.SANDBOX_VIDEO_ENGINE == "claude"
+    assert sandbox_engine.engine_for(video, team, "Use OpenMontage to make a reel", SONNET) == "claude"
+    assert sandbox_engine.engine_for(video, team, "Use OpenMontage to make a reel on OpenHands",
+                                     SONNET) == "openhands"
     assert sandbox_engine.engine_for(_carousel(), _team(_carousel()), "Make a carousel on OpenHands",
                                      SONNET) == "openhands"
 
@@ -114,6 +115,11 @@ def test_a_claude_run_gets_its_own_token_the_backends_limits_and_its_token_dies_
     assert body["api_timeout_ms"] == settings.SANDBOX_CLAUDE_API_TIMEOUT_MS
     assert body["max_retries"] == settings.SANDBOX_CLAUDE_MAX_RETRIES
     assert "YOUR FINAL MESSAGE (your last reply, when the work is done)" in body["brief"]
+    # Every skill JAI has is offered; the specialist's own trade is described in full.
+    from app.core.knowledge.skill_packs import all_skills, sandbox_skills
+
+    assert body["skills"] == (all_skills() or sandbox_skills("creation"))
+    assert body["skills_in_full"] == [p.rsplit("/", 1)[-1] for p in sandbox_skills("creation")]
     assert seen_token["live"]["run"] == body["run_id"]
     assert seen_token["live"]["max_cost_usd"] == pytest.approx(body["max_cost_usd"])
     assert after is None  # revoked when the run ended

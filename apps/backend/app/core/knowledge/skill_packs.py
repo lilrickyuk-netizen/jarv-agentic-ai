@@ -436,6 +436,25 @@ def read_skill(local_path: str, root: Optional[Path] = None) -> Tuple[Optional[s
     return text[:MAX_SKILL_CHARS], ""
 
 
+def all_skills() -> List[str]:
+    """Every installed skill JAI has, as folders inside skill-packs/ ("pack/root/skill"), one per name, the ones
+    AgentShield blocked left out. 24 November, Richard: "jai must not be stopping claude from using any of its
+    skills": a Claude session in the sandbox is offered all of them (its own trade's described in full)."""
+    from app.core.config import settings
+
+    if not getattr(settings, "SKILL_PACKS_ENABLED", True):
+        return []
+    refused = blocked()
+    paths, names = [], set()
+    for entry in SKILLS:
+        path = f"{entry['pack']}/{skill_path(entry)}"
+        if path in refused or entry["skill"] in names:
+            continue
+        names.add(entry["skill"])
+        paths.append(path)
+    return paths
+
+
 def sandbox_skills(specialist: str) -> List[str]:
     """The skills a mission specialist sees in the sandbox, as their folders inside skill-packs/
     ("pack/root/skill"); each is listed by name and description and loaded only when the specialist invokes it."""

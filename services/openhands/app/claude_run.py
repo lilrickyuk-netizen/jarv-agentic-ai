@@ -87,8 +87,51 @@ def rules_for_claude(rules: str) -> str:
             .replace("invoke_skill", "the Skill tool"))
 
 
+# Claude Code drops skill descriptions past its listing's character budget, which removes the words it chooses a skill
+# by (code.claude.com/docs/en/skills); the business engine lists its trade in full and the rest by name for the same
+# reason (backend claude_engine.skill_listing). Its cap on one description, and room for its own bundled skills.
+DESCRIPTION_CAP, LISTING_SPARE, LISTING_MARGIN = 1536, 6000, 1.25
+
+
+def _front(skill_md: Path) -> Dict[str, str]:
+    try:
+        text = skill_md.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {}
+    if not text.startswith("---"):
+        return {}
+    head = text[3:].split("\n---", 1)[0]
+    try:
+        import yaml
+
+        data = yaml.safe_load(head) or {}
+    except Exception:  # noqa: BLE001 - Claude Code lists it by its folder name
+        data = {}
+    if not isinstance(data, dict):
+        return {}
+    return {"name": str(data.get("name") or ""),
+            "description": " ".join(str(data.get(k) or "") for k in ("description", "when_to_use")).strip()}
+
+
+def listing(config: Path, in_full: List[str]) -> Dict[str, Any]:
+    """skillOverrides (name-only for skills outside the specialist's own) and the budget that fits the listing whole."""
+    keep = set(in_full)
+    overrides: Dict[str, str] = {}
+    chars = 0
+    for link in sorted((config / "skills").iterdir()):
+        front = _front(link / "SKILL.md")
+        name = front.get("name") or link.name
+        if not keep or link.name in keep or name in keep:
+            chars += len(name) + min(len(front.get("description", "")), DESCRIPTION_CAP) + 4
+        else:
+            for key in {link.name, name}:
+                overrides[key] = "name-only"
+            chars += len(name) + 4
+    return {"overrides": overrides, "budget": int(chars * LISTING_MARGIN) + LISTING_SPARE}
+
+
 def prepare_config(run_id: str, skills: List[str], skills_root: Path, refused: set,
-                   owner: Optional[str] = "") -> Path:
+                   owner: Optional[str] = "", in_full: Optional[List[str]] = None) -> Path:
     """The run's own Claude Code configuration folder: its skills linked in, Claude Code's settings (skills' inline
     shell commands off) and the shell's settings file. Owned by the agent user, who runs Claude Code."""
     base = SESSIONS / run_id
@@ -111,7 +154,12 @@ def prepare_config(run_id: str, skills: List[str], skills_root: Path, refused: s
             continue
         seen.add(name)
         os.symlink(source, base / "skills" / name, target_is_directory=True)
-    (base / "settings.json").write_text(json.dumps({"disableSkillShellExecution": True}, indent=1))
+    listed = listing(base, list(in_full or []))
+    settings = {"disableSkillShellExecution": True}
+    if listed["overrides"]:
+        settings["skillOverrides"] = listed["overrides"]
+    (base / "settings.json").write_text(json.dumps(settings, indent=1))
+    (base / "listing-budget").write_text(str(listed["budget"]))
     # Run before every Bash command, after Claude Code has scrubbed JAI's credentials: the sandbox's own settings
     # (the studio, the voice, Playwright, MYCO's dev stack, the footage key), as the OpenHands login shell has them.
     (base / "shell-env.sh").write_text(
@@ -142,7 +190,16 @@ def session_env(request, config: Path, backend_url: str) -> Dict[str, str]:
         "CLAUDE_CODE_MAX_RETRIES": str(int(request.max_retries)),
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_TELEMETRY": "1", "DISABLE_AUTOUPDATER": "1",
         "CLAUDE_AGENT_SDK_CLIENT_APP": "jai-sandbox",
+        # The skill listing's budget, so every description in it reaches Claude whole (listing above).
+        "SLASH_COMMAND_TOOL_CHAR_BUDGET": _budget(config),
     }
+
+
+def _budget(config: Path) -> str:
+    try:
+        return str(int((config / "listing-budget").read_text().strip()))
+    except (OSError, ValueError):
+        return str(LISTING_SPARE * 4)
 
 
 async def _mcp(client: httpx.AsyncClient, url: str, token: str, run_id: str, method: str,
@@ -292,7 +349,8 @@ async def execute(run, gate, rules: str, backend_url: str, sandbox_token: str, s
     import claude_agent_sdk as sdk
 
     request = run.request
-    config = prepare_config(request.run_id, list(request.skills), skills_root, refused)
+    config = prepare_config(request.run_id, list(request.skills), skills_root, refused,
+                            in_full=list(request.skills_in_full))
     server, tools_client, note = (await jai_server(sdk, request.run_id, backend_url, sandbox_token)
                                   if request.jai_tools else (None, None, ""))
     if note:

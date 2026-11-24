@@ -394,12 +394,11 @@ class Settings(BaseSettings):
     VIDEO_INDEPENDENT_CHECK: bool = False
     OPENHANDS_FALLBACK_MODEL: str = "gpt-6-sol"
     # 24 November (audit batch 3): non-development work in the sandbox (a named skill's run, a builder acting as a
-    # business or content specialist, and their checks) runs as a Claude Agent SDK session there, with the shell on
-    # and every tool call gated by JAI's sandbox rules; software builds stay on OpenHands. Video work moves only after
-    # Richard has run the same video brief on both engines ("... on the Claude engine" / "... on OpenHands" in a brief
-    # chooses one for that mission). "openhands" for either puts that work back on OpenHands.
+    # business or content specialist, their checks, and videos) runs as a Claude Agent SDK session there, with the
+    # shell on and every tool call gated by JAI's sandbox rules; software builds stay on OpenHands. "... on OpenHands"
+    # or "... on the Claude engine" in a brief chooses for that mission; "openhands" here puts that work back.
     SANDBOX_NON_DEV_ENGINE: str = "claude"
-    SANDBOX_VIDEO_ENGINE: str = "openhands"
+    SANDBOX_VIDEO_ENGINE: str = "claude"   # Richard, 24 November 02:39: videos move to the Claude SDK now
     # How long one model call of a Claude session in the sandbox may take before Claude Code retries it (its own
     # API_TIMEOUT_MS, default 10 minutes; a hung call stalled a mission for 8 minutes on 23 November), and how many
     # times it retries (CLAUDE_CODE_MAX_RETRIES, default 10).
