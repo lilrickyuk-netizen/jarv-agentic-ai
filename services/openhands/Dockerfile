@@ -11,6 +11,19 @@ FROM ${NODE_IMAGE} AS node
 FROM ${UV_IMAGE} AS uv
 FROM ${MISE_IMAGE} AS mise
 FROM ${DENO_IMAGE} AS deno
+# whisper.cpp's whisper-cli (MIT), built from its official source at a pinned release for short-editing's word
+# timings (Melvynx/video-agent-skills: it looks for whisper-cli on the PATH on Linux). Built here so cmake and the
+# sources stay out of the sandbox; generic CPU code (GGML_NATIVE off) so the image runs on any x86-64 machine.
+FROM python:3.12-slim-bookworm AS whisper
+ARG WHISPER_CPP_VERSION=v1.9.6
+ARG WHISPER_CPP_COMMIT=96ec4d9823e9d0211944172da35f9f29134af990
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates git cmake build-essential \
+    && git clone -q --depth 1 --branch "${WHISPER_CPP_VERSION}" https://github.com/ggml-org/whisper.cpp.git /src \
+    && test "$(git -C /src rev-parse HEAD)" = "${WHISPER_CPP_COMMIT}" \
+    && cmake -S /src -B /build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF \
+       -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF \
+    && cmake --build /build -j"$(nproc)" --target whisper-cli \
+    && install -m 0755 /build/bin/whisper-cli /usr/local/bin/whisper-cli
 
 FROM python:3.12-slim-bookworm
 
@@ -149,6 +162,8 @@ ENV OPENMONTAGE_HOME=/opt/openmontage PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwrigh
 ARG YT_DLP_VERSION=2026.10.26
 ARG YOUTUBE_TRANSCRIPT_API_VERSION=1.2.5
 COPY --from=deno /deno /usr/local/bin/deno
+COPY --from=whisper /usr/local/bin/whisper-cli /usr/local/bin/whisper-cli
+RUN whisper-cli --help 2>&1 | grep -q -- "--output-json-full"
 RUN deno --version \
     && python3 -m venv /opt/yt-dlp \
     && /opt/yt-dlp/bin/pip install --no-cache-dir "yt-dlp[default]==${YT_DLP_VERSION}" \

@@ -143,6 +143,7 @@ def _session(monkeypatch, gateway_url, script, skills=()):
     monkeypatch.setattr(claude_run, "AGENT_USER", user)
     home = Path(pwd.getpwnam(user).pw_dir)
     monkeypatch.setattr(claude_run, "SESSIONS", home / ".jai-claude-test")
+    monkeypatch.setattr(claude_run, "COPIES", home / ".jai-copies-test")
     monkeypatch.setenv("JAI_AGENT_HOME", str(home))
     folder = Path(tempfile.mkdtemp(prefix="mission-", dir=os.environ["WORKSPACE_ROOT"]))
     os.chmod(os.environ["WORKSPACE_ROOT"], 0o755)
@@ -220,6 +221,7 @@ def test_files_outside_the_workspace_are_refused_by_the_same_gate(monkeypatch, g
     monkeypatch.setattr(claude_run, "AGENT_USER", user)
     home = Path(pwd.getpwnam(user).pw_dir)
     monkeypatch.setattr(claude_run, "SESSIONS", home / ".jai-claude-test")
+    monkeypatch.setattr(claude_run, "COPIES", home / ".jai-copies-test")
     monkeypatch.setenv("JAI_AGENT_HOME", str(home))
     folder = Path(tempfile.mkdtemp(prefix="mission-", dir=os.environ["WORKSPACE_ROOT"]))
     shutil.chown(folder, user, user)
@@ -243,6 +245,7 @@ def test_files_outside_the_workspace_are_refused_by_the_same_gate(monkeypatch, g
 
 def test_the_runs_configuration_links_its_skills_and_turns_skill_shell_lines_off(tmp_path, monkeypatch):
     monkeypatch.setattr(claude_run, "SESSIONS", tmp_path / "sessions")
+    monkeypatch.setattr(claude_run, "COPIES", tmp_path / "copies")
     packs = tmp_path / "packs"
     for folder in ("superpowers/skills/verification-before-completion", "ecc/skills/video-editing",
                    "ecc/skills/flagged"):
@@ -275,6 +278,7 @@ def test_the_session_has_claude_codes_tools_the_scrub_and_the_backends_limits():
 def test_every_skill_is_listed_its_trade_in_full_the_rest_by_name_and_the_budget_fits(tmp_path, monkeypatch):
     """Richard, 24 November: every installed skill in sandbox sessions, listed like the business path."""
     monkeypatch.setattr(claude_run, "SESSIONS", tmp_path / "sessions")
+    monkeypatch.setattr(claude_run, "COPIES", tmp_path / "copies")
     packs = tmp_path / "packs"
     folders = ["marketingskills/skills/video", "ecc/skills/video-editing", "superpowers/skills/test-driven-development"]
     for folder in folders:
@@ -290,3 +294,157 @@ def test_every_skill_is_listed_its_trade_in_full_the_rest_by_name_and_the_budget
                                 model_token=RUN_TOKEN, skills=folders, skills_in_full=["video"])
     budget = int(claude_run.session_env(request, config, "http://backend:8000")["SLASH_COMMAND_TOOL_CHAR_BUDGET"])
     assert budget >= 400 + claude_run.LISTING_SPARE
+
+
+# ----- 24 November, Richard: full plugins, writable skills, skills' own shell lines through JAI's gate -------------
+
+def _read_only_packs(root: Path) -> Path:
+    """The skill packs as the sandbox mounts them: read-only, with Superpowers and ECC as plugin packs."""
+    files = {
+        "video-agent-skills/skills/short-editing/SKILL.md": "---\nname: short-editing\ndescription: edit\n---\nB",
+        "video-agent-skills/skills/short-editing/engine/setup.mjs": "// writes .runtime/ and assets/ here",
+        "superpowers/skills/brainstorming/SKILL.md": "---\nname: brainstorming\ndescription: b\n---\nB",
+        "superpowers/skills/writing-plans/SKILL.md": "---\nname: writing-plans\ndescription: w\n---\nB",
+        "superpowers/agents/code-reviewer.md": "agent", "superpowers/commands/brainstorm.md": "command",
+        "superpowers/hooks/hooks.json": "{}",
+        "ecc/skills/continuous-learning-v2/SKILL.md": "---\nname: continuous-learning-v2\ndescription: l\n---\nB",
+        "ecc/skills/video-editing/SKILL.md": "---\nname: video-editing\ndescription: v\n---\nB",
+        "ecc/agents/planner.md": "agent", "ecc/agents/flagged.md": "agent", "ecc/hooks/hooks.json": "{}",
+        "ecc/scripts/hooks/observe-runner.js": "// ECC", "ecc/.jai-blocked-parts": "agents/flagged.md\n",
+    }
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text)
+    for path in sorted(root.rglob("*"), reverse=True):
+        path.chmod(0o555 if path.is_dir() else 0o444)
+    return root
+
+
+PLUGINS = [{"name": "superpowers", "title": "Superpowers", "publisher": "obra", "commit": "22f0b46",
+            "parts": ["agents", "commands", "hooks"], "root": "skills", "whole_root": True, "skills": []},
+           {"name": "ecc", "title": "ECC", "publisher": "affaan-m", "commit": "d2ef268",
+            "parts": ["agents", "commands", "hooks", "scripts"], "root": "skills",
+            "skills": ["ecc/skills/continuous-learning-v2", "ecc/skills/video-editing"]}]
+
+
+def test_each_mission_gets_a_writable_copy_and_the_packs_stay_read_only(tmp_path, monkeypatch):
+    monkeypatch.setattr(claude_run, "SESSIONS", tmp_path / "sessions")
+    monkeypatch.setattr(claude_run, "COPIES", tmp_path / "copies")
+    packs = _read_only_packs(tmp_path / "packs")
+    folder = ["video-agent-skills/skills/short-editing"]
+    try:
+        config = claude_run.prepare_config("run-copy-0001", folder, packs, set(), owner=None, mission_id="m1")
+        skill = (config / "skills" / "short-editing").resolve()
+        assert str(skill).startswith(str(tmp_path / "copies" / "m1"))
+        (skill / ".runtime").mkdir()                       # a skill's own setup files can be written
+        (skill / "engine" / "setup.mjs").write_text("changed in the copy")
+        again = claude_run.prepare_config("run-copy-0002", folder, packs, set(), owner=None, mission_id="m1")
+        assert ((again / "skills" / "short-editing").resolve() / ".runtime").is_dir()   # kept for the next round
+        other = claude_run.prepare_config("run-copy-0003", folder, packs, set(), owner=None, mission_id="m2")
+        assert not ((other / "skills" / "short-editing").resolve() / ".runtime").exists()  # each mission its own
+        assert (packs / "video-agent-skills/skills/short-editing/engine/setup.mjs").read_text().startswith("//")
+    finally:
+        for path in packs.rglob("*"):
+            path.chmod(0o755 if path.is_dir() else 0o644)
+
+
+def test_superpowers_and_ecc_come_in_as_full_plugins_with_their_skills_from_the_copies(tmp_path, monkeypatch):
+    monkeypatch.setattr(claude_run, "SESSIONS", tmp_path / "sessions")
+    monkeypatch.setattr(claude_run, "COPIES", tmp_path / "copies")
+    packs = _read_only_packs(tmp_path / "packs")
+    try:
+        config = claude_run.prepare_config("run-plug-0001", [], packs, set(), owner=None, mission_id="m1",
+                                           plugins=PLUGINS)
+        listed = json.loads((config / "plugins.json").read_text())
+        assert [Path(p["path"]).name for p in listed] == ["superpowers", "ecc"]
+        sp, ecc = config / "plugins" / "superpowers", config / "plugins" / "ecc"
+        assert (sp / ".claude-plugin" / "plugin.json").is_file() and (sp / "hooks" / "hooks.json").is_file()
+        assert (sp / "agents" / "code-reviewer.md").is_file() and (sp / "commands" / "brainstorm.md").is_file()
+        assert {p.name for p in (sp / "skills").iterdir()} == {"brainstorming", "writing-plans"}  # the whole workflow
+        assert (ecc / "agents" / "planner.md").is_file() and not (ecc / "agents" / "flagged.md").exists()
+        assert (ecc / "scripts" / "hooks" / "observe-runner.js").is_file()
+        assert {p.name for p in (ecc / "skills").iterdir()} == {"continuous-learning-v2", "video-editing"}
+        assert str((ecc / "skills" / "video-editing").resolve()).startswith(str(tmp_path / "copies"))
+    finally:
+        for path in packs.rglob("*"):
+            path.chmod(0o755 if path.is_dir() else 0o644)
+
+
+def test_eccs_learning_goes_to_jais_one_store_across_missions(tmp_path, monkeypatch):
+    user = _agent_user()
+    monkeypatch.setattr(claude_run, "AGENT_USER", user)
+    monkeypatch.setattr(claude_run, "LEARNED", tmp_path / "learned")
+    request = server.RunRequest(run_id="run-ecc-env", workspace="/tmp", brief="b", model=MODEL, engine="claude",
+                                model_token=RUN_TOKEN, light_model="claude-haiku-5-5")
+    env = claude_run.ecc_env(request)
+    assert env["CLV2_HOMUNCULUS_DIR"] == str(tmp_path / "learned" / "homunculus")
+    assert env["ECC_AGENT_DATA_HOME"] == str(tmp_path / "learned" / "ecc")
+    assert env["CLAUDE_CODE_ENTRYPOINT"] == "sdk-ts" and env["ECC_OBSERVER_MODEL"] == "claude-haiku-5-5"
+    assert json.loads(Path(env["CLV2_CONFIG"]).read_text())["observer"]["enabled"] is True
+    if os.geteuid() == 0:  # ECC's hooks write there as the agent user
+        uid = pwd.getpwnam(user).pw_uid
+        assert all(p.stat().st_uid == uid for p in (tmp_path / "learned", tmp_path / "learned" / "homunculus",
+                                                     Path(env["CLV2_CONFIG"])))
+    off = claude_run.ecc_env(server.RunRequest(run_id="run-ecc-off", workspace="/tmp", brief="b", model=MODEL,
+                                               engine="claude", model_token=RUN_TOKEN, ecc_learning=False))
+    assert off == {"ECC_HOOK_PROFILE": "minimal", "ECC_SKIP_OBSERVE": "1"}
+
+
+def test_a_skills_own_shell_lines_run_as_it_loads_through_jais_gate(monkeypatch, gateway):
+    """Real Claude Code: the Skill tool opens a skill with two inline lines. JAI runs the allowed one as the agent
+    user and puts its output in the skill; the refused one (a push) never runs. Claude Code's own runner stays off,
+    so nothing in a skill runs outside JAI's gate. The plugins load with the session."""
+    import httpx
+
+    user = _agent_user()
+    monkeypatch.setattr(claude_run, "AGENT_USER", user)
+    home = Path(pwd.getpwnam(user).pw_dir)
+    monkeypatch.setattr(claude_run, "SESSIONS", home / ".jai-claude-test")
+    monkeypatch.setattr(claude_run, "COPIES", home / ".jai-copies-test")
+    monkeypatch.setenv("JAI_AGENT_HOME", str(home))
+    packs = Path(tempfile.mkdtemp(prefix="packs-"))
+    skill = packs / "demo" / "skills" / "probe"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text("---\nname: probe\ndescription: probe\n---\nWho: !`whoami > who.txt && "
+                                    "echo LOADED-OK`\nPush: !`git push origin main`\n```\n!`echo in-a-fence`\n```\n")
+    for path in (packs, *packs.rglob("*")):
+        path.chmod(0o755 if path.is_dir() else 0o644)
+    folder = Path(tempfile.mkdtemp(prefix="mission-", dir=os.environ["WORKSPACE_ROOT"]))
+    shutil.chown(folder, user, user)
+    Gateway.script = [([{"type": "tool_use", "id": "toolu_1", "name": "Skill", "input": {"skill": "probe"}}],
+                       "tool_use"), ([{"type": "text", "text": "R1: done"}], "end_turn")]
+    seen_skill = []
+    original = Gateway.do_POST
+
+    def watch(self):
+        import io
+
+        raw = self.rfile.read(int(self.headers.get("content-length") or 0))
+        seen_skill.append(raw.decode("utf-8", "replace"))
+        self.rfile = io.BytesIO(raw)
+        original(self)
+
+    monkeypatch.setattr(Gateway, "do_POST", watch)
+    backend = Backend()
+    gate = gates.Gate("http://backend", "t", "run-claude-inline", transport=httpx.MockTransport(backend))
+    request = server.RunRequest(run_id="run-claude-inline", workspace=str(folder), brief="Use probe.", model=MODEL,
+                                provider="anthropic", engine="claude", jai_tools=False, model_token=RUN_TOKEN,
+                                max_iterations=10, max_cost_usd=1.0, skills=["demo/skills/probe"],
+                                mission_id="mission-inline")
+    run = server.Run(request, gate)
+    try:
+        asyncio.run(claude_run.execute(run, gate, server.ENGINEERING_RULES, gateway, "t", packs, set()))
+        assert run.status == "finished", run.error
+        assert (folder / "who.txt").read_text().strip() == user          # ran, as the agent user
+        commands = [c["command"] for c in backend.checks]
+        assert commands == ["whoami > who.txt && echo LOADED-OK", "git push origin main"]  # both asked of JAI
+        assert any(r.get("refused") and r["command"] == "git push origin main" for r in backend.records)
+        told = [b for b in seen_skill if "JAI ran the shell lines of the skill probe" in b]
+        assert told and "LOADED-OK" in told[-1] and "[not run: Not run: pushing" in told[-1]   # Claude was told
+        assert "in-a-fence" not in told[-1]                                 # a line in a code fence is left alone
+        assert "LOADED-OK" not in told[-1].split("JAI ran the shell lines")[0]  # Claude Code's own runner stayed off
+        assert (packs / "demo" / "skills" / "probe" / "SKILL.md").read_text().count("!`") == 3  # original untouched
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+        shutil.rmtree(home / ".jai-claude-test", ignore_errors=True)
+        shutil.rmtree(home / ".jai-copies-test", ignore_errors=True)

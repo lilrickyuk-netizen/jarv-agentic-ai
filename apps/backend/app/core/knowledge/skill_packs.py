@@ -21,7 +21,8 @@ git-ignored folder skill-packs/ (mounted read-only into the backend, the worker 
   iterative-retrieval: the skills Richard listed that JAI did not have.
 - 22 November: Social Media Skills (social-media-skills/skills) and Video Agent Skills (Melvynx/video-agent-skills):
   competitor and outlier research before any content is made, and the hook and short-form script craft. Only their
-  free skills: the ones that need Treg, Codex, ElevenLabs or another paid service are not listed.
+  free skills: the ones that need Treg, Codex, ElevenLabs or another paid service are not listed. From 24 November
+  short-editing as well (whisper.cpp in the sandbox; ElevenLabs is only an option it uses when a key is set).
 
 Two ways in, both selective so no task pays for knowledge it does not need:
 
@@ -310,6 +311,10 @@ SKILLS: List[Dict] = [
     # topic, the words and the visuals.
     _s("video-agent-skills", "studio-script", (CONTENT, MARKETING, GROWTH, CREATION, RESEARCH), RESEARCH_MAKERS),
     _s("video-agent-skills", "steal", (CREATION, CONTENT, MARKETING), RESEARCH_MAKERS),
+    # 24 November, Richard: offered again. A talking-head take edited into a motion-design short with its own engine
+    # (Node, the sandbox's Chromium, ffmpeg, whisper.cpp's whisper-cli built into the sandbox; free and offline). Its
+    # setup writes the engine's packages and music beds into the skill's folder: each mission's writable copy.
+    _s("video-agent-skills", "short-editing", (CREATION, CONTENT, MARKETING), (CREATION, CONTENT)),
     _s("social-media-skills", "competitor-analysis", (CONTENT, MARKETING, GROWTH, RESEARCH), RESEARCH_MAKERS),
     _s("social-media-skills", "viral-reverse-engineering", (CONTENT, MARKETING, GROWTH, CREATION), RESEARCH_MAKERS),
     _s("social-media-skills", "audience-research", (CONTENT, MARKETING, GROWTH, RESEARCH), RESEARCH_MAKERS),
@@ -436,23 +441,46 @@ def read_skill(local_path: str, root: Optional[Path] = None) -> Tuple[Optional[s
     return text[:MAX_SKILL_CHARS], ""
 
 
-def all_skills() -> List[str]:
+def all_skills(plugins_apart: bool = False) -> List[str]:
     """Every installed skill JAI has, as folders inside skill-packs/ ("pack/root/skill"), one per name, the ones
     AgentShield blocked left out. 24 November, Richard: "jai must not be stopping claude from using any of its
-    skills": a Claude session in the sandbox is offered all of them (its own trade's described in full)."""
+    skills": a Claude session in the sandbox is offered all of them (its own trade's described in full).
+    plugins_apart: the packs that come as whole Claude Code plugins (sandbox_plugins) left to them."""
     from app.core.config import settings
 
     if not getattr(settings, "SKILL_PACKS_ENABLED", True):
         return []
     refused = blocked()
+    apart = {p["name"] for p in sandbox_plugins()} if plugins_apart else set()
     paths, names = [], set()
     for entry in SKILLS:
         path = f"{entry['pack']}/{skill_path(entry)}"
-        if path in refused or entry["skill"] in names:
+        if path in refused or entry["skill"] in names or entry["pack"] in apart:
             continue
         names.add(entry["skill"])
         paths.append(path)
     return paths
+
+
+def sandbox_plugins() -> List[Dict]:
+    """Superpowers and ECC as whole Claude Code plugins for a Claude session in the sandbox (24 November, Richard:
+    the full plugins in every session, sandbox included): what the sandbox needs to assemble each from its read-only
+    copy of the pack (its parts, every skill in its skills folder; AgentShield's blocks are applied there)."""
+    from app.core.config import settings
+
+    if not getattr(settings, "SKILL_PACKS_ENABLED", True):
+        return []
+    refused = blocked()
+    out = []
+    for name, pack in PACKS.items():
+        parts = plugin_parts(name)
+        if not parts or not any((packs_dir() / name / part).is_dir() for part in parts):
+            continue
+        out.append({"name": name, "title": pack.get("title", name), "publisher": pack.get("publisher", ""),
+                    "commit": pack.get("commit", ""), "parts": parts, "root": pack["root"], "whole_root": True,
+                    "skills": [f"{name}/{skill_path(e)}" for e in SKILLS if e["pack"] == name
+                               and f"{name}/{skill_path(e)}" not in refused]})
+    return out
 
 
 def sandbox_skills(specialist: str) -> List[str]:

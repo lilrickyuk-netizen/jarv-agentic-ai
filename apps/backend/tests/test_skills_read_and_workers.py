@@ -61,20 +61,21 @@ def test_the_listing_shows_the_jobs_playbooks_in_full_names_the_rest_and_fits_it
     assert every["chars"] - listing["chars"] <= claude_engine.DESCRIPTION_CAP + 4
 
 
-def test_ecc_brings_the_specialists_trade_and_its_learning_system_only(tmp_path, monkeypatch):
+def test_ecc_brings_every_skill_of_the_pack_whatever_the_specialist(tmp_path, monkeypatch):
+    """24 November, Richard: the full Superpowers and ECC plugins in every session (17 November had cut ECC to the
+    specialist's trade); the listing's budget counts them all, so none is cut."""
     from tests.test_claude_engine import _packs
 
     packs = _packs(tmp_path / "packs")
     monkeypatch.setattr(skill_packs, "packs_dir", lambda: packs)
-    runner = SimpleNamespace(_plugins_on_disk=ClaudeRoleExecutor._plugins_on_disk, _trade=lambda: set())
-    plugins = {Path(p["path"]).name: Path(p["path"])
-               for p in ClaudeRoleExecutor._plugins(runner, tmp_path / "config")}
-    assert {p.name for p in (plugins["ecc"] / "skills").iterdir()} == {"continuous-learning-v2"}
+    runner = SimpleNamespace(_plugins_on_disk=ClaudeRoleExecutor._plugins_on_disk)
+    config = tmp_path / "config"
+    plugins = {Path(p["path"]).name: Path(p["path"]) for p in ClaudeRoleExecutor._plugins(runner, config)}
+    assert {p.name for p in (plugins["ecc"] / "skills").iterdir()} == {"fastapi-patterns", "not-chosen",
+                                                                        "continuous-learning-v2"}
     assert {p.name for p in (plugins["superpowers"] / "skills").iterdir()} == {"brainstorming", "writing-plans"}
-    runner._trade = lambda: {"fastapi-patterns"}
-    plugins = {Path(p["path"]).name: Path(p["path"])
-               for p in ClaudeRoleExecutor._plugins(runner, tmp_path / "config2")}
-    assert {p.name for p in (plugins["ecc"] / "skills").iterdir()} == {"fastapi-patterns", "continuous-learning-v2"}
+    listed = claude_engine.skill_listing(config, ())
+    assert sum(1 for name in listed["full"] if name.startswith("ecc:")) == 3      # each counted in the budget
 
 
 def test_workers_run_on_the_cheaper_model_twenty_at_once_with_the_jobs_playbooks(monkeypatch):

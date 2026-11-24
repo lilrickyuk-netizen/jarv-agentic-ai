@@ -77,6 +77,12 @@ class RunRequest(BaseModel):
     # A Claude session is offered every skill; these (the specialist's own trade) are described in full in its
     # listing, the rest are listed by name and opened the same way.
     skills_in_full: List[str] = Field(default_factory=list, max_length=400)
+    # The mission the run belongs to (its skills' writable copies are kept for its later rounds), the plugins the
+    # backend names (Superpowers and ECC: name, parts, skills), and ECC's learning switches.
+    mission_id: str = Field(default="", max_length=80, pattern=r"^[A-Za-z0-9_.:-]*$")
+    plugins: List[Dict[str, Any]] = Field(default_factory=list, max_length=10)
+    ecc_learning: bool = True
+    ecc_disabled_hooks: str = ""
     light_model: str = ""
     api_timeout_ms: int = Field(default=180000, ge=30000, le=600000)
     max_retries: int = Field(default=3, ge=0, le=10)

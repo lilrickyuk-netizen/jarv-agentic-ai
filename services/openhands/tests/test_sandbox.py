@@ -448,3 +448,20 @@ def test_the_rules_point_speech_at_faster_whisper_and_working_files_into_the_wor
     assert "faster-whisper" in rules and "word_timestamps=True" in rules and "no whisper or whisper-cli" in rules
     assert ".jai/work/" in rules and "never in /tmp" in rules
     assert "playwright-cli" in rules
+
+
+def test_whisper_cli_is_built_in_and_short_editing_finds_it():
+    """24 November, Richard: short-editing offered again. Its word timings come from whisper.cpp's whisper-cli, built
+    into the sandbox from the pinned release; the skill's own engine finds it on the PATH, as it does on Linux."""
+    import shutil
+    import subprocess
+
+    assert shutil.which("whisper-cli") == "/usr/local/bin/whisper-cli", "whisper-cli is missing from the sandbox"
+    shown = subprocess.run(["whisper-cli", "--help"], capture_output=True, text=True, timeout=60)
+    assert "--output-json-full" in shown.stdout + shown.stderr and "--no-prints" in shown.stdout + shown.stderr
+    engine = Path("/jai/skills/video-agent-skills/skills/short-editing/engine/whisper.mjs")
+    if engine.is_file():  # the skill packs are mounted (scripts/skill-packs.sh has run)
+        found = subprocess.run(["node", "--input-type=module", "-e",
+                                f"import {{ findWhisper }} from '{engine}'; console.log(findWhisper())"],
+                               capture_output=True, text=True, timeout=60, env={**os.environ, "WHISPER_CLI": ""})
+        assert found.stdout.strip() == "/usr/local/bin/whisper-cli", found.stdout + found.stderr

@@ -432,6 +432,9 @@ services:
       - openhands_home:/home/openhands
       # The skill packs (Upgrades 1-5), pinned clones made by scripts/skill-packs.sh; read-only.
       - ./skill-packs:/jai/skills:ro
+      # JAI's one learning store for ECC's continuous learning, shared with the worker (its /app/.jai-learned), so
+      # what ECC learns in a sandbox session is kept across missions and used by both engines (24 November).
+      - ./apps/backend/.jai-learned:/jai/learned
       - type: bind
         source: ${WORKSPACE_MOUNT_SOURCE:-/mnt/c/Users/lilri/OneDrive/Desktop}
         target: /host/workspaces

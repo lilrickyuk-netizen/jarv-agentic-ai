@@ -473,7 +473,8 @@ def test_superpowers_and_ecc_load_as_the_plugins_their_authors_ship(tmp_path, mo
     # ECC's hooks and the scripts they run, and its learning skill whose observe.sh the hooks call
     assert (ecc / "hooks" / "hooks.json").is_file() and (ecc / "scripts" / "hooks" / "observe-runner.js").is_file()
     assert (ecc / "skills" / "continuous-learning-v2" / "hooks" / "observe.sh").is_file()
-    assert {p.name for p in (ecc / "skills").iterdir()} == {"fastapi-patterns", "continuous-learning-v2"}  # chosen
+    # every skill of the pack (24 November, Richard: the full plugins; ECC was cut to the trade on 17 November)
+    assert {p.name for p in (ecc / "skills").iterdir()} == {"fastapi-patterns", "not-chosen", "continuous-learning-v2"}
     assert skill_packs.plugin_parts("ecc") == ["agents", "commands", "hooks", "scripts"]
     assert skill_packs.plugin_parts("superpowers") == ["agents", "commands", "hooks"]
     assert skill_packs.plugin_parts("marketingskills") == []

@@ -515,12 +515,18 @@ class SandboxSpecialist:
 
             # The session's own token for JAI's gateway, alive while the run is registered; never JAI's gateway token.
             token = await gateway.issue_run_token(self.run_id, RUN_TTL_SECONDS, body["max_cost_usd"])
-            from app.core.knowledge.skill_packs import all_skills
+            from app.core.knowledge.skill_packs import all_skills, sandbox_plugins
 
             # Every skill JAI has (Richard: JAI must not stop Claude using any of its skills); the specialist's own
             # are described in full in the session's listing, the rest by name, and any of them can be opened.
+            # Superpowers and ECC come whole, as Claude Code plugins, with ECC's learning kept in JAI's one store;
+            # the mission's rounds share its writable copy of the skills.
+            plugins = sandbox_plugins()
             body["skills_in_full"] = [path.rsplit("/", 1)[-1] for path in body["skills"]]
-            body["skills"] = all_skills() or body["skills"]
+            body["skills"] = all_skills(plugins_apart=bool(plugins)) or body["skills"]
+            body.update({"plugins": plugins, "mission_id": str(self.team.runtime.task_id or self.run_id)[:80],
+                         "ecc_learning": bool(getattr(settings, "ECC_LEARNING_ENABLED", True)),
+                         "ecc_disabled_hooks": str(getattr(settings, "ECC_DISABLED_HOOKS", "") or "")})
             light = str(settings.OPENHANDS_RESEARCH_MODEL or "")
             body.update({"model_token": token, "api_timeout_ms": int(settings.SANDBOX_CLAUDE_API_TIMEOUT_MS),
                          "max_retries": int(settings.SANDBOX_CLAUDE_MAX_RETRIES),

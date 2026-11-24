@@ -118,7 +118,8 @@ def test_a_claude_run_gets_its_own_token_the_backends_limits_and_its_token_dies_
     # Every skill JAI has is offered; the specialist's own trade is described in full.
     from app.core.knowledge.skill_packs import all_skills, sandbox_skills
 
-    assert body["skills"] == (all_skills() or sandbox_skills("creation"))
+    assert body["skills"] == (all_skills(plugins_apart=bool(body["plugins"])) or sandbox_skills("creation"))
+    assert body["mission_id"] and body["ecc_learning"] is settings.ECC_LEARNING_ENABLED
     assert body["skills_in_full"] == [p.rsplit("/", 1)[-1] for p in sandbox_skills("creation")]
     assert seen_token["live"]["run"] == body["run_id"]
     assert seen_token["live"]["max_cost_usd"] == pytest.approx(body["max_cost_usd"])

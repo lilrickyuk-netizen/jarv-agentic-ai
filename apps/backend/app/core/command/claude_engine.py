@@ -115,10 +115,10 @@ def workers_at_once() -> int:
 # the words Claude matches a job against (code.claude.com/docs/en/skills, "Skill descriptions are cut short"). JAI
 # installs about 150 skills, about 73,000 characters of descriptions: by default most of them were dropped. So a
 # session lists in full the playbooks chosen for the job, lists the rest by name only (skillOverrides "name-only":
-# still opened by name; the briefing gives each skill of the specialist's trade its own line), carries only ECC's
-# skills of the specialist's trade, and sets the budget (SLASH_COMMAND_TOOL_CHAR_BUDGET) to what that listing
-# needs, so nothing in it is cut. A plugin's skills and commands are not affected by skillOverrides and are always
-# listed in full.
+# still opened by name; the briefing gives each skill of the specialist's trade its own line), and sets the budget
+# (SLASH_COMMAND_TOOL_CHAR_BUDGET) to what that listing needs, so nothing in it is cut. A plugin's skills and
+# commands are not affected by skillOverrides and are always listed in full: since 24 November (Richard: the full
+# Superpowers and ECC plugins in every session) that is all of ECC's 314 skills, about 104,000 characters.
 DESCRIPTION_CAP = 1536      # Claude Code's cap on one entry's description and when_to_use (skillListingMaxDescChars)
 LISTING_SPARE = 6000        # Claude Code's bundled skills and the listing's own layout
 LISTING_MARGIN = 1.25
@@ -384,7 +384,7 @@ class ClaudeRoleExecutor(RoleExecutor):
         """Superpowers and ECC as Claude Code plugins, as their authors ship them to Claude Code: their agents,
         commands and (Superpowers') hooks, with their skills. Each is assembled in the mission's configuration folder
         from the pinned, AgentShield-scanned clone: a part AgentShield blocked, and a skill it blocked, is left out.
-        ECC's skills are the ones JAI chose for its stack and goals (60 of its 314)."""
+        Every skill in the pack's skills folder comes with it (24 November, Richard: the full plugins)."""
         from app.core.command.expertise import _skill_folder, _usable
         from app.core.knowledge.skill_packs import PACKS, SKILLS, packs_dir, plugin_parts
 
@@ -414,18 +414,15 @@ class ClaudeRoleExecutor(RoleExecutor):
                     if f"{part}/{item.name}" not in refused and not item.name.startswith("."):
                         os.symlink(item, home / part / item.name, target_is_directory=item.is_dir())
             (home / "skills").mkdir()
+            # Every skill of the pack (24 November, Richard: the full Superpowers and ECC plugins in every session;
+            # ECC had been cut to the specialist's trade on 17 November). Superpowers' skills hand on to one another
+            # by name, and ECC's commands open its learning skill by its path in the plugin.
             chosen = [e for e in SKILLS if e["pack"] == name]
-            trade = self._trade() if hasattr(self, "_trade") else None
-            if name == "ecc" and trade is not None:
-                # ECC's skills of the specialist's trade and the job's playbooks, and its learning system, whose
-                # hooks run from its skill folder (17 November: every session listed all 62 ECC skills).
-                chosen = [e for e in chosen if e["skill"] in trade or e["skill"] == "continuous-learning-v2"]
-            if name == "superpowers":  # the whole workflow: its skills hand on to one another by name
-                root = base / pack["root"]
-                listed = {e["skill"] for e in chosen}
-                chosen += [{"pack": name, "skill": d.name, "agents": (), "sandbox": ()} for d in sorted(
-                    root.iterdir()) if d.is_dir() and (d / "SKILL.md").is_file() and d.name not in listed] \
-                    if root.is_dir() else []
+            root = base / pack["root"]
+            listed = {e["skill"] for e in chosen}
+            chosen += [{"pack": name, "skill": d.name, "agents": (), "sandbox": ()} for d in sorted(
+                root.iterdir()) if d.is_dir() and (d / "SKILL.md").is_file() and d.name not in listed] \
+                if root.is_dir() else []
             for entry in _usable(chosen):
                 folder = _skill_folder(entry)
                 if (folder / "SKILL.md").is_file() and not (home / "skills" / entry["skill"]).exists():
@@ -514,18 +511,6 @@ class ClaudeRoleExecutor(RoleExecutor):
             parts.append("WHAT JAI'S INDEPENDENT CHECK WILL LOOK FOR IN THE FINISHED WORK:\n" + "\n".join(
                 f"- {r['id']}: {r['text']}" for r in self.requirements))
         return "\n\n".join(parts)
-
-    def _trade(self) -> Optional[set]:
-        """The skills of the specialist's trade (the ones its briefing names) and the job's playbooks, by name; None
-        when the specialist is not known (every skill stays)."""
-        if not getattr(self, "role", None):
-            return None
-        try:
-            from app.core.command.expertise import trade_skills
-
-            return {e["skill"] for e in trade_skills(self.role)} | set(self._job_skills())
-        except Exception:  # noqa: BLE001 - every skill stays
-            return None
 
     def _job_skills(self) -> List[str]:
         """The playbooks JAI chose for this job (expertise: at most three), by name."""

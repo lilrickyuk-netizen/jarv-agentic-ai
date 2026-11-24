@@ -8,9 +8,16 @@ itself works, inside this sandbox (the studio, OpenMontage, Remotion, ffmpeg, Ch
 - THE SESSION is the Claude Agent SDK's (code.claude.com/docs/en/agent-sdk): Claude Code's own loop and tools
   (Bash, Read, Write, Edit, Glob, Grep, WebSearch, WebFetch, TodoWrite, Skill), the claude_code system prompt with
   the specialist's standard and JAI's engineering rules appended, in the mission's workspace folder.
-- SKILLS load natively: the run's skills (the "pack/root/skill" folders the backend names) are linked into the run's
-  own Claude Code configuration folder and opened with the Skill tool; Claude Code's own disableSkillShellExecution
-  setting keeps a skill's inline !`command` lines from running, as the OpenHands loader did by hand.
+- SKILLS load natively: every skill JAI has is in the session (the specialist's own trade described in full, the
+  rest by name), with Superpowers and ECC as the full Claude Code plugins their authors ship (agents, commands,
+  hooks; ECC's learning kept in JAI's one learning store, shared with the business engine, across missions). Each
+  mission works on its own writable copy of the skills (the originals stay read-only), so a skill that writes its
+  own setup files (short-editing's engine, its music beds) works.
+- A SKILL'S OWN SHELL LINES (!`command`) run when it loads, but through JAI's gate like every other command: Claude
+  Code runs them itself outside every hook (tested 24 November: the gate saw nothing and the command ran), so its
+  own disableSkillShellExecution stays on and JAI runs each line instead when the Skill tool opens that skill, as
+  the agent user in the workspace, checked by sandbox_policy first, and hands Claude their output with the skill
+  (the PreToolUse hook's additionalContext: Claude Code reads a skill's text once, when the session starts).
 - THE GATE is one rule set: every Bash command and file action goes to JAI's backend (app/gate.py, the same
   /api/agent-gate/check the OpenHands tools use, decided by sandbox_policy) from a PreToolUse hook, which Anthropic
   documents runs before every other permission step, its deny holding in every mode; dontAsk mode refuses any tool
@@ -34,7 +41,9 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
+import subprocess
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -45,6 +54,18 @@ logger = logging.getLogger("jai.sandbox.claude")
 
 AGENT_USER = os.environ.get("JAI_AGENT_USER", "openhands")
 SESSIONS = Path(os.environ.get("JAI_CLAUDE_SESSIONS", "/home/openhands/.jai-claude"))
+# Each mission's writable copy of the skills (24 November): kept for the mission's later rounds, removed after
+# COPIES_DAYS. The skill packs themselves stay read-only at /jai/skills.
+COPIES = Path(os.environ.get("JAI_SKILL_COPIES", "/home/openhands/.jai-skill-copies"))
+COPIES_DAYS = 7
+# JAI's one learning store for ECC (the business engine's /app/.jai-learned, mounted here): ECC's lessons are kept
+# across missions and shared by both engines.
+LEARNED = Path(os.environ.get("JAI_LEARNED_DIR", "/jai/learned"))
+# A skill's inline command, as Claude Code (and OpenHands) read it: fenced blocks, escaped commands and inline code
+# are left as they are; !`command` is run.
+INLINE = re.compile(r"(?P<fenced>```[\s\S]*?(?:```|$))|(?P<escaped>\\!`[^`]+`)|(?P<inline>(?<!!)`[^`]+`)"
+                    r"|!`(?P<cmd>[^`]+)`")
+INLINE_SECONDS = 120
 SERVER = "jai"
 PREFIX = f"mcp__{SERVER}__"
 # Claude Code's own tools in the session.
@@ -127,49 +148,242 @@ def listing(config: Path, in_full: List[str]) -> Dict[str, Any]:
             for key in {link.name, name}:
                 overrides[key] = "name-only"
             chars += len(name) + 4
+    plugins = config / "plugins"
+    for home in sorted(plugins.iterdir()) if plugins.is_dir() else []:  # always listed in full (skillOverrides
+        for item in [*sorted((home / "skills").glob("*/SKILL.md")),       # does not reach a plugin's skills)
+                     *sorted((home / "commands").glob("*.md"))]:
+            front = _front(item)
+            name = front.get("name") or (item.parent.name if item.name == "SKILL.md" else item.stem)
+            chars += len(home.name) + 1 + len(name) + min(len(front.get("description", "")), DESCRIPTION_CAP) + 4
     return {"overrides": overrides, "budget": int(chars * LISTING_MARGIN) + LISTING_SPARE}
 
 
+def _chown_tree(path: Path, owner: Optional[str]) -> None:
+    if not owner or os.geteuid() != 0:
+        return
+    shutil.chown(path, owner, owner)
+    for item in path.rglob("*"):
+        if not item.is_symlink():
+            shutil.chown(item, owner, owner)
+
+
+def _forget_old_copies(now: Optional[float] = None) -> None:
+    cutoff = (now or time.time()) - COPIES_DAYS * 86400
+    for old in COPIES.iterdir() if COPIES.is_dir() else []:
+        try:
+            if old.is_dir() and old.stat().st_mtime < cutoff:
+                shutil.rmtree(old, ignore_errors=True)
+        except OSError:
+            continue
+
+
+def writable_copy(mission_id: str, folder: str, skills_root: Path, owner: Optional[str]) -> Optional[Path]:
+    """The mission's own copy of one skill folder (made on first use, kept for its later rounds); None when the
+    folder is not a skill inside the packs. The pack's original is never written to."""
+    root = skills_root.resolve()
+    source = (root / folder).resolve()
+    try:
+        source.relative_to(root)
+    except ValueError:
+        logger.warning("skill %s is outside the skill packs; skipped", folder)
+        return None
+    if not (source / "SKILL.md").is_file():
+        return None
+    copy = COPIES / mission_id / source.relative_to(root)
+    if not (copy / "SKILL.md").is_file():
+        shutil.rmtree(copy, ignore_errors=True)
+        shutil.copytree(source, copy, symlinks=True)
+        for path in (copy, *copy.rglob("*")):
+            if path.is_symlink():
+                continue
+            path.chmod(path.stat().st_mode | (0o700 if path.is_dir() else 0o600))
+        _chown_tree(COPIES / mission_id, owner)
+    return copy
+
+
+def assemble_plugins(base: Path, plugins: List[Dict[str, Any]], mission_id: str, skills_root: Path,
+                     refused: set, owner: Optional[str]) -> List[Dict[str, str]]:
+    """Superpowers and ECC as Claude Code plugins, as the business engine assembles them (claude_engine._plugins):
+    their agents, commands, hooks (and ECC's scripts) linked from the pinned, AgentShield-scanned clone, a part it
+    blocked left out; every skill of the pack from the mission's writable copies (Superpowers' whole workflow)."""
+    out: List[Dict[str, str]] = []
+    root = skills_root.resolve()
+    for plugin in plugins or []:
+        name = str(plugin.get("name") or "")
+        source = root / name
+        if not name or "/" in name or not source.is_dir():
+            continue
+        try:
+            blocked_parts = {line.strip().strip("/") for line in
+                             (source / ".jai-blocked-parts").read_text(encoding="utf-8").splitlines() if line.strip()}
+        except OSError:
+            blocked_parts = set()
+        home = base / "plugins" / name
+        shutil.rmtree(home, ignore_errors=True)
+        (home / ".claude-plugin").mkdir(parents=True)
+        (home / ".claude-plugin" / "plugin.json").write_text(json.dumps({
+            "name": name, "description": f"{plugin.get('title') or name} by {plugin.get('publisher') or ''}",
+            "version": str(plugin.get("commit") or "")[:7]}))
+        for part in plugin.get("parts") or []:
+            part = str(part)
+            part_source = source / part
+            if part == "skills" or part in blocked_parts or not part_source.is_dir():
+                continue
+            if part == "hooks":
+                os.symlink(part_source, home / "hooks", target_is_directory=True)
+                continue
+            (home / part).mkdir()
+            for item in sorted(part_source.iterdir()):
+                if f"{part}/{item.name}" not in blocked_parts and not item.name.startswith("."):
+                    os.symlink(item, home / part / item.name, target_is_directory=item.is_dir())
+        (home / "skills").mkdir()
+        folders = list(plugin.get("skills") or [])
+        if plugin.get("whole_root"):
+            skills_dir = source / str(plugin.get("root") or "skills")
+            folders += [f"{name}/{plugin.get('root') or 'skills'}/{d.name}" for d in sorted(skills_dir.iterdir())
+                        if d.is_dir() and (d / "SKILL.md").is_file()] if skills_dir.is_dir() else []
+        for folder in dict.fromkeys(folders):
+            if folder.strip("/") in refused:
+                continue
+            copy = writable_copy(mission_id, folder, skills_root, owner)
+            if copy is not None and not (home / "skills" / copy.name).exists():
+                os.symlink(copy, home / "skills" / copy.name, target_is_directory=True)
+        out.append({"type": "local", "path": str(home)})
+    return out
+
+
 def prepare_config(run_id: str, skills: List[str], skills_root: Path, refused: set,
-                   owner: Optional[str] = "", in_full: Optional[List[str]] = None) -> Path:
-    """The run's own Claude Code configuration folder: its skills linked in, Claude Code's settings (skills' inline
-    shell commands off) and the shell's settings file. Owned by the agent user, who runs Claude Code."""
+                   owner: Optional[str] = "", in_full: Optional[List[str]] = None, mission_id: str = "",
+                   plugins: Optional[List[Dict[str, Any]]] = None) -> Path:
+    """The run's own Claude Code configuration folder: every skill (from the mission's writable copies), the
+    plugins, Claude Code's settings and the shell's settings file. Owned by the agent user, who runs Claude Code
+    ("": the agent user; None: left as it is)."""
+    owner = AGENT_USER if owner == "" else owner
+    mission_id = mission_id or run_id
     base = SESSIONS / run_id
     shutil.rmtree(base, ignore_errors=True)
     (base / "skills").mkdir(parents=True)
-    root = skills_root.resolve()
+    COPIES.mkdir(parents=True, exist_ok=True)
+    if owner and os.geteuid() == 0:
+        shutil.chown(COPIES, owner, owner)
+    _forget_old_copies()
     seen = set()
     for folder in skills:
         if folder.strip("/") in refused:
             logger.warning("skill %s was flagged by AgentShield; skipped", folder)
             continue
-        source = (root / folder).resolve()
-        try:
-            source.relative_to(root)
-        except ValueError:
-            logger.warning("skill %s is outside the skill packs; skipped", folder)
+        copy = writable_copy(mission_id, folder, skills_root, owner)
+        if copy is None or copy.name in seen:
             continue
-        name = source.name
-        if not (source / "SKILL.md").is_file() or name in seen:
-            continue
-        seen.add(name)
-        os.symlink(source, base / "skills" / name, target_is_directory=True)
+        seen.add(copy.name)
+        os.symlink(copy, base / "skills" / copy.name, target_is_directory=True)
+    (base / "plugins.json").write_text(json.dumps(
+        assemble_plugins(base, list(plugins or []), mission_id, skills_root, refused, owner)))
     listed = listing(base, list(in_full or []))
-    settings = {"disableSkillShellExecution": True}
+    settings = {"disableSkillShellExecution": True}  # JAI runs skills' own shell lines itself (resolve_inline)
     if listed["overrides"]:
         settings["skillOverrides"] = listed["overrides"]
     (base / "settings.json").write_text(json.dumps(settings, indent=1))
     (base / "listing-budget").write_text(str(listed["budget"]))
-    # Run before every Bash command, after Claude Code has scrubbed JAI's credentials: the sandbox's own settings
-    # (the studio, the voice, Playwright, MYCO's dev stack, the footage key), as the OpenHands login shell has them.
+    (base / "mission").write_text(mission_id)
+    # Run before every Bash command: the sandbox's own settings (the studio, the voice, Playwright, MYCO's dev stack,
+    # the footage key), as the OpenHands login shell has them.
     (base / "shell-env.sh").write_text(
         'for f in /etc/profile.d/jai-*.sh; do [ -r "$f" ] && . "$f"; done\nunset f\n')
-    if owner and os.geteuid() == 0:
-        shutil.chown(base, owner, owner)
-        for path in base.rglob("*"):
-            if not path.is_symlink():
-                shutil.chown(path, owner, owner)
+    _chown_tree(base, owner)
     return base
+
+
+def ecc_env(request) -> Dict[str, str]:
+    """ECC's learning system in the session as its authors ship it, in JAI's one learning store (the switches ECC
+    reads: scripts/lib/agent-data-home.js, skills/continuous-learning-v2), as the business engine sets them
+    (claude_engine.ecc_learning_env)."""
+    if not request.ecc_learning:
+        return {"ECC_HOOK_PROFILE": "minimal", "ECC_SKIP_OBSERVE": "1"}
+    env = {"CLAUDE_CODE_ENTRYPOINT": "sdk-ts", "ECC_AGENT_DATA_HOME": str(LEARNED / "ecc"),
+           "CLV2_HOMUNCULUS_DIR": str(LEARNED / "homunculus"), "ECC_DISABLED_HOOKS": request.ecc_disabled_hooks,
+           "ECC_OBSERVER_MODEL": request.light_model or request.model,
+           "OBSERVER_ACTIVE_HOURS_START": "0", "OBSERVER_ACTIVE_HOURS_END": "0", "OBSERVER_MAX_IDLE_SECONDS": "0"}
+    config = LEARNED / "homunculus" / "config.json"
+    try:
+        config.parent.mkdir(parents=True, exist_ok=True)
+        (LEARNED / "ecc").mkdir(parents=True, exist_ok=True)
+        wanted = {"version": "2.1", "observer": {"enabled": True, "run_interval_minutes": 5,
+                                                 "min_observations_to_analyze": 20}}
+        if not config.is_file() or json.loads(config.read_text(encoding="utf-8")) != wanted:
+            config.write_text(json.dumps(wanted, indent=2), encoding="utf-8")
+        if os.geteuid() == 0:  # ECC's hooks write here as the agent user (uid 1000, as the worker's own user)
+            for path in (LEARNED, LEARNED / "ecc", config.parent, config):
+                if path.stat().st_uid == 0:
+                    shutil.chown(path, AGENT_USER, AGENT_USER)
+        env["CLV2_CONFIG"] = str(config)
+    except (OSError, ValueError, LookupError) as exc:
+        logger.info("ECC's observer stays off this session: %s", exc)
+    try:  # the Claude Code program the SDK ships, for ECC's observer's own short sessions
+        import claude_agent_sdk
+
+        bundled = Path(claude_agent_sdk.__file__).parent / "_bundled"
+        if (bundled / "claude").is_file():
+            env["PATH"] = f"{bundled}{os.pathsep}{os.environ.get('PATH', '')}"
+    except (ImportError, AttributeError, TypeError):
+        pass
+    return env
+
+
+def _agent_kwargs(user: str) -> Dict[str, Any]:
+    if os.geteuid() != 0:
+        return {}
+    import pwd
+
+    try:
+        entry = pwd.getpwnam(user)
+    except KeyError:
+        return {}
+    return {"user": entry.pw_uid, "group": entry.pw_gid, "extra_groups": [],
+            "env": {**os.environ, "HOME": entry.pw_dir, "USER": entry.pw_name, "LOGNAME": entry.pw_name}}
+
+
+def find_skill(config: Path, name: str) -> Optional[Path]:
+    """The folder of the skill the Skill tool is opening ("name" or "plugin:name"), in the run's configuration."""
+    plain = name.split(":", 1)[-1].strip().strip("/")
+    if not plain:
+        return None
+    for candidate in [config / "skills" / plain, *sorted((config / "plugins").glob(f"*/skills/{plain}"))]:
+        if (candidate / "SKILL.md").exists():
+            return candidate.resolve()
+    return None
+
+
+def resolve_inline(skill: Path, gate, workspace: str, user: str) -> str:
+    """Run a skill's own shell lines as it loads, each through JAI's gate (sandbox_policy) as the agent user in the
+    workspace; returns what Claude is told with the skill: each line and its output (a refused line says why)."""
+    try:
+        text = (skill / "SKILL.md").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    results: List[str] = []
+    for match in INLINE.finditer(text):
+        command = match.group("cmd")
+        if command is None:
+            continue
+        payload = {"command": command, "cwd": workspace, "is_input": False}
+        refusal = gate.check("terminal", payload)
+        if refusal:
+            gate.record("terminal", payload, False, refusal, refused=True)
+            results.append(f"$ {command}\n[not run: {refusal}]")
+            continue
+        try:
+            done = subprocess.run(["bash", "-lc", command], cwd=workspace, capture_output=True, text=True,
+                                  timeout=INLINE_SECONDS, stdin=subprocess.DEVNULL, **_agent_kwargs(user))
+            output, code = ((done.stdout or "") + (done.stderr or "")).strip(), done.returncode
+        except subprocess.TimeoutExpired:
+            output, code = f"[stopped after {INLINE_SECONDS} seconds]", 124
+        gate.record("terminal", payload, code == 0, output[-2000:], exit_code=code)
+        results.append(f"$ {command}\n{output[-4000:]}" + (f"\n[exit code {code}]" if code else ""))
+    if not results:
+        return ""
+    return (f"JAI ran the shell lines of the skill {skill.name} through its gate, in {workspace}; each shown as "
+            "[shell command execution disabled by policy] in the skill is, in order:\n\n" + "\n\n".join(results))
 
 
 def session_env(request, config: Path, backend_url: str) -> Dict[str, str]:
@@ -251,8 +465,8 @@ async def jai_server(sdk, run_id: str, backend_url: str, token: str,
 class Hooks:
     """JAI's gate before every tool call and its record after (PreToolUse, PostToolUse, PostToolUseFailure)."""
 
-    def __init__(self, run, gate, workspace: str):
-        self.run, self.gate, self.workspace = run, gate, workspace
+    def __init__(self, run, gate, workspace: str, config: Optional[Path] = None):
+        self.run, self.gate, self.workspace, self.config = run, gate, workspace, config
         self.pending: Dict[str, Tuple[str, Dict[str, Any]]] = {}
 
     def _ask(self, tool: str, args: Dict[str, Any]) -> Tuple[Optional[str], Optional[Tuple[str, Dict[str, Any]]]]:
@@ -271,6 +485,14 @@ class Hooks:
         args = (hook_input or {}).get("tool_input") or {}
         if self.run.status == "stopped":
             return _deny("This run was stopped. Do nothing further.")
+        if tool == "Skill" and self.config is not None:
+            skill = find_skill(self.config, str(args.get("skill") or args.get("name") or args.get("command") or ""))
+            told = await asyncio.to_thread(resolve_inline, skill, self.gate, self.workspace, AGENT_USER) \
+                if skill is not None else ""  # its own shell lines run now, through JAI's gate
+            if told:
+                decision = _allow("A skill; its own shell lines went through JAI's gate.")
+                decision["hookSpecificOutput"]["additionalContext"] = told
+                return decision
         if tool in UNGATED or tool.startswith(PREFIX):
             return _allow("Touches nothing on this machine; JAI's own tools check themselves.")
         refusal, action = await asyncio.to_thread(self._ask, tool, args)
@@ -324,6 +546,7 @@ def options_for(sdk, run, config: Path, hooks: Hooks, server: Optional[Dict[str,
         user=AGENT_USER if os.geteuid() == 0 else None,
         setting_sources=["user"],                 # the run's configuration folder: its skills and settings
         skills="all",
+        plugins=json.loads((config / "plugins.json").read_text()) if (config / "plugins.json").is_file() else [],
         mcp_servers={SERVER: server} if server else {},
         allowed_tools=list(TOOLS) + ([f"{PREFIX}*"] if server else []),
         disallowed_tools=list(REMOVED),
@@ -334,7 +557,7 @@ def options_for(sdk, run, config: Path, hooks: Hooks, server: Optional[Dict[str,
         max_turns=int(request.max_iterations),
         max_budget_usd=request.max_cost_usd,
         effort=effort,
-        env=session_env(request, config, backend_url),
+        env={**session_env(request, config, backend_url), **ecc_env(request)},
         stderr=lambda line: logger.debug("claude %s: %s", request.run_id, line),
     )
 
@@ -350,12 +573,13 @@ async def execute(run, gate, rules: str, backend_url: str, sandbox_token: str, s
 
     request = run.request
     config = prepare_config(request.run_id, list(request.skills), skills_root, refused,
-                            in_full=list(request.skills_in_full))
+                            in_full=list(request.skills_in_full), mission_id=request.mission_id,
+                            plugins=list(request.plugins))
     server, tools_client, note = (await jai_server(sdk, request.run_id, backend_url, sandbox_token)
                                   if request.jai_tools else (None, None, ""))
     if note:
         run.notes = note
-    hooks = Hooks(run, gate, request.workspace)
+    hooks = Hooks(run, gate, request.workspace, config)
     run.status = "running"
     subtype = ""
     try:
