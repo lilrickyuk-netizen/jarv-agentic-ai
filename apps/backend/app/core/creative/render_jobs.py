@@ -53,6 +53,19 @@ _RENDERERS = (
 )
 
 
+# A long check run the same way (24 November, mission bb2a4d3c: HyperFrames' pre-render check hit the terminal's
+# 300 s limit and the agent switched it off): HyperFrames' lint, validate, check and snapshot (0.9.58's commands).
+_CHECKS = (re.compile(r"^npx\s+(?:--yes\s+|-y\s+)?hyperframes\s+(?:lint|validate|check|snapshot)\b"),)
+
+
+def is_check(command: str) -> bool:
+    """True when the command is one long check (no chain, pipe, redirection or substitution)."""
+    command = (command or "").strip()
+    if not command or re.search(r"&&|\|\||;|[|`<>]|\$\(", command):
+        return False
+    return any(r.search(command) for r in _CHECKS)
+
+
 def is_render(command: str) -> bool:
     """True when the command is one render (no chain, pipe, redirection or substitution)."""
     command = (command or "").strip()
@@ -103,8 +116,10 @@ async def start(*, task_id: Optional[UUID], container_root: str, host_root: str,
     owned = client is None
     client = client or httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=5.0))
     try:
+        kind = "check" if is_check(command) else "render"
         answer = await client.post(f"{_sandbox()}/renders", headers=_headers(), json={
-            "job_id": job_id, "workspace": container_root, "command": command, "cwd": cwd, "output": output})
+            "job_id": job_id, "workspace": container_root, "command": command, "cwd": cwd, "output": output,
+            "kind": kind})
     except httpx.HTTPError as exc:
         return {"success": False, "error": f"The sandbox could not be reached to start the render "
                                            f"({type(exc).__name__})."}
@@ -122,7 +137,8 @@ async def start(*, task_id: Optional[UUID], container_root: str, host_root: str,
                               "started_at": view.get("started_at") or view.get("queued_at"),
                               "log": view.get("log"), "host_root": host_root})
         return _already(job_id, str(view.get("status")))
-    job = {"job_id": job_id, "command": command[:2000], "cwd": cwd, "output": output, "status": view.get("status"),
+    job = {"job_id": job_id, "kind": kind, "command": command[:2000], "cwd": cwd, "output": output,
+           "status": view.get("status"),
            "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
            "log": view.get("log"), "host_root": host_root}
     await _mark(task_id, job)
@@ -220,7 +236,8 @@ def elapsed(job: Dict[str, Any], now: Optional[float] = None) -> str:
 
 def card_line(job: Dict[str, Any], now: Optional[float] = None) -> str:
     queued = " (waiting its turn: one render at a time)" if job.get("status") == "queued" else ""
-    return f"{PHASE}{queued}, {elapsed(job, now)} so far."
+    phase = "Checking (no AI cost)" if job.get("kind") == "check" else PHASE
+    return f"{phase}{queued}, {elapsed(job, now)} so far."
 
 
 async def check_once(client: Optional[httpx.AsyncClient] = None) -> Dict[str, Any]:
@@ -277,14 +294,17 @@ async def check_once(client: Optional[httpx.AsyncClient] = None) -> Dict[str, An
                               "command": job.get("command"), "seconds": view.get("seconds", facts.get("seconds"))})
                 # Exit 0 and a video ffprobe read is a success, whatever the render printed on stderr (24 November,
                 # mission 5670069a: "Render failed · exit 0" over a Node warning and a file written elsewhere).
-                ok = view.get("status") == "finished" or (facts.get("exit_code") == 0 and readable(facts))
+                check = job.get("kind") == "check" or facts.get("kind") == "check"
+                ok = view.get("status") == "finished" or (not check and facts.get("exit_code") == 0
+                                                          and readable(facts))
                 facts["status"] = "finished" if ok else view.get("status")
                 meta = dict(task.meta_data or {})
                 meta["render_job"] = {**job, "status": facts["status"], "ended_at": view.get("ended_at")}
                 meta["render_result"] = facts
                 task.meta_data = meta
-                _feed(db, task, "Render finished" if ok else "Render failed",
-                      (f"{facts.get('output')}: {facts.get('width')}x{facts.get('height')}, "
+                _feed(db, task, ("Check" if check else "Render") + (" finished" if ok else " failed"),
+                      (f"exit 0 in {facts.get('seconds')} s" if check and ok else
+                       f"{facts.get('output')}: {facts.get('width')}x{facts.get('height')}, "
                        f"{facts.get('duration_seconds')} s" + (f". {facts['note']}" if facts.get("note") else "")
                        if ok else
                        f"exit {facts.get('exit_code')}: " + " | ".join((facts.get("log_tail") or [])[-3:]))[:900],
@@ -314,6 +334,15 @@ def facts_brief(facts: Optional[Dict[str, Any]]) -> str:
     if not facts:
         return ""
     ok = facts.get("status") == "finished"
+    if facts.get("kind") == "check":
+        lines = [f"THE CHECK YOU STARTED HAS ENDED (job {facts.get('job_id')}; no AI was used while it ran, "
+                 f"{facts.get('seconds')} s):",
+                 f"- result: {'passed' if ok else 'FAILED'}, exit code {facts.get('exit_code')}",
+                 f"- command: {facts.get('command')}",
+                 "- its last log lines:", *[f"    {line}" for line in (facts.get("log_tail") or [])[-50:]],
+                 "Fix what it found, then carry on: render through start_render. Never switch a check off, skip "
+                 "it or cut it short to fit a time limit."]
+        return "\n".join(lines)
     lines = [f"THE RENDER YOU STARTED HAS ENDED (job {facts.get('job_id')}; no AI was used while it ran, "
              f"{facts.get('seconds')} s):",
              f"- result: {'finished' if ok else 'FAILED'}, exit code {facts.get('exit_code')}",

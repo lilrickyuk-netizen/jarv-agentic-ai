@@ -201,3 +201,25 @@ def test_exit_0_with_no_video_anywhere_is_failed_and_says_why(monkeypatch):
     view = _wait(client, "render-none-0001")
     assert view["status"] == "failed" and view["exit_code"] == 0
     assert "exited 0 but no video" in view["facts"]["note"]
+
+
+# 24 November, mission bb2a4d3c: HyperFrames' pre-render check hit the terminal's 300 s limit and the agent switched it
+# off. Long checks run in the same no-AI queue; a check makes no video, so its exit code is its verdict.
+def test_a_long_check_runs_in_the_queue_and_its_exit_code_is_its_verdict(monkeypatch):
+    monkeypatch.setitem(server.SECRETS, "OPENHANDS_TOKEN", "sandbox-token-for-tests")
+    client = TestClient(server.app)
+    folder = _workspace()
+    for job, code in (("render-chka-0001", 0), ("render-chkb-0001", 3)):
+        answer = client.post("/renders", headers=AUTH, json={
+            "job_id": job, "workspace": str(folder), "cwd": str(folder), "kind": "check",
+            "command": f"echo 'lint: {code} problem(s) found'; exit {code}"})
+        assert answer.status_code == 200, answer.text
+    passed, failed = _wait(client, "render-chka-0001"), _wait(client, "render-chkb-0001")
+    assert passed["status"] == "finished" and passed["kind"] == "check" and passed["facts"]["exit_code"] == 0
+    assert "output_exists" not in passed["facts"] and "lint: 0 problem(s) found" in passed["facts"]["log_tail"]
+    assert failed["status"] == "failed" and failed["facts"]["exit_code"] == 3
+
+
+def test_the_sandbox_rules_say_never_switch_a_check_off_for_a_time_limit():
+    assert "Never switch a check off, skip it, cut it short or edit a script to get round a time limit" in \
+        server.ENGINEERING_RULES and "start_render" in server.ENGINEERING_RULES

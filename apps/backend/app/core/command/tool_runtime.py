@@ -1244,14 +1244,16 @@ class ToolRuntime:
 
         command, output = " ".join((command or "").split()), (output or "").strip()
         inputs = {"command": command[:2000], "cwd": cwd, "output": output}
-        if not command or not output:
+        check = render_jobs.is_check(command)
+        if not command or not (output or check):
             return {"success": False, "error": "start_render needs the render command and the output file."}
-        if not render_jobs.is_render(command):
+        if not (check or render_jobs.is_render(command)):
             await self._record("start_render", inputs, False, "refused: not a render command")
-            return {"success": False, "error": ("start_render runs one render command only: OpenMontage's "
+            return {"success": False, "error": ("start_render runs one render or long check only: OpenMontage's "
                                                  "VideoCompose or render_existing, npx remotion render, npx "
-                                                 "hyperframes render, or ffmpeg. No cd, &&, ; or pipes: give the "
-                                                 "folder it runs from as cwd. Run anything else in your terminal.")}
+                                                 "hyperframes render, ffmpeg, or HyperFrames' lint, validate, check "
+                                                 "or snapshot. No cd, &&, ; or pipes: give the folder it runs from "
+                                                 "as cwd. Run anything else in your terminal.")}
         denied = await self._enforce("start_render", command=command)
         if denied:
             return denied

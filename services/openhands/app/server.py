@@ -26,7 +26,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field, SecretStr
@@ -189,7 +189,9 @@ ENGINEERING_RULES = (
     "Fresh-clone checks: clone into a new folder under /tmp (git clone <workspace> /tmp/clone-<name>), never inside "
     "the repository, and delete leftover clone folders that earlier runs left inside it. "
     "Long commands: run builds and tests once, to the end, with a timeout long enough for them; never start a "
-    "server or a watcher that does not finish. "
+    "server or a watcher that does not finish. A render or a long check (HyperFrames' lint, validate, check, "
+    "snapshot) that would pass your terminal's time limit goes through JAI's start_render, which has none. Never "
+    "switch a check off, skip it, cut it short or edit a script to get round a time limit. "
     "JAI's knowledge: besides the shell and editor you have JAI's own tools: memory_search and "
     "knowledge_graph_search for what JAI already knows about this workspace, recall_richard for what Richard wants, "
     "consult_specialist_knowledge for reference material in your field, research_web, web_search and fetch_url for "
@@ -380,7 +382,11 @@ class RenderRequest(BaseModel):
     workspace: str
     command: str = Field(min_length=1, max_length=8000)
     cwd: str
-    output: str = Field(min_length=1, max_length=4000)
+    output: str = Field(default="", max_length=4000)
+    # A render makes a video (finished: exit 0 and a video ffprobe reads); a check (HyperFrames' lint, validate,
+    # check or snapshot) makes none (finished: exit 0). 24 November, mission bb2a4d3c: HyperFrames' pre-render check
+    # hit the terminal's 300 s limit and the agent switched it off; long checks run here instead.
+    kind: Literal["render", "check"] = "render"
 
 
 # Where a render may run from: the mission's workspace, or OpenMontage's own folder (its Python runs from there).
@@ -396,7 +402,8 @@ def start_render(request: RenderRequest, authorization: Optional[str] = Header(d
     if not (cwd == workspace or workspace in cwd.parents or str(cwd).startswith(STUDIO_HOME)) or not cwd.is_dir():
         raise HTTPException(status_code=400, detail=f"{request.cwd} is not the workspace or the studio's folder.")
     try:
-        job = renders.submit(request.job_id, str(workspace), request.command, str(cwd), request.output)
+        job = renders.submit(request.job_id, str(workspace), request.command, str(cwd), request.output,
+                             kind=request.kind)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     # The mission's render already queued or running is returned instead of a second one (existing: true).

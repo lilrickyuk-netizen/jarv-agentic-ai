@@ -149,7 +149,7 @@ def test_start_render_refuses_a_render_outside_the_missions_folder(monkeypatch):
                                                "b.mp4", root_host="C:\\P\\Plexecute"))
     assert out["success"] is False and "outside this mission's workspace" in out["error"]
     out = asyncio.run(ToolRuntime.start_render(runtime, "npm install x", "", "b.mp4", root_host="C:\\P\\Plexecute"))
-    assert out["success"] is False and "one render command only" in out["error"]
+    assert out["success"] is False and "one render or long check only" in out["error"]
     assert [r[1] for r in recorded] == [False, False]
 
 
@@ -629,3 +629,55 @@ def test_exit_0_with_warnings_on_stderr_and_the_file_present_gives_render_finish
     assert "renders/segment-01.mp4" in message and "not at /host/workspaces/x/final.mp4" in message
     brief = render_jobs.facts_brief(result)
     assert "result: finished" in brief and "- note: The video is at" in brief and render_jobs.passes(result)
+
+
+# ----- long checks through the same no-AI queue; never a check switched off for a time limit (24 November,
+# mission bb2a4d3c) ----------------------------------------------------------------------------------------------------
+
+def test_hyperframes_long_checks_go_to_the_queue_one_command_each():
+    for ok in ("npx hyperframes lint", "npx hyperframes validate --strict", "npx hyperframes check",
+               "npx hyperframes snapshot --frames 5"):
+        assert render_jobs.is_check(ok) and not render_jobs.is_render(ok), ok
+    for refused in ("npx hyperframes lint && rm -rf x", "npx hyperframes init", "npx hyperframes preview",
+                    "npx hyperframes lint | tee log"):
+        assert not render_jobs.is_check(refused), refused
+
+
+def test_start_render_runs_a_check_without_an_output_file_and_the_mission_hears_its_verdict(monkeypatch):
+    monkeypatch.setattr(settings, "OPENHANDS_URL", "http://openhands:8010")
+    answer, seen = _sandbox([{}])
+
+    async def no_meta(task_id):
+        return {}
+
+    async def marked(task_id, job):
+        marked.job = job
+
+    monkeypatch.setattr(render_jobs, "_meta", no_meta)
+    monkeypatch.setattr(render_jobs, "_mark", marked)
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(answer)) as client:
+            return await render_jobs.start(task_id=__import__("uuid").uuid4(), container_root="/w", host_root="",
+                                           command="npx hyperframes validate --strict", cwd="/w/hf", output="",
+                                           client=client)
+
+    out = asyncio.run(run())
+    assert out["success"] and seen[0][2]["kind"] == "check" and marked.job["kind"] == "check"
+    assert render_jobs.card_line({**marked.job, "status": "running"}).startswith("Checking (no AI cost)")
+    brief = render_jobs.facts_brief({"kind": "check", "status": "failed", "exit_code": 1, "job_id": "j",
+                                     "seconds": 410, "command": "npx hyperframes validate --strict",
+                                     "log_tail": ["Error: Scene3 font failed to load"]})
+    assert "THE CHECK YOU STARTED HAS ENDED" in brief and "FAILED, exit code 1" in brief
+    assert "Scene3 font failed to load" in brief and "Never switch a check off" in brief
+    assert "LAST ROUND" not in brief
+
+
+def test_the_studio_is_told_to_send_long_checks_to_start_render_and_never_switch_them_off():
+    from app.core.agents.toolbox import WORKSPACE_TOOLS as TOOL_SPECS
+    from app.core.command.mission_org import studio_goal
+
+    goal = studio_goal()
+    assert "never switch a check off, skip it, or edit a script to get round a time limit" in goal
+    assert "HyperFrames' lint, validate, check or snapshot" in goal
+    assert "never switch a check off" in TOOL_SPECS["start_render"].description

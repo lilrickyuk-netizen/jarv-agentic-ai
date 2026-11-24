@@ -16015,3 +16015,15 @@ RESULT: A render that exits 0 with a video ffprobe can read is a success whateve
 RESEARCH: renders.py, render_jobs.check_once
 BLOCKERS: None
 NEXT TASK: Installer for Richard's machine (29ca18b, with or without the video-done installer)
+
+TASK ID: LONG-CHECKS-IN-THE-QUEUE
+TASK NAME: Richard, 24 November 19:57 (mission bb2a4d3c): HyperFrames' pre-render check hit the 300 s command limit and the agent edited render.py to skip it; long checks go through the no-AI queue and no check is ever switched off for a time limit
+STATUS: COMPLETE (backend 1451 passed, 1 skipped; sandbox suite all passed apart from the 13 image tests)
+FILES CREATED: None
+FILES MODIFIED: services/openhands/app/renders.py (Job.kind; a check's verdict is its exit code, its facts its log), services/openhands/app/server.py (RenderRequest kind, output optional; ENGINEERING_RULES: long checks through start_render, never switch a check off, skip it, cut it short or edit a script to get round a time limit), apps/backend/app/core/creative/render_jobs.py (is_check: npx hyperframes lint, validate, check, snapshot; start sends the kind; "Checking (no AI cost)"; the watcher's "Check finished/failed"; the check's facts brief), apps/backend/app/core/command/tool_runtime.py (start_render takes a check without an output file), apps/backend/app/core/agents/toolbox.py (start_render's description), apps/backend/app/core/command/mission_org.py (studio_goal), both test files, BUILD_LEDGER.md
+COMMANDS RUN: hyperframes 0.9.58 (the sandbox's pinned version) unpacked from npm: its commands include lint ("Validate a composition for common mistakes"), validate (headless Chrome, console errors; "deprecated, use check"), check, snapshot (key frames as PNG)
+TESTS RUN: sandbox: a check runs in the queue, exit 0 finished, exit 3 failed, no output needed; the rules say never switch a check off; backend: is_check accepts the four commands and refuses chains and other subcommands; start_render runs a check with no output file, the card says Checking, the facts brief gives the verdict and the log and says never switch a check off; the studio and the tool are told; both whole suites
+RESULT: A long check runs with no AI and no time limit like a render; the agent is told never to switch a check off for a time limit, on both engines.
+RESEARCH: hyperframes@0.9.58 package (npm)
+BLOCKERS: None
+NEXT TASK: Mission bb2a4d3c's render: HyperFrames run directly, timeouts reported as timeouts, an identical retry refused

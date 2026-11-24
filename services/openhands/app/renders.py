@@ -59,7 +59,8 @@ def _iso(moment: Optional[float]) -> Optional[str]:
 
 
 class Job:
-    def __init__(self, job_id: str, workspace: str, command: str, cwd: str, output: str):
+    def __init__(self, job_id: str, workspace: str, command: str, cwd: str, output: str, kind: str = "render"):
+        self.kind = kind  # "render" (makes a video) or "check" (HyperFrames' lint, validate, check, snapshot)
         self.id, self.workspace, self.command, self.cwd, self.output = job_id, workspace, command, cwd, output
         self.status = "queued"  # queued, running, finished, failed, cancelled
         self.exit_code: Optional[int] = None
@@ -73,7 +74,7 @@ class Job:
     def view(self) -> Dict[str, Any]:
         now = time.time()
         return {"job_id": self.id, "status": self.status, "command": self.command, "cwd": self.cwd,
-                "output": self.output, "log": str(self.log), "exit_code": self.exit_code,
+                "output": self.output, "log": str(self.log), "exit_code": self.exit_code, "kind": self.kind,
                 "queued_at": _iso(self.queued_at), "started_at": _iso(self.started_at),
                 "ended_at": _iso(self.ended_at),
                 "seconds": int((self.ended_at or now) - (self.started_at or now)) if self.started_at else 0,
@@ -107,7 +108,7 @@ def active_for(prefix: str) -> List[Job]:
         return [j for j in JOBS.values() if j.id.startswith(prefix) and j.status in ("queued", "running")]
 
 
-def submit(job_id: str, workspace: str, command: str, cwd: str, output: str) -> Job:
+def submit(job_id: str, workspace: str, command: str, cwd: str, output: str, kind: str = "render") -> Job:
     """Queue a render, or return the mission's render already queued or running (job.id tells which)."""
     global _WORKER
     with _LOCK:
@@ -118,7 +119,7 @@ def submit(job_id: str, workspace: str, command: str, cwd: str, output: str) -> 
                          and j.status in ("queued", "running")), None)
         if existing is not None:
             return existing
-        job = Job(job_id, workspace, command, cwd, output)
+        job = Job(job_id, workspace, command, cwd, output, kind)
         JOBS[job_id] = job
         if _WORKER is None or not _WORKER.is_alive():
             _WORKER = threading.Thread(target=_work, name="renders", daemon=True)
@@ -173,6 +174,12 @@ def run(job: Job) -> None:
     if job.status == "cancelled":
         job.facts = {"exit_code": job.exit_code, "cancelled": True, "log_tail": _tail(job.log)}
         logger.info("render %s cancelled after %ss", job.id, int(job.ended_at - job.started_at))
+        return
+    if job.kind == "check":  # a check makes no video: its exit code is its verdict, its log the findings
+        job.facts = {"kind": "check", "exit_code": job.exit_code, "log_tail": _tail(job.log),
+                     "seconds": int(job.ended_at - (job.started_at or job.ended_at))}
+        job.status = "finished" if job.exit_code == 0 else "failed"
+        logger.info("check %s %s (exit %s)", job.id, job.status, job.exit_code)
         return
     job.facts = facts(job)
     job.status = "finished" if job.exit_code == 0 and _readable(job.facts) else "failed"
