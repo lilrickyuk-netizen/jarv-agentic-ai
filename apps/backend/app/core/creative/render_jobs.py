@@ -327,7 +327,22 @@ def facts_brief(facts: Optional[Dict[str, Any]]) -> str:
     if facts.get("error"):
         lines.append(f"- error: {facts['error']}")
     lines.append("- the last lines of its log:\n" + "\n".join(f"    {line}" for line in (facts.get("log_tail") or [])))
-    lines.append("If it failed, read the log lines above, fix the cause and start the render again with "
-                 "start_render. If it finished, look at a few stills of the output to check it, copy it where the "
-                 "brief says and finish; do not render it again.")
+    if passes(facts):
+        # 24 November (mission 92b195d8): after a finished render the maker went on for rounds re-checking sound
+        # levels, files and stills of a video already saved. Its render's facts are the check; the round is short.
+        lines.append("THIS IS THE MISSION'S LAST ROUND. JAI has checked the file (the facts above). Do only this: if "
+                     "the video is not yet where the brief says, copy it there; then report each requirement in one "
+                     "line (`R<n>: done — evidence` or `R<n>: open — reason`) and end your turn. Do not open stills, "
+                     "check the sound, ask another agent to review it, render again or change anything: Richard "
+                     "watches the video and judges it himself.")
+    else:
+        lines.append("The render failed: read the log lines above, fix the cause and start the render again with "
+                     "start_render.")
     return "\n".join(lines)
+
+
+def passes(facts: Optional[Dict[str, Any]]) -> bool:
+    """A finished render whose file is a real video: it exists, has a size, a video stream and a length."""
+    facts = facts or {}
+    return bool(facts.get("status") == "finished" and facts.get("output_exists") and int(facts.get("size_bytes") or 0)
+                and "video" in (facts.get("streams") or []) and float(facts.get("duration_seconds") or 0) > 0)

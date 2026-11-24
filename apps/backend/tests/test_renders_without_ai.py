@@ -496,3 +496,94 @@ def test_cancelling_a_mission_cancels_its_renders_in_the_sandbox(monkeypatch, no
     assert asked == [("/renders/cancel", {"mission": str(task_id)[:8]})]
     assert saved.meta_data["render_job"]["status"] == "cancelled" and render_jobs.rendering(saved.meta_data) is None
     assert not active
+
+
+# ----- after a finished render: one short round, then completed; no independent check on videos (24 November,
+# mission 92b195d8 went on for rounds re-checking a video already saved) --------------------------------------------
+
+def _finished_facts(path, size):
+    return {"status": "finished", "job_id": "render-job-0002", "command": "npx hyperframes render --output x.mp4",
+            "exit_code": 0, "output": str(path), "output_exists": True, "size_bytes": size, "width": 1080,
+            "height": 1920, "duration_seconds": 30.0, "streams": ["audio", "video"], "frozen": [],
+            "frozen_at_end": False, "seconds": 640, "log_tail": ["Done."]}
+
+
+@pytest.mark.skipif(_SQLITE, reason="the render's facts are kept on the mission in its own session")
+def test_a_mission_given_finished_render_facts_ends_completed_in_one_short_round(monkeypatch):
+    from app.core.command import agent_executor, mission_org
+    from app.core.command.mission_org import FINAL_VIDEO_STEPS, SKILL_PACKAGE_ID, VERIFIER_ID, MissionTeam
+    from tests.test_audit_batch2 import _mission as _video_mission, _workspace
+    from tests.test_mission_team import TWO_PACKAGES, TeamRouter
+    from tests.test_workspace_toolchain import _mission_folder
+
+    brief = ("Use OpenMontage to make a vertical video for Plexecute: episode 2 of the runner series. Episode 1 is "
+             "runner-03.mp4 in the project folder. Save it as runner-ep02-gold.mp4 at the top of the project folder.")
+    host, folder = _mission_folder()
+    video = folder / "runner-ep02-gold.mp4"
+    video.write_bytes(b"\x00" * 4096)
+    router = TeamRouter(TWO_PACKAGES, {"lead": [[("finish", {"summary": "Confirmed.", "success": True})]]})
+    monkeypatch.setattr(settings, "MISSION_TEAM_ENABLED", True)
+    monkeypatch.setattr(settings, "VIDEO_INDEPENDENT_CHECK", False)
+    monkeypatch.setattr(agent_executor, "get_router", lambda: router)
+    monkeypatch.setattr(mission_org, "get_router", lambda: router)
+    runs = []
+
+    async def up():
+        return True
+
+    async def in_sandbox(self, requirements):
+        runs.append({"package": self.package.id, "max_steps": self.package.max_steps,
+                     "brief": self.team._brief(self.package, self.mission)})
+        # The maker still says some things are open (what happened on 24 November): the file decides.
+        report = "\n".join(f"{r['id']}: open — the sound levels still need a check" for r in requirements)
+        return {"success": True, "answer": report, "requirements": [dict(r) for r in requirements],
+                "steps": 3, "tokens": 100, "token_detail": {"input": 80, "output": 20}, "cost_usd": 0.01,
+                "model": "claude-sonnet-5-5"}
+
+    monkeypatch.setattr(sandbox_engine, "available", up)
+    monkeypatch.setattr(sandbox_engine.SandboxSpecialist, "run", in_sandbox)
+
+    async def run():
+        async with AsyncTestingSessionLocal() as session:
+            uid, wid = await _workspace(session, host)
+            rt = await _video_mission(session, uid, wid)
+            from app.models.task import Task
+            from sqlalchemy import select
+
+            task = (await session.execute(select(Task).where(Task.id == rt.task_id))).scalar_one()
+            task.meta_data = {**(task.meta_data or {}),
+                              "render_job": {"job_id": "render-job-0002", "status": "finished"},
+                              "render_result": _finished_facts(video, 4096)}
+            await session.commit()
+            out = await MissionTeam(rt, "claude-opus-5-5", host, session_factory=AsyncTestingSessionLocal).run(
+                brief, max_continuations=3, start_continuation=1)
+            await session.commit()
+            return out
+
+    try:
+        result = asyncio.run(run())
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+    assert [r["package"] for r in runs] == [SKILL_PACKAGE_ID]                 # one round, the maker only
+    assert VERIFIER_ID not in [r["package"] for r in runs]                     # no independent check
+    assert runs[0]["max_steps"] == FINAL_VIDEO_STEPS
+    assert "THIS IS THE MISSION'S LAST ROUND" in runs[0]["brief"] and "Do not open stills" in runs[0]["brief"]
+    assert result["success"] is True and result["needs_continuation"] is False
+    assert result["answer"].startswith("**The video is finished: runner-ep02-gold.mp4** (1080x1920, 30.0 s")
+    assert "independent checker" not in (result.get("team") or {}).get("approach", "")
+
+
+def test_no_independent_check_runs_on_a_video_mission_on_either_engine():
+    from app.core.command.mission_org import SKILL_RUNS, studio_goal
+
+    assert settings.VIDEO_INDEPENDENT_CHECK is False
+    assert "openmontage" in SKILL_RUNS
+    assert "No other agent or subagent reviews or checks the video" in studio_goal()
+
+
+def test_finished_render_facts_tell_the_maker_to_stop_and_failed_ones_to_fix():
+    good = render_jobs.facts_brief(_finished_facts("/w/final.mp4", 10))
+    assert "LAST ROUND" in good and "render again" in good and render_jobs.passes(_finished_facts("/w/f.mp4", 10))
+    bad = {**_finished_facts("/w/f.mp4", 0), "status": "failed", "output_exists": False}
+    assert not render_jobs.passes(bad) and "LAST ROUND" not in render_jobs.facts_brief(bad)
+    assert "fix the cause" in render_jobs.facts_brief(bad)

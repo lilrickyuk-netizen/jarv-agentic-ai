@@ -77,6 +77,12 @@ SPECIALIST_CHECK = (" Judge only this mission's requirements by opening the deli
                     "them. A target the deliverable honestly reports as not reached (18 of 30 found) is unmet, with "
                     "the count as evidence. Be brief: open the deliverable, check each requirement once, and report.")
 SPECIALIST_CHECK_STEPS, SPECIALIST_CHECK_COST = 20, 0.5
+# The round after a video's finished render: put it where the brief says and report (render_jobs.facts_brief).
+FINAL_VIDEO_STEPS = 10
+FINAL_VIDEO_COST = 1.0
+# Where the brief asks the video to be saved ("Save it as runner-ep02-gold.mp4 ...").
+_SAVE_AS = re.compile(r"\bsave (?:it|the video|the final video|this)?\s*(?:as|to)\s+[`\"']?([\w./ -]*?[\w.-]+\."
+                      r"(?:mp4|mov|webm|m4v))\b", re.I)
 # The independent judge of a video skill's work: Opus, which looks at stills, within its own small allowance.
 CREATIVE_CHECK_STEPS, CREATIVE_CHECK_COST = 40, 2.0
 # 18 November: every BRAG run read the product's website afresh before it could start. The first run in a folder
@@ -150,6 +156,8 @@ def studio_goal() -> str:
             "Keep every working file you will open or look at (stills, check frames, contact sheets, drafts) in "
             "this mission's folder under .jai/work/, never in /tmp: the file viewer opens only files inside the "
             "mission's folder. "
+            "No other agent or subagent reviews or checks the video: you make it, JAI checks the file, and Richard "
+            "watches it and judges it himself. "
             "Copy the final MP4 to the workspace folder the brief names. Look at stills of your render and fix what "
             "you see. Before you finish, check the final MP4 yourself: ffprobe shows a video and an audio track at "
             "the size and length the brief asks for, and ffmpeg's freezedetect shows no frozen ending. Richard "
@@ -1341,7 +1349,9 @@ class MissionTeam:
                       if not waiting else
                       "**Independent check: everything JAI can do is done and verified. Waiting for you:**\n"
                       + "\n".join(f"- {item}" for item in waiting[:20]))
-                     if verified else "**Independent check: not complete yet.**\n"
+                     if verified else ("**The maker's own check: not complete yet.**\n" if self._skill_run()
+                                       and not any(p.id == VERIFIER_ID for p in self.packages)
+                                       else "**Independent check: not complete yet.**\n")
                      + "\n".join(f"- {item}" for item in unmet[:20])
                      + ("\n\n**Also waiting for you:**\n" + "\n".join(f"- {item}" for item in waiting[:10])
                         if waiting else "")))
@@ -1495,6 +1505,39 @@ class MissionTeam:
             logger.info(f"render record not read: {exc}")
             return {"job": None, "facts": None}
         return {"job": render_jobs.rendering(meta), "facts": meta.get("render_result")}
+
+    def _finished_video(self, result: Dict[str, Any], facts: Dict[str, Any], mission: str) -> Dict[str, Any]:
+        """A video mission whose finished render is where the brief asks ends here, completed: never another round,
+        never continued by itself. Richard judges the video; JAI's check is the file's (24 November, mission
+        92b195d8 went on for rounds re-checking a video already saved)."""
+        from pathlib import Path
+
+        from app.core.workspaces import fs_inspector
+
+        named = _SAVE_AS.search(mission or "")
+        root = fs_inspector.host_to_container(self.workspace_root) if self.workspace_root else None
+        rendered = Path(str(facts.get("output") or ""))
+        wanted = (root / named.group(1)) if named and root is not None else rendered
+        try:
+            there = wanted.is_file() and (wanted.resolve() == rendered.resolve()
+                                          or wanted.stat().st_size == int(facts.get("size_bytes") or -1))
+        except OSError:
+            there = False
+        if not there:
+            return result  # not where the brief says yet: the round's own outcome stands
+        frozen = facts.get("frozen") or []
+        mb = int(facts.get("size_bytes") or 0) / 1_000_000
+        lead = (f"**The video is finished: {wanted.name}** ({facts.get('width')}x{facts.get('height')}, "
+                f"{facts.get('duration_seconds')} s, {mb:.1f} MB, "
+                + ("no frozen picture" if not frozen else f"{len(frozen)} still stretch(es) of 2 s or more")
+                + "). JAI checked the file; whether it is good enough to publish is your call.\n\n")
+        verification = dict(result.get("verification") or {})
+        verification.update({"verified": True, "unmet": [], "file": str(wanted)})
+        result.update({"success": True, "finished": True, "needs_continuation": False, "settled": False,
+                       "answer": lead + str(result.get("answer") or ""), "verification": verification,
+                       "video": {"path": str(wanted), **{k: facts.get(k) for k in (
+                           "width", "height", "duration_seconds", "size_bytes", "frozen")}}})
+        return result
 
     async def _held_for_render(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """A round that ends with its render still queued or running pauses (needs_continuation) whatever the agent
@@ -1948,8 +1991,11 @@ class MissionTeam:
                 # skill checks its own work by its rules (9 November: a generic Verifier after it added minutes
                 # and cost without the skill's knowledge). Richard has the last word either way.
                 self.approach = self.approach or (
-                    "One specialist runs the skill end to end; an independent checker who did not make it looks at "
-                    "its stills and judges every requirement; Richard has the last word."
+                    ("One specialist runs the skill end to end; an independent checker who did not make it looks at "
+                     "its stills and judges every requirement; Richard has the last word."
+                     if settings.VIDEO_INDEPENDENT_CHECK else
+                     "One specialist makes the video end to end and JAI checks the file; Richard watches it and "
+                     "judges it himself.")
                     if skill["skill"] in SKILL_RUNS else
                     "One specialist runs the skill end to end and checks its own work by the skill's rules; "
                     "Richard judges the result.")
@@ -1998,13 +2044,22 @@ class MissionTeam:
         from app.core.creative import render_jobs
 
         rendered = await self._render_state()
+        final_video = None
         if rendered["facts"] and rendered["job"] is None:
             self.render_facts = render_jobs.facts_brief(rendered["facts"])
+            if render_jobs.passes(rendered["facts"]) and self._skill_run():
+                # The render finished: one short round to put the video where the brief says and report.
+                final_video = rendered["facts"]
+                for p in self.packages:
+                    if p.id == SKILL_PACKAGE_ID:
+                        p.max_steps, p.max_cost = FINAL_VIDEO_STEPS, FINAL_VIDEO_COST
         await self._run_team(mission, known)
         team_steps = sum(p.step for p in self.packages)
         if self.sandbox:
-            return await self._held_for_render(await self._debriefed(
-                await self._sandbox_outcome(mission, team_steps, start_continuation), mission))
+            outcome = await self._sandbox_outcome(mission, team_steps, start_continuation)
+            if final_video is not None:
+                outcome = self._finished_video(outcome, final_video, mission)
+            return await self._held_for_render(await self._debriefed(outcome, mission))
         self.phase = "integration"
         # After the sandbox's integration engineer the lead only confirms and hands over to the Verifier.
         rounds = min(max_continuations, 1) if self.sandbox else max_continuations

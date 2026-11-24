@@ -15991,3 +15991,15 @@ RESULT: A mission has at most one render queued or running, at JAI's gate and in
 RESEARCH: renders.py, render_jobs.py, runtime/missions.cancel_mission
 BLOCKERS: None
 NEXT TASK: Installer for Richard's machine (f5728f7, or the same with the render-wait installer applied)
+
+TASK ID: FINISHED-RENDER-ENDS-THE-VIDEO-MISSION
+TASK NAME: Richard, 24 November 16:37 (mission 92b195d8): after its render ended the mission went on for rounds (continuation #4, about 0.85 million tokens) re-checking a video already saved; the card said an independent checker ran
+STATUS: COMPLETE (backend 1447 passed, 1 skipped)
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/creative/render_jobs.py (passes; facts_brief: after a finished render "THIS IS THE MISSION'S LAST ROUND": put the video where the brief says, report, end; no stills, sound, review or re-render), apps/backend/app/core/command/mission_org.py (FINAL_VIDEO_STEPS 10 and FINAL_VIDEO_COST $1 for that round; _finished_video: the video at the brief's "save it as" path, or the render's own output, with the render's size, ends the mission completed, never needs_continuation; the approach line no longer says an independent checker looks when VIDEO_INDEPENDENT_CHECK is off; a skill run's open items are headed "The maker's own check", not "Independent check"; studio_goal: no other agent or subagent reviews the video), apps/backend/tests/test_renders_without_ai.py, BUILD_LEDGER.md
+COMMANDS RUN: mission_org read: VIDEO_INDEPENDENT_CHECK False already kept the creative verifier package out on both engines (they share MissionTeam's skill package; only the engine differs); what Richard saw was the approach line ("an independent checker who did not make it looks at its stills"), written whatever the setting, and the "Independent check: not complete yet" heading over the maker's own report. The extra rounds came from the maker reporting requirements open after the render (sound levels, stills), which kept needs_continuation on
+TESTS RUN: new: a mission given finished render facts runs one round of the maker only (no Verifier), capped at FINAL_VIDEO_STEPS, told it is the last round, and ends success with needs_continuation false even when the maker still reports items open (fails without the fix); no independent check on video missions and the studio is told no subagent reviews the video; finished facts tell the maker to stop, failed ones to fix; the whole backend suite
+RESULT: After a finished render a video mission gets one short round and ends completed once the video is where the brief asks; Richard judges it. No independent creative checker runs, and the card no longer says one does.
+RESEARCH: mission_org.run, _sandbox_outcome, render_jobs.facts_brief
+BLOCKERS: None
+NEXT TASK: Installer against 29ca18b on Richard's machine (backend only)
