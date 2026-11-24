@@ -508,6 +508,8 @@ class SandboxSpecialist:
                 # needs are in front of it rather than lost among every skill JAI has.
                 "skills": sandbox_skills(getattr(self.package, "acting_as", None) or self.package.specialist)}
         token = None
+        body.update({"api_timeout_ms": int(settings.SANDBOX_BUILD_API_TIMEOUT_MS),
+                     "max_retries": int(settings.SANDBOX_BUILD_MAX_RETRIES)})
         if engine == "claude":
             from app.core import gateway
 

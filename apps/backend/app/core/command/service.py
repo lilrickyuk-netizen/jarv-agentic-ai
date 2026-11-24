@@ -106,6 +106,40 @@ def worked_on(extra: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             "models": sorted(weights, key=weights.get, reverse=True)}
 
 
+# The agent each package's specialist is: the Lead Builder of software is the Coding Agent, the environment engineer
+# DevOps; every other specialist is the agent of the same name.
+_AGENT_OF = {"builder": "coding_agent", "environment": "devops", "debugging_agent": "debugging_agent"}
+
+
+def worked_team(result: Dict[str, Any]) -> Optional[tuple]:
+    """(agents, steps) of the team that actually did a mission, from its packages or its role, or None.
+
+    24 November: a video mission's card listed the software team's plan (devops, QA, the Swarm Manager) though one
+    Product Designer made the video. Now the card names who worked: the Orchestrator, the Swarm Manager only when
+    it spawned more than one maker, each package's specialist and the Verifier when it ran."""
+    role = result.get("role")
+    if isinstance(role, dict) and role.get("specialist"):
+        title = str(role.get("title") or role["specialist"])
+        return (["orchestrator", str(role["specialist"]), "verifier"],
+                [f"Orchestrator: sent the work to JAI's {title}.", f"{title}: did the work.",
+                 "Verifier: checked the result against every requirement."])
+    cards = [c for c in ((result.get("team") or {}).get("packages") or []) if isinstance(c, dict)] \
+        if isinstance(result.get("team"), dict) else []
+    if not cards:
+        return None
+    makers = [c for c in cards if c.get("id") != "VER"]
+    agents = ["orchestrator"] + (["swarm_manager"] if len(makers) > 1 else [])
+    steps = []
+    for card in cards:
+        specialist = str(card.get("acting_as") or card.get("specialist") or "")
+        agent = "verifier" if card.get("id") == "VER" else _AGENT_OF.get(specialist, specialist)
+        if agent and agent not in agents:
+            agents.append(agent)
+        steps.append(f"{card.get('role') or specialist}: {card.get('title') or card.get('id')}"
+                     + (f" ({card['status']})" if card.get("status") else ""))
+    return agents, steps
+
+
 # ===== Safety / approval classification =====
 
 # Verbs/phrases that indicate an action requiring a hard-boundary approval.
@@ -2483,6 +2517,10 @@ class CommandService:
         card = await result_card.make(result, mission=command_text, cost_usd=await mission_budget.spent(runtime.task_id),
                                       started_at=mission_started_at, waiting=extra.get("waiting_on_richard"))
         extra["card"] = card
+        worked = worked_team(result)
+        if worked is not None:  # the card names the team that worked, not the plan's generic team
+            agents, steps = self._validate_agents(worked[0]), [*(s for s in steps if s.startswith(
+                ("Understanding:", "Resume:"))), *worked[1]]
         return (result_card.render(card) + head + result["answer"] + _metrics_line(result.get("metrics")) + cost,
                 steps, agents, extra)
 

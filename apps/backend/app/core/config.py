@@ -405,6 +405,11 @@ class Settings(BaseSettings):
     # times it retries (CLAUDE_CODE_MAX_RETRIES, default 10).
     SANDBOX_CLAUDE_API_TIMEOUT_MS: int = Field(default=180000, ge=30000, le=600000)
     SANDBOX_CLAUDE_MAX_RETRIES: int = Field(default=3, ge=0, le=10)
+    # The same for an OpenHands run (software builds, and videos until they move): one model call may take up to 5
+    # minutes, retried twice (it was 10 minutes, retried 4 times: up to 50 minutes on one hung call). A build's model
+    # call is not streamed, so it is given longer than a Claude session's.
+    SANDBOX_BUILD_API_TIMEOUT_MS: int = Field(default=300000, ge=60000, le=600000)
+    SANDBOX_BUILD_MAX_RETRIES: int = Field(default=2, ge=0, le=10)
     OPENHANDS_MAX_COST_PER_PACKAGE_USD: float = Field(default=6.0, gt=0, le=100)
     # The one builder (tier 2) works through a whole ledger in one session, so it gets more steps than a specialist;
     # the mission's own allowance (MISSION_MAX_COST_USD) still caps what it spends.

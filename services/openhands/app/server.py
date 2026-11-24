@@ -250,8 +250,10 @@ def build_conversation(run: Run, with_jai_tools: bool = True):
 
     request = run.request
     key = SecretStr(SECRETS["JAI_GATEWAY_TOKEN"] or "unset")
-    common = dict(usage_id="agent", api_key=key, reasoning_effort=request.reasoning_effort, timeout=600,
-                  num_retries=4)
+    # The backend sets how long one model call may take and how often it is retried (24 November: it was 10
+    # minutes and 4 retries here, and one hung call held a mission for 8 minutes and more).
+    common = dict(usage_id="agent", api_key=key, reasoning_effort=request.reasoning_effort,
+                  timeout=max(30, int(request.api_timeout_ms) // 1000), num_retries=int(request.max_retries))
     provider = "anthropic" if request.provider == "anthropic" else "openai"
     if not register_prices(provider, request):
         # Without cache prices the budget is counted at the full input price, as before.

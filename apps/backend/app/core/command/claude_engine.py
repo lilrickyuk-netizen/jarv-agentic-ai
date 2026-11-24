@@ -244,6 +244,47 @@ def ecc_learning_env(folder: Optional[Path]) -> Dict[str, str]:
     return env
 
 
+INSTINCT_FILES = (".yaml", ".yml", ".md")
+
+
+def ecc_learned(folder: Optional[Path]) -> Dict[str, Any]:
+    """What ECC's learning system holds for this product, read from its own store (ECC_LEARNING_DIR/homunculus, on
+    Richard's disk, kept across missions): instincts learned for this folder's project and globally, and the
+    observations still waiting for its observer. ECC files a project under its registry (projects.json, by root);
+    Claude Code gives ECC's hooks the session's folder as CLAUDE_PROJECT_DIR, so each product is its own project.
+
+    24 November (audit finding 12): its lessons appeared to be lost after each mission, and nothing showed whether
+    it learned anything; now every engine mission's record says, and an empty store is visible as such."""
+    root = Path(str(getattr(settings, "ECC_LEARNING_DIR", "") or "/app/.jai-learned")) / "homunculus"
+
+    def count(directory: Path) -> int:
+        try:
+            return sum(1 for f in directory.iterdir() if f.is_file() and f.suffix.lower() in INSTINCT_FILES)
+        except OSError:
+            return 0
+
+    out = {"store": str(root), "project": None, "project_instincts": 0, "global_instincts": 0,
+           "observations_waiting": 0}
+    out["global_instincts"] = count(root / "instincts" / "personal") + count(root / "instincts" / "inherited")
+    try:
+        registry = json.loads((root / "projects.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        registry = {}
+    want = str(folder.resolve()) if folder is not None else ""
+    for pid, entry in (registry.items() if isinstance(registry, dict) else []):
+        if want and isinstance(entry, dict) and str(entry.get("root") or "") == want:
+            project = root / "projects" / str(pid)
+            out["project"] = str(pid)
+            out["project_instincts"] = count(project / "instincts" / "personal") + count(
+                project / "instincts" / "inherited")
+            try:
+                with open(project / "observations.jsonl", encoding="utf-8") as f:
+                    out["observations_waiting"] = sum(1 for _ in f)
+            except OSError:
+                pass
+    return out
+
+
 def light_model() -> str:
     from app.core.config import light_model as chosen
 
@@ -586,10 +627,17 @@ class ClaudeRoleExecutor(RoleExecutor):
                                 "session_id": self.session_id, "skills": len(self.skills_seen),
                                 "plugins": list(self.plugins_seen), "worker_model": worker_model(),
                                 "workers_at_once": workers_at_once(),
+                                "ecc_learning": ecc_learned(self._folder()) if getattr(
+                                    settings, "ECC_LEARNING_ENABLED", True) else None,
                                 "skill_listing": {"in_full": len(self.listing.get("full") or []),
                                                   "by_name": len(self.listing.get("names_only") or []),
                                                   "characters": self.listing.get("chars", 0),
                                                   "budget": self.listing.get("budget", 0)}}
+            learned = result["engine"].get("ecc_learning")
+            if learned and isinstance(result.get("answer"), str):
+                result["answer"] += (f"\n\n_ECC's learning for this product: {learned['project_instincts']} lessons "
+                                     f"for this folder, {learned['global_instincts']} shared, "
+                                     f"{learned['observations_waiting']} observations waiting to be learned from._")
             if isinstance(result.get("role"), dict):
                 result["role"]["model"] = engine_model()
                 result["role"]["engine"] = result["engine"]  # kept on the mission's record with the role
