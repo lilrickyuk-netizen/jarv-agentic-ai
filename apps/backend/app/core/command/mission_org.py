@@ -796,6 +796,9 @@ class MissionTeam:
         # A specialist's job: Richard's standing rules, the job set out to a professional standard, its playbooks
         # and field knowledge (expertise.job_for); None for software, a named skill or parallel work.
         self.job = None
+        # The maker's verified lessons for this mission (command/debrief) and their keys, read before the team runs.
+        self.lessons: str = ""
+        self.lessons_applied: List[str] = []
         # The brief of the mission this one carries on: it decides the agent (service, resume.last_state).
         self.route_from: Optional[str] = None
         # The last round of this mission completed nothing: its software work moves up to Opus (OPENHANDS_STUCK_MODEL).
@@ -1125,6 +1128,11 @@ class MissionTeam:
         for q in before:
             lines.append(f"{q.id} ({q.role}) finished before you"
                          + (" and reported: " + q.summary[:1200] if q.summary else "."))
+        lessons = getattr(self, "lessons", "")
+        if lessons and p.id != VERIFIER_ID:
+            # What this kind of job taught the agent before, in this workspace (command/debrief); the Verifier judges
+            # without them.
+            lines.append(lessons)
         lines.append("When your package is done and checked with real commands, call finish with a summary: the "
                      "files you changed, the commands you ran and their results, and anything another package or "
                      "the integration lead must still do.")
@@ -1438,6 +1446,42 @@ class MissionTeam:
         kind = self.route.get("route")
         return kind["specialist"] if kind and kind.get("specialist") in SPECIALISTS else None
 
+    def _learner(self) -> Optional[tuple]:
+        """Whose lessons a builder or skill mission uses and adds to: the role the main package works as (the
+        specialist a builder acts as, a skill's specialist, or the Lead Builder for software), with its title."""
+        main = next((p for p in self.packages if p.id != VERIFIER_ID), None)
+        role = (main.acting_as or main.specialist) if main is not None else "builder"
+        return (role, SPECIALISTS[role]["title"]) if role in SPECIALISTS else None
+
+    async def _read_lessons(self, mission: str) -> None:
+        """The learner's verified lessons for this mission, for the maker's brief (command/debrief.lessons_for)."""
+        from app.core.command import debrief
+
+        learner = self._learner()
+        if learner is None:
+            return
+        self.lessons, self.lessons_applied = await debrief.lessons_for(
+            getattr(self.runtime, "db", None), getattr(self.runtime, "workspace_id", None), learner[0], mission)
+
+    async def _debriefed(self, result: Dict[str, Any], mission: str) -> Dict[str, Any]:
+        """24 November (audit batch 2): the same debrief business missions get (command/debrief), after every round
+        of a builder or skill mission too: videos, content made with commands and software builds. Before this they
+        never learned, so the /tmp mistake, the reused fact and the ledger mix-up repeated mission after mission."""
+        from app.core.command import debrief
+
+        learner = self._learner()
+        if learner is None:
+            return result
+        record = dict(result)
+        record.setdefault("summary", result.get("agent_summary") or "")
+        router = MeteredRouter(get_router(), self.lead.usage, "planning", self.lead._cache_key())
+        result["learning"] = await debrief.debrief(
+            getattr(self.runtime, "db", None), workspace_id=getattr(self.runtime, "workspace_id", None),
+            task_id=getattr(self.runtime, "task_id", None), role=learner[0], title=learner[1], mission=mission,
+            result=record, calls=list(getattr(self.runtime, "calls", []) or []),
+            applied=list(getattr(self, "lessons_applied", []) or []), router=router.as_role("planning"))
+        return result
+
     async def _role_run(self, role: str, mission: str, steps_per_round: int, max_continuations: int,
                         start_continuation: int, known: Optional[str], verify: bool,
                         prior_calls: Optional[List[Dict[str, Any]]]) -> Dict[str, Any]:
@@ -1473,6 +1517,10 @@ class MissionTeam:
                                                      getattr(self.runtime, "workspace_id", None), role, mission)
         if learned:
             known = (f"{known}\n\n" if known else "") + learned
+        if role in CONTENT_SPECIALISTS:
+            # A content specialist's own mission follows the same content rules as the builder acting as one: the
+            # playbook, the voice and the used-facts list (24 November: this path had none of them).
+            known = (f"{known}\n\n" if known else "") + "CONTENT RULES:" + self._content_rules(mission)
         result = await executor.run(
             mission, steps_per_round=max(int(steps_per_round), int(settings.ROLE_STEPS_PER_ROUND)),
             max_continuations=max_continuations, prior_messages=None, start_continuation=start_continuation,
@@ -1614,7 +1662,8 @@ class MissionTeam:
         else:
             research = (content_rules.research_rule(mission, container)
                         if content_rules.asks_research(mission) else "")
-        return research + content_rules.voice_rule(studio=studio) + content_rules.playbook_for(mission, root)
+        return (research + content_rules.voice_rule(studio=studio) + content_rules.playbook_for(mission, root)
+                + content_rules.used_facts_rule(container, mission, root))
 
     def _skill_run(self) -> bool:
         """A one-skill job: the skill's specialist alone, with no Verifier after it."""
@@ -1876,10 +1925,14 @@ class MissionTeam:
         elif open_ids:
             await self._plan(router, mission, known)
         if len(self.packages) < 2 and not self._skill_run():
-            # One small change (or no plan): the lead does it alone, as one agent.
+            # One small change (or no plan): the lead does it alone, as one agent, with the Lead Builder's lessons.
             self.packages = []
-            return await self.lead.run(mission, steps_per_round, max_continuations, None, start_continuation,
-                                       known, verify, self.lead.requirements, prior_calls)
+            await self._read_lessons(mission)
+            if getattr(self, "lessons", ""):
+                known = (f"{known}\n\n" if known else "") + self.lessons
+            return await self._debriefed(await self.lead.run(
+                mission, steps_per_round, max_continuations, None, start_continuation, known, verify,
+                self.lead.requirements, prior_calls), mission)
         self.phase = "team"
         try:
             # What the mission has written so far is committed before the team starts, so no specialist's own
@@ -1894,10 +1947,12 @@ class MissionTeam:
                 await self._mark(p, starting=False)
         await self.book_spend()
         await self.save_progress()
+        await self._read_lessons(mission)
         await self._run_team(mission, known)
         team_steps = sum(p.step for p in self.packages)
         if self.sandbox:
-            return await self._sandbox_outcome(mission, team_steps, start_continuation)
+            return await self._debriefed(await self._sandbox_outcome(mission, team_steps, start_continuation),
+                                         mission)
         self.phase = "integration"
         # After the sandbox's integration engineer the lead only confirms and hands over to the Verifier.
         rounds = min(max_continuations, 1) if self.sandbox else max_continuations
@@ -1915,7 +1970,7 @@ class MissionTeam:
         metrics["team"] = {"packages": len(self.packages), "parallel": self.parallel,
                            "finished": sum(1 for p in self.packages if p.success)}
         result["metrics"] = metrics
-        return result
+        return await self._debriefed(result, mission)
 
 
 def _judged(verdict: Optional[Dict[str, Any]], requirements: List[Dict[str, Any]]) -> Dict[str, Any]:

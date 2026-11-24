@@ -15,17 +15,26 @@ is. So every content mission (a video, a carousel, a script, a post) gets:
    mission is for that product.
 3. content_check: what the independent checker of the piece judges on top of the craft: the research exists and
    the piece traces back to it, and the playbook's rules hold.
+4. used_facts_rule (24 November, audit batch 2): every fact, statistic, quote, study, story or named example is used
+   once per product. The folder's .jai/used-facts.md lists what earlier pieces used, with the playbook's own "Facts
+   already used"; the piece is made without any of them and adds its own. On 23 November every video reused the same
+   Ed Sheeran "53%" fact, saved in a research note, because nothing checked it.
 """
 from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 PLAYBOOK_DIR = Path(__file__).resolve().parent / "playbooks"
 # A product's playbook applies when the mission or its workspace folder names the product.
 PLAYBOOKS = {"plexecute": "plexecute.md"}
 RESEARCH_DIR = ".jai/research"
+# What earlier pieces for this product used (one line each), in the mission's folder.
+USED_FACTS = ".jai/used-facts.md"
+# The playbook's own list of facts that are used up (Richard's), read with the folder's list.
+PLAYBOOK_USED = "## Facts already used"
+USED_FACTS_SHOWN = 80
 WATCHLIST = f"{RESEARCH_DIR}/watchlist.md"
 # A creator's video is an outlier when it beat that creator's own median by this much.
 OUTLIER_SCORE = 3
@@ -151,6 +160,45 @@ def voice_rule(studio: bool = False, root: Optional[Path] = None) -> str:
             "which voice was chosen and why.")
 
 
+def _playbook_used(mission: str, workspace_root: Optional[str]) -> List[str]:
+    name = product_of(mission, workspace_root)
+    if name is None:
+        return []
+    try:
+        text = (PLAYBOOK_DIR / PLAYBOOKS[name]).read_text(encoding="utf-8")
+    except OSError:
+        return []
+    if PLAYBOOK_USED not in text:
+        return []
+    section = text.split(PLAYBOOK_USED, 1)[1].split("\n## ", 1)[0]
+    return [line.strip() for line in section.splitlines() if line.strip().startswith("- ")]
+
+
+def used_facts(container_root: Optional[Path], mission: str = "", workspace_root: Optional[str] = None) -> List[str]:
+    """The facts already used for this product: the playbook's, then the folder's list, newest last."""
+    found = _playbook_used(mission, workspace_root)
+    path = container_root / USED_FACTS if container_root is not None else None
+    try:
+        if path is not None and path.is_file():
+            found += [line.strip() for line in path.read_text(encoding="utf-8", errors="replace").splitlines()
+                      if line.strip().startswith("- ")]
+    except OSError:
+        pass
+    return list(dict.fromkeys(found))
+
+
+def used_facts_rule(container_root: Optional[Path], mission: str = "", workspace_root: Optional[str] = None) -> str:
+    """Every content mission: never reuse a fact, and record the ones this piece uses."""
+    listed = used_facts(container_root, mission, workspace_root)
+    shown = listed[-USED_FACTS_SHOWN:]
+    already = (" These are used already; use none of them again, in any wording or framing:\n" + "\n".join(shown)
+               + "\n" if shown else f" None is recorded yet ({USED_FACTS} does not exist in this folder).")
+    return (" USED FACTS: each fact, statistic, quote, study, story and named example is used in one piece only."
+            + already + f" Before you finish, add every one this piece uses to {USED_FACTS} in the mission's folder, "
+            "one line each: `- <the fact in a few words> (<its source>; <the piece's file>; <today's date>)`, "
+            "creating the file when it is missing and never changing or deleting a line already there.")
+
+
 def content_check(mission: str = "", workspace_root: Optional[str] = None) -> str:
     """What the independent checker of a content piece judges besides the craft."""
     organic = "" if is_ad(mission) else (
@@ -164,7 +212,10 @@ def content_check(mission: str = "", workspace_root: Optional[str] = None) -> st
                 "link, views, the channel's median and its score) and say which ones the piece adapts. Missing "
                 "research, or a piece whose hook and structure do not trace back to the outliers it names, is unmet."
                 if asks_research(mission) else "")
-    return (research + " A narrated piece "
+    used = (f" A fact, statistic, quote, study, story or named example already on the used-facts list ({USED_FACTS} "
+            "and the playbook's Facts already used) is unmet, and so is one the piece uses that the list does not "
+            "now record.")
+    return (research + used + " A narrated piece "
             "must be narrated with make_voiceover in a voice from JAI's voice library (ASSET_LICENCES.md names the "
             "voice); any other text-to-speech voice, or narration with no voice named there, is unmet."
             + organic

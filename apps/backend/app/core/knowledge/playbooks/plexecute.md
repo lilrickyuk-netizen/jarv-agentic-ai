@@ -41,6 +41,13 @@ real outlier and a real Plexecute topic.
 - Real footage, images and voices are licensed for commercial use, with each one's source and licence saved
   beside the piece.
 
+## Facts already used
+
+Never use these again, in any wording. Every later one is added by the piece that uses it to `.jai/used-facts.md`
+in the Plexecute folder, which every content mission reads.
+
+- Ed Sheeran in 2002 and the "53%" figure (used on 23 November 2026; Richard: never again)
+
 ## Care with health and money
 
 Fitness, nutrition, wellness and finance content stays general or sourced: habits, planning, mindset and
