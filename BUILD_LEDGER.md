@@ -16003,3 +16003,15 @@ RESULT: After a finished render a video mission gets one short round and ends co
 RESEARCH: mission_org.run, _sandbox_outcome, render_jobs.facts_brief
 BLOCKERS: None
 NEXT TASK: Installer against 29ca18b on Richard's machine (backend only)
+
+TASK ID: EXIT-0-AND-A-READABLE-VIDEO-IS-FINISHED
+TASK NAME: Richard, 24 November 16:48 (mission 5670069a): the render watcher marked a successful render "Render failed · exit 0" (a Node MaxListenersExceededWarning on stderr; the segment was written)
+STATUS: COMPLETE (backend 1448 passed, 1 skipped; sandbox suite all passed apart from the 13 image tests)
+FILES CREATED: None
+FILES MODIFIED: services/openhands/app/renders.py (facts: the video is looked for where start_render said, from the render's folder then the workspace, then where the command writes (--output, -o, its last video argument), then the newest video written in the workspace since the render began; finished when exit 0 and ffprobe reads a video from it; output_asked and a note say where it is when it is elsewhere; exit 0 with no video found says so), apps/backend/app/core/creative/render_jobs.py (readable; the watcher calls exit 0 with a readable video finished whatever the sandbox's status; the feed and the maker's brief carry the note), services/openhands/tests/test_sandbox_renders.py, apps/backend/tests/test_renders_without_ai.py, BUILD_LEDGER.md
+COMMANDS RUN: renders.run read: stderr never decided the status; "failed" came from the output not existing at the path start_render gave (the file was written elsewhere)
+TESTS RUN: sandbox: exit 0 with a warning on stderr and the file present is finished; a video written elsewhere is finished with output_asked and the note (fails without the fix); exit 0 and no video anywhere is failed with the reason; backend: the sandbox answering failed with exit 0 and a readable video gives "Render finished" with where the video is (fails without the fix); both whole suites
+RESULT: A render that exits 0 with a video ffprobe can read is a success whatever stderr says; if the video is not where start_render said, the card and the maker are told where it is.
+RESEARCH: renders.py, render_jobs.check_once
+BLOCKERS: None
+NEXT TASK: Installer for Richard's machine (29ca18b, with or without the video-done installer)

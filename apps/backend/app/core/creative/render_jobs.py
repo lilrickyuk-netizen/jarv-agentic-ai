@@ -275,14 +275,18 @@ async def check_once(client: Optional[httpx.AsyncClient] = None) -> Dict[str, An
                 facts.update({"job_id": job["job_id"], "status": view.get("status"),
                               "exit_code": view.get("exit_code", facts.get("exit_code")),
                               "command": job.get("command"), "seconds": view.get("seconds", facts.get("seconds"))})
+                # Exit 0 and a video ffprobe read is a success, whatever the render printed on stderr (24 November,
+                # mission 5670069a: "Render failed · exit 0" over a Node warning and a file written elsewhere).
+                ok = view.get("status") == "finished" or (facts.get("exit_code") == 0 and readable(facts))
+                facts["status"] = "finished" if ok else view.get("status")
                 meta = dict(task.meta_data or {})
-                meta["render_job"] = {**job, "status": view.get("status"), "ended_at": view.get("ended_at")}
+                meta["render_job"] = {**job, "status": facts["status"], "ended_at": view.get("ended_at")}
                 meta["render_result"] = facts
                 task.meta_data = meta
-                ok = view.get("status") == "finished"
                 _feed(db, task, "Render finished" if ok else "Render failed",
                       (f"{facts.get('output')}: {facts.get('width')}x{facts.get('height')}, "
-                       f"{facts.get('duration_seconds')} s" if ok else
+                       f"{facts.get('duration_seconds')} s" + (f". {facts['note']}" if facts.get("note") else "")
+                       if ok else
                        f"exit {facts.get('exit_code')}: " + " | ".join((facts.get("log_tail") or [])[-3:]))[:900],
                       severity="info" if ok else "warning")
                 resumed = False
@@ -324,6 +328,8 @@ def facts_brief(facts: Optional[Dict[str, Any]]) -> str:
                                            f"{len(frozen)} frozen stretch(es) "
                                            + ("including the ending " if facts.get("frozen_at_end") else "")
                                            + str(frozen[:5])))
+    if facts.get("note"):
+        lines.append(f"- note: {facts['note']}")
     if facts.get("error"):
         lines.append(f"- error: {facts['error']}")
     lines.append("- the last lines of its log:\n" + "\n".join(f"    {line}" for line in (facts.get("log_tail") or [])))
@@ -339,6 +345,13 @@ def facts_brief(facts: Optional[Dict[str, Any]]) -> str:
         lines.append("The render failed: read the log lines above, fix the cause and start the render again with "
                      "start_render.")
     return "\n".join(lines)
+
+
+def readable(facts: Optional[Dict[str, Any]]) -> bool:
+    """ffprobe read a video from the render's output: it exists, with a video stream and a length."""
+    facts = facts or {}
+    return bool(facts.get("output_exists") and "video" in (facts.get("streams") or [])
+                and float(facts.get("duration_seconds") or 0) > 0)
 
 
 def passes(facts: Optional[Dict[str, Any]]) -> bool:

@@ -156,3 +156,48 @@ def test_cancelling_a_mission_stops_its_running_render_and_drops_its_queued_one(
     assert not left, left   # its process group is gone
     assert client.get("/renders/render-cancelb-0001", headers=AUTH).json()["status"] == "cancelled"
     assert renders.counts() == {"running": 0, "queued": 0}
+
+
+# 24 November, mission 5670069a: "Render failed · exit 0" over a Node warning on stderr and a file written elsewhere.
+WARN = "echo '(node:42) MaxListenersExceededWarning: Possible EventEmitter memory leak detected.' >&2; "
+
+
+def test_exit_0_with_warnings_on_stderr_and_the_file_present_is_finished(monkeypatch):
+    monkeypatch.setitem(server.SECRETS, "OPENHANDS_TOKEN", "sandbox-token-for-tests")
+    client = TestClient(server.app)
+    folder = _workspace()
+    client.post("/renders", headers=AUTH, json={
+        "job_id": "render-warn-0001", "workspace": str(folder), "cwd": str(folder),
+        "command": WARN + RENDER.format(d=1, out="final.mp4"), "output": "final.mp4"})
+    view = _wait(client, "render-warn-0001")
+    assert view["status"] == "finished" and view["exit_code"] == 0, view
+    assert view["facts"]["output"] == str(folder / "final.mp4") and "note" not in view["facts"]
+    assert any("MaxListenersExceededWarning" in line for line in view["facts"]["log_tail"])
+
+
+def test_a_video_written_somewhere_else_is_finished_and_says_where(monkeypatch):
+    monkeypatch.setitem(server.SECRETS, "OPENHANDS_TOKEN", "sandbox-token-for-tests")
+    client = TestClient(server.app)
+    folder = _workspace()
+    (folder / "renders").mkdir()
+    os.chmod(folder / "renders", 0o777)
+    client.post("/renders", headers=AUTH, json={
+        "job_id": "render-else-0001", "workspace": str(folder), "cwd": str(folder),
+        "command": WARN + RENDER.format(d=1, out="renders/segment-01.mp4"), "output": "final.mp4"})
+    view = _wait(client, "render-else-0001")
+    assert view["status"] == "finished", view
+    assert view["facts"]["output"] == str(folder / "renders" / "segment-01.mp4")
+    assert view["facts"]["output_asked"] == str(folder / "final.mp4")
+    assert "renders/segment-01.mp4" in view["facts"]["note"] and view["facts"]["duration_seconds"] > 0
+
+
+def test_exit_0_with_no_video_anywhere_is_failed_and_says_why(monkeypatch):
+    monkeypatch.setitem(server.SECRETS, "OPENHANDS_TOKEN", "sandbox-token-for-tests")
+    client = TestClient(server.app)
+    folder = _workspace()
+    client.post("/renders", headers=AUTH, json={
+        "job_id": "render-none-0001", "workspace": str(folder), "cwd": str(folder),
+        "command": WARN + "true", "output": "final.mp4"})
+    view = _wait(client, "render-none-0001")
+    assert view["status"] == "failed" and view["exit_code"] == 0
+    assert "exited 0 but no video" in view["facts"]["note"]

@@ -587,3 +587,45 @@ def test_finished_render_facts_tell_the_maker_to_stop_and_failed_ones_to_fix():
     bad = {**_finished_facts("/w/f.mp4", 0), "status": "failed", "output_exists": False}
     assert not render_jobs.passes(bad) and "LAST ROUND" not in render_jobs.facts_brief(bad)
     assert "fix the cause" in render_jobs.facts_brief(bad)
+
+
+@pytest.mark.skipif(_SQLITE, reason="the watcher writes from its own session")
+def test_exit_0_with_warnings_on_stderr_and_the_file_present_gives_render_finished(monkeypatch, no_models):
+    """24 November, mission 5670069a: "Render failed · exit 0" over a Node MaxListenersExceededWarning on stderr with
+    the video written. Exit 0 and a video ffprobe read is a success, whatever the sandbox's status or stderr says."""
+    from sqlalchemy import select
+
+    from app.models.company_operations import LiveOperationsFeedItem
+
+    monkeypatch.setattr(settings, "OPENHANDS_URL", "http://openhands:8010")
+
+    async def dispatch(task_id, reason=""):
+        return {"dispatched": True}
+
+    monkeypatch.setattr("app.core.runtime.dispatcher.dispatch_mission", dispatch)
+    facts = {"exit_code": 0, "output": "/host/workspaces/x/renders/segment-01.mp4", "output_exists": True,
+             "output_asked": "/host/workspaces/x/final.mp4", "size_bytes": 912000, "width": 1080, "height": 1920,
+             "duration_seconds": 30.0, "streams": ["audio", "video"], "frozen": [], "frozen_at_end": False,
+             "note": "The video is at /host/workspaces/x/renders/segment-01.mp4, not at /host/workspaces/x/final.mp4 "
+                     "where start_render said.",
+             "log_tail": ["(node:42) MaxListenersExceededWarning: Possible EventEmitter memory leak detected.",
+                          "Render complete."]}
+    answer, _ = _sandbox([{"status": "failed", "exit_code": 0, "seconds": 640, "facts": facts}])
+
+    async def run():
+        task_id = await _rendering_mission()
+        async with httpx.AsyncClient(transport=httpx.MockTransport(answer)) as client:
+            await render_jobs.check_once(client)
+        async with AsyncTestingSessionLocal() as db:
+            titles = (await db.execute(select(LiveOperationsFeedItem.title, LiveOperationsFeedItem.message).where(
+                LiveOperationsFeedItem.related_task_id == task_id))).all()
+        return await _get(task_id), titles
+
+    task, titles = asyncio.run(run())
+    result = task.meta_data["render_result"]
+    assert result["status"] == "finished" and task.meta_data["render_job"]["status"] == "finished"
+    assert ("Render finished" in [t for t, _ in titles]) and "Render failed" not in [t for t, _ in titles]
+    message = next(m for t, m in titles if t == "Render finished")
+    assert "renders/segment-01.mp4" in message and "not at /host/workspaces/x/final.mp4" in message
+    brief = render_jobs.facts_brief(result)
+    assert "result: finished" in brief and "- note: The video is at" in brief and render_jobs.passes(result)
