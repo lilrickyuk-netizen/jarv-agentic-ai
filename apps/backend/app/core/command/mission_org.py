@@ -78,7 +78,7 @@ SPECIALIST_CHECK = (" Judge only this mission's requirements by opening the deli
                     "the count as evidence. Be brief: open the deliverable, check each requirement once, and report.")
 SPECIALIST_CHECK_STEPS, SPECIALIST_CHECK_COST = 20, 0.5
 # The round after a video's finished render: put it where the brief says and report (render_jobs.facts_brief).
-FINAL_VIDEO_STEPS = 10
+FINAL_VIDEO_STEPS = 14  # copy, one contact sheet, one look, the report
 FINAL_VIDEO_COST = 1.0
 # Where the brief asks the video to be saved ("Save it as runner-ep02-gold.mp4 ...").
 _SAVE_AS = re.compile(r"\bsave (?:it|the video|the final video|this)?\s*(?:as|to)\s+[`\"']?([\w./ -]*?[\w.-]+\."

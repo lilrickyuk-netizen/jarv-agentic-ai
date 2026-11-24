@@ -16039,3 +16039,15 @@ RESULT: HyperFrames compositions render with HyperFrames' own command, with no l
 RESEARCH: OpenMontage hyperframes_compose.py and video_compose.py at the pinned commit
 BLOCKERS: Remotion's VideoCompose route keeps OpenMontage's 30-minute limit (the staging needs that route); a Remotion render longer than 30 minutes would now be reported as a timeout
 NEXT TASK: Installer against 72792c7 on Richard's machine
+
+TASK ID: LAST-ROUND-LOOKS-ONCE
+TASK NAME: Richard, 24 November 22:36 (mission d0a0f858): after the render the maker stopped without looking at any frames (13 of 21 requirements "not checked"); HyperFrames had warned sub_timeline_readiness_timeout. The last round looks once at a contact sheet of the rendered frames, checks story, names, text and motion against the brief, then stops
+STATUS: COMPLETE (backend 1456 passed, 1 skipped)
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/creative/render_jobs.py (contact_sheet_command: 18 frames spread evenly, 6 to a row, one PNG in .jai/work; the last round's brief: copy if needed, one sheet opened once, story, names, on-screen text and motion checked against the brief, the render's warnings named so those moments are looked at, report, end; no further sheets, stills, sound checks, reviewers, renders or changes), apps/backend/app/core/command/mission_org.py (FINAL_VIDEO_STEPS 14), apps/backend/tests/test_renders_without_ai.py, BUILD_LEDGER.md
+COMMANDS RUN: the contact sheet command run on a 32-second 1080x1920 test video: one 1620x1440 PNG of 18 frames
+TESTS RUN: the last round's brief asks for one contact sheet, opened once, the four checks against the brief, names a HyperFrames warning from the log, and forbids more looks; the sheet command's frames, tiling and path; the whole backend suite
+RESULT: After a finished render the maker looks once at one contact sheet of the rendered frames, judges the requirements on it, reports and stops; the mission then ends completed.
+RESEARCH: None beyond the task
+BLOCKERS: None
+NEXT TASK: One installer against 72792c7 with the long-renders fixes and this one

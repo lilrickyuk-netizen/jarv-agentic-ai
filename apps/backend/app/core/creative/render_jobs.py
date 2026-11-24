@@ -420,11 +420,20 @@ def facts_brief(facts: Optional[Dict[str, Any]]) -> str:
     if passes(facts):
         # 24 November (mission 92b195d8): after a finished render the maker went on for rounds re-checking sound
         # levels, files and stills of a video already saved. Its render's facts are the check; the round is short.
-        lines.append("THIS IS THE MISSION'S LAST ROUND. JAI has checked the file (the facts above). Do only this: if "
-                     "the video is not yet where the brief says, copy it there; then report each requirement in one "
-                     "line (`R<n>: done — evidence` or `R<n>: open — reason`) and end your turn. Do not open stills, "
-                     "check the sound, ask another agent to review it, render again or change anything: Richard "
-                     "watches the video and judges it himself.")
+        # 24 November (mission d0a0f858): told not to look, the maker reported 13 of 21 requirements "not
+        # checked". One look at one contact sheet of the rendered frames, then stop.
+        sheet = contact_sheet_command(facts)
+        warned = [line for line in (facts.get("log_tail") or []) if re.search(r"warn|timeout|error", line, re.I)]
+        lines.append("THIS IS THE MISSION'S LAST ROUND. JAI has checked the file (the facts above). Do only this, "
+                     "once: (1) if the video is not yet where the brief says, copy it there; (2) make one contact "
+                     f"sheet of the rendered frames with `{sheet}` and open it once; (3) check the story, the names, "
+                     "the on-screen text and the motion on it against the brief"
+                     + (" (the render warned: " + "; ".join(w.strip()[:160] for w in warned[:3])
+                        + ": look at those moments on the sheet)" if warned else "")
+                     + "; (4) report each requirement in one line (`R<n>: done — what the sheet shows` or `R<n>: "
+                     "open — what is wrong`) and end your turn. One sheet, one look: no further sheets or stills, "
+                     "no sound checks, no other agent reviewing it, no render again and no changes. Richard watches "
+                     "the video and has the last word.")
     elif facts.get("timed_out"):
         lines.append(f"The render did not fail: {facts.get('timeout') or 'a time limit stopped it'}. Render it "
                      f"again with no limit but JAI's queue: for a HyperFrames composition give start_render "
@@ -440,6 +449,15 @@ def readable(facts: Optional[Dict[str, Any]]) -> bool:
     facts = facts or {}
     return bool(facts.get("output_exists") and "video" in (facts.get("streams") or [])
                 and float(facts.get("duration_seconds") or 0) > 0)
+
+
+def contact_sheet_command(facts: Dict[str, Any], frames: int = 18) -> str:
+    """The ffmpeg command for one contact sheet of a rendered video: frames spread evenly, 6 to a row."""
+    video = str(facts.get("output") or "final.mp4")
+    duration = max(float(facts.get("duration_seconds") or 0), 1.0)
+    rows = -(-frames // 6)
+    return (f"ffmpeg -v error -y -i {shlex.quote(video)} -vf \"fps={frames}/{duration:.2f},scale=270:-1,"
+            f"tile=6x{rows}\" -frames:v 1 .jai/work/final-contact-sheet.png")
 
 
 def passes(facts: Optional[Dict[str, Any]]) -> bool:

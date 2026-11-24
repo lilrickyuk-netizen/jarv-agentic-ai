@@ -567,7 +567,7 @@ def test_a_mission_given_finished_render_facts_ends_completed_in_one_short_round
     assert [r["package"] for r in runs] == [SKILL_PACKAGE_ID]                 # one round, the maker only
     assert VERIFIER_ID not in [r["package"] for r in runs]                     # no independent check
     assert runs[0]["max_steps"] == FINAL_VIDEO_STEPS
-    assert "THIS IS THE MISSION'S LAST ROUND" in runs[0]["brief"] and "Do not open stills" in runs[0]["brief"]
+    assert "THIS IS THE MISSION'S LAST ROUND" in runs[0]["brief"] and "One sheet, one look" in runs[0]["brief"]
     assert result["success"] is True and result["needs_continuation"] is False
     assert result["answer"].startswith("**The video is finished: runner-ep02-gold.mp4** (1080x1920, 30.0 s")
     assert "independent checker" not in (result.get("team") or {}).get("approach", "")
@@ -796,3 +796,20 @@ def test_a_failed_render_may_run_again_once_a_file_changed(tmp_path):
     (tmp_path / "out.mp4").write_bytes(b"0")                                   # its own videos do not count
     os.utime(tmp_path / "scene.js", (_t.time() - 100, _t.time() - 100))
     assert not render_jobs._changed_since(str(tmp_path), _t.time() - 10)
+
+
+def test_the_last_round_looks_once_at_a_contact_sheet_and_checks_the_story_against_the_brief():
+    """24 November, mission d0a0f858: told not to look after the render, the maker left 13 of 21 requirements "not
+    checked". The last round makes one contact sheet of the rendered frames, looks once, checks the story, names,
+    text and motion against the brief (and the moments the render warned about), reports and stops."""
+    facts = {**_finished_facts("/host/workspaces/x/runner-ep03-mountain.mp4", 10), "duration_seconds": 32.0,
+             "log_tail": ["[hyperframes] warning: sub_timeline_readiness_timeout for #scene-4 after 5000ms",
+                          "Render complete."]}
+    brief = render_jobs.facts_brief(facts)
+    assert "make one contact sheet" in brief and "open it once" in brief
+    assert "the story, the names, the on-screen text and the motion" in brief
+    assert "sub_timeline_readiness_timeout" in brief and "look at those moments on the sheet" in brief
+    assert "One sheet, one look" in brief and "no render again" in brief
+    command = render_jobs.contact_sheet_command(facts)
+    assert command.startswith("ffmpeg -v error -y -i /host/workspaces/x/runner-ep03-mountain.mp4")
+    assert "fps=18/32.00,scale=270:-1,tile=6x3" in command and command.endswith("final-contact-sheet.png")
