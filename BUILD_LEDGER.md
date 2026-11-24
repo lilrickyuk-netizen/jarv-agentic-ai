@@ -15871,3 +15871,15 @@ RESULT: The studio hands every final render to start_render. JAI checks it (rend
 RESEARCH: Richard's message of 02:19 and the handover's note; the existing checkpoint, continuation and progress code
 BLOCKERS: None. The 3D route in the handover's note (HyperFrames, Three.js, CMU BVH mocap through BVHLoader, atelier style) is not added to the video instructions: Richard to confirm
 NEXT TASK: One installer, against c694da0 on Richard's machine
+
+TASK ID: INSTALLER-AUDIT-BATCHES
+TASK NAME: One installer for audit batches 1-3, the three additions and renders without AI, against c694da0 on Richard's machine
+STATUS: COMPLETE (delivered as install-audit-batches.sh); IN_PROGRESS until it has run on Richard's machine
+FILES CREATED: install-audit-batches.sh (delivered to Richard, not committed: it carries the commits as one patch series)
+FILES MODIFIED: BUILD_LEDGER.md
+COMMANDS RUN: git format-patch 2ee98a8..746501c (9 commits); the series applied with git am --3way onto 2ee98a8 (the code of c694da0) gives tree 918204ad, the same as 746501c; the installer run end to end here with Docker and curl stood in (the commit check, the mission check, the patches, every step in order) and with the wrong commit (stops, nothing changed)
+TESTS RUN: the installer runs on Richard's machine: the backend suite in Docker on PostgreSQL 16 with pgvector (docs/RUNBOOK.md section 7) and the sandbox suite inside the new sandbox image, before anything is restarted
+RESULT: The installer refuses anything but c694da0 with no tracked changes, refuses while a mission is running or queued, applies the 9 commits (restored to c694da0 if they do not apply or do not match), builds the sandbox, the image generator and the backend's test image, runs both suites, and only when both pass restarts the backend, worker, scheduler, sandbox and image generator (recreated if it was running, otherwise left to start on demand). It never touches postgres, redis or docker-proxy, deletes no volume and removes no container; everything is logged to ~/jai-install-audit.log, with the undo command printed on any failure.
+RESEARCH: docker-compose.yml (bind-mounted backend code: no backend image rebuild needed; profiles engineer and images); apps/backend/Dockerfile test stage; docs/RUNBOOK.md section 7
+BLOCKERS: None
+NEXT TASK: Richard runs install-audit-batches.sh; then the same video brief on both engines ("... on the Claude engine" / "... on OpenHands")
