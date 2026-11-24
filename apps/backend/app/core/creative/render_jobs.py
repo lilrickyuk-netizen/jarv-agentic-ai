@@ -66,12 +66,47 @@ def is_check(command: str) -> bool:
     return any(r.search(command) for r in _CHECKS)
 
 
+# OpenMontage's own route for a HyperFrames composition (hyperframes_compose, render_existing) runs HyperFrames with
+# timeout=1800 (tools/video/hyperframes_compose.py at the pinned commit), and its timeout path then raises "can't
+# concat str to bytes" (24 November, mission bb2a4d3c: a 32-second 3D episode takes 28-30 minutes on Richard's
+# processor and was killed). A HyperFrames composition is rendered with HyperFrames' own command instead, the one
+# OpenMontage would run, from the composition's folder, with no limit beyond JAI's queue.
+HYPERFRAMES_DIRECT = ("npx hyperframes render --output <file> --fps 30 --quality <draft|standard|high> --strict, "
+                      "with the composition's folder (the one holding its index.html) as cwd")
+_OPENMONTAGE_HYPERFRAMES = re.compile(r"\b(?:hyperframes_compose|HyperframesCompose|render_existing)\b|"
+                                      r"render_runtime['\"]?\s*[:=]\s*['\"]hyperframes")
+
+
+def openmontage_hyperframes(command: str) -> bool:
+    """True when the command renders a HyperFrames composition through OpenMontage's Python (its 30-minute cap)."""
+    return bool(re.match(r"^(?:\S*/)?python3?\b", (command or "").strip())
+                and _OPENMONTAGE_HYPERFRAMES.search(command or ""))
+
+
 def is_render(command: str) -> bool:
     """True when the command is one render (no chain, pipe, redirection or substitution)."""
     command = (command or "").strip()
     if not command or re.search(r"&&|\|\||;|[|`<>]|\$\(", command):
         return False
     return any(r.search(command) for r in _RENDERERS)
+
+
+def _changed_since(root: str, since: float) -> bool:
+    """Whether any file in the workspace (not its videos, renders or tool folders) changed after since."""
+    import os
+
+    skip = {"node_modules", ".git", ".venv", "__pycache__", ".cache"}
+    for folder, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in skip and not d.startswith(".jai")]
+        for name in files:
+            if name.lower().endswith((".mp4", ".mov", ".webm", ".mkv", ".m4v", ".log")):
+                continue
+            try:
+                if os.path.getmtime(os.path.join(folder, name)) > since:
+                    return True
+            except OSError:
+                continue
+    return False
 
 
 def _sandbox() -> str:
@@ -109,9 +144,27 @@ async def start(*, task_id: Optional[UUID], container_root: str, host_root: str,
     """Hand a checked render to the sandbox and keep its job on the mission. {"success", "job_id", ...}."""
     if task_id is None:
         return {"success": False, "error": "start_render needs a mission to pause and resume."}
-    current = rendering(await _meta(task_id))
+    meta = await _meta(task_id) or {}
+    current = rendering(meta)
     if current is not None:
         return _already(current["job_id"], str(current.get("status")))
+    last, previous = meta.get("render_result") or {}, meta.get("render_job") or {}
+    if last and last.get("status") != "finished" and " ".join(str(last.get("command") or "").split()) == \
+            " ".join(command.split()) and str(previous.get("cwd") or cwd) == cwd:
+        # 24 November, mission bb2a4d3c queued the identical render again after it failed: a retry changes
+        # something (the command, or the files that caused it) or the mission stops and says why.
+        try:
+            ended = datetime.fromisoformat(str(previous.get("ended_at") or "")).timestamp()
+        except ValueError:
+            ended = None
+        if ended is None or not _changed_since(container_root, ended):
+            why = "timed out" if last.get("timed_out") else f"failed (exit {last.get('exit_code')})"
+            return {"success": False, "same_again": True, "job_id": last.get("job_id"),
+                    "error": (f"This is the render that just {why} (job {last.get('job_id')}), with the same "
+                              "command and no file changed since. Change something first (fix the cause in the "
+                              "files, or the command), or stop and say in your report why it cannot be rendered."
+                              + (f" For a HyperFrames composition run {HYPERFRAMES_DIRECT}." if last.get("timed_out")
+                                 else ""))}
     job_id = f"render-{str(task_id)[:8]}-{uuid4().hex[:8]}"
     owned = client is None
     client = client or httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=5.0))
@@ -302,7 +355,8 @@ async def check_once(client: Optional[httpx.AsyncClient] = None) -> Dict[str, An
                 meta["render_job"] = {**job, "status": facts["status"], "ended_at": view.get("ended_at")}
                 meta["render_result"] = facts
                 task.meta_data = meta
-                _feed(db, task, ("Check" if check else "Render") + (" finished" if ok else " failed"),
+                _feed(db, task, ("Check" if check else "Render") + (" finished" if ok else " timed out"
+                                                                    if facts.get("timed_out") else " failed"),
                       (f"exit 0 in {facts.get('seconds')} s" if check and ok else
                        f"{facts.get('output')}: {facts.get('width')}x{facts.get('height')}, "
                        f"{facts.get('duration_seconds')} s" + (f". {facts['note']}" if facts.get("note") else "")
@@ -345,7 +399,8 @@ def facts_brief(facts: Optional[Dict[str, Any]]) -> str:
         return "\n".join(lines)
     lines = [f"THE RENDER YOU STARTED HAS ENDED (job {facts.get('job_id')}; no AI was used while it ran, "
              f"{facts.get('seconds')} s):",
-             f"- result: {'finished' if ok else 'FAILED'}, exit code {facts.get('exit_code')}",
+             f"- result: {'finished' if ok else 'TIMED OUT' if facts.get('timed_out') else 'FAILED'}, exit code "
+             f"{facts.get('exit_code')}",
              f"- command: {facts.get('command')}",
              f"- output: {facts.get('output')} ({'exists' if facts.get('output_exists') else 'missing'}"
              + (f", {facts.get('size_bytes')} bytes" if facts.get("size_bytes") else "") + ")"]
@@ -370,9 +425,13 @@ def facts_brief(facts: Optional[Dict[str, Any]]) -> str:
                      "line (`R<n>: done — evidence` or `R<n>: open — reason`) and end your turn. Do not open stills, "
                      "check the sound, ask another agent to review it, render again or change anything: Richard "
                      "watches the video and judges it himself.")
+    elif facts.get("timed_out"):
+        lines.append(f"The render did not fail: {facts.get('timeout') or 'a time limit stopped it'}. Render it "
+                     f"again with no limit but JAI's queue: for a HyperFrames composition give start_render "
+                     f"{HYPERFRAMES_DIRECT}.")
     else:
         lines.append("The render failed: read the log lines above, fix the cause and start the render again with "
-                     "start_render.")
+                     "start_render. Never start the same render again without changing something.")
     return "\n".join(lines)
 
 

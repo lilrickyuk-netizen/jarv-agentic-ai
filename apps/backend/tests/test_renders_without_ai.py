@@ -681,3 +681,118 @@ def test_the_studio_is_told_to_send_long_checks_to_start_render_and_never_switch
     assert "never switch a check off, skip it, or edit a script to get round a time limit" in goal
     assert "HyperFrames' lint, validate, check or snapshot" in goal
     assert "never switch a check off" in TOOL_SPECS["start_render"].description
+
+
+# ----- HyperFrames rendered with its own command; timeouts reported as timeouts; a retry changes something
+# (24 November, mission bb2a4d3c) -------------------------------------------------------------------------------------
+
+def test_openmontage_hyperframes_route_is_refused_with_hyperframes_own_command():
+    from app.core.command.tool_runtime import ToolRuntime
+
+    for routed in (".venv/bin/python render_existing.py",
+                   ".venv/bin/python -c \"from tools.video.hyperframes_compose import HyperframesCompose\"",
+                   "python3 -c \"VideoCompose().execute({'edit_decisions': {'render_runtime': 'hyperframes'}})\""):
+        assert render_jobs.openmontage_hyperframes(routed), routed
+    assert not render_jobs.openmontage_hyperframes(".venv/bin/python -c 'from tools.video.video_compose import "
+                                                   "VideoCompose'")
+    assert render_jobs.is_render("npx hyperframes render --output /w/ep03.mp4 --fps 30 --quality high --strict")
+    runtime = ToolRuntime.__new__(ToolRuntime)
+    runtime.task_id = None
+
+    async def record(*a, **k):
+        record.calls.append(a)
+
+    record.calls = []
+    runtime._record = record
+    out = asyncio.run(ToolRuntime.start_render(runtime, ".venv/bin/python render_existing.py", "/opt/openmontage",
+                                               "ep03.mp4", root_host="C:\\P\\Plexecute"))
+    assert not out["success"] and "stops HyperFrames after 30 minutes" in out["error"]
+    assert "npx hyperframes render --output <file> --fps 30" in out["error"]
+
+
+@pytest.mark.skipif(_SQLITE, reason="the watcher writes from its own session")
+def test_a_timed_out_render_is_reported_as_timed_out(monkeypatch, no_models):
+    from sqlalchemy import select
+
+    from app.models.company_operations import LiveOperationsFeedItem
+
+    monkeypatch.setattr(settings, "OPENHANDS_URL", "http://openhands:8010")
+
+    async def dispatch(task_id, reason=""):
+        return {"dispatched": True}
+
+    monkeypatch.setattr("app.core.runtime.dispatcher.dispatch_mission", dispatch)
+    facts = {"exit_code": 0, "output": "/host/workspaces/x/ep03.mp4", "output_exists": False, "timed_out": True,
+             "timeout": "a time limit inside the command stopped it after 1800 s (log: [timeout after 1800s])",
+             "log_tail": ["[timeout after 1800s]", "TypeError: can't concat str to bytes"]}
+    answer, _ = _sandbox([{"status": "failed", "exit_code": 0, "seconds": 1803, "facts": facts}])
+
+    async def run():
+        task_id = await _rendering_mission()
+        async with httpx.AsyncClient(transport=httpx.MockTransport(answer)) as client:
+            await render_jobs.check_once(client)
+        async with AsyncTestingSessionLocal() as db:
+            titles = (await db.execute(select(LiveOperationsFeedItem.title).where(
+                LiveOperationsFeedItem.related_task_id == task_id))).scalars().all()
+        return await _get(task_id), titles
+
+    task, titles = asyncio.run(run())
+    assert "Render timed out" in titles and "Render failed" not in titles
+    brief = render_jobs.facts_brief(task.meta_data["render_result"])
+    assert "TIMED OUT" in brief and "stopped it after 1800 s" in brief and "npx hyperframes render" in brief
+
+
+@pytest.mark.skipif(_SQLITE, reason="the render's record is read in its own session")
+def test_a_failed_render_is_not_started_again_unchanged(monkeypatch, no_models, tmp_path):
+    from sqlalchemy import select
+
+    from app.models.task import Task
+
+    monkeypatch.setattr(settings, "OPENHANDS_URL", "http://openhands:8010")
+    answer, seen = _sandbox([{}])
+    (tmp_path / "hyperframes").mkdir()
+    (tmp_path / "hyperframes" / "index.html").write_text("<html></html>")
+    command = "npx hyperframes render --output /w/ep03.mp4 --fps 30 --quality high --strict"
+    ended = datetime.now(timezone.utc)
+
+    async def run():
+        task_id = await _rendering_mission()
+        async with AsyncTestingSessionLocal() as db:
+            task = (await db.execute(select(Task).where(Task.id == task_id))).scalar_one()
+            task.meta_data = {**task.meta_data,
+                              "render_job": {"job_id": "render-x-1", "status": "failed", "cwd": str(tmp_path),
+                                             "command": command, "ended_at": ended.isoformat()},
+                              "render_result": {"job_id": "render-x-1", "status": "failed", "exit_code": 1,
+                                                "command": command}}
+            await db.commit()
+        outs = []
+        async with httpx.AsyncClient(transport=httpx.MockTransport(answer)) as client:
+            async def go(cmd):
+                return await render_jobs.start(task_id=task_id, container_root=str(tmp_path), host_root="",
+                                               command=cmd, cwd=str(tmp_path), output="/w/ep03.mp4", client=client)
+            outs.append(await go(command))                                    # identical, nothing changed
+            outs.append(await go(command.replace("high", "standard")))        # the command changed
+        return outs
+
+    import os
+
+    os.utime(tmp_path / "hyperframes" / "index.html", (ended.timestamp() - 60, ended.timestamp() - 60))
+    same, changed = asyncio.run(run())
+    assert not same["success"] and same["same_again"] and "Change something first" in same["error"]
+    assert "say in your report why" in same["error"]
+    assert changed["success"]
+    assert len([s for s in seen if s[0] == "POST"]) == 1
+
+
+def test_a_failed_render_may_run_again_once_a_file_changed(tmp_path):
+    import os
+    import time as _t
+
+    (tmp_path / "scene.js").write_text("x")
+    os.utime(tmp_path / "scene.js", (_t.time() - 100, _t.time() - 100))
+    assert not render_jobs._changed_since(str(tmp_path), _t.time() - 10)
+    (tmp_path / "scene.js").write_text("fixed")
+    assert render_jobs._changed_since(str(tmp_path), _t.time() - 10)
+    (tmp_path / "out.mp4").write_bytes(b"0")                                   # its own videos do not count
+    os.utime(tmp_path / "scene.js", (_t.time() - 100, _t.time() - 100))
+    assert not render_jobs._changed_since(str(tmp_path), _t.time() - 10)

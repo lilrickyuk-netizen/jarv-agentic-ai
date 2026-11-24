@@ -51,6 +51,11 @@ STOP_SECONDS = 10  # how long a cancelled render has to stop before it is killed
 FREEZE = re.compile(r"freeze_(start|duration|end): ([\d.]+)")
 VIDEO_EXT = (".mp4", ".mov", ".webm", ".mkv", ".m4v")
 SKIP_DIRS = {"node_modules", ".git", ".venv", "__pycache__", ".cache"}
+# A time limit inside the command stopped it (24 November, mission bb2a4d3c: OpenMontage's hyperframes_compose stops
+# HyperFrames at timeout=1800, writes "[timeout after 1800s]", then its timeout path raises "can't concat str to
+# bytes", and the wrapper exited 0): reported as a timeout, not a failure.
+_TIMED_OUT = re.compile(r"\[timeout after (\d+)s\]|TimeoutExpired|timed out after (\d+)|can't concat str to bytes",
+                        re.I)
 _OUTPUT_FLAG = re.compile(r"(?:--output|--out|-o)(?:=|\s+)(?P<q>['\"]?)(?P<path>[^'\"\s]+)(?P=q)")
 
 
@@ -319,10 +324,17 @@ def facts(job: Job) -> Dict[str, Any]:
                 out["output_asked"] = str(asked)
                 out["note"] = f"The video is at {path}, not at {asked} where start_render said."
             break
-    if not out["output_exists"] and job.exit_code == 0:
-        out["note"] = (f"The render exited 0 but no video ffprobe can read was found at {asked}, where its command "
-                       "writes, or written in the workspace since it began.")
     out["log_tail"] = _tail(job.log)
+    if not out["output_exists"]:
+        timed = next((m for m in _TIMED_OUT.finditer("\n".join(_tail(job.log, 400)))), None)
+        if timed is not None:
+            limit = next((g for g in timed.groups() if g), None)
+            out["timed_out"] = True
+            out["timeout"] = (f"a time limit inside the command stopped it after {limit} s" if limit else
+                              "a time limit inside the command stopped it") + f" (log: {timed.group(0)})"
+        elif job.exit_code == 0:
+            out["note"] = (f"The render exited 0 but no video ffprobe can read was found at {asked}, where its "
+                           "command writes, or written in the workspace since it began.")
     return out
 
 

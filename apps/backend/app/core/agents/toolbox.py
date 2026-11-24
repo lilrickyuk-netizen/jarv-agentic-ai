@@ -336,8 +336,9 @@ WORKSPACE_TOOLS: Dict[str, ToolSpec] = {
                              _schema({"action": {"type": "string", "enum": ["status", "restart", "pitr_rehearsal"]},
                                       "service": {"type": "string"}}, ["action"]), "workspace"),
     "start_render": ToolSpec("start_render", "Render a finished video, or run a long check, with no AI cost and "
-                             "no time limit: give the command (OpenMontage's VideoCompose or render_existing run "
-                             "with its Python, npx remotion render, npx hyperframes render, ffmpeg, or HyperFrames' "
+                             "no time limit: give the command (OpenMontage's VideoCompose run with its Python, npx "
+                             "remotion render, npx hyperframes render from the composition's folder, ffmpeg, or "
+                             "HyperFrames' "
                              "lint, validate, check or snapshot: one command, no cd, && or ;), the folder it runs "
                              "from (cwd: this workspace, or /opt/openmontage for OpenMontage's Python) and, for a "
                              "render, the output file. Anything that would pass your terminal's time limit goes "

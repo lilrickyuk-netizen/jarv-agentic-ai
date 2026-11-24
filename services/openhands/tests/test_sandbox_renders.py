@@ -223,3 +223,18 @@ def test_a_long_check_runs_in_the_queue_and_its_exit_code_is_its_verdict(monkeyp
 def test_the_sandbox_rules_say_never_switch_a_check_off_for_a_time_limit():
     assert "Never switch a check off, skip it, cut it short or edit a script to get round a time limit" in \
         server.ENGINEERING_RULES and "start_render" in server.ENGINEERING_RULES
+
+
+def test_a_render_a_time_limit_stopped_is_reported_as_a_timeout_not_a_failure(monkeypatch):
+    """24 November, mission bb2a4d3c: OpenMontage stopped HyperFrames at timeout=1800, its timeout path raised "can't
+    concat str to bytes", the wrapper exited 0, and the card said "Render failed · exit 0"."""
+    monkeypatch.setitem(server.SECRETS, "OPENHANDS_TOKEN", "sandbox-token-for-tests")
+    client = TestClient(server.app)
+    folder = _workspace()
+    client.post("/renders", headers=AUTH, json={
+        "job_id": "render-tout-0001", "workspace": str(folder), "cwd": str(folder), "output": "ep03.mp4",
+        "command": "echo 'hyperframes render [timeout after 1800s]'; echo \"TypeError: can't concat str to bytes\""})
+    view = _wait(client, "render-tout-0001")
+    assert view["status"] == "failed" and view["exit_code"] == 0
+    assert view["facts"]["timed_out"] is True and "1800 s" in view["facts"]["timeout"]
+    assert "note" not in view["facts"]

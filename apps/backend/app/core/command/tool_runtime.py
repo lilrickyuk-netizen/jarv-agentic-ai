@@ -1245,12 +1245,18 @@ class ToolRuntime:
         command, output = " ".join((command or "").split()), (output or "").strip()
         inputs = {"command": command[:2000], "cwd": cwd, "output": output}
         check = render_jobs.is_check(command)
+        if render_jobs.openmontage_hyperframes(command):
+            await self._record("start_render", inputs, False, "refused: OpenMontage's HyperFrames route stops at 30 min")
+            return {"success": False, "error": ("OpenMontage's HyperFrames route stops HyperFrames after 30 minutes "
+                                                 "(its timeout=1800), and a long 3D episode takes longer. Give "
+                                                 f"start_render HyperFrames' own command: "
+                                                 f"{render_jobs.HYPERFRAMES_DIRECT}.")}
         if not command or not (output or check):
             return {"success": False, "error": "start_render needs the render command and the output file."}
         if not (check or render_jobs.is_render(command)):
             await self._record("start_render", inputs, False, "refused: not a render command")
             return {"success": False, "error": ("start_render runs one render or long check only: OpenMontage's "
-                                                 "VideoCompose or render_existing, npx remotion render, npx "
+                                                 "VideoCompose, npx remotion render, npx "
                                                  "hyperframes render, ffmpeg, or HyperFrames' lint, validate, check "
                                                  "or snapshot. No cd, &&, ; or pipes: give the folder it runs from "
                                                  "as cwd. Run anything else in your terminal.")}
@@ -1274,7 +1280,8 @@ class ToolRuntime:
         await self._record("start_render", inputs, bool(out.get("success")),
                            f"render {out.get('job_id')} {out.get('status')}" if out.get("success")
                            else f"refused: render {out.get('job_id')} is already {out.get('status')}"
-                           if out.get("already") else str(out.get("error"))[:200])
+                           if out.get("already") else "refused: the same render again, nothing changed"
+                           if out.get("same_again") else str(out.get("error"))[:200])
         return out
 
     async def social_draft(self, text: str, channels: Optional[List[str]] = None,
