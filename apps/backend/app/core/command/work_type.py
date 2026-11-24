@@ -41,7 +41,7 @@ _KINDS: List[Tuple[str, Pattern[str], Tuple[str, ...]]] = [
     ("sales", re.compile(
         r"\b(prospects?|prospecting|investors?|buyers?|acquirers?|lead lists?|leads database|outreach|cold emails?|"
         r"sales pipeline|crm|vc funds?|venture capital|angel networks?|fundraising|fund raising|sales sequence)\b",
-        re.I), ("prospecting", "lead-intelligence", "investor-outreach", "cold-email")),
+        re.I), ("prospecting", "investor-outreach", "cold-email")),
     ("partnerships", re.compile(
         r"\b(partnerships?|partner programme|partner program|affiliates?|resellers?|integration partners?|"
         r"business development|bd plan)\b", re.I), ("investor-outreach", "copywriting")),

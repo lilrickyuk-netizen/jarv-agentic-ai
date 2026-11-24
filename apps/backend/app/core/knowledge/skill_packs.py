@@ -264,7 +264,6 @@ SKILLS: List[Dict] = [
     _s("ecc", "brand-voice", (MARKETING, CONTENT, CREATION)),
     _s("ecc", "crosspost", (CONTENT, COMMUNITY, MARKETING)),
     _s("ecc", "social-publisher", (CONTENT, MARKETING)),
-    _s("ecc", "lead-intelligence", (SALES, RESEARCH), (SALES,)),
     _s("ecc", "email-ops", (SALES, SUPPORT, MARKETING)),
     _s("ecc", "investor-materials", (BUSINESS, FINANCE, PARTNER), (BUSINESS, CONTENT, FINANCE)),
     _s("ecc", "investor-outreach", (BUSINESS, PARTNER, SALES), (BUSINESS, PARTNER, SALES)),

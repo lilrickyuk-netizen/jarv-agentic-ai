@@ -9,7 +9,8 @@ boundaries hold exactly as they do for JAI's own tools.
 
 API (all but /health need the bearer token JAI shares with this service):
   GET  /health                 alive, and how many runs are working
-  POST /runs                   start a run: {run_id, workspace, brief, standard, model, max_iterations, ...}
+  POST /runs                   start a run: {run_id, workspace, brief, standard, model, max_iterations, engine, ...}
+                               (engine "claude": a Claude Agent SDK session, app/claude_run.py)
   GET  /runs/{run_id}?since=n  its status, steps, tokens, cost, actions from the n-th on, and its final message
   POST /runs/{run_id}/stop     stop it where it is
 """
@@ -64,6 +65,15 @@ class RunRequest(BaseModel):
     cache_write_cost_per_token: Optional[float] = Field(default=None, ge=0)
     # The model sees the images it opens (stills, contact sheets, screenshots): creative work is judged by eye.
     vision: bool = True
+    # 24 November (audit batch 3): "claude" runs the package as a Claude Agent SDK session here (app/claude_run.py),
+    # for JAI's non-development work; "openhands" is OpenHands' agent, for software builds.
+    engine: str = Field(default="openhands", pattern="^(openhands|claude)$")
+    # A Claude session's own token for JAI's gateway (issued by the backend for this run only), its light model for
+    # Claude Code's background work, and its call timeout and retries.
+    model_token: Optional[SecretStr] = None
+    light_model: str = ""
+    api_timeout_ms: int = Field(default=180000, ge=30000, le=600000)
+    max_retries: int = Field(default=3, ge=0, le=10)
 
 
 class Run:
@@ -82,6 +92,7 @@ class Run:
         self.notes = ""
         self.tools_used: Dict[str, int] = {}   # every tool the agent called, with how often
         self.skills_used: List[str] = []       # the skills it loaded in full
+        self.interrupt: Any = None             # a Claude session's stop, while it runs
 
     def on_event(self, event: Any) -> None:
         from openhands.sdk.event import ActionEvent, AgentErrorEvent, MessageEvent
@@ -184,6 +195,11 @@ ENGINEERING_RULES = (
     "Speech to text: faster-whisper is installed in OpenMontage's environment (/opt/openmontage/.venv/bin/python, "
     "WhisperModel with word_timestamps=True); there is no whisper or whisper-cli command, so where a skill names "
     "one, use faster-whisper for the same words and timings. "
+    "Skills that name a service JAI does not have (24 November audit): where a skill calls for an Exa, Ahrefs, "
+    "Apollo, Browserbase, Stripe, Typefully or GitHub MCP server, or an ElevenLabs, Gemini or X key, use JAI's own "
+    "tool for the same job instead (web_search, research_web and fetch_url for searches and pages, playwright-cli or "
+    "use_browser for a browser, make_voiceover for narration), skip only a step that needs a paid account and say "
+    "so in your report, and never ask for a key. "
     "Working files you will open or look at (stills, frames, contact sheets, screenshots, drafts) go in the "
     "workspace's .jai/work/ folder, never in /tmp: the file editor opens only files inside the workspace. "
     "Checks: run builds, tests, linters and acceptance commands through `jai-check -- <command>`. It prints only "
@@ -264,10 +280,33 @@ def build_conversation(run: Run, with_jai_tools: bool = True):
         max_budget_per_run=request.max_cost_usd)
 
 
+def _execute_claude(run: Run) -> None:
+    """A non-development package as a Claude Agent SDK session (app/claude_run.py), in this run's own thread."""
+    import asyncio
+
+    from app import claude_run
+
+    request = run.request
+    try:
+        asyncio.run(claude_run.execute(run, run.gate, ENGINEERING_RULES, BACKEND_URL, SECRETS["OPENHANDS_TOKEN"],
+                                       skill_packs.SKILLS_DIR, skill_packs.blocked(skill_packs.SKILLS_DIR.resolve())
+                                       if skill_packs.SKILLS_DIR.exists() else set()))
+    except Exception as exc:  # noqa: BLE001 - reported to JAI, which carries on with the rest of the mission
+        logger.exception("run %s failed", request.run_id)
+        run.status, run.error = "error", f"{type(exc).__name__}: {exc}"[:1000]
+    finally:
+        run.ended_at = time.time()
+        run.gate.close()
+        gates.GATES.pop(request.run_id, None)
+        claude_run.forget(request.run_id)
+
+
 def _execute(run: Run) -> None:
     from openhands.sdk.conversation.state import ConversationExecutionStatus
 
     request = run.request
+    if request.engine == "claude":
+        return _execute_claude(run)
     try:
         conversation = build_conversation(run, request.jai_tools)
         try:
@@ -330,7 +369,10 @@ def health() -> Dict[str, Any]:
 @app.post("/runs")
 def start(request: RunRequest, authorization: Optional[str] = Header(default=None)) -> Dict[str, Any]:
     _authorised(authorization)
-    if not SECRETS["JAI_GATEWAY_TOKEN"]:
+    if request.engine == "claude":
+        if request.model_token is None or not request.model_token.get_secret_value():
+            raise HTTPException(status_code=400, detail="A Claude session needs its run's gateway token.")
+    elif not SECRETS["JAI_GATEWAY_TOKEN"]:
         raise HTTPException(status_code=503, detail="The sandbox has no gateway token (JAI_GATEWAY_TOKEN in .env).")
     request.workspace = str(_inside(request.workspace))
     with _LOCK:
@@ -366,5 +408,7 @@ def stop(run_id: str, authorization: Optional[str] = Header(default=None)) -> Di
         run.status = "stopped"
         if run.conversation is not None:
             run.conversation.pause()
+        if run.interrupt is not None:
+            run.interrupt()
     return {"run_id": run_id, "status": run.status}
 

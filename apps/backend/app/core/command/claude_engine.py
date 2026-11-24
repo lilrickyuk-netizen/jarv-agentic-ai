@@ -444,6 +444,13 @@ class ClaudeRoleExecutor(RoleExecutor):
                 "part to its own worker in the same turn, with everything it needs written in its prompt, and check "
                 "what each saved before you finish. Do a single connected piece of work yourself: splitting it costs "
                 "more and gains nothing."))
+        parts.append(
+            "Skills that name a service JAI does not have: where a skill calls for an Exa, Ahrefs, Apollo, "
+            "Browserbase, Stripe, Typefully or GitHub MCP server, or an ElevenLabs, Gemini or X key, use JAI's own "
+            f"tool for the same job instead ({PREFIX}research_web or WebSearch for searches, WebFetch for pages, "
+            f"{PREFIX}use_browser for a browser, {PREFIX}make_voiceover for narration, the contact tools for "
+            "people and emails); where a skill says to fetch a page with curl, use WebFetch (this session has no "
+            "shell); skip only a step that needs a paid account, say so in the work, and never ask for a key.")
         if rules:
             parts.append("Richard's standing rules for this product (every one applies):\n"
                          + "\n".join(f"- {r}" for r in rules))

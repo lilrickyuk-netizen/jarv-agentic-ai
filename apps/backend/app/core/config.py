@@ -393,6 +393,18 @@ class Settings(BaseSettings):
     # judging its stills) runs only when this is on; the maker still runs its own technical checks.
     VIDEO_INDEPENDENT_CHECK: bool = False
     OPENHANDS_FALLBACK_MODEL: str = "gpt-6-sol"
+    # 24 November (audit batch 3): non-development work in the sandbox (a named skill's run, a builder acting as a
+    # business or content specialist, and their checks) runs as a Claude Agent SDK session there, with the shell on
+    # and every tool call gated by JAI's sandbox rules; software builds stay on OpenHands. Video work moves only after
+    # Richard has run the same video brief on both engines ("... on the Claude engine" / "... on OpenHands" in a brief
+    # chooses one for that mission). "openhands" for either puts that work back on OpenHands.
+    SANDBOX_NON_DEV_ENGINE: str = "claude"
+    SANDBOX_VIDEO_ENGINE: str = "openhands"
+    # How long one model call of a Claude session in the sandbox may take before Claude Code retries it (its own
+    # API_TIMEOUT_MS, default 10 minutes; a hung call stalled a mission for 8 minutes on 23 November), and how many
+    # times it retries (CLAUDE_CODE_MAX_RETRIES, default 10).
+    SANDBOX_CLAUDE_API_TIMEOUT_MS: int = Field(default=180000, ge=30000, le=600000)
+    SANDBOX_CLAUDE_MAX_RETRIES: int = Field(default=3, ge=0, le=10)
     OPENHANDS_MAX_COST_PER_PACKAGE_USD: float = Field(default=6.0, gt=0, le=100)
     # The one builder (tier 2) works through a whole ledger in one session, so it gets more steps than a specialist;
     # the mission's own allowance (MISSION_MAX_COST_USD) still caps what it spends.

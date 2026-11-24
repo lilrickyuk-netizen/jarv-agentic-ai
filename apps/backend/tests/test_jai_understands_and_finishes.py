@@ -298,7 +298,7 @@ def test_the_partnerships_lead_has_the_skills_for_finding_contacts_and_gets_its_
     own = {e["skill"] for e in expertise.own_skills("partnerships")}
     offered = [e["skill"] for e in expertise.trade_skills("partnerships")]
     assert "prospecting" not in own                       # tagged for Sales
-    assert {"prospecting", "lead-intelligence", "co-marketing", "deep-research"} <= set(offered)
+    assert {"prospecting", "co-marketing", "deep-research"} <= set(offered)
     assert offered.index("co-marketing") < offered.index("prospecting")   # its own trade first
     assert "systematic-debugging" not in offered           # not the engineers' skills
     assert len(offered) == len(set(offered))
@@ -332,7 +332,7 @@ def test_read_skill_opens_a_skill_and_its_reference_files_and_nothing_else(packs
     assert not expertise.open_skill("partnerships", "prospecting", "evals/evals.json")["success"]
     assert "No skill named" in expertise.open_skill("partnerships", "no-such-skill")["error"]
     assert not expertise.open_skill("partnerships", "systematic-debugging")["success"]   # not a business skill
-    assert "not installed" in expertise.open_skill("partnerships", "lead-intelligence")["error"]
+    assert "not installed" in expertise.open_skill("partnerships", "deep-research")["error"]
     absent = expertise.missing_skills()
     assert "marketingskills/prospecting" not in absent and any(name.endswith("/copywriting") for name in absent)
 

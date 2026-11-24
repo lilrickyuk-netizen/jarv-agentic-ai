@@ -11,9 +11,12 @@ provider), so a library written for older models works with it.
 """
 from __future__ import annotations
 
+import hashlib
 import hmac
+import json
 import logging
-from typing import Any, Dict, Optional, Tuple
+import secrets
+from typing import Any, AsyncIterator, Dict, Optional, Tuple
 
 import httpx
 
@@ -59,6 +62,87 @@ def authorised(header: Optional[str]) -> bool:
         return False
     given = header[7:].strip() if header.lower().startswith("bearer ") else header.strip()
     return hmac.compare_digest(given.encode(), expected.encode())
+
+
+# 24 November (audit batch 3): a Claude Agent SDK session in the sandbox thinks through this gateway with a token of
+# its own run, never JAI's gateway token. The token lives while the run is registered (sandbox_engine issues it and
+# revokes it when the run ends), serves only Anthropic's Messages API, and is refused once its run has spent the
+# run's own allowance, on top of today's limit. So a token read by the agent's shell can do no more than the
+# session itself was allowed to.
+RUN_TOKEN_KEY = "gateway:run-token:{}"
+RUN_SPEND_KEY = "gateway:run-spend:{}"
+
+
+def _digest(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+async def issue_run_token(run_id: str, ttl_seconds: int, max_cost_usd: Optional[float] = None) -> str:
+    """A new token for one sandbox run's model calls, held to max_cost_usd (None: today's limit only)."""
+    from app.core.redis import get_redis
+
+    value = "jai-run-" + secrets.token_urlsafe(32)
+    record = {"run": run_id, "max_cost_usd": float(max_cost_usd) if max_cost_usd else None}
+    await (await get_redis()).set(RUN_TOKEN_KEY.format(_digest(value)), json.dumps(record), ex=int(ttl_seconds))
+    return value
+
+
+async def revoke_run_token(value: Optional[str]) -> None:
+    if not value:
+        return
+    from app.core.redis import get_redis
+
+    redis = await get_redis()
+    await redis.delete(RUN_TOKEN_KEY.format(_digest(value)), RUN_SPEND_KEY.format(_digest(value)))
+
+
+def _bare(header: Optional[str]) -> str:
+    return (header or "")[7:].strip() if (header or "").lower().startswith("bearer ") else (header or "").strip()
+
+
+async def run_of_token(header: Optional[str]) -> Optional[Dict[str, Any]]:
+    """The sandbox run a token belongs to ({"run", "max_cost_usd", "key"}), while that run is registered."""
+    given = _bare(header)
+    if not given.startswith("jai-run-"):
+        return None
+    try:
+        from app.core.redis import get_redis
+
+        found = await (await get_redis()).get(RUN_TOKEN_KEY.format(_digest(given)))
+        record = json.loads(found) if found else None
+    except Exception:  # noqa: BLE001 - no answer is a refusal
+        return None
+    if not isinstance(record, dict) or not record.get("run"):
+        return None
+    return {**record, "key": _digest(given)}
+
+
+async def run_spent(run: Optional[Dict[str, Any]]) -> float:
+    if not run:
+        return 0.0
+    from app.core.redis import get_redis
+
+    value = await (await get_redis()).get(RUN_SPEND_KEY.format(run["key"]))
+    return float(value or 0)
+
+
+async def check_run(run: Optional[Dict[str, Any]]) -> None:
+    """GatewayRefused when a run token's run has spent its own allowance."""
+    limit = (run or {}).get("max_cost_usd")
+    if limit and await run_spent(run) >= float(limit):
+        raise GatewayRefused(429, f"This run has used its spending allowance (${float(limit):.2f}).",
+                             "spend_limit_reached")
+
+
+async def add_run_spend(run: Optional[Dict[str, Any]], spent: float) -> None:
+    if not run or spent <= 0:
+        return
+    from app.core.redis import get_redis
+
+    redis = await get_redis()
+    key = RUN_SPEND_KEY.format(run["key"])
+    await redis.incrbyfloat(key, float(spent))
+    await redis.expire(key, 8 * 3600)
 
 
 def _reasoning(model: str) -> bool:
@@ -160,8 +244,8 @@ ANTHROPIC_VERSION = "2023-06-01"
 
 
 async def forward_anthropic(body: Dict[str, Any], version: Optional[str] = None, beta: Optional[str] = None,
-                            caller: str = "service",
-                            client: Optional[httpx.AsyncClient] = None) -> Tuple[int, Dict[str, Any]]:
+                            caller: str = "service", client: Optional[httpx.AsyncClient] = None,
+                            run: Optional[Dict[str, Any]] = None) -> Tuple[int, Dict[str, Any]]:
     """Anthropic's Messages API for JAI's sandbox: the same limit, allow-list and pricing as the OpenAI side. A
     "no credit" answer is shared with the rest of JAI, so its work moves to GPT-6 Sol until the account is topped
     up."""
@@ -172,7 +256,7 @@ async def forward_anthropic(body: Dict[str, Any], version: Optional[str] = None,
     if model not in allowed_models():
         raise GatewayRefused(400, f"{model or 'That model'} is not one JAI's gateway allows.", "model_not_allowed")
     if body.get("stream"):
-        raise GatewayRefused(400, "JAI's gateway does not stream.", "stream_not_supported")
+        raise GatewayRefused(400, "Ask for a stream through forward_anthropic_stream.", "stream_not_supported")
     key = getattr(settings, "CLAUDE_API_KEY", None) or getattr(settings, "ANTHROPIC_API_KEY", None)
     if not key:
         raise GatewayRefused(503, "JAI has no Anthropic key (ANTHROPIC_API_KEY in apps/backend/.env).",
@@ -181,6 +265,7 @@ async def forward_anthropic(body: Dict[str, Any], version: Optional[str] = None,
         await spend.check()
     except spend.SpendLimitReached as exc:
         raise GatewayRefused(429, str(exc), "spend_limit_reached") from exc
+    await check_run(run)
     headers = {"x-api-key": key, "anthropic-version": version or ANTHROPIC_VERSION,
                "content-type": "application/json"}
     if beta:
@@ -202,6 +287,7 @@ async def forward_anthropic(body: Dict[str, Any], version: Optional[str] = None,
     if response.status_code < 400:
         spent = spend.text_cost(model, answer.get("usage")) or 0.0
         await spend.record("text", spent)
+        await add_run_spend(run, spent)
         logger.info("gateway: anthropic %s for %s, $%.5f", model, caller, spent)
     else:
         message = str((answer.get("error") or {}).get("message") or "").lower()
@@ -209,3 +295,121 @@ async def forward_anthropic(body: Dict[str, Any], version: Optional[str] = None,
             await mark_no_credit("claude")
         logger.warning("gateway: anthropic %s for %s answered %s", model, caller, response.status_code)
     return response.status_code, answer
+
+
+def _anthropic_ready(body: Dict[str, Any], version: Optional[str], beta: Optional[str]) -> Dict[str, str]:
+    """The upstream headers for an allowed Anthropic request, or GatewayRefused."""
+    model = str(body.get("model") or "")
+    if model not in allowed_models():
+        raise GatewayRefused(400, f"{model or 'That model'} is not one JAI's gateway allows.", "model_not_allowed")
+    key = getattr(settings, "CLAUDE_API_KEY", None) or getattr(settings, "ANTHROPIC_API_KEY", None)
+    if not key:
+        raise GatewayRefused(503, "JAI has no Anthropic key (ANTHROPIC_API_KEY in apps/backend/.env).",
+                             "not_configured")
+    headers = {"x-api-key": key, "anthropic-version": version or ANTHROPIC_VERSION,
+               "content-type": "application/json"}
+    if beta:
+        headers["anthropic-beta"] = beta
+    return headers
+
+
+def stream_usage(events: str, usage: Dict[str, Any]) -> Dict[str, Any]:
+    """Anthropic's usage from a stream's server-sent events: message_start carries the input side, each
+    message_delta the output so far (docs.claude.com: streaming messages). Updates and returns usage."""
+    for line in events.splitlines():
+        if not line.startswith("data:"):
+            continue
+        try:
+            event = json.loads(line[5:].strip())
+        except ValueError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        if event.get("type") == "message_start":
+            usage.update({k: v for k, v in ((event.get("message") or {}).get("usage") or {}).items()
+                          if isinstance(v, (int, float))})
+        elif event.get("type") == "message_delta":
+            usage.update({k: v for k, v in (event.get("usage") or {}).items() if isinstance(v, (int, float))})
+    return usage
+
+
+async def forward_anthropic_stream(body: Dict[str, Any], version: Optional[str] = None, beta: Optional[str] = None,
+                                   caller: str = "sandbox", client: Optional[httpx.AsyncClient] = None,
+                                   run: Optional[Dict[str, Any]] = None
+                                   ) -> Tuple[int, Dict[str, str], AsyncIterator[bytes]]:
+    """Anthropic's Messages API as a stream, passed on as it arrives (Claude Code always streams): the same limit,
+    allow-list and pricing as forward_anthropic, the cost recorded from the stream's own usage when it ends.
+    Returns (status, headers, chunks); an upstream error arrives as its own body."""
+    from app.core import spend
+    from app.core.providers.router import mark_no_credit
+
+    headers = _anthropic_ready(body, version, beta)
+    try:
+        await spend.check()
+    except spend.SpendLimitReached as exc:
+        raise GatewayRefused(429, str(exc), "spend_limit_reached") from exc
+    await check_run(run)
+    model = str(body.get("model") or "")
+    owned = client is None
+    client = client or httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=10.0))
+    try:
+        request = client.build_request("POST", f"{ANTHROPIC_UPSTREAM}/messages", json=body, headers=headers)
+        response = await client.send(request, stream=True)
+    except httpx.HTTPError as exc:
+        if owned:
+            await client.aclose()
+        raise GatewayRefused(502, f"Anthropic could not be reached ({type(exc).__name__}).",
+                             "upstream_unreachable") from exc
+    status = response.status_code
+    kind = response.headers.get("content-type", "text/event-stream")
+
+    async def chunks() -> AsyncIterator[bytes]:
+        usage: Dict[str, Any] = {}
+        pending, seen = "", []
+        try:
+            async for chunk in response.aiter_bytes():
+                if status < 400:
+                    pending += chunk.decode("utf-8", errors="replace")
+                    complete, _, pending = pending.rpartition("\n\n")
+                    if complete:
+                        stream_usage(complete, usage)
+                else:
+                    seen.append(chunk)
+                yield chunk
+        finally:
+            await response.aclose()
+            if owned:
+                await client.aclose()
+            if status < 400:
+                stream_usage(pending, usage)
+                spent = spend.text_cost(model, usage) or 0.0
+                await spend.record("text", spent)
+                await add_run_spend(run, spent)
+                logger.info("gateway: anthropic stream %s for %s, $%.5f", model, caller, spent)
+            else:
+                text = b"".join(seen).decode("utf-8", errors="replace").lower()
+                if any(word in text for word in ("credit balance", "billing", "insufficient", "quota")):
+                    await mark_no_credit("claude")
+                logger.warning("gateway: anthropic stream %s for %s answered %s", model, caller, status)
+
+    return status, {"content-type": kind}, chunks()
+
+
+async def count_anthropic_tokens(body: Dict[str, Any], version: Optional[str] = None, beta: Optional[str] = None,
+                                 client: Optional[httpx.AsyncClient] = None) -> Tuple[int, Dict[str, Any]]:
+    """Anthropic's free token count (POST /v1/messages/count_tokens), which Claude Code asks for."""
+    headers = _anthropic_ready(body, version, beta)
+    owned = client is None
+    client = client or httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0))
+    try:
+        response = await client.post(f"{ANTHROPIC_UPSTREAM}/messages/count_tokens", json=body, headers=headers)
+    except httpx.HTTPError as exc:
+        raise GatewayRefused(502, f"Anthropic could not be reached ({type(exc).__name__}).",
+                             "upstream_unreachable") from exc
+    finally:
+        if owned:
+            await client.aclose()
+    try:
+        return response.status_code, response.json()
+    except ValueError:
+        return response.status_code, {"type": "error", "error": {"type": "api_error", "message": response.text[:500]}}

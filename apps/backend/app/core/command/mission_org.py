@@ -494,8 +494,10 @@ class Package:
     # The specialist whose work the mission is (work_type.specialist_for): the one builder works as that specialist,
     # to its standard and with its skills. None: the Lead Builder itself.
     acting_as: Optional[str] = None
-    # The model that actually did the package's work (after any fallback or takeover), for the mission card.
+    # The model that actually did the package's work (after any fallback or takeover), for the mission card, and the
+    # sandbox engine it ran on (OpenHands or the Claude Agent SDK).
     ran_on: Optional[str] = None
+    engine: Optional[str] = None
 
     @property
     def role(self) -> str:
@@ -513,7 +515,7 @@ class Package:
 
     def card(self) -> Dict[str, Any]:
         return {"id": self.id, "title": self.title, "specialist": self.specialist, "role": self.role,
-                "acting_as": self.acting_as, "ran_on": self.ran_on,
+                "acting_as": self.acting_as, "ran_on": self.ran_on, "engine": self.engine,
                 "goal": self.goal[:1500], "done_when": self.done_when[:500], "status": self.status,
                 "model": self.model, "effort": self.effort, "max_steps": self.max_steps, "max_cost": self.max_cost,
                 "tools_used": dict(self.tools_used), "skills_used": list(self.skills_used), "step": self.step, "steps": self.steps, "owns": self.owns,
@@ -1212,6 +1214,7 @@ class MissionTeam:
         p.tools_used = dict(result.get("tools_used") or {})
         p.skills_used = list(result.get("skills_used") or [])
         p.ran_on = str(result.get("model") or "") or None
+        p.engine = str(result.get("engine") or "") or None
         p.step = int(result.get("steps") or p.step)
         detail = result.get("token_detail") or {}
         self.lead.usage.totals["input"] += int(detail.get("input") or 0) - int(detail.get("cached") or 0)

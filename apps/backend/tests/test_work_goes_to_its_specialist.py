@@ -44,8 +44,8 @@ def test_software_and_video_work_stays_with_the_lead_builder():
 
 
 def test_the_specialist_starts_from_its_own_skills():
-    assert first_skills("sales", ("prospecting", "lead-intelligence", "investor-outreach", "cold-email")) == [
-        "prospecting", "lead-intelligence", "investor-outreach", "cold-email"]
+    assert first_skills("sales", ("prospecting", "investor-outreach", "cold-email")) == [
+        "prospecting", "investor-outreach", "cold-email"]
     sales = [path.rsplit("/", 1)[-1] for path in sandbox_skills("sales")]
     assert {"prospecting", "cold-email", "investor-outreach", "copywriting"} <= set(sales)
     assert "test-driven-development" not in sales

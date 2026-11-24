@@ -182,6 +182,14 @@ RUN npm install -g "@playwright/cli@${PLAYWRIGHT_CLI_VERSION}" && npm cache clea
         > /etc/profile.d/jai-playwright-cli.sh && chmod 644 /etc/profile.d/jai-playwright-cli.sh
 ENV PLAYWRIGHT_MCP_EXECUTABLE_PATH=/usr/bin/chromium PLAYWRIGHT_MCP_SANDBOX=false NO_UPDATE_NOTIFIER=1
 
+# The Claude Agent SDK (MIT) with the Claude Code engine it bundles, for JAI's non-development work (24 November, audit
+# batch 3: app/claude_run.py). Pinned to the version its tests ran against (with its bundled Claude Code 2.1.331);
+# it installs beside OpenHands 1.58.2 with no conflict. After the large installs above, so changing it downloads only
+# this layer.
+ARG CLAUDE_AGENT_SDK_VERSION=0.2.188
+RUN pip install "claude-agent-sdk==${CLAUDE_AGENT_SDK_VERSION}" \
+    && python -c "import claude_agent_sdk, openhands.sdk"
+
 WORKDIR /jai
 COPY app ./app
 COPY tests ./tests

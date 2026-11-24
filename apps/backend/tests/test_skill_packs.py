@@ -132,7 +132,9 @@ def test_a_skill_is_stored_for_its_agents_and_found_by_the_task(tmp_path, monkey
 def test_ecc_skills_reach_the_right_agents_without_its_agents_or_hooks():
     ecc = {e["skill"]: e for e in skill_packs.SKILLS if e["pack"] == "ecc"}
     assert {"fastapi-patterns", "postgres-patterns", "security-review", "remotion-video-creation", "seo",
-            "investor-outreach", "lead-intelligence"} <= set(ecc)
+            "investor-outreach"} <= set(ecc)
+    # 24 November (audit batch 3): lead-intelligence needs Apollo, Exa and X keys JAI does not have
+    assert "lead-intelligence" not in ecc
     assert "coding_agent" in ecc["fastapi-patterns"]["agents"] and "security" in ecc["security-review"]["agents"]
     assert "ecc/skills/remotion-video-creation" in skill_packs.sandbox_skills("creation")
     assert skill_packs.PACKS["ecc"]["repo"] == "affaan-m/ECC"

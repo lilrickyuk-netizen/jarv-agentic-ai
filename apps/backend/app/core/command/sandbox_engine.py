@@ -62,6 +62,42 @@ def _budget_out(result: Dict[str, Any]) -> bool:
 
 UNREACHABLE_WAIT_SECONDS = 45.0
 
+# 24 November (audit batch 3): which engine a package runs on in the sandbox. Development (software builds, their
+# environment, integration and checks) stays on OpenHands; the rest runs as a Claude Agent SDK session with the shell
+# on, gated by the same sandbox rules (services/openhands/app/claude_run.py). Claude sessions speak only Anthropic's
+# API, so a package on an OpenAI model (no Anthropic key, or no credit) stays on OpenHands.
+DEVELOPMENT = frozenset({"coding_agent", "debugging_agent", "qa", "devops", "infrastructure", "security",
+                         "environment", "builder"})
+_ENGINE_ASKED = re.compile(r"\bon (?:the )?(claude(?: agent sdk| engine| sdk)?|openhands)\b", re.I)
+
+
+def _development(package, team) -> bool:
+    if package.id == "VER":  # a check follows the work it checks
+        main = next((p for p in (getattr(team, "packages", None) or []) if p.id != "VER"), None)
+        return main is None or _development(main, team)
+    return (getattr(package, "acting_as", None) or package.specialist) in DEVELOPMENT
+
+
+def _video(package, team) -> bool:
+    from app.core.command.mission_org import SKILL_RUNS
+
+    main = package if package.id != "VER" else next(
+        (p for p in (getattr(team, "packages", None) or []) if p.id != "VER"), package)
+    return main.id == "P1" and any(f"The {name} skill" in str(main.title or "") for name in SKILL_RUNS)
+
+
+def engine_for(package, team, mission: str, model: str) -> str:
+    """"claude" or "openhands" for this package and model."""
+    from app.core.command.work_type import richard_brief
+
+    if not str(model or "").startswith("claude") or _development(package, team):
+        return "openhands"
+    asked = _ENGINE_ASKED.search(richard_brief(mission or ""))
+    if asked:
+        return "openhands" if "openhands" in asked.group(1).lower() else "claude"
+    chosen = settings.SANDBOX_VIDEO_ENGINE if _video(package, team) else settings.SANDBOX_NON_DEV_ENGINE
+    return "claude" if str(chosen or "").strip().lower() == "claude" else "openhands"
+
 
 def sandbox_url() -> str:
     return str(getattr(settings, "OPENHANDS_URL", "") or "").rstrip("/")
@@ -450,7 +486,12 @@ class SandboxSpecialist:
 
         price = SANDBOX_PRICES.get(model) or PRICES.get(model)
         research = getattr(self.package, "model", None) == "research"
-        body = {"run_id": self.run_id, "workspace": container_root, "brief": self._brief(requirements),
+        engine = engine_for(self.package, self.team, self.mission, model)
+        brief = self._brief(requirements)
+        if engine == "claude":  # Claude Code has no finish tool: its last reply is the report
+            brief = brief.replace("YOUR FINAL MESSAGE (call finish with it)",
+                                  "YOUR FINAL MESSAGE (your last reply, when the work is done)")
+        body = {"run_id": self.run_id, "workspace": container_root, "brief": brief, "engine": engine,
                 "standard": self._standard(), "model": model,
                 "provider": "anthropic" if model.startswith("claude") else "openai",
                 # Research and writing think briefly at each step: looking up a contact page needs no deep reasoning.
@@ -466,6 +507,18 @@ class SandboxSpecialist:
                 # Working as a specialist, the builder is shown that specialist's skills, so the ones the work
                 # needs are in front of it rather than lost among every skill JAI has.
                 "skills": sandbox_skills(getattr(self.package, "acting_as", None) or self.package.specialist)}
+        token = None
+        if engine == "claude":
+            from app.core import gateway
+
+            # The session's own token for JAI's gateway, alive while the run is registered; never JAI's gateway token.
+            token = await gateway.issue_run_token(self.run_id, RUN_TTL_SECONDS, body["max_cost_usd"])
+            light = str(settings.OPENHANDS_RESEARCH_MODEL or "")
+            body.update({"model_token": token, "api_timeout_ms": int(settings.SANDBOX_CLAUDE_API_TIMEOUT_MS),
+                         "max_retries": int(settings.SANDBOX_CLAUDE_MAX_RETRIES),
+                         # Claude Code's own background work (titles, summaries of fetched pages) on a light model
+                         # the gateway allows.
+                         "light_model": light if light.startswith("claude") else model})
         owned = self.client is None
         client = self.client or httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=5.0))
         try:
@@ -484,6 +537,10 @@ class SandboxSpecialist:
             if owned:
                 await client.aclose()
             await forget_run(self.run_id)
+            if token:
+                from app.core import gateway
+
+                await gateway.revoke_run_token(token)
         report = str(view.get("final_message") or view.get("error") or "")
         statuses = requirement_statuses(report)
         theirs = []
@@ -493,6 +550,7 @@ class SandboxSpecialist:
         tokens = view.get("tokens") or {}
         return {"success": view.get("status") == "finished", "answer": report, "requirements": theirs,
                 "status": view.get("status"), "steps": int(view.get("steps") or 0), "model": model,
+                "engine": engine,
                 "error": str(view.get("error") or ""),
                 "tokens": int(tokens.get("input") or 0) + int(tokens.get("output") or 0),
                 "token_detail": tokens, "cost_usd": float(view.get("cost_usd") or 0),

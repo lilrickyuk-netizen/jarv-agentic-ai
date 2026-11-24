@@ -8,7 +8,7 @@ see app.core.gateway for the spending limit and pricing.
 from __future__ import annotations
 
 from fastapi import APIRouter, Header, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.core import gateway
 
@@ -41,25 +41,59 @@ async def forward(path: str, request: Request, authorization: str | None = Heade
 anthropic_router = APIRouter(prefix="/gateway/anthropic/v1", tags=["gateway"])
 
 
+async def _anthropic_caller(x_api_key: str | None, authorization: str | None):
+    """Who may call: JAI's gateway token (("sandbox", None)), or a sandbox run's own token while that run is registered
+    (("run <id>", its run)). None: refused."""
+    if gateway.token() and (gateway.authorised(x_api_key) or gateway.authorised(authorization)):
+        return "sandbox", None
+    run = await gateway.run_of_token(authorization) or await gateway.run_of_token(x_api_key)
+    return (f"run {run['run']}"[:40], run) if run else None
+
+
 @anthropic_router.post("/messages")
 async def anthropic_messages(request: Request, x_api_key: str | None = Header(default=None),
                              authorization: str | None = Header(default=None),
                              anthropic_version: str | None = Header(default=None),
                              anthropic_beta: str | None = Header(default=None),
-                             x_jai_caller: str | None = Header(default=None)) -> JSONResponse:
-    if not gateway.token():
-        return JSONResponse(gateway.GatewayRefused(401, "JAI's gateway is turned off (no JAI_GATEWAY_TOKEN).",
-                                                   "not_configured").body(), status_code=401)
-    if not (gateway.authorised(x_api_key) or gateway.authorised(authorization)):
+                             x_jai_caller: str | None = Header(default=None)):
+    who = await _anthropic_caller(x_api_key, authorization)
+    if who is None:
+        if not gateway.token():
+            return JSONResponse(gateway.GatewayRefused(401, "JAI's gateway is turned off (no JAI_GATEWAY_TOKEN).",
+                                                       "not_configured").body(), status_code=401)
         return JSONResponse(gateway.GatewayRefused(401, "Not JAI's gateway token.", "authentication_error").body(),
                             status_code=401)
+    caller, run = who
     try:
         body = await request.json()
     except ValueError:
         return JSONResponse(gateway.GatewayRefused(400, "The request body must be JSON.").body(), status_code=400)
     try:
+        if isinstance(body, dict) and body.get("stream"):
+            # Claude Code (the Agent SDK's engine) always streams: the answer is passed on as it arrives.
+            status, headers, chunks = await gateway.forward_anthropic_stream(
+                body, anthropic_version, anthropic_beta, caller=(x_jai_caller or caller)[:40], run=run)
+            return StreamingResponse(chunks, status_code=status, media_type=headers.get("content-type"))
         status, answer = await gateway.forward_anthropic(body, anthropic_version, anthropic_beta,
-                                                         caller=(x_jai_caller or "sandbox")[:40])
+                                                         caller=(x_jai_caller or caller)[:40], run=run)
+    except gateway.GatewayRefused as refused:
+        return JSONResponse(refused.body(), status_code=refused.status)
+    return JSONResponse(answer, status_code=status)
+
+
+@anthropic_router.post("/messages/count_tokens")
+async def anthropic_count_tokens(request: Request, x_api_key: str | None = Header(default=None),
+                                 authorization: str | None = Header(default=None),
+                                 anthropic_version: str | None = Header(default=None),
+                                 anthropic_beta: str | None = Header(default=None)) -> JSONResponse:
+    if await _anthropic_caller(x_api_key, authorization) is None:
+        return JSONResponse(gateway.GatewayRefused(401, "Not JAI's gateway token.", "authentication_error").body(),
+                            status_code=401)
+    try:
+        body = await request.json()
+        status, answer = await gateway.count_anthropic_tokens(body, anthropic_version, anthropic_beta)
+    except ValueError:
+        return JSONResponse(gateway.GatewayRefused(400, "The request body must be JSON.").body(), status_code=400)
     except gateway.GatewayRefused as refused:
         return JSONResponse(refused.body(), status_code=refused.status)
     return JSONResponse(answer, status_code=status)
