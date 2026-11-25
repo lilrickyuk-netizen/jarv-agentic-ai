@@ -20,20 +20,20 @@ from tests.repo_paths import repo_path
 
 # ----- atelier mode and working files ---------------------------------------------------------------------------
 
-def test_the_studio_composes_marketing_in_atelier_mode_inside_openmontages_own_project():
+def test_a_custom_scene_is_composed_in_atelier_mode_inside_openmontages_own_project():
     """23 November: effects scenes were written outside OpenMontage's Remotion project, rendered at its defaults
-    (landscape, 30 seconds) and failed to bundle; the video Richard liked (d8f3f5a6) used atelier mode."""
+    (landscape, 30 seconds) and failed to bundle. 25 November: atelier only when the brief asks for a custom scene;
+    otherwise the pipeline's own composer renders it (tests/test_studio_runs_the_pipeline.py)."""
     from app.core.command.mission_org import studio_goal
 
     goal = studio_goal()
-    assert "atelier" in goal and "Composition Authoring Mode" in goal
+    assert "brief that asks for a custom scene or a look of its own" in goal and "(atelier)" in goal
     assert "bespoke-composition.md" in goal and "taste-direction.md" in goal
     assert "scaffold_atelier_project.py" in goal and '--root "$OPENMONTAGE_PROJECTS_DIR"' in goal
     assert 'composition_mode: \\"atelier\\"' not in goal and 'composition_mode: "atelier"' in goal
-    assert "_stage_atelier_project" in goal and "never run npx remotion render on an entry outside" in goal
+    assert "never run npx remotion render on an entry outside" in goal
     assert "1080x1920" in goal and "width, height, fps and length" in goal
-    # the templated route stays for plain footage-and-captions edits
-    assert "remotion_render" in goal and "word-level captions" in goal
+    assert "word-level captions" in goal
 
 
 def test_openmontages_atelier_contract_is_the_one_its_pinned_code_reads():
@@ -73,7 +73,8 @@ def test_the_card_names_the_model_that_did_the_work():
     from app.core.command.service import worked_on
 
     engine = worked_on({"role": {"engine": {"model": "claude-haiku-5-5"}}})
-    assert engine == {"provider": "claude-agent-sdk", "model": "claude-haiku-5-5", "models": ["claude-haiku-5-5"]}
+    assert engine == {"provider": "claude-agent-sdk", "model": "claude-haiku-5-5", "models": ["claude-haiku-5-5"],
+                      "by_role": {"mission": "claude-haiku-5-5"}}
     team = worked_on({"team": {"packages": [{"id": "P1", "ran_on": "claude-sonnet-5-5", "cost_usd": 3.1},
                                             {"id": "VER", "ran_on": "claude-opus-5-5", "cost_usd": 0.4}]}})
     assert team["model"] == "claude-sonnet-5-5" and team["provider"] == "claude"
@@ -113,7 +114,7 @@ def test_a_sandbox_package_card_carries_the_model_it_ran_on_after_a_fallback(mon
         return {"success": True, "answer": "\n".join(f"{r['id']}: done — checked" for r in requirements),
                 "requirements": [{**r, "status": "done", "evidence": "checked"} for r in requirements],
                 "steps": 5, "tokens": 100, "token_detail": {"input": 80, "output": 20}, "cost_usd": 0.01,
-                "model": model}
+                "model": model, "ran_on": model, "models_used": {model: {"replies": 5, "cost_usd": 0.01}}}
 
     monkeypatch.setattr(sandbox_engine, "available", up)
     monkeypatch.setattr(sandbox_engine.SandboxSpecialist, "run", in_sandbox)

@@ -58,7 +58,8 @@ def test_a_video_runs_on_sonnet_within_its_own_allowance():
     from app.core.command import mission_org
 
     run = mission_org.SKILL_RUNS["openmontage"]
-    assert run["model"] == settings.VIDEO_MODEL == "claude-sonnet-5-5" and run["effort"] == "medium"
+    assert run["model"] == mission_org.VIDEO and settings.VIDEO_MODEL == "claude-sonnet-5-5"
+    assert run["effort"] == "medium"
     assert settings.VIDEO_MISSION_MAX_COST_USD == 4.0
     source = repo_path("apps", "backend", "app", "core", "command", "mission_org.py").read_text()
     assert "set_allowance(self.runtime.task_id" in source and "VIDEO_MISSION_MAX_COST_USD" in source

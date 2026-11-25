@@ -42,7 +42,7 @@ def test_the_studio_and_content_specialists_are_offered_the_research_skills():
 
 def test_the_sandbox_has_yt_dlp_pinned_in_its_own_environment_with_node_for_youtube():
     dockerfile = repo_path("services", "openhands", "Dockerfile").read_text()
-    assert "ARG YT_DLP_VERSION=2026.10.26" in dockerfile
+    assert "ARG YT_DLP_VERSION=2026.11.23" in dockerfile
     assert '"yt-dlp[default]==${YT_DLP_VERSION}"' in dockerfile and "python3 -m venv /opt/yt-dlp" in dockerfile
     # Deno, yt-dlp's default JavaScript runtime for YouTube, from Deno's official binary image; and yt-dlp with
     # youtube-transcript-api in OpenMontage's own environment, which its reference-video tools import.

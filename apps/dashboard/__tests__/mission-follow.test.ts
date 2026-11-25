@@ -8,3 +8,14 @@ describe('following a mission', () => {
     expect(pollDelay(3 * 60 * 60 * 1000)).toBe(10000);
   });
 });
+
+describe('the card names the model the mission ran on (25 November)', () => {
+  it('shows the reported model, each role when they differ, and nothing invented before a run reports', () => {
+    const { ranOnLabel } = jest.requireActual('@/lib/missions');
+    expect(ranOnLabel({ provider: 'claude', model: 'claude-sonnet-5-5' })).toBe('claude/claude-sonnet-5-5');
+    expect(ranOnLabel({ provider: 'claude', model: 'claude-sonnet-5-5',
+      models_by_role: { 'Product Designer': 'claude-sonnet-5-5', Verifier: 'claude-haiku-5-5' } }))
+      .toBe('Product Designer: claude-sonnet-5-5 · Verifier: claude-haiku-5-5');
+    expect(ranOnLabel({ provider: null, model: null })).toBe('model not reported yet');
+  });
+});

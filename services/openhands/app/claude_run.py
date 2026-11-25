@@ -596,6 +596,10 @@ async def execute(run, gate, rules: str, backend_url: str, sandbox_token: str, s
             await client.query(request.brief)
             async for message in client.receive_response():
                 kind = type(message).__name__
+                if kind == "AssistantMessage" and getattr(message, "model", None):
+                    # Every reply names the model that wrote it, the session's workers' included.
+                    seen = run.models.setdefault(str(message.model), {"replies": 0, "cost_usd": 0.0})
+                    seen["replies"] += 1
                 if kind == "AssistantMessage" and not getattr(message, "parent_tool_use_id", None):
                     said = " ".join(str(getattr(b, "text", "") or "") for b in getattr(message, "content", [])
                                     if type(b).__name__ == "TextBlock").strip()
@@ -611,6 +615,10 @@ async def execute(run, gate, rules: str, backend_url: str, sandbox_token: str, s
                                   + int(usage.get("cache_creation_input_tokens") or 0),
                                   "output": int(usage.get("output_tokens") or 0),
                                   "cached": int(usage.get("cache_read_input_tokens") or 0)}
+                    for name, used in (getattr(message, "model_usage", None) or {}).items():
+                        # The session's own account of each model it used, with what each cost.
+                        seen = run.models.setdefault(str(name), {"replies": 0, "cost_usd": 0.0})
+                        seen["cost_usd"] = round(float((used or {}).get("costUSD") or 0.0), 6)
                     if getattr(message, "result", None):
                         run.final_message = str(message.result)
     except Exception as exc:  # noqa: BLE001 - reported to JAI, which carries on with the rest of the mission

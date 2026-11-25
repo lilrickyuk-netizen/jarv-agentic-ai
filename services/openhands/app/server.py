@@ -106,6 +106,9 @@ class Run:
         self.tools_used: Dict[str, int] = {}   # every tool the agent called, with how often
         self.skills_used: List[str] = []       # the skills it loaded in full
         self.interrupt: Any = None             # a Claude session's stop, while it runs
+        # The models that actually answered this run, as the engine itself reported them (25 November: the mission
+        # card showed a setting's model, not the one that ran): {model: {"replies": n, "cost_usd": x}}.
+        self.models: Dict[str, Dict[str, float]] = {}
 
     def on_event(self, event: Any) -> None:
         from openhands.sdk.event import ActionEvent, AgentErrorEvent, MessageEvent
@@ -138,6 +141,12 @@ class Run:
         try:
             metrics = self.conversation.conversation_stats.get_combined_metrics()
             self.cost_usd = float(metrics.accumulated_cost or 0)
+            for each in (getattr(self.conversation.conversation_stats, "usage_to_metrics", None) or {}).values():
+                name = str(getattr(each, "model_name", "") or "").split("/", 1)[-1]
+                if name and name != "default":
+                    seen = self.models.setdefault(name, {"replies": 0, "cost_usd": 0.0})
+                    seen["replies"] = len(getattr(each, "token_usages", None) or [])
+                    seen["cost_usd"] = round(float(getattr(each, "accumulated_cost", 0) or 0), 6)
             usage = metrics.accumulated_token_usage
             if usage is not None:
                 self.tokens = {"input": int(usage.prompt_tokens or 0), "output": int(usage.completion_tokens or 0),
@@ -153,6 +162,7 @@ class Run:
                 "final_message": self.final_message, "error": self.error, "notes": self.notes, "tokens": self.tokens,
                 "cost_usd": round(self.cost_usd, 6), "actions": self.gate.actions[since:],
                 "tools_used": dict(self.tools_used), "skills_used": list(self.skills_used),
+                "models_used": {m: dict(v) for m, v in self.models.items()},
                 "action_count": len(self.gate.actions),
                 "started_at": datetime.fromtimestamp(self.started_at, timezone.utc).isoformat(timespec="seconds"),
                 "seconds": int((self.ended_at or time.time()) - self.started_at)}

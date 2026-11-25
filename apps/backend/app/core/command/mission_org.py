@@ -108,47 +108,64 @@ def studio_goal() -> str:
     effects scenes were written outside OpenMontage's Remotion project, rendered at its defaults and failed to bundle;
     the one video Richard was impressed by (mission d8f3f5a6) used atelier mode, which OpenMontage's own guide makes
     the default for marketing work and whose render stages the project into the composer. Check frames saved in /tmp
-    could not be opened by the file viewer, so working files stay in the mission's folder."""
-    return (f"Make this mission's video with OpenMontage, the video studio installed at {STUDIO_HOME}. Read "
-            f"{STUDIO_HOME}/AGENT_GUIDE.md and only the skills this job needs for their craft guidance (the "
-            "composer's SCENE_TYPES.md, the reviewer, the stage skill for this kind of video), then do the work "
-            "with OpenMontage's tools directly. Do not run its staged pipeline: write no stage checkpoints, no "
-            "proposal, research brief, script, scene plan or decision-log files, and validate nothing against its "
-            "schemas; those exist for a person approving each stage, and Richard's brief is his approval, so never "
-            "stop for one, and never the publish stage, because nothing is published or posted. No music unless "
-            "the brief asks for music: sound design or silence instead. Run its Python as "
+    could not be opened by the file viewer, so working files stay in the mission's folder.
+
+    25 November (mission 00d44272): the studio skipped OpenMontage's clip-factory pipeline and hand-wrote one
+    Composition.tsx; none of the stage tools ran and the assets folders stayed empty. Richard: run the chosen
+    pipeline's stages with OpenMontage's tools and render through video_compose with the composer's components; a
+    hand-written composition only when the brief asks for a custom scene. His brief is recorded as OpenMontage's
+    own full-run pre-authorisation (an approval_policy decision), so its gates are approved, not skipped."""
+    return (f"Make this mission's video with OpenMontage, the video studio installed at {STUDIO_HOME}, through "
+            f"its own pipeline, as {STUDIO_HOME}/AGENT_GUIDE.md's Rule Zero says. Run its Python as "
             f"{STUDIO_HOME}/.venv/bin/python from {STUDIO_HOME}, and before anything else run "
             "`export OPENMONTAGE_PROJECTS_DIR=\"<this mission's workspace folder>/openmontage-projects\"` in your "
-            "terminal so every project file and render is saved in Richard's folder. Use only free tools: no "
-            "paid provider is configured, so never ask for an API key. Real footage is free: when PIXABAY_API_KEY "
-            "is set in your shell (Richard's free Pixabay key), OpenMontage's Pixabay source gives licensed stock "
-            "video, and Archive.org, NASA and Wikimedia Commons need no key; use real footage wherever the brief "
-            "or the reference calls for filmed shots, never a clip of a real, identifiable person in a misleading "
-            "way, and save each clip's source page and licence in the project (sources.json beside the render). "
-            "Illustrations and drawn scenes come from JAI's generate_image tool (FLUX on Richard's GPU, free): one "
-            "image per scene, opened and remade if it misses the scene or the colours; never draw them with code. "
-            "When the brief names a reference video, study it with OpenMontage's video_analyzer (decode audio as "
-            "below) and match its pacing, hook, structure and look. For speech, transcribe with faster-whisper "
-            "(word_timestamps=True) and time the captions to its words. "
-            "Compose with OpenMontage's own composers, in the authoring mode its AGENT_GUIDE.md sets (Composition "
-            "Authoring Mode). Marketing, brand and social pieces, and any piece with its own effects or look, are "
-            "atelier work, its default for hero work: read skills/meta/taste-direction.md and "
-            "skills/meta/bespoke-composition.md, scaffold the project with `.venv/bin/python "
-            "scripts/scaffold_atelier_project.py <slug> --root \"$OPENMONTAGE_PROJECTS_DIR\"`, set the Composition's "
-            "width, height, fps and length in its Root.tsx and calculateMetadata to the brief's (a vertical short is "
-            "1080x1920; the scaffold's 1920x1080 and 30 seconds are only defaults), hand-author the scenes, and "
-            "render with VideoCompose operation render and edit_decisions {render_runtime: \"remotion\", "
-            "composition_mode: \"atelier\", bespoke: {entry: the absolute path of its index.tsx, composition_id, public_dir, art_direction}}: VideoCompose "
-            "copies your project's source into its Remotion composer itself (_stage_atelier_project), which is where "
-            "Remotion's bundler finds its packages, so never run npx remotion render on an entry outside "
-            f"{STUDIO_HOME}/remotion-composer yourself. A HyperFrames composition is atelier too, built as its skill "
-            "describes and rendered with HyperFrames' own command through start_render (npx hyperframes render "
-            "--output <file> --fps 30 --quality <q> --strict, the composition's folder as cwd), never through "
-            "OpenMontage's hyperframes_compose or render_existing, which stop HyperFrames after 30 minutes. A render "
-            "that failed is started again only after you change something; otherwise stop and say why. Templated work (its stock scene types through VideoCompose operation remotion_render, "
-            "with word-level captions, titles, stat cards and transitions) is for quick, plain footage-and-captions "
-            "edits. Never write your own render pipeline, caption timing or text layout system around them: if one "
-            "of its tools fails, read its error and fix the setup it names, or use the other composer. "
+            "terminal so every project file and render is saved in Richard's folder. "
+            "1. Choose the pipeline in pipeline_defs/ that matches the brief (AGENT_GUIDE.md's Available Pipelines: "
+            "short clips cut from longer footage are clip-factory, a speaker on camera is talking-head, real-footage "
+            "montage is documentary-montage, and so on) and read its manifest. "
+            "2. Start the project with lib.checkpoint.init_project('<project-id>', title='<title>', "
+            "pipeline_type='<pipeline>'), then record Richard's brief as his approval of the whole run: one "
+            "decision_log entry with category \"approval_policy\" saying his brief pre-authorises every gate "
+            "(skills/meta/checkpoint-protocol.md, point 5). "
+            "3. Run the manifest's stages in order. Before each stage read its director skill "
+            "(skills/pipelines/<pipeline>/<stage>-director.md) and do that stage's work with that stage's tools from "
+            "the manifest: its required tools always, and its optional tools wherever the footage or the brief calls "
+            "for them (for a speaker: face_tracker and auto_reframe to reframe for vertical, silence_cutter for jump "
+            "cuts; color_grade to grade footage; audio_enhance and audio_mixer to even the sound). Pass every tool "
+            "an output_path inside the project, so OpenMontage's own log (events.jsonl) records each run. Write each "
+            "stage's artifact and its checkpoint with lib.checkpoint.write_checkpoint, status completed and "
+            "human_approved=True under the approval_policy decision: never stop at a gate to wait for anyone. "
+            "Skip the publish stage: nothing is published or posted. "
+            "4. Compose through VideoCompose operation render with the edit stage's edit_decisions and the assets "
+            "stage's asset_manifest, so it renders with the remotion-composer's own compositions and components "
+            "(TalkingHead, word-level captions, the cut and overlay types in remotion-composer/SCENE_TYPES.md). "
+            "A standalone hand-written composition is for a brief that asks for a custom scene or a look of its own "
+            "(atelier): only then read skills/meta/taste-direction.md and skills/meta/bespoke-composition.md, "
+            "scaffold it with `.venv/bin/python scripts/scaffold_atelier_project.py <slug> --root "
+            "\"$OPENMONTAGE_PROJECTS_DIR\"`, set the Composition's width, height, fps and length in its Root.tsx "
+            "and calculateMetadata to the brief's (a vertical short is 1080x1920), and render it through "
+            "VideoCompose operation render with edit_decisions {render_runtime: \"remotion\", composition_mode: "
+            "\"atelier\", bespoke: {entry: the absolute path of its index.tsx, composition_id, public_dir, "
+            "art_direction}}: VideoCompose copies the project into its Remotion composer itself, so never run npx "
+            f"remotion render on an entry outside {STUDIO_HOME}/remotion-composer yourself; the stages before "
+            "compose still run with their tools. A HyperFrames composition (where the pipeline allows it) is built "
+            "as its skill describes and rendered with HyperFrames' own command through start_render (npx "
+            "hyperframes render --output <file> --fps 30 --quality <q> --strict, the composition's folder as cwd), "
+            "never through OpenMontage's hyperframes_compose or render_existing, which stop HyperFrames after 30 "
+            "minutes. Never write your own render pipeline, caption timing or text layout system around "
+            "OpenMontage's: if one of its tools fails, read its error and fix the setup it names. "
+            "A render that failed is started again only after you change something; otherwise stop and say why. "
+            "No music unless the brief asks for music: sound design or silence instead. "
+            "Use only free tools: no paid provider is configured, so never ask for an API key. Real footage is "
+            "free: when PIXABAY_API_KEY is set in your shell (Richard's free Pixabay key), OpenMontage's Pixabay "
+            "source gives licensed stock video, and Archive.org, NASA and Wikimedia Commons need no key; use real "
+            "footage wherever the brief or the reference calls for filmed shots, never a clip of a real, "
+            "identifiable person in a misleading way, and save each clip's source page and licence in the project "
+            "(sources.json beside the render). Illustrations and drawn scenes come from JAI's generate_image tool "
+            "(FLUX on Richard's GPU, free): one image per scene, opened and remade if it misses the scene or the "
+            "colours; never draw them with code. When the brief names a reference video, study it with "
+            "OpenMontage's video_analyzer and match its pacing, hook, structure and look. For speech, transcribe "
+            "with OpenMontage's transcriber (word timestamps) and time the captions to its words. "
             "Renders run without AI: start every full or final render (VideoCompose render, npx "
             "remotion render, npx hyperframes render, an ffmpeg encode of the whole video) with JAI's start_render "
             "tool (one render command with no cd or &&, the folder it runs from as cwd, the output file; several "
@@ -219,12 +236,14 @@ SPECIALIST_WORK_RULE = (" Tests and checklists that earlier missions left in thi
 # Video skill runs stay on the lead model (Sonnet) and are never handed to Opus when they stop short. 22 November:
 # an OpenMontage video is capped at 45 minutes and $6 (a run took 55 minutes and was cancelled for taking too long).
 VIDEO_RUN_SECONDS = 45 * 60
+# The studio's model is settings.VIDEO_MODEL (apps/backend/.env), read when each run starts.
+VIDEO = "video"
 SKILL_RUNS: Dict[str, Dict[str, Any]] = {
     "brag-slim": {"model": "lead", "effort": "high", "max_steps": 200, "max_cost": 10.0, "no_takeover": True},
     "brag": {"model": "lead", "effort": "high", "max_steps": 200, "max_cost": 10.0, "no_takeover": True},
     # 22 November: on Sonnet at medium effort, within the video's own allowance for the whole mission
     # (VIDEO_MISSION_MAX_COST_USD), after a footage video cost about £10 over three rounds.
-    "openmontage": {"model": settings.VIDEO_MODEL, "effort": "medium", "max_steps": 200, "max_cost": 4.0,
+    "openmontage": {"model": VIDEO, "effort": "medium", "max_steps": 200, "max_cost": 4.0,
                     "no_takeover": True, "max_seconds": VIDEO_RUN_SECONDS},
 }
 
@@ -521,6 +540,8 @@ class Package:
     # sandbox engine it ran on (OpenHands or the Claude Agent SDK).
     ran_on: Optional[str] = None
     engine: Optional[str] = None
+    # Every model the engine says answered this package, {model: {"replies", "cost_usd"}} (25 November).
+    models_used: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def role(self) -> str:
@@ -539,6 +560,7 @@ class Package:
     def card(self) -> Dict[str, Any]:
         return {"id": self.id, "title": self.title, "specialist": self.specialist, "role": self.role,
                 "acting_as": self.acting_as, "ran_on": self.ran_on, "engine": self.engine,
+                "models_used": dict(self.models_used),
                 "goal": self.goal[:1500], "done_when": self.done_when[:500], "status": self.status,
                 "model": self.model, "effort": self.effort, "max_steps": self.max_steps, "max_cost": self.max_cost,
                 "tools_used": dict(self.tools_used), "skills_used": list(self.skills_used), "step": self.step, "steps": self.steps, "owns": self.owns,
@@ -1214,7 +1236,7 @@ class MissionTeam:
         if executor is not None:
             p.cost_usd = float(executor.usage.cost_usd)
             models = executor.usage.models
-            p.ran_on = max(models, key=models.get) if models else self.model
+            p.ran_on = max(models, key=models.get) if models else None  # what answered, never a default
             absorb(self.lead.usage, executor.usage, p.specialist)
             self.lead.tokens += p.tokens
             self._merge_requirements(p, result.get("requirements") or mine)
@@ -1241,7 +1263,9 @@ class MissionTeam:
         p.cost_usd = float(result.get("cost_usd") or 0)
         p.tools_used = dict(result.get("tools_used") or {})
         p.skills_used = list(result.get("skills_used") or [])
-        p.ran_on = str(result.get("model") or "") or None
+        # The model the engine itself reported, never the one asked for (25 November).
+        p.models_used = dict(result.get("models_used") or {})
+        p.ran_on = str(result.get("ran_on") or "") or None
         p.engine = str(result.get("engine") or "") or None
         p.step = int(result.get("steps") or p.step)
         detail = result.get("token_detail") or {}
@@ -1418,6 +1442,7 @@ class MissionTeam:
                 p.status, p.success, p.summary = "finished", True, str(c.get("summary") or "")
                 p.step, p.calls, p.cost_usd = int(c.get("step") or 0), int(c.get("tool_calls") or 0), 0.0
                 p.ran_on = c.get("ran_on") or None
+                p.models_used = dict(c.get("models_used") or {})
             packages.append(p)
         items = ((saved.get("requirements") or {}).get("items")) or []
         if not requirements and items:
@@ -1495,6 +1520,30 @@ class MissionTeam:
             return
         self.lessons, self.lessons_applied = await debrief.lessons_for(
             getattr(self.runtime, "db", None), getattr(self.runtime, "workspace_id", None), learner[0], mission)
+
+    async def _openmontage_report(self, outcome: Dict[str, Any]) -> Dict[str, Any]:
+        """A studio mission's report names what OpenMontage actually ran since the mission began (its pipeline,
+        stages, tools and the composer's components), from OpenMontage's own records in the mission's folder."""
+        from sqlalchemy import select
+
+        from app.core.creative import openmontage_used
+        from app.core.workspaces import fs_inspector
+        from app.models.task import Task
+
+        since = None
+        task_id, db = getattr(self.runtime, "task_id", None), getattr(self.runtime, "db", None)
+        if task_id is not None and db is not None:
+            try:
+                since = (await db.execute(select(Task.created_at).where(Task.id == task_id))).scalar_one_or_none()
+            except Exception as exc:  # noqa: BLE001 - without the start, the folder's projects are all read
+                logger.info(f"mission start not read: {exc}")
+        if since is not None and since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
+        root = fs_inspector.host_to_container(self.workspace_root) if self.workspace_root else None
+        found = openmontage_used.used(root, since)
+        outcome["openmontage"] = found
+        outcome["answer"] = openmontage_used.summary(found) + "\n\n" + str(outcome.get("answer") or "")
+        return outcome
 
     async def _render_state(self) -> Dict[str, Any]:
         """The mission's render record (meta_data), read fresh: {"job": running render or None, "facts": ...}."""
@@ -2065,6 +2114,8 @@ class MissionTeam:
         team_steps = sum(p.step for p in self.packages)
         if self.sandbox:
             outcome = await self._sandbox_outcome(mission, team_steps, start_continuation)
+            if any(p.title.startswith(f"The {STUDIO}{SKILL_TITLE_END}") for p in self.packages):
+                outcome = await self._openmontage_report(outcome)
             if final_video is not None:
                 outcome = self._finished_video(outcome, final_video, mission)
             return await self._held_for_render(await self._debriefed(outcome, mission))

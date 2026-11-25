@@ -81,21 +81,33 @@ def _provider_name_for_model(model: str) -> str:
 
 
 def worked_on(extra: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """The model and provider that did a mission's work, for its card, or None when only the Orchestrator worked.
+    """The model and provider that did a mission's work, for its card, or None when no engine reported one.
 
     24 November (audit batch 1): the card said claude-opus-5-5, the Orchestrator's model, for work that ran in the
-    sandbox on Sonnet or on a fallback model, so Richard could not see what he was paying for. In order: the Claude
-    engine's model; otherwise the sandbox packages' models, by what each cost; otherwise the models that answered
-    the mission's own calls, by how many."""
+    sandbox on Sonnet or on a fallback model, so Richard could not see what he was paying for. 25 November: it still
+    did while a mission worked, and a setting read at display time could not show what ran. Every model here is the
+    one the engine's own run reported (the Claude Agent SDK session's replies and model_usage, OpenHands' metrics):
+    the Claude engine's session; otherwise each package's, by what each cost, with the model of each role when
+    the roles differ; otherwise the models that answered the mission's own calls, by how many."""
     role = extra.get("role")
     engine = role.get("engine") if isinstance(role, dict) else None
     if isinstance(engine, dict) and engine.get("model"):
-        return {"provider": "claude-agent-sdk", "model": str(engine["model"]), "models": [str(engine["model"])]}
+        used = engine.get("models_used") or {str(engine["model"]): {}}
+        title = str(role.get("title") or role.get("specialist") or "mission")
+        return {"provider": "claude-agent-sdk", "model": str(engine["model"]), "models": list(used),
+                "by_role": {title: str(engine["model"])}}
     weights: Dict[str, float] = {}
+    by_role: Dict[str, str] = {}
     for card in ((extra.get("team") or {}).get("packages") or []) if isinstance(extra.get("team"), dict) else []:
-        model = str((card or {}).get("ran_on") or "")
-        if model:
-            weights[model] = weights.get(model, 0.0) + float(card.get("cost_usd") or 0) + 1e-9
+        card = card or {}
+        model = str(card.get("ran_on") or "")
+        if not model:
+            continue
+        used = card.get("models_used") or {model: {"cost_usd": card.get("cost_usd")}}
+        for name, seen in used.items():
+            weights[str(name)] = weights.get(str(name), 0.0) + float((seen or {}).get("cost_usd") or 0) + 1e-9
+        by_role["Verifier" if card.get("id") == "VER" else str(card.get("role") or card.get("specialist") or
+                                                               card.get("id"))] = model
     if not weights:
         usage = ((extra.get("metrics") or {}).get("usage") or {}) if isinstance(extra.get("metrics"), dict) else {}
         weights = {str(m): float(n) for m, n in (usage.get("models") or {}).items() if m}
@@ -103,7 +115,7 @@ def worked_on(extra: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
     main = max(weights, key=weights.get)
     return {"provider": _provider_name_for_model(main), "model": main,
-            "models": sorted(weights, key=weights.get, reverse=True)}
+            "models": sorted(weights, key=weights.get, reverse=True), "by_role": by_role}
 
 
 # The agent each package's specialist is: the Lead Builder of software is the Coding Agent, the environment engineer
@@ -711,6 +723,7 @@ class CommandService:
                 # The card names the model that did the work, not the Orchestrator's (and every model that did some).
                 task.result["provider"], task.result["model"] = did["provider"], did["model"]
                 task.result["models_used"] = did["models"]
+                task.result["models_by_role"] = did.get("by_role") or {}
             task.execution_logs = [
                 {"step": "planning", "agent": "orchestrator", "agents_selected": selected_agents},
                 {"step": "tools", "agent": "orchestrator", "tool_calls": len(runtime.calls)},

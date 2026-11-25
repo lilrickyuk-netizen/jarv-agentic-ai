@@ -50,6 +50,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from app.core.command.role_mission import RoleExecutor, role_tools
+from app.core.command.sandbox_engine import main_model
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -327,6 +328,9 @@ class ClaudeRoleExecutor(RoleExecutor):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.engine_cost_usd = 0.0
+        # The models that answered this mission's sessions, as the sessions themselves reported them (25 November:
+        # the card showed CLAUDE_ENGINE_MODEL read at display time): {model: {"replies", "cost_usd"}}.
+        self.models_seen: Dict[str, Dict[str, Any]] = {}
         self.engine_note = ""
         self._lock = asyncio.Lock()   # one database session: JAI's tools and records go one at a time
         self._client = None
@@ -585,6 +589,9 @@ class ClaudeRoleExecutor(RoleExecutor):
         """The session's cost and tokens, booked to the mission's account."""
         cost = float(getattr(result, "total_cost_usd", None) or 0.0)
         self.engine_cost_usd += cost
+        for name, used in (getattr(result, "model_usage", None) or {}).items():
+            seen = self.models_seen.setdefault(str(name), {"replies": 0, "cost_usd": 0.0})
+            seen["cost_usd"] = round(float(seen.get("cost_usd") or 0) + float((used or {}).get("costUSD") or 0), 6)
         self.usage.cost_usd += cost
         usage = getattr(result, "usage", None) or {}
         self.usage.calls += int(getattr(result, "num_turns", 0) or 0)
@@ -601,15 +608,22 @@ class ClaudeRoleExecutor(RoleExecutor):
     def _progress_extra(self) -> Dict[str, Any]:
         extra = super()._progress_extra()
         for card in (extra.get("team") or {}).get("packages") or []:
-            card["model"] = engine_model()
+            card["ran_on"] = main_model(self.models_seen)
+            card["models_used"] = {m: dict(v) for m, v in self.models_seen.items()}
             card["engine"] = "Claude Agent SDK"
+        if self.models_seen:  # the running card: what the session says is answering
+            extra["role"] = {"specialist": self.role, "title": self.title,
+                             "engine": {"model": main_model(self.models_seen),
+                                        "models_used": {m: dict(v) for m, v in self.models_seen.items()}}}
         return extra
 
     async def run(self, mission: str, *args, **kwargs) -> Dict[str, Any]:
         self._verify_on = bool(kwargs.get("verify", True))
         result = await super().run(mission, *args, **kwargs)
         if self.engine_note:
-            result["engine"] = {"name": "claude", "model": engine_model(), "cost_usd": round(self.engine_cost_usd, 4),
+            result["engine"] = {"name": "claude", "model": main_model(self.models_seen),
+                                "models_used": {m: dict(v) for m, v in self.models_seen.items()},
+                                "cost_usd": round(self.engine_cost_usd, 4),
                                 "note": self.engine_note, "delegated": list(self.delegated),
                                 "session_id": self.session_id, "skills": len(self.skills_seen),
                                 "plugins": list(self.plugins_seen), "worker_model": worker_model(),
@@ -626,7 +640,7 @@ class ClaudeRoleExecutor(RoleExecutor):
                                      f"for this folder, {learned['global_instincts']} shared, "
                                      f"{learned['observations_waiting']} observations waiting to be learned from._")
             if isinstance(result.get("role"), dict):
-                result["role"]["model"] = engine_model()
+                result["role"]["model"] = result["engine"]["model"]
                 result["role"]["engine"] = result["engine"]  # kept on the mission's record with the role
         return result
 
@@ -894,6 +908,10 @@ class ClaudeRoleExecutor(RoleExecutor):
         subtype = ""
         async for message in client.receive_response():
             kind = _kind(message)
+            if kind == "AssistantMessage" and getattr(message, "model", None):
+                # Every reply names the model that wrote it, the session's workers' included.
+                seen = self.models_seen.setdefault(str(message.model), {"replies": 0, "cost_usd": 0.0})
+                seen["replies"] += 1
             if kind == "SystemMessage" and getattr(message, "subtype", "") == "init":
                 data = getattr(message, "data", None) or {}
                 self.session_id = str(data.get("session_id") or self.session_id or "") or None

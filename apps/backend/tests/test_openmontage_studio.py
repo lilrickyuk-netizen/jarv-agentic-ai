@@ -47,16 +47,17 @@ def test_the_studio_package_runs_openmontage_in_richards_folder_and_never_publis
     team._content_rules = lambda mission, studio=False: mission_org.MissionTeam._content_rules(team, mission, studio)
     package = mission_org.MissionTeam._skill_package(team, STUDIO_SKILL, ["R1"], BRIEF)
     assert "/opt/openmontage/AGENT_GUIDE.md" in package.goal and "OPENMONTAGE_PROJECTS_DIR" in package.goal
-    assert "never the publish stage" in package.goal and "never ask for an API key" in package.goal
+    assert "Skip the publish stage" in package.goal and "never ask for an API key" in package.goal
     assert mission_org.VIDEO_TOOLS_READY in package.goal and ".jai/product.md" in package.goal
     # 22 November: a studio video is capped at 45 minutes and $6, and never handed to Opus.
     assert package.max_cost == 4.0 and package.max_seconds == 45 * 60 and package.no_takeover is True
-    assert package.model == "claude-sonnet-5-5" and package.effort == "medium"
+    assert package.model == mission_org.VIDEO and package.effort == "medium"  # VIDEO_MODEL, read as it runs
     # It composes with OpenMontage's own composers and stops once a render passes (22 November).
     assert "/opt/openmontage/remotion-composer" in package.goal and "never re-source footage" in package.goal
-    # 23 November: OpenMontage's tools directly, none of its staged forms, checkpoints or approval stops.
-    assert "write no stage checkpoints" in package.goal and "validate nothing against its schemas" in package.goal
-    assert "generate_image" in package.goal and "faster-whisper" in package.goal
+    # 25 November: its own pipeline, stage by stage, with Richard's brief as its approval of every gate
+    # (tests/test_studio_runs_the_pipeline.py); 23 November's "no forms" rule is gone.
+    assert "approval_policy" in package.goal and "write no stage checkpoints" not in package.goal
+    assert "generate_image" in package.goal and "transcriber" in package.goal
     from app.core.command.sandbox_engine import RUN_TIMEOUT_SECONDS, SandboxSpecialist
 
     runtime_team = SimpleNamespace(runtime=SimpleNamespace(task_id="abcd1234"))

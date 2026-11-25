@@ -62,6 +62,25 @@ def _budget_out(result: Dict[str, Any]) -> bool:
 
 UNREACHABLE_WAIT_SECONDS = 45.0
 
+
+def main_model(used: Optional[Dict[str, Any]]) -> Optional[str]:
+    """The model that did most of a run's work, from the engine's own account of the models that answered it
+    ({model: {"replies", "cost_usd"}}): by cost, then by replies. None when the run reported none."""
+    if not used:
+        return None
+    return max(used, key=lambda m: (float((used[m] or {}).get("cost_usd") or 0),
+                                    int((used[m] or {}).get("replies") or 0)))
+
+
+def add_models(into: Dict[str, Any], more: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Two accounts of the models used, added together."""
+    total = {m: dict(v) for m, v in (into or {}).items()}
+    for model, seen in (more or {}).items():
+        mine = total.setdefault(model, {"replies": 0, "cost_usd": 0.0})
+        mine["replies"] = int(mine.get("replies") or 0) + int((seen or {}).get("replies") or 0)
+        mine["cost_usd"] = round(float(mine.get("cost_usd") or 0) + float((seen or {}).get("cost_usd") or 0), 6)
+    return total
+
 # 24 November (audit batch 3): which engine a package runs on in the sandbox. Development (software builds, their
 # environment, integration and checks) stays on OpenHands; the rest runs as a Claude Agent SDK session with the shell
 # on, gated by the same sandbox rules (services/openhands/app/claude_run.py). Claude sessions speak only Anthropic's
@@ -283,6 +302,7 @@ class SandboxSpecialist:
         self.poll_seconds = poll_seconds
         self.timeout_seconds = float(own) if own and timeout_seconds == RUN_TIMEOUT_SECONDS else timeout_seconds
         self.run_id = f"{str(team.runtime.task_id or 'mission')[:8]}-{package.id}-{uuid4().hex[:8]}"
+        self._earlier_models: Dict[str, Any] = {}  # the models earlier runs of this package reported
 
     def _brief(self, requirements: List[Dict[str, Any]]) -> str:
         from app.core.command.requirements import render
@@ -375,6 +395,9 @@ class SandboxSpecialist:
             stuck = lead or bool(getattr(self.team, "stuck", False))
             chosen = str(getattr(settings, "OPENHANDS_STUCK_MODEL", "") or self.lead_model()) if stuck \
                 else self.lead_model()
+        elif wanted == "video":
+            # A studio video: VIDEO_MODEL (Sonnet 5.5 unless apps/backend/.env says otherwise), read as the run starts.
+            chosen = str(settings.VIDEO_MODEL or self.lead_model())
         elif wanted and wanted != "specialist":
             chosen = str(wanted)
         else:
@@ -422,6 +445,8 @@ class SandboxSpecialist:
                                + str(again.get("answer") or ""))
             for key in ("steps", "tokens", "cost_usd"):
                 again[key] = (again.get(key) or 0) + (result.get(key) or 0)
+            again["models_used"] = add_models(result.get("models_used"), again.get("models_used"))
+            again["ran_on"] = main_model(again["models_used"])
             return again
         lead = str(getattr(settings, "OPENHANDS_STUCK_MODEL", "") or self.lead_model())
         # A writer that stopped short is taken over once by Opus. The builder is not: its next round carries on, and
@@ -472,6 +497,8 @@ class SandboxSpecialist:
         later["tools_used"] = used
         later["skills_used"] = list(dict.fromkeys([*(earlier.get("skills_used") or []),
                                                    *(later.get("skills_used") or [])]))
+        later["models_used"] = add_models(earlier.get("models_used"), later.get("models_used"))
+        later["ran_on"] = main_model(later["models_used"])
         return later
 
     async def _attempt(self, requirements: List[Dict[str, Any]], container_root: str, model: str) -> Dict[str, Any]:
@@ -562,13 +589,16 @@ class SandboxSpecialist:
             said = statuses.get(str(r["id"]).upper())
             theirs.append({**r, **said} if said else dict(r))
         tokens = view.get("tokens") or {}
+        self._earlier_models = add_models(self._earlier_models, view.get("models_used"))
         return {"success": view.get("status") == "finished", "answer": report, "requirements": theirs,
                 "status": view.get("status"), "steps": int(view.get("steps") or 0), "model": model,
                 "engine": engine,
                 "error": str(view.get("error") or ""),
                 "tokens": int(tokens.get("input") or 0) + int(tokens.get("output") or 0),
                 "token_detail": tokens, "cost_usd": float(view.get("cost_usd") or 0),
-                "tools_used": dict(view.get("tools_used") or {}), "skills_used": list(view.get("skills_used") or [])}
+                "tools_used": dict(view.get("tools_used") or {}), "skills_used": list(view.get("skills_used") or []),
+                # What actually answered, as the engine reported it (25 November: the card showed a setting).
+                "models_used": dict(view.get("models_used") or {}), "ran_on": main_model(view.get("models_used"))}
 
     async def _follow(self, client: httpx.AsyncClient, container_root: str) -> Dict[str, Any]:
         seen = 0
@@ -610,6 +640,9 @@ class SandboxSpecialist:
                 self.package.tokens = int(live.get("input") or 0) + int(live.get("output") or 0)
             if view.get("doing_now"):
                 self.package.doing = str(view["doing_now"])[:300]
+            if view.get("models_used"):  # the running card names the model the engine says is answering
+                self.package.models_used = add_models(self._earlier_models, view["models_used"])
+                self.package.ran_on = main_model(self.package.models_used)
             await self.team.save_progress()
             if view.get("status") not in ("starting", "running"):
                 return view

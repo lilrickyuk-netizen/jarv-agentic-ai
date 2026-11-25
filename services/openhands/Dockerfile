@@ -171,8 +171,11 @@ ENV OPENMONTAGE_HOME=/opt/openmontage PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwrigh
 # yt-dlp[default] brings yt-dlp-ejs, YouTube's challenge solver. PyAV is held below 19 (23 November): PyAV 19.0.0
 # (29 September 2026) removed av.open's metadata_errors option, which every faster-whisper release up to 1.2.1 passes
 # when it reads a file, so OpenMontage's transcription failed on every video; PyAV 18.1 still has it. The command-line yt-dlp has its own environment, so
-# its dependencies never touch the sandbox service's.
-ARG YT_DLP_VERSION=2026.10.26
+# its dependencies never touch the sandbox service's. 25 November (mission 84779dd7): 2026.10.26 failed YouTube's n
+# challenge ("n challenge solving failed", only audio or 240p-480p offered); 2026.11.23 asks for YouTube's "tv"
+# player script instead of the "main" one whose challenge yt-dlp-ejs could not solve, and adds the ios_producer
+# fallback client. It pins yt-dlp-ejs 0.8.0 (brought by [default]) and asks for Deno 2.9.8 or newer (its deno extra).
+ARG YT_DLP_VERSION=2026.11.23
 ARG YOUTUBE_TRANSCRIPT_API_VERSION=1.2.5
 COPY --from=deno /deno /usr/local/bin/deno
 COPY --from=whisper /usr/local/bin/whisper-cli /usr/local/bin/whisper-cli
@@ -181,7 +184,7 @@ RUN deno --version \
     && python3 -m venv /opt/yt-dlp \
     && /opt/yt-dlp/bin/pip install --no-cache-dir "yt-dlp[default]==${YT_DLP_VERSION}" \
     && ln -s /opt/yt-dlp/bin/yt-dlp /usr/local/bin/yt-dlp \
-    && yt-dlp --version \
+    && yt-dlp -v 2>&1 | grep -q "JS runtimes: deno-" \
     && /opt/openmontage/.venv/bin/pip install --no-cache-dir "yt-dlp[default]==${YT_DLP_VERSION}" \
         "youtube-transcript-api==${YOUTUBE_TRANSCRIPT_API_VERSION}" "av>=18.1,<19" \
     && /opt/openmontage/.venv/bin/python -c "import numpy, cv2, mediapipe as mp; \

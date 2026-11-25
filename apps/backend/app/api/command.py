@@ -56,6 +56,8 @@ class CommandResponse(BaseModel):
     error: Optional[str] = None
     finished: bool = False
     dispatch_mode: Optional[str] = None
+    # The model each role ran on, when the roles differ (from the engines' own run reports).
+    models_by_role: Dict[str, str] = {}
 
 
 class MissionEvent(BaseModel):
@@ -133,12 +135,31 @@ def _so_far(task: Task, status: str, live: Optional[Dict[str, Any]]) -> tuple:
     return seconds, tokens
 
 
+def _ran_on(task: Task, status: str, live: Optional[Dict[str, Any]]) -> tuple:
+    """(provider, model, models by role) for the card: what the engines reported running this mission, never a
+    setting or the Orchestrator's model read now (25 November: VIDEO_MODEL went back to Sonnet and the cards still
+    said Opus, the Orchestrator's model recorded when the mission was queued). While it works: the models its runs
+    have reported so far; once it has ended: the ones its result recorded (service.worked_on)."""
+    from app.core.command.service import worked_on
+
+    res = task.result if isinstance(task.result, dict) else {}
+    if status in lifecycle.IN_FLIGHT:
+        did = worked_on(live or {}) if live else None
+        if did is None and res.get("models_used"):
+            return res.get("provider"), res.get("model"), dict(res.get("models_by_role") or {})
+        if did is None:
+            return None, None, {}
+        return did["provider"], did["model"], dict(did.get("by_role") or {})
+    return res.get("provider"), res.get("model"), dict(res.get("models_by_role") or {})
+
+
 def _mission_view(task: Task, events: List[LiveOperationsFeedItem],
                   live: Optional[Dict[str, Any]] = None) -> MissionStatusResponse:
     res = task.result if isinstance(task.result, dict) else {}
     meta = task.meta_data or {}
     status = lifecycle.normalise(task.status)
     seconds, tokens = _so_far(task, status, live)
+    ran_on = _ran_on(task, status, live)
     from app.core.creative import render_jobs
 
     job = render_jobs.rendering(meta) if status in lifecycle.IN_FLIGHT else None
@@ -157,7 +178,8 @@ def _mission_view(task: Task, events: List[LiveOperationsFeedItem],
         requires_approval=status in (lifecycle.BLOCKED, lifecycle.WAITING_ON_APPROVAL),
         response_text=text, plan_steps=list(res.get("plan_steps") or []),
         selected_agents=list(res.get("selected_agents") or []),
-        provider=res.get("provider") or meta.get("provider"), model=res.get("model") or meta.get("model"),
+        provider=ran_on[0], model=ran_on[1],
+        models_by_role=ran_on[2] if len(set(ran_on[2].values())) > 1 else {},
         execution_time=float(seconds), tokens_used=int(tokens),
         approval_reason=meta.get("blocked_reason"),
         error=task.error_message if status in (lifecycle.FAILED, lifecycle.PARTIAL) else None,

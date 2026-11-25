@@ -18,6 +18,7 @@ from pathlib import Path
 
 import sys
 
+import httpx
 import pytest
 
 if "app.server" not in sys.modules:  # run alone: the service takes these out of its environment as it starts
@@ -192,6 +193,9 @@ def test_a_claude_session_runs_gated_commands_as_the_agent_user_without_any_toke
         assert {s["auth"] for s in Gateway.seen if "messages" in s["path"]} == {f"Bearer {RUN_TOKEN}"}
         assert run.cost_usd >= 0 and run.tokens["output"] > 0
         assert run.tools_used.get("Bash") == 1  # the refused one never ran
+        # 25 November: the run reports the model that answered, as the session itself said (for the mission card).
+        used = run.view()["models_used"]
+        assert list(used) == [MODEL] and used[MODEL]["replies"] >= 2
     finally:
         shutil.rmtree(folder, ignore_errors=True)
         shutil.rmtree(home / ".jai-claude-test", ignore_errors=True)
@@ -472,3 +476,25 @@ def test_a_session_can_open_a_full_size_still(monkeypatch, gateway):
         shutil.rmtree(folder, ignore_errors=True)
         shutil.rmtree(still.parent, ignore_errors=True)
         shutil.rmtree(home / ".jai-claude-test", ignore_errors=True)
+
+
+def test_an_openhands_run_reports_the_models_its_own_metrics_name(tmp_path):
+    """25 November: the mission card names the model that ran, from the engine's own account. For an OpenHands run
+    that is its conversation's metrics, per model (the provider prefix taken off)."""
+    from types import SimpleNamespace
+
+    def metrics(name, cost, replies):
+        return SimpleNamespace(model_name=name, accumulated_cost=cost, token_usages=[object()] * replies,
+                               accumulated_token_usage=None)
+
+    request = server.RunRequest(run_id="run-oh-models", workspace=str(tmp_path), brief="b", model=MODEL,
+                                provider="anthropic", max_iterations=5, max_cost_usd=1.0)
+    run = server.Run(request, gates.Gate("http://backend", "t", "run-oh-models",
+                                         transport=httpx.MockTransport(lambda r: httpx.Response(200, json={}))))
+    stats = SimpleNamespace(usage_to_metrics={"agent": metrics("anthropic/claude-sonnet-5-5", 0.42, 7),
+                                              "condenser": metrics("anthropic/claude-haiku-5-5", 0.01, 2)},
+                            get_combined_metrics=lambda: metrics("x", 0.43, 9))
+    run.conversation = SimpleNamespace(conversation_stats=stats)
+    used = run.view()["models_used"]
+    assert used == {"claude-sonnet-5-5": {"replies": 7, "cost_usd": 0.42},
+                    "claude-haiku-5-5": {"replies": 2, "cost_usd": 0.01}}

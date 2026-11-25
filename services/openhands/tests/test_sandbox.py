@@ -494,3 +494,18 @@ def test_openmontages_face_tracker_runs_with_mediapipe_and_has_its_opencv_fallba
     assert report["method"] == "mediapipe" and report["status"].endswith("AVAILABLE") and report["cascade"]
     written = json.loads((tmp_path / "f.json").read_text())
     assert written["video_width"] == 1080 and written["frame_count"] > 0 and written["faces"] == []
+
+
+def test_yt_dlp_has_the_release_that_solves_youtubes_n_challenge_with_deno_and_its_solver():
+    """25 November, mission 84779dd7: yt-dlp 2026.10.26 failed YouTube's n challenge ("n challenge solving failed",
+    only audio or 240p-480p formats offered). 2026.11.23 asks for YouTube's tv player script; it needs yt-dlp-ejs
+    0.8.0 (its [default] extra) and a JavaScript runtime, Deno 2.9.8 or newer. Both of the sandbox's yt-dlp installs
+    (the command and OpenMontage's) have them. The live 1080p download is checked by the installer, on the network."""
+    import subprocess
+
+    for command in (["yt-dlp", "-v"], ["/opt/openmontage/.venv/bin/python", "-m", "yt_dlp", "-v"]):
+        header = subprocess.run(command, capture_output=True, text=True, timeout=120).stderr
+        assert "yt-dlp version stable@2026.11.23" in header, (command, header[:600])
+        assert "yt_dlp_ejs-0.8.0" in header and "JS runtimes: deno-" in header, (command, header[:600])
+        deno = header.split("JS runtimes: deno-", 1)[1].split()[0].strip(",")
+        assert tuple(int(x) for x in deno.split(".")[:3]) >= (2, 9, 8), deno

@@ -17,6 +17,8 @@ export interface MissionResult {
   selected_agents: string[];
   provider: string | null;
   model: string | null;
+  /** The model each role ran on, when the roles differ (as the engines reported them). */
+  models_by_role?: Record<string, string>;
   execution_time: number;
   tokens_used: number;
   approval_reason?: string | null;
@@ -122,4 +124,12 @@ export async function retryMission(taskId: string): Promise<MissionResult | null
   const res = await apiClient.post<MissionResult>(`/api/command/tasks/${taskId}/retry`);
   if (res.error) throw new Error(res.error);
   return res.data ?? null;
+}
+
+/** The card's model label: what the mission's engines reported running it, per role when the roles differ. */
+export function ranOnLabel(mission: Pick<MissionResult, 'provider' | 'model' | 'models_by_role'>): string {
+  if (!mission.model) return 'model not reported yet';
+  const roles = Object.entries(mission.models_by_role ?? {});
+  if (roles.length > 1) return roles.map(([role, model]) => `${role}: ${model}`).join(' · ');
+  return mission.provider ? `${mission.provider}/${mission.model}` : mission.model;
 }

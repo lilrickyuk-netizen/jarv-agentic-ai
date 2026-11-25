@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/api';
 import {
-  archiveMission, cancelMission, followMission, MissionResult, resumeMission, retryMission, runMission,
+  archiveMission, cancelMission, followMission, MissionResult, ranOnLabel, resumeMission, retryMission, runMission,
 } from '@/lib/missions';
 
 // A mission in one of these states is still being worked on by JAI's worker.
@@ -275,7 +275,7 @@ export default function CommandPage() {
                 {result.status.toUpperCase()}
               </span>
               <span className="text-xs text-muted-foreground">
-                {result.provider}/{result.model} · {result.execution_time}s · {result.tokens_used} tokens
+                {ranOnLabel(result)} · {result.execution_time}s · {result.tokens_used} tokens
                 {result.attempts && result.attempts > 1 ? ` · attempt ${result.attempts}` : ''}
               </span>
             </div>
