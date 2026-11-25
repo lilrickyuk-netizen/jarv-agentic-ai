@@ -16051,3 +16051,27 @@ RESULT: After a finished render the maker looks once at one contact sheet of the
 RESEARCH: None beyond the task
 BLOCKERS: None
 NEXT TASK: One installer against 72792c7 with the long-renders fixes and this one
+
+TASK ID: RENDER-BATCH-AND-JUDGED-BY-CONTENTS
+TASK NAME: Richard, 25 November (mission 1d110524): start_render takes a list of renders as one job, run in order with no AI cost, each output's facts reported; "Render failed · exit 0" re-checked; start_render judges a command by what it runs (VideoCompose, hyperframes render, remotion render, ffmpeg), not by the script's file name
+STATUS: COMPLETE (backend 1462 passed, 1 skipped; sandbox suite all passed apart from the 14 image tests)
+FILES CREATED: None
+FILES MODIFIED: services/openhands/app/renders.py (Job steps: each step run in order in one job, a header per step in the log, facts per step, the job failed if any step failed, the newest-video search limited to the step's run), services/openhands/app/server.py (RenderStep, RenderRequest.steps up to 20, each step's folder checked), apps/backend/app/core/creative/render_jobs.py (python_runs reads the -c code or the script's text; is_render judges python by a VideoCompose( call in what it runs; chained() uses shlex punctuation so a ; inside quoted code is not a chain; start sends steps; the watcher reports each clip: exit 0 with a readable video is made; card "render N of M"; facts brief per clip), apps/backend/app/core/command/tool_runtime.py (start_render renders list, _render_step checks each), apps/backend/app/core/agents/toolbox.py (renders array), apps/backend/app/core/command/mission_org.py (studio_goal), both test files, BUILD_LEDGER.md
+COMMANDS RUN: None beyond the tests
+TESTS RUN: sandbox: a batch of 3 runs in order (finished, failed, finished) with one log; a step outside the workspace is refused; backend: render_clip.py, videocompose_render_.py, render_all.py accepted by contents, a script named VideoCompose_render_.py that deletes files refused, a runpy decoy refused, an unreadable script not judged; a semicolon in quoted python code; 5 renders become one job in order, a bad one named "Render 3 of 5"; the watcher reports each clip and counts exit 0 with a readable video as made; both whole suites
+RESULT: Several clips render as one no-AI job, in order, each reported. A script is accepted for what it runs, whatever its name. Exit 0 with a readable video is reported as made; the exit-0 failure on 1d110524 matches OpenMontage's 30-minute limit, which the HyperFrames fix already reports as a timeout.
+RESEARCH: Python shlex (punctuation_chars)
+BLOCKERS: None
+NEXT TASK: Face tracker pins
+
+TASK ID: FACE-TRACKER-PINNED
+TASK NAME: Richard, 25 November (mission 1d110524): OpenMontage's face tracker found no MediaPipe and no OpenCV face cascade; pin a working, proven set in the Dockerfile and test that the face tracker runs in the sandbox
+STATUS: COMPLETE (sandbox image test added; run by the installer inside the rebuilt image)
+FILES CREATED: None
+FILES MODIFIED: services/openhands/Dockerfile (MEDIAPIPE_VERSION 0.10.21, OPENCV_CONTRIB_VERSION 4.11.0.86, NUMPY_VERSION 1.26.4 in OpenMontage's venv; libgl1 and libglib2.0-0; build checks mp.solutions.face_detection and the Haar cascade, and that later installs left the pins in place), services/openhands/tests/test_sandbox.py, BUILD_LEDGER.md
+COMMANDS RUN: OpenMontage 2e003e65 read: tools/analysis/face_tracker.py uses mp.solutions.face_detection with an OpenCV Haar fallback; its install instructions are "pip install mediapipe opencv-python". MediaPipe 0.10.21 is the last release with mp.solutions and needs numpy<2; opencv-python-headless 5.x has no cascade classifier. FaceTracker run on a 1080x1920 test clip in the pinned set: AVAILABLE, method mediapipe, JSON written. OpenMontage's own suite with the pinned set: 2918 passed, 1 failed (test_scene_analysis_cache_tracks_requested_minimum_length), the same failure with OpenMontage's unpinned set
+TESTS RUN: sandbox image test: FaceTracker runs with MediaPipe on a generated clip and writes its JSON, the Haar cascade loads; OpenMontage's full suite in both sets
+RESULT: The face tracker works in the sandbox with MediaPipe and has its OpenCV fallback; the agent no longer changes OpenCV or NumPy at run time.
+RESEARCH: OpenMontage face_tracker.py; mediapipe and opencv-python release files on PyPI
+BLOCKERS: None
+NEXT TASK: One installer against 72792c7 with the long-renders fixes, the batch, the judged-by-contents check and the face tracker

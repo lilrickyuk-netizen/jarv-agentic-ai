@@ -90,6 +90,7 @@ RUN set -eu; cd /tmp \
 # fonts, so a specialist can draw frames in a browser and render the MP4 itself.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg chromium fonts-liberation fonts-dejavu-core fonts-noto-core fonts-noto-color-emoji \
+        libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 ENV CHROME_PATH=/usr/bin/chromium PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium PUPPETEER_SKIP_DOWNLOAD=1 \
     JAI_SKILLS_DIR=/jai/skills
@@ -134,13 +135,25 @@ ENV HYPERFRAMES_PYTHON=/opt/kokoro/bin/python
 # (OPENMONTAGE_PROJECTS_DIR). Its Python environment has its own requirements plus what its reference-video analysis
 # and character renders import (faster-whisper, PySceneDetect with OpenCV, Playwright with its Chromium). It renders
 # through the Hyperframes installed above. Its Remotion composer is installed further down (22 November).
+# Its face tracker (tools/analysis/face_tracker.py) asks for "pip install mediapipe opencv-python" and calls
+# MediaPipe's mp.solutions.face_detection, falling back to OpenCV's Haar cascade (25 November, mission 1d110524: the
+# sandbox had neither, opencv-python-headless 5.1 has no cascade classifier, and the agent downgraded OpenCV and NumPy
+# at run time). MediaPipe 0.10.21 is the last release with mp.solutions (0.10.30 and later dropped it) and needs
+# NumPy below 2; it brings opencv-contrib-python, which has both the cascade and what PySceneDetect needs, so
+# PySceneDetect is installed without its own OpenCV. The set was tested: the face tracker runs with MediaPipe, and
+# OpenMontage's test suite gives the same result as with NumPy 2.
+ARG MEDIAPIPE_VERSION=0.10.21 OPENCV_CONTRIB_VERSION=4.11.0.86 NUMPY_VERSION=1.26.4
 ARG OPENMONTAGE_COMMIT=2e003e65fa99a0f329478a2c1cdcf26bc481933a
 RUN git clone --quiet https://github.com/calesthio/OpenMontage.git /opt/openmontage \
     && git -C /opt/openmontage checkout --quiet "${OPENMONTAGE_COMMIT}" \
     && rm -rf /opt/openmontage/.git \
     && python3 -m venv /opt/openmontage/.venv \
     && /opt/openmontage/.venv/bin/pip install -r /opt/openmontage/requirements.txt \
-        "faster-whisper>=1.1,<2" "scenedetect[opencv-headless]>=0.6.4,<0.7" "playwright>=1.49,<2" \
+        "faster-whisper>=1.1,<2" "scenedetect>=0.6.4,<0.7" "playwright>=1.49,<2" \
+        "mediapipe==${MEDIAPIPE_VERSION}" "opencv-contrib-python==${OPENCV_CONTRIB_VERSION}" \
+        "numpy==${NUMPY_VERSION}" \
+    && /opt/openmontage/.venv/bin/python -c "import cv2, mediapipe as mp; mp.solutions.face_detection; \
+cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')" \
     && PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright /opt/openmontage/.venv/bin/python -m playwright install \
         --with-deps chromium \
     && rm -rf /var/lib/apt/lists/* \
@@ -171,6 +184,9 @@ RUN deno --version \
     && yt-dlp --version \
     && /opt/openmontage/.venv/bin/pip install --no-cache-dir "yt-dlp[default]==${YT_DLP_VERSION}" \
         "youtube-transcript-api==${YOUTUBE_TRANSCRIPT_API_VERSION}" "av>=18.1,<19" \
+    && /opt/openmontage/.venv/bin/python -c "import numpy, cv2, mediapipe as mp; \
+assert numpy.__version__ == '${NUMPY_VERSION}' and cv2.__version__ == '${OPENCV_CONTRIB_VERSION}'.rsplit('.', 1)[0], (numpy.__version__, cv2.__version__); \
+mp.solutions.face_detection" \
     && chown -R openhands:openhands /opt/openmontage/.venv
 
 # OpenMontage's Remotion composer (22 November): the second half of OpenMontage's own setup (its README: requirements,

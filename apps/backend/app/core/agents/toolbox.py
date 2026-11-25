@@ -348,7 +348,15 @@ WORKSPACE_TOOLS: Dict[str, ToolSpec] = {
                              "mission pauses with no AI running and comes back to you with the render's facts "
                              "(exit code, size, length, frozen frames, last log lines).",
                              _schema({"command": {"type": "string"}, "cwd": {"type": "string"},
-                                      "output": {"type": "string"}}, ["command", "output"]), "workspace"),
+                                      "output": {"type": "string"},
+                                      "renders": {"type": "array", "description": (
+                                          "Several renders (clips) at once instead of command, cwd and output: "
+                                          "one job, run in order with no AI between them, each reported with its "
+                                          "own facts. Up to 20."),
+                                          "items": {"type": "object", "properties": {
+                                              "command": {"type": "string"}, "cwd": {"type": "string"},
+                                              "output": {"type": "string"}}, "required": ["command"]}}}),
+                             "workspace"),
     "read_document": ToolSpec("read_document", "Read a PDF, Word, PowerPoint, Excel, HTML or scanned document as "
                               "text with its headings and tables (Docling; scans are read with OCR): a file in "
                               "the workspace (path) or a public address (url). Long documents come in parts: pass "
@@ -805,7 +813,8 @@ class AgentToolbox:
             return await rt.dev_services(str(args.get("action") or ""), str(args.get("service") or ""))
         if name == "start_render":
             return await rt.start_render(str(args.get("command") or ""), str(args.get("cwd") or ""),
-                                         str(args.get("output") or ""), root_host=self.root_host)
+                                         str(args.get("output") or ""), root_host=self.root_host,
+                                         renders=list(args.get("renders") or []) or None)
         if name in CODE_TOOLS:
             return await self._code_call(name, args)
         if name == "read_document":

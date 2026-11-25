@@ -64,9 +64,15 @@ def _iso(moment: Optional[float]) -> Optional[str]:
 
 
 class Job:
-    def __init__(self, job_id: str, workspace: str, command: str, cwd: str, output: str, kind: str = "render"):
+    def __init__(self, job_id: str, workspace: str, command: str, cwd: str, output: str, kind: str = "render",
+                 steps: Optional[List[Dict[str, str]]] = None):
         self.kind = kind  # "render" (makes a video) or "check" (HyperFrames' lint, validate, check, snapshot)
         self.id, self.workspace, self.command, self.cwd, self.output = job_id, workspace, command, cwd, output
+        # A batch: several renders (or checks) run in order as one job, one render slot, no AI between them
+        # (25 November, mission 1d110524: one render per mission blocked its 5 clips). A single render is one step.
+        self.steps: List[Dict[str, str]] = steps or [{"command": command, "cwd": cwd, "output": output,
+                                                      "kind": kind}]
+        self.step_index = 0
         self.status = "queued"  # queued, running, finished, failed, cancelled
         self.exit_code: Optional[int] = None
         self.queued_at = time.time()
@@ -83,7 +89,8 @@ class Job:
                 "queued_at": _iso(self.queued_at), "started_at": _iso(self.started_at),
                 "ended_at": _iso(self.ended_at),
                 "seconds": int((self.ended_at or now) - (self.started_at or now)) if self.started_at else 0,
-                "position": queue_position(self.id), "facts": dict(self.facts)}
+                "position": queue_position(self.id), "facts": dict(self.facts),
+                "steps": len(self.steps), "step": self.step_index + 1 if self.status == "running" else None}
 
 
 JOBS: Dict[str, Job] = {}
@@ -113,7 +120,8 @@ def active_for(prefix: str) -> List[Job]:
         return [j for j in JOBS.values() if j.id.startswith(prefix) and j.status in ("queued", "running")]
 
 
-def submit(job_id: str, workspace: str, command: str, cwd: str, output: str, kind: str = "render") -> Job:
+def submit(job_id: str, workspace: str, command: str, cwd: str, output: str, kind: str = "render",
+           steps: Optional[List[Dict[str, str]]] = None) -> Job:
     """Queue a render, or return the mission's render already queued or running (job.id tells which)."""
     global _WORKER
     with _LOCK:
@@ -124,7 +132,7 @@ def submit(job_id: str, workspace: str, command: str, cwd: str, output: str, kin
                          and j.status in ("queued", "running")), None)
         if existing is not None:
             return existing
-        job = Job(job_id, workspace, command, cwd, output, kind)
+        job = Job(job_id, workspace, command, cwd, output, kind, steps)
         JOBS[job_id] = job
         if _WORKER is None or not _WORKER.is_alive():
             _WORKER = threading.Thread(target=_work, name="renders", daemon=True)
@@ -163,33 +171,55 @@ def _as_agent() -> Dict[str, Any]:
 
 
 def run(job: Job) -> None:
-    """Run one render to its end (no timeout) and work out its facts."""
+    """Run a render job to its end (no timeout): each of its steps in order, then work out their facts."""
     job.log.parent.mkdir(parents=True, exist_ok=True)
     job.status, job.started_at = "running", time.time()
-    with open(job.log, "ab") as log:
-        log.write(f"$ {job.command}\n(in {job.cwd}, started {_iso(job.started_at)})\n".encode())
-        log.flush()
-        job.process = subprocess.Popen(["bash", "-lc", f"cd {_quote(job.cwd)} && {job.command}"], cwd=job.cwd,
-                                       stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                       start_new_session=True, **_as_agent())
-        if job.status == "cancelled":  # cancelled while it was starting
-            _stop(job.process)
-        job.exit_code = job.process.wait()
+    results: List[Dict[str, Any]] = []
+    for index, step in enumerate(job.steps):
+        if job.status == "cancelled":
+            break
+        job.step_index = index
+        job.command, job.cwd, job.output, job.kind = step["command"], step["cwd"], step.get("output", ""), \
+            step.get("kind", "render")
+        began = time.time()
+        with open(job.log, "ab") as log:
+            label = f"[step {index + 1} of {len(job.steps)}] " if len(job.steps) > 1 else ""
+            log.write(f"{label}$ {job.command}\n(in {job.cwd}, started {_iso(began)})\n".encode())
+            log.flush()
+            job.process = subprocess.Popen(["bash", "-lc", f"cd {_quote(job.cwd)} && {job.command}"], cwd=job.cwd,
+                                           stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                           start_new_session=True, **_as_agent())
+            if job.status == "cancelled":  # cancelled while it was starting
+                _stop(job.process)
+            job.exit_code = job.process.wait()
+        if job.status == "cancelled":
+            break
+        if job.kind == "check":  # a check makes no video: its exit code is its verdict, its log the findings
+            done = {"kind": "check", "exit_code": job.exit_code, "log_tail": _tail(job.log),
+                    "seconds": int(time.time() - began)}
+            ok = job.exit_code == 0
+        else:
+            done = facts(job, began)
+            ok = job.exit_code == 0 and _readable(done)
+        results.append({**done, "command": job.command, "status": "finished" if ok else "failed"})
+        logger.info("render %s step %s/%s %s (exit %s)", job.id, index + 1, len(job.steps), results[-1]["status"],
+                    job.exit_code)
     job.ended_at = time.time()
     if job.status == "cancelled":
-        job.facts = {"exit_code": job.exit_code, "cancelled": True, "log_tail": _tail(job.log)}
+        job.facts = {"exit_code": job.exit_code, "cancelled": True, "log_tail": _tail(job.log),
+                     "steps": results}
         logger.info("render %s cancelled after %ss", job.id, int(job.ended_at - job.started_at))
         return
-    if job.kind == "check":  # a check makes no video: its exit code is its verdict, its log the findings
-        job.facts = {"kind": "check", "exit_code": job.exit_code, "log_tail": _tail(job.log),
-                     "seconds": int(job.ended_at - (job.started_at or job.ended_at))}
-        job.status = "finished" if job.exit_code == 0 else "failed"
-        logger.info("check %s %s (exit %s)", job.id, job.status, job.exit_code)
+    if len(job.steps) == 1:
+        job.facts = {k: v for k, v in results[0].items() if k not in ("command", "status")}
+        job.status = results[0]["status"]
         return
-    job.facts = facts(job)
-    job.status = "finished" if job.exit_code == 0 and _readable(job.facts) else "failed"
-    logger.info("render %s %s (exit %s) in %ss", job.id, job.status, job.exit_code,
-                int(job.ended_at - job.started_at))
+    failed = [r for r in results if r["status"] != "finished"]
+    job.exit_code = next((r["exit_code"] for r in failed if r.get("exit_code")), 0)
+    job.facts = {"kind": "batch", "steps": results, "exit_code": job.exit_code, "log_tail": _tail(job.log),
+                 "seconds": int(job.ended_at - job.started_at), "finished": len(results) - len(failed),
+                 "failed": len(failed)}
+    job.status = "failed" if failed else "finished"
 
 
 def cancel(prefix: str) -> List[str]:
@@ -280,7 +310,7 @@ def _readable(found: Dict[str, Any]) -> bool:
                 and float(found.get("duration_seconds") or 0) > 0)
 
 
-def _candidates(job: Job) -> List[Path]:
+def _candidates(job: Job, began: Optional[float] = None) -> List[Path]:
     """Where the render's video may be, in order: where start_render said (from the render's folder, then the
     workspace), where the command says it writes, then the newest video written in the workspace since it began."""
     def resolved(name: str) -> List[Path]:
@@ -292,7 +322,7 @@ def _candidates(job: Job) -> List[Path]:
         out += resolved(match.group("path"))
     out += [p for token in reversed(job.command.split()) if token.strip("'\"").lower().endswith(VIDEO_EXT)
             for p in resolved(token.strip("'\""))][:2]
-    began = (job.started_at or time.time()) - 1
+    began = (began or job.started_at or time.time()) - 1
     newest: List[Path] = []
     for folder, dirs, files in os.walk(job.workspace):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".jai")]
@@ -308,11 +338,11 @@ def _candidates(job: Job) -> List[Path]:
     return list(dict.fromkeys(out))
 
 
-def facts(job: Job) -> Dict[str, Any]:
+def facts(job: Job, began: Optional[float] = None) -> Dict[str, Any]:
     asked = Path(job.output) if os.path.isabs(job.output) else Path(job.cwd) / job.output
     out: Dict[str, Any] = {"exit_code": job.exit_code, "output": str(asked), "output_exists": False,
-                           "seconds": int((job.ended_at or time.time()) - (job.started_at or time.time()))}
-    for path in _candidates(job):
+                           "seconds": int(time.time() - (began or job.started_at or time.time()))}
+    for path in _candidates(job, began):
         if not path.is_file():
             continue
         found: Dict[str, Any] = {"output": str(path), "output_exists": True, "size_bytes": path.stat().st_size}

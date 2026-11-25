@@ -465,3 +465,32 @@ def test_whisper_cli_is_built_in_and_short_editing_finds_it():
                                 f"import {{ findWhisper }} from '{engine}'; console.log(findWhisper())"],
                                capture_output=True, text=True, timeout=60, env={**os.environ, "WHISPER_CLI": ""})
         assert found.stdout.strip() == "/usr/local/bin/whisper-cli", found.stdout + found.stderr
+
+
+def test_openmontages_face_tracker_runs_with_mediapipe_and_has_its_opencv_fallback(tmp_path):
+    """25 November, mission 1d110524: OpenMontage's face tracker needs MediaPipe or an OpenCV with the Haar cascades;
+    the sandbox had neither and the agent downgraded OpenCV and NumPy at run time. The pinned set (MediaPipe 0.10.21,
+    opencv-contrib-python 4.11, NumPy 1.26) is in the image: the tracker runs on a clip with MediaPipe and writes its
+    JSON, and its OpenCV fallback (the frontal-face Haar cascade) loads."""
+    import json
+    import subprocess
+
+    clip = tmp_path / "clip.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=1080x1920:rate=30:duration=2",
+                    "-pix_fmt", "yuv420p", str(clip)], check=True)
+    script = (
+        "import json, sys\n"
+        "from tools.analysis.face_tracker import FaceTracker\n"
+        "t = FaceTracker()\n"
+        "r = t.execute({'input_path': sys.argv[1], 'output_path': sys.argv[2]})\n"
+        "import cv2\n"
+        "c = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')\n"
+        "print(json.dumps({'status': str(t.get_status()), 'success': r.success, 'error': r.error,\n"
+        "                  'method': (r.data or {}).get('method'), 'cascade': not c.empty()}))\n")
+    done = subprocess.run(["/opt/openmontage/.venv/bin/python", "-c", script, str(clip), str(tmp_path / "f.json")],
+                          cwd="/opt/openmontage", capture_output=True, text=True, timeout=300)
+    report = json.loads(done.stdout.strip().splitlines()[-1])
+    assert report["success"] and report["error"] is None, done.stderr[-2000:]
+    assert report["method"] == "mediapipe" and report["status"].endswith("AVAILABLE") and report["cascade"]
+    written = json.loads((tmp_path / "f.json").read_text())
+    assert written["video_width"] == 1080 and written["frame_count"] > 0 and written["faces"] == []

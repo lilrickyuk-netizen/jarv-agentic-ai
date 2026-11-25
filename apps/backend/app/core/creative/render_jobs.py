@@ -47,10 +47,13 @@ _RENDERERS = (
     re.compile(r"^(?:\S*/)?ffmpeg\b"),
     re.compile(r"^npx\s+(?:--yes\s+|-y\s+)?remotion\s+render\b"),
     re.compile(r"^npx\s+(?:--yes\s+|-y\s+)?hyperframes\s+render\b"),
-    # OpenMontage's own render routes, run with its Python: VideoCompose (any operation) and render_existing.
-    re.compile(r"^(?:\S*/)?python3?\b.*\b(?:VideoCompose|video_compose|render_existing|hyperframes_compose)\b",
-               re.S),
 )
+# OpenMontage's render routes run with its Python are judged by what the Python runs (python_runs), never by a file
+# name (25 November: render_clip.py, videocompose_render_.py and render_all.py were refused and VideoCompose_render_.py
+# accepted, because the old pattern matched "VideoCompose" anywhere in the command): a VideoCompose call.
+_PY = re.compile(r"^(?:\S*/)?python3?(?:\.\d+)?$")
+_PY_RENDER = re.compile(r"\bVideoCompose\s*\(")
+_SCRIPT_LIMIT = 400_000
 
 
 # A long check run the same way (24 November, mission bb2a4d3c: HyperFrames' pre-render check hit the terminal's
@@ -58,10 +61,24 @@ _RENDERERS = (
 _CHECKS = (re.compile(r"^npx\s+(?:--yes\s+|-y\s+)?hyperframes\s+(?:lint|validate|check|snapshot)\b"),)
 
 
+def chained(command: str) -> bool:
+    """True when the shell would run more than one command: ;, &&, ||, | or a redirection outside quotes, or a
+    $( ) or backtick substitution anywhere (bash expands those inside double quotes too). A ; inside quoted Python
+    code is not a chain."""
+    if re.search(r"`|\$\(", command or ""):
+        return True
+    try:
+        lexer = shlex.shlex(command or "", posix=True, punctuation_chars=";&|<>")
+        lexer.whitespace_split = True
+        return any(set(token) <= set(";&|<>") for token in lexer)
+    except ValueError:
+        return True
+
+
 def is_check(command: str) -> bool:
     """True when the command is one long check (no chain, pipe, redirection or substitution)."""
     command = (command or "").strip()
-    if not command or re.search(r"&&|\|\||;|[|`<>]|\$\(", command):
+    if not command or chained(command):
         return False
     return any(r.search(command) for r in _CHECKS)
 
@@ -77,17 +94,63 @@ _OPENMONTAGE_HYPERFRAMES = re.compile(r"\b(?:hyperframes_compose|HyperframesComp
                                       r"render_runtime['\"]?\s*[:=]\s*['\"]hyperframes")
 
 
-def openmontage_hyperframes(command: str) -> bool:
-    """True when the command renders a HyperFrames composition through OpenMontage's Python (its 30-minute cap)."""
-    return bool(re.match(r"^(?:\S*/)?python3?\b", (command or "").strip())
-                and _OPENMONTAGE_HYPERFRAMES.search(command or ""))
+def openmontage_hyperframes(command: str, cwd: str = "") -> bool:
+    """True when the command renders a HyperFrames composition through OpenMontage's Python (its 30-minute cap),
+    in its -c code or in the script it runs."""
+    runs = python_runs(command, cwd)
+    return bool(runs is not None and _OPENMONTAGE_HYPERFRAMES.search(runs))
 
 
-def is_render(command: str) -> bool:
-    """True when the command is one render (no chain, pipe, redirection or substitution)."""
+BATCH_LIMIT = 20  # renders start_render takes at once (one job, in order)
+
+
+def python_runs(command: str, cwd: str = "") -> Optional[str]:
+    """What a Python command runs: its -c code (file names in it left out) and the text of any script it runs (a
+    .py argument, or runpy's run_path target). None when it is not a Python command, or a script it runs cannot be
+    read here (then it is not judged a render)."""
+    from pathlib import Path
+
+    try:
+        argv = shlex.split(command or "")
+    except ValueError:
+        return None
+    if not argv or not _PY.match(argv[0]):
+        return None
+    code, files = "", []
+    rest = argv[1:]
+    while rest:
+        arg = rest.pop(0)
+        if arg == "-c" and rest:
+            code = rest.pop(0)
+            break
+        if arg == "-m" and rest:
+            code = f"import {rest.pop(0)}"
+            break
+        if arg.startswith("-"):
+            continue
+        files.append(arg)
+        break
+    files += re.findall(r"run_path\(\s*['\"]([^'\"]+?\.py)['\"]", code)
+    text = re.sub(r"(['\"])[^'\"\n]*?\.py\1", "''", code)  # a file's name says nothing about what it runs
+    for name in files:
+        path = Path(name) if name.startswith("/") else Path(cwd or ".") / name
+        try:
+            text += "\n" + path.read_text(encoding="utf-8", errors="replace")[:_SCRIPT_LIMIT]
+        except OSError:
+            return None
+    return text
+
+
+def is_render(command: str, cwd: str = "") -> bool:
+    """True when the command is one render (no chain, pipe, redirection or substitution), judged by what it runs:
+    ffmpeg, npx remotion render, npx hyperframes render, or Python that makes a VideoCompose call (in its -c code or
+    in the script it runs, whatever the script is called)."""
     command = (command or "").strip()
-    if not command or re.search(r"&&|\|\||;|[|`<>]|\$\(", command):
+    if not command or chained(command):
         return False
+    runs = python_runs(command, cwd)
+    if runs is not None:
+        return bool(_PY_RENDER.search(runs))
     return any(r.search(command) for r in _RENDERERS)
 
 
@@ -140,8 +203,12 @@ async def _mark(task_id: UUID, job: Dict[str, Any]) -> None:
 
 
 async def start(*, task_id: Optional[UUID], container_root: str, host_root: str, command: str, cwd: str,
-                output: str, client: Optional[httpx.AsyncClient] = None) -> Dict[str, Any]:
-    """Hand a checked render to the sandbox and keep its job on the mission. {"success", "job_id", ...}."""
+                output: str, client: Optional[httpx.AsyncClient] = None,
+                steps: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    """Hand a checked render (or a batch: steps, run in order as one job) to the sandbox and keep its job on the
+    mission. {"success", "job_id", ...}."""
+    if steps:  # what identifies a batch for the same-again check: all its commands, in order
+        command = "\n".join(" ".join(str(s["command"]).split()) for s in steps)
     if task_id is None:
         return {"success": False, "error": "start_render needs a mission to pause and resume."}
     meta = await _meta(task_id) or {}
@@ -169,10 +236,13 @@ async def start(*, task_id: Optional[UUID], container_root: str, host_root: str,
     owned = client is None
     client = client or httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=5.0))
     try:
-        kind = "check" if is_check(command) else "render"
-        answer = await client.post(f"{_sandbox()}/renders", headers=_headers(), json={
-            "job_id": job_id, "workspace": container_root, "command": command, "cwd": cwd, "output": output,
-            "kind": kind})
+        kind = "batch" if steps else "check" if is_check(command) else "render"
+        body = {"job_id": job_id, "workspace": container_root, "command": command.split("\n")[0], "cwd": cwd,
+                "output": output, "kind": "check" if kind == "check" else "render"}
+        if steps:
+            body["steps"] = [{"command": s["command"], "cwd": s["cwd"], "output": s.get("output") or "",
+                              "kind": s.get("kind") or "render"} for s in steps]
+        answer = await client.post(f"{_sandbox()}/renders", headers=_headers(), json=body)
     except httpx.HTTPError as exc:
         return {"success": False, "error": f"The sandbox could not be reached to start the render "
                                            f"({type(exc).__name__})."}
@@ -190,13 +260,17 @@ async def start(*, task_id: Optional[UUID], container_root: str, host_root: str,
                               "started_at": view.get("started_at") or view.get("queued_at"),
                               "log": view.get("log"), "host_root": host_root})
         return _already(job_id, str(view.get("status")))
-    job = {"job_id": job_id, "kind": kind, "command": command[:2000], "cwd": cwd, "output": output,
-           "status": view.get("status"),
+    job = {"job_id": job_id, "kind": kind, "command": command[:4000], "cwd": cwd, "output": output,
+           "status": view.get("status"), "renders": len(steps) if steps else 1,
+           "outputs": [s.get("output") or "" for s in steps] if steps else [output],
            "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
            "log": view.get("log"), "host_root": host_root}
     await _mark(task_id, job)
     return {"success": True, "job_id": job_id, "status": view.get("status"), "log": view.get("log"),
-            "next": ("The render is running with no AI. Stop now: end your turn with your report, the render's "
+            "renders": len(steps) if steps else 1,
+            "next": ("The render is running with no AI" + (f" ({len(steps)} renders in order, one job)" if steps
+                                                            else "") + ". Stop now: end your turn with your report, "
+                     "the render's "
                      "requirement open (`R<n>: open — rendering, job " + job_id + "`). The mission pauses and comes "
                      "back to you with the render's facts when it ends.")}
 
@@ -290,7 +364,9 @@ def elapsed(job: Dict[str, Any], now: Optional[float] = None) -> str:
 def card_line(job: Dict[str, Any], now: Optional[float] = None) -> str:
     queued = " (waiting its turn: one render at a time)" if job.get("status") == "queued" else ""
     phase = "Checking (no AI cost)" if job.get("kind") == "check" else PHASE
-    return f"{phase}{queued}, {elapsed(job, now)} so far."
+    count = int(job.get("renders") or 1)
+    which = (f" render {job.get('step')} of {count}" if job.get("step") else f" {count} renders") if count > 1 else ""
+    return f"{phase}{queued}{',' if which else ''}{which}, {elapsed(job, now)} so far."
 
 
 async def check_once(client: Optional[httpx.AsyncClient] = None) -> Dict[str, Any]:
@@ -329,10 +405,10 @@ async def check_once(client: Optional[httpx.AsyncClient] = None) -> Dict[str, An
                 if view is None:
                     continue
                 if view.get("status") in ("queued", "running"):
-                    if view["status"] != job.get("status"):
-                        task.meta_data = {**(task.meta_data or {}), "render_job": {**job, "status": view["status"]}}
+                    if view["status"] != job.get("status") or view.get("step") != job.get("step"):
+                        job = {**job, "status": view["status"], "step": view.get("step")}
+                        task.meta_data = {**(task.meta_data or {}), "render_job": job}
                         await db.commit()
-                        job = {**job, "status": view["status"]}
                     record = await progress.load(task_id) or {}
                     record.update({"phase": card_line(job), "agent_said": card_line(job),
                                    "rendering": {"job_id": job["job_id"], "status": job["status"],
@@ -348,15 +424,34 @@ async def check_once(client: Optional[httpx.AsyncClient] = None) -> Dict[str, An
                 # Exit 0 and a video ffprobe read is a success, whatever the render printed on stderr (24 November,
                 # mission 5670069a: "Render failed · exit 0" over a Node warning and a file written elsewhere).
                 check = job.get("kind") == "check" or facts.get("kind") == "check"
-                ok = view.get("status") == "finished" or (not check and facts.get("exit_code") == 0
-                                                          and readable(facts))
+                batch = facts.get("kind") == "batch" or job.get("kind") == "batch"
+                if batch:  # each clip by the same rule: exit 0 and a video ffprobe read is finished
+                    steps = list(facts.get("steps") or [])
+                    for step in steps:
+                        if step.get("kind") != "check" and step.get("exit_code") == 0 and readable(step):
+                            step["status"] = "finished"
+                    ok = bool(steps) and len(steps) == int(job.get("renders") or len(steps)) and all(
+                        s.get("status") == "finished" for s in steps)
+                    facts["finished"] = sum(s.get("status") == "finished" for s in steps)
+                    facts["failed"] = len(steps) - facts["finished"]
+                else:
+                    ok = view.get("status") == "finished" or (not check and facts.get("exit_code") == 0
+                                                              and readable(facts))
                 facts["status"] = "finished" if ok else view.get("status")
                 meta = dict(task.meta_data or {})
                 meta["render_job"] = {**job, "status": facts["status"], "ended_at": view.get("ended_at")}
                 meta["render_result"] = facts
                 task.meta_data = meta
-                _feed(db, task, ("Check" if check else "Render") + (" finished" if ok else " timed out"
-                                                                    if facts.get("timed_out") else " failed"),
+                if batch:
+                    _feed(db, task, f"Renders {'finished' if ok else 'ended'}: {facts['finished']} of "
+                                    f"{len(facts.get('steps') or [])} made",
+                          "; ".join(f"{s.get('output')}: " + (f"{s.get('duration_seconds')} s" if s.get("status")
+                                                               == "finished" else "timed out" if s.get("timed_out")
+                                                               else f"failed (exit {s.get('exit_code')})")
+                                    for s in facts.get("steps") or [])[:1500], severity="info" if ok else "warning")
+                else:
+                    _feed(db, task, ("Check" if check else "Render") + (
+                                         " finished" if ok else " timed out" if facts.get("timed_out") else " failed"),
                       (f"exit 0 in {facts.get('seconds')} s" if check and ok else
                        f"{facts.get('output')}: {facts.get('width')}x{facts.get('height')}, "
                        f"{facts.get('duration_seconds')} s" + (f". {facts['note']}" if facts.get("note") else "")
@@ -388,6 +483,27 @@ def facts_brief(facts: Optional[Dict[str, Any]]) -> str:
     if not facts:
         return ""
     ok = facts.get("status") == "finished"
+    if facts.get("kind") == "batch":
+        steps = list(facts.get("steps") or [])
+        lines = [f"THE {len(steps)} RENDERS YOU STARTED HAVE ENDED (job {facts.get('job_id')}, run in order; no AI "
+                 f"was used while they ran, {facts.get('seconds')} s): {facts.get('finished')} made, "
+                 f"{facts.get('failed')} not."]
+        for n, step in enumerate(steps, 1):
+            state = ("finished" if step.get("status") == "finished" else "TIMED OUT" if step.get("timed_out")
+                     else "FAILED")
+            line = f"- {n}. {step.get('output')}: {state}, exit {step.get('exit_code')}"
+            if step.get("output_exists"):
+                line += (f", {step.get('width')}x{step.get('height')}, {step.get('duration_seconds')} s, "
+                         f"{int(step.get('size_bytes') or 0) / 1_000_000:.1f} MB")
+            for key in ("note", "timeout", "error"):
+                if step.get(key):
+                    line += f" ({step[key]})"
+            lines.append(line)
+        lines += ["- the log's last lines:", *[f"    {line}" for line in (facts.get("log_tail") or [])[-30:]],
+                  "Carry on with what the skill does next with these renders. For any that did not finish, fix the "
+                  "cause and start only those again through start_render (renders: [...]); never the same command "
+                  "again without a change."]
+        return "\n".join(lines)
     if facts.get("kind") == "check":
         lines = [f"THE CHECK YOU STARTED HAS ENDED (job {facts.get('job_id')}; no AI was used while it ran, "
                  f"{facts.get('seconds')} s):",

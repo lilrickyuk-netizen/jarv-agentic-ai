@@ -387,6 +387,19 @@ class RenderRequest(BaseModel):
     # check or snapshot) makes none (finished: exit 0). 24 November, mission bb2a4d3c: HyperFrames' pre-render check
     # hit the terminal's 300 s limit and the agent switched it off; long checks run here instead.
     kind: Literal["render", "check"] = "render"
+    # A batch (25 November, mission 1d110524: 5 clips): several commands run in order as one job; the first is also
+    # given as command, cwd, output and kind.
+    steps: List["RenderStep"] = Field(default_factory=list, max_length=20)
+
+
+class RenderStep(BaseModel):
+    command: str = Field(min_length=1, max_length=8000)
+    cwd: str
+    output: str = Field(default="", max_length=4000)
+    kind: Literal["render", "check"] = "render"
+
+
+RenderRequest.model_rebuild()
 
 
 # Where a render may run from: the mission's workspace, or OpenMontage's own folder (its Python runs from there).
@@ -398,12 +411,16 @@ def start_render(request: RenderRequest, authorization: Optional[str] = Header(d
     """A render JAI's backend has already checked (its start_render tool): queued here, run with no AI."""
     _authorised(authorization)
     workspace = _inside(request.workspace)
-    cwd = Path(os.path.normpath(request.cwd))
-    if not (cwd == workspace or workspace in cwd.parents or str(cwd).startswith(STUDIO_HOME)) or not cwd.is_dir():
-        raise HTTPException(status_code=400, detail=f"{request.cwd} is not the workspace or the studio's folder.")
+    steps = request.steps or [RenderStep(command=request.command, cwd=request.cwd, output=request.output,
+                                         kind=request.kind)]
+    for step in steps:
+        cwd = Path(os.path.normpath(step.cwd))
+        if not (cwd == workspace or workspace in cwd.parents or str(cwd).startswith(STUDIO_HOME)) or not cwd.is_dir():
+            raise HTTPException(status_code=400, detail=f"{step.cwd} is not the workspace or the studio's folder.")
+        step.cwd = str(cwd)
     try:
-        job = renders.submit(request.job_id, str(workspace), request.command, str(cwd), request.output,
-                             kind=request.kind)
+        job = renders.submit(request.job_id, str(workspace), steps[0].command, steps[0].cwd, steps[0].output,
+                             kind=steps[0].kind, steps=[s.model_dump() for s in steps])
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     # The mission's render already queued or running is returned instead of a second one (existing: true).

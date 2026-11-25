@@ -238,3 +238,37 @@ def test_a_render_a_time_limit_stopped_is_reported_as_a_timeout_not_a_failure(mo
     assert view["status"] == "failed" and view["exit_code"] == 0
     assert view["facts"]["timed_out"] is True and "1800 s" in view["facts"]["timeout"]
     assert "note" not in view["facts"]
+
+
+# 25 November, mission 1d110524 (5 clips): several renders as one job, run in order, each with its own facts.
+def test_a_batch_runs_its_renders_in_order_as_one_job_and_reports_each(monkeypatch):
+    monkeypatch.setitem(server.SECRETS, "OPENHANDS_TOKEN", "sandbox-token-for-tests")
+    client = TestClient(server.app)
+    folder = _workspace()
+    steps = [{"command": WARN + RENDER.format(d=1, out="clip-01.mp4"), "cwd": str(folder), "output": "clip-01.mp4"},
+             {"command": "echo 'no source'; exit 1", "cwd": str(folder), "output": "clip-02.mp4"},
+             {"command": RENDER.format(d=2, out="clip-03.mp4"), "cwd": str(folder), "output": "clip-03.mp4"}]
+    answer = client.post("/renders", headers=AUTH, json={
+        "job_id": "render-batch-0001", "workspace": str(folder), "cwd": str(folder),
+        "command": steps[0]["command"], "output": "clip-01.mp4", "steps": steps})
+    assert answer.status_code == 200 and answer.json()["steps"] == 3
+    view = _wait(client, "render-batch-0001")
+    facts = view["facts"]
+    assert view["status"] == "failed" and facts["kind"] == "batch"
+    assert [s["status"] for s in facts["steps"]] == ["finished", "failed", "finished"]   # all ran, in order
+    assert facts["finished"] == 2 and facts["failed"] == 1 and facts["exit_code"] == 1
+    assert facts["steps"][0]["output"] == str(folder / "clip-01.mp4") and facts["steps"][2]["duration_seconds"] > 1
+    log = (folder / ".jai" / "renders" / "render-batch-0001.log").read_text()
+    assert log.index("[step 1 of 3]") < log.index("[step 2 of 3]") < log.index("[step 3 of 3]")
+    assert renders.counts() == {"running": 0, "queued": 0}
+
+
+def test_a_batch_step_outside_the_workspace_is_refused(monkeypatch):
+    monkeypatch.setitem(server.SECRETS, "OPENHANDS_TOKEN", "sandbox-token-for-tests")
+    client = TestClient(server.app)
+    folder = _workspace()
+    answer = client.post("/renders", headers=AUTH, json={
+        "job_id": "render-batchx-0001", "workspace": str(folder), "cwd": str(folder), "command": "true",
+        "output": "a.mp4", "steps": [{"command": "true", "cwd": str(folder), "output": "a.mp4"},
+                                     {"command": "true", "cwd": "/etc", "output": "b.mp4"}]})
+    assert answer.status_code == 400 and "/etc" in answer.text

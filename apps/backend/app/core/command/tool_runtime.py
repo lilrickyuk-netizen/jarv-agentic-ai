@@ -1233,9 +1233,47 @@ class ToolRuntime:
         return {"success": ok, **result}
 
     async def start_render(self, command: str, cwd: str, output: str,
-                           root_host: Optional[str] = None) -> Dict[str, Any]:
-        """A render started in the sandbox with no AI (creative/render_jobs): checked by JAI's permission gate and by
-        the sandbox's own command rules for this mission's folder, then queued there; the mission pauses on it."""
+                           root_host: Optional[str] = None,
+                           renders: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+        """A render (or a batch of renders run in order as one job) started in the sandbox with no AI
+        (creative/render_jobs): each command checked by JAI's permission gate and by the sandbox's own command rules
+        for this mission's folder, then queued there; the mission pauses on it."""
+        from app.core.creative import render_jobs
+
+        wanted = [{"command": r.get("command"), "cwd": r.get("cwd"), "output": r.get("output")}
+                  for r in (renders or []) if isinstance(r, dict)] or [
+            {"command": command, "cwd": cwd, "output": output}]
+        if len(wanted) > render_jobs.BATCH_LIMIT:
+            return {"success": False, "error": f"start_render takes at most {render_jobs.BATCH_LIMIT} renders at once."}
+        steps: List[Dict[str, Any]] = []
+        for item in wanted:
+            step = await self._render_step(str(item.get("command") or ""), str(item.get("cwd") or ""),
+                                           str(item.get("output") or ""), root_host)
+            if "error" in step:
+                if len(wanted) > 1:
+                    step["error"] = f"Render {len(steps) + 1} of {len(wanted)}: {step['error']}"
+                return {"success": False, **step}
+            steps.append(step)
+        root = steps[0].pop("root")
+        for step in steps[1:]:
+            step.pop("root", None)
+        first = steps[0]
+        inputs = {"command": first["command"][:2000], "cwd": first["cwd"], "output": first["output"],
+                  "renders": len(steps)}
+        out = await render_jobs.start(task_id=self.task_id, container_root=root, host_root=root_host or "",
+                                      command=first["command"], cwd=first["cwd"], output=first["output"],
+                                      steps=steps if len(steps) > 1 else None)
+        await self._record("start_render", inputs, bool(out.get("success")),
+                           f"render {out.get('job_id')} {out.get('status')}"
+                           + (f" ({len(steps)} renders in order)" if len(steps) > 1 else "") if out.get("success")
+                           else f"refused: render {out.get('job_id')} is already {out.get('status')}"
+                           if out.get("already") else "refused: the same render again, nothing changed"
+                           if out.get("same_again") else str(out.get("error"))[:200])
+        return out
+
+    async def _render_step(self, command: str, cwd: str, output: str,
+                           root_host: Optional[str]) -> Dict[str, Any]:
+        """One render command checked for start_render: {"command", "cwd", "output", "kind", "root"} or {"error"}."""
         from pathlib import PurePosixPath
 
         from app.core.command import sandbox_policy
@@ -1244,45 +1282,38 @@ class ToolRuntime:
 
         command, output = " ".join((command or "").split()), (output or "").strip()
         inputs = {"command": command[:2000], "cwd": cwd, "output": output}
-        check = render_jobs.is_check(command)
-        if render_jobs.openmontage_hyperframes(command):
-            await self._record("start_render", inputs, False, "refused: OpenMontage's HyperFrames route stops at 30 min")
-            return {"success": False, "error": ("OpenMontage's HyperFrames route stops HyperFrames after 30 minutes "
-                                                 "(its timeout=1800), and a long 3D episode takes longer. Give "
-                                                 f"start_render HyperFrames' own command: "
-                                                 f"{render_jobs.HYPERFRAMES_DIRECT}.")}
-        if not command or not (output or check):
-            return {"success": False, "error": "start_render needs the render command and the output file."}
-        if not (check or render_jobs.is_render(command)):
-            await self._record("start_render", inputs, False, "refused: not a render command")
-            return {"success": False, "error": ("start_render runs one render or long check only: OpenMontage's "
-                                                 "VideoCompose, npx remotion render, npx "
-                                                 "hyperframes render, ffmpeg, or HyperFrames' lint, validate, check "
-                                                 "or snapshot. No cd, &&, ; or pipes: give the folder it runs from "
-                                                 "as cwd. Run anything else in your terminal.")}
-        denied = await self._enforce("start_render", command=command)
-        if denied:
-            return denied
         container = fs_inspector.host_to_container(root_host or "") if root_host else None
         if container is None:
-            return {"success": False, "error": "This mission has no workspace folder in the sandbox."}
+            return {"error": "This mission has no workspace folder in the sandbox."}
         root = str(container)
         where = cwd.strip() or root
         if not where.startswith("/"):
             where = str(PurePosixPath(root) / where)
+        check = render_jobs.is_check(command)
+        if render_jobs.openmontage_hyperframes(command, where):
+            await self._record("start_render", inputs, False, "refused: OpenMontage's HyperFrames route stops at 30 min")
+            return {"error": ("OpenMontage's HyperFrames route stops HyperFrames after 30 minutes (its "
+                              "timeout=1800), and a long 3D episode takes longer. Give start_render HyperFrames' own "
+                              f"command: {render_jobs.HYPERFRAMES_DIRECT}.")}
+        if not command or not (output or check):
+            return {"error": "start_render needs the render command and the output file."}
+        if not (check or render_jobs.is_render(command, where)):
+            await self._record("start_render", inputs, False, "refused: not a render command")
+            return {"error": ("start_render runs one render or long check, judged by what it runs: ffmpeg, npx "
+                              "remotion render, npx hyperframes render, Python that calls OpenMontage's "
+                              "VideoCompose (in its -c code or in the script it runs, whatever the script is "
+                              "called), or HyperFrames' lint, validate, check or snapshot. No cd, &&, ; or pipes: "
+                              "give the folder it runs from as cwd. Run anything else in your terminal.")}
+        denied = await self._enforce("start_render", command=command)
+        if denied:
+            return {"error": str(denied.get("error") or denied)}
         refusal = sandbox_policy.check_command(command, where, sandbox_policy.Scope(
             root=root, authority=int(self.authority_level or 0)))
         if refusal:
             await self._record("start_render", inputs, False, refusal)
-            return {"success": False, "error": refusal}
-        out = await render_jobs.start(task_id=self.task_id, container_root=root, host_root=root_host or "",
-                                      command=command, cwd=where, output=output)
-        await self._record("start_render", inputs, bool(out.get("success")),
-                           f"render {out.get('job_id')} {out.get('status')}" if out.get("success")
-                           else f"refused: render {out.get('job_id')} is already {out.get('status')}"
-                           if out.get("already") else "refused: the same render again, nothing changed"
-                           if out.get("same_again") else str(out.get("error"))[:200])
-        return out
+            return {"error": refusal}
+        return {"command": command, "cwd": where, "output": output, "kind": "check" if check else "render",
+                "root": root}
 
     async def social_draft(self, text: str, channels: Optional[List[str]] = None,
                            media_host_paths: Optional[List[str]] = None) -> Dict[str, Any]:

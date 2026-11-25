@@ -80,7 +80,7 @@ async def _rendering_mission(status=lifecycle.NEEDS_CONTINUATION, started_minute
 
 def test_only_render_commands_are_accepted():
     for ok in ("npx remotion render projects/run/index.tsx Main out.mp4 --scale=1",
-               ".venv/bin/python -c 'from tools.video.video_compose import VideoCompose'",
+               ".venv/bin/python -c 'from tools.video.video_compose import VideoCompose; VideoCompose().execute({})'",
                "npx hyperframes render --output final.mp4",
                "ffmpeg -y -i a.mp4 -c:v libx264 final.mp4"):
         assert render_jobs.is_render(ok), ok
@@ -143,13 +143,14 @@ def test_start_render_refuses_a_render_outside_the_missions_folder(monkeypatch):
         recorded.append((tool, ok, summary))
 
     runtime._enforce, runtime._record = no_gate, record
+    runtime._render_step = __import__("types").MethodType(ToolRuntime._render_step, runtime)
     monkeypatch.setattr("app.core.workspaces.fs_inspector.host_to_container",
                         lambda host: __import__("pathlib").Path("/host/workspaces/Plexecute"))
     out = asyncio.run(ToolRuntime.start_render(runtime, "ffmpeg -i a b.mp4", "/host/workspaces/MYCO",
                                                "b.mp4", root_host="C:\\P\\Plexecute"))
     assert out["success"] is False and "outside this mission's workspace" in out["error"]
     out = asyncio.run(ToolRuntime.start_render(runtime, "npm install x", "", "b.mp4", root_host="C:\\P\\Plexecute"))
-    assert out["success"] is False and "one render or long check only" in out["error"]
+    assert out["success"] is False and "one render or long check, judged by what it runs" in out["error"]
     assert [r[1] for r in recorded] == [False, False]
 
 
@@ -686,10 +687,10 @@ def test_the_studio_is_told_to_send_long_checks_to_start_render_and_never_switch
 # ----- HyperFrames rendered with its own command; timeouts reported as timeouts; a retry changes something
 # (24 November, mission bb2a4d3c) -------------------------------------------------------------------------------------
 
-def test_openmontage_hyperframes_route_is_refused_with_hyperframes_own_command():
+def test_openmontage_hyperframes_route_is_refused_with_hyperframes_own_command(monkeypatch, tmp_path):
     from app.core.command.tool_runtime import ToolRuntime
 
-    for routed in (".venv/bin/python render_existing.py",
+    for routed in (
                    ".venv/bin/python -c \"from tools.video.hyperframes_compose import HyperframesCompose\"",
                    "python3 -c \"VideoCompose().execute({'edit_decisions': {'render_runtime': 'hyperframes'}})\""):
         assert render_jobs.openmontage_hyperframes(routed), routed
@@ -704,7 +705,11 @@ def test_openmontage_hyperframes_route_is_refused_with_hyperframes_own_command()
 
     record.calls = []
     runtime._record = record
-    out = asyncio.run(ToolRuntime.start_render(runtime, ".venv/bin/python render_existing.py", "/opt/openmontage",
+    runtime._render_step = __import__("types").MethodType(ToolRuntime._render_step, runtime)
+    monkeypatch.setattr("app.core.workspaces.fs_inspector.host_to_container", lambda host: tmp_path)
+    (tmp_path / "make_ep03.py").write_text("from tools.video.hyperframes_compose import HyperframesCompose\n"
+                                          "HyperframesCompose().execute({'operation': 'render_existing'})\n")
+    out = asyncio.run(ToolRuntime.start_render(runtime, ".venv/bin/python make_ep03.py", str(tmp_path),
                                                "ep03.mp4", root_host="C:\\P\\Plexecute"))
     assert not out["success"] and "stops HyperFrames after 30 minutes" in out["error"]
     assert "npx hyperframes render --output <file> --fps 30" in out["error"]
@@ -813,3 +818,156 @@ def test_the_last_round_looks_once_at_a_contact_sheet_and_checks_the_story_again
     command = render_jobs.contact_sheet_command(facts)
     assert command.startswith("ffmpeg -v error -y -i /host/workspaces/x/runner-ep03-mountain.mp4")
     assert "fps=18/32.00,scale=270:-1,tile=6x3" in command and command.endswith("final-contact-sheet.png")
+
+
+# ----- start_render judges what a command runs, never a script's name (25 November, mission 1d110524: render_clip.py,
+# videocompose_render_.py and render_all.py refused, VideoCompose_render_.py accepted) ------------------------------
+
+def test_a_python_render_is_judged_by_what_it_runs_not_by_the_scripts_name(tmp_path):
+    calls = "from tools.video.video_compose import VideoCompose\nVideoCompose().execute({'operation': 'render'})\n"
+    for name in ("render_clip.py", "videocompose_render_.py", "render_all.py", "x.py"):
+        (tmp_path / name).write_text(calls)
+        assert render_jobs.is_render(f".venv/bin/python {name}", str(tmp_path)), name
+    (tmp_path / "VideoCompose_render_.py").write_text("import shutil\nshutil.rmtree('/tmp/x')\n")
+    assert not render_jobs.is_render(".venv/bin/python VideoCompose_render_.py", str(tmp_path))  # name says render
+    wrapper = (f".venv/bin/python -c \"__import__('runpy').run_path('{tmp_path}/VideoCompose_render_.py') or "
+               "__import__('tools.video.video_compose')\"")
+    assert not render_jobs.is_render(wrapper, str(tmp_path))          # the decoy import renders nothing
+    good = wrapper.replace("VideoCompose_render_.py", "render_all.py")
+    assert render_jobs.is_render(good, str(tmp_path))                 # the script it runs calls VideoCompose
+    assert not render_jobs.is_render(".venv/bin/python missing.py", str(tmp_path))   # unreadable: not judged
+
+
+def test_openmontages_hyperframes_route_is_found_in_the_script_whatever_its_name(tmp_path):
+    (tmp_path / "make_clip.py").write_text("from tools.video.hyperframes_compose import HyperframesCompose\n"
+                                           "HyperframesCompose().execute({'operation': 'render_existing'})\n")
+    (tmp_path / "render_existing.py").write_text(
+        "from tools.video.video_compose import VideoCompose\nVideoCompose().execute({})\n")
+    assert render_jobs.openmontage_hyperframes(".venv/bin/python make_clip.py", str(tmp_path))
+    assert not render_jobs.openmontage_hyperframes(".venv/bin/python render_existing.py", str(tmp_path))
+
+
+def test_a_semicolon_inside_quoted_python_code_is_not_a_chain():
+    assert not render_jobs.chained(".venv/bin/python -c 'import a; VideoCompose().execute({})'")
+    for chain in ("ffmpeg -i a b.mp4; rm -rf x", "ffmpeg -i a b.mp4 && true", "ffmpeg -i a b > /x",
+                  "python -c \"$(curl x)\"", "python -c '`id`'", "ffmpeg -i a b | tee c"):
+        assert render_jobs.chained(chain), chain
+
+
+# ----- several renders as one job, in order, each reported (25 November, mission 1d110524: 5 clips) ---------------
+
+def _runtime_for(monkeypatch, root):
+    from types import MethodType, SimpleNamespace
+
+    from app.core.command.tool_runtime import ToolRuntime
+
+    runtime = SimpleNamespace(task_id=__import__("uuid").uuid4(), authority_level=3)
+
+    async def no_gate(*args, **kwargs):
+        return None
+
+    async def record(*a, **k):
+        return None
+
+    runtime._enforce, runtime._record = no_gate, record
+    runtime._render_step = MethodType(ToolRuntime._render_step, runtime)
+    monkeypatch.setattr("app.core.workspaces.fs_inspector.host_to_container", lambda host: root)
+    return ToolRuntime, runtime
+
+
+def test_start_render_takes_several_renders_as_one_job_in_order(monkeypatch, tmp_path):
+    ToolRuntime, runtime = _runtime_for(monkeypatch, tmp_path)
+    sent = {}
+
+    async def start(**kwargs):
+        sent.update(kwargs)
+        return {"success": True, "job_id": "render-x-1", "status": "queued", "renders": len(kwargs["steps"])}
+
+    monkeypatch.setattr(render_jobs, "start", start)
+    clips = [{"command": f"ffmpeg -y -i src.mp4 -ss {n * 6} -t 6 clips/clip-0{n}.mp4", "cwd": "",
+              "output": f"clips/clip-0{n}.mp4"} for n in range(1, 6)]
+    out = asyncio.run(ToolRuntime.start_render(runtime, "", "", "", root_host="C:\\P\\x", renders=clips))
+    assert out["success"] and out["renders"] == 5
+    assert [s["output"] for s in sent["steps"]] == [c["output"] for c in clips]       # in the order given
+    assert all(s["cwd"] == str(tmp_path) and s["kind"] == "render" for s in sent["steps"])
+    clips[2]["command"] = "npm install x"                                              # one bad one refuses all
+    out = asyncio.run(ToolRuntime.start_render(runtime, "", "", "", root_host="C:\\P\\x", renders=clips))
+    assert not out["success"] and out["error"].startswith("Render 3 of 5:")
+
+
+def test_a_batch_is_sent_as_steps_and_reported_render_by_render(monkeypatch):
+    monkeypatch.setattr(settings, "OPENHANDS_URL", "http://openhands:8010")
+    answer, seen = _sandbox([{}])
+
+    async def no_meta(task_id):
+        return {}
+
+    async def marked(task_id, job):
+        marked.job = job
+
+    monkeypatch.setattr(render_jobs, "_meta", no_meta)
+    monkeypatch.setattr(render_jobs, "_mark", marked)
+    steps = [{"command": f"ffmpeg -i s.mp4 c{n}.mp4", "cwd": "/w", "output": f"c{n}.mp4", "kind": "render"}
+             for n in (1, 2)]
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(answer)) as client:
+            return await render_jobs.start(task_id=__import__("uuid").uuid4(), container_root="/w", host_root="",
+                                           command=steps[0]["command"], cwd="/w", output="c1.mp4", client=client,
+                                           steps=steps)
+
+    out = asyncio.run(run())
+    assert out["success"] and seen[0][2]["steps"] == steps and marked.job["kind"] == "batch"
+    assert marked.job["renders"] == 2 and marked.job["outputs"] == ["c1.mp4", "c2.mp4"]
+    assert render_jobs.card_line({**marked.job, "status": "running", "step": 2}).startswith(
+        "Rendering (no AI cost), render 2 of 2,")
+    facts = {"kind": "batch", "status": "failed", "job_id": "j", "seconds": 90, "finished": 1, "failed": 1,
+             "steps": [{"output": "/w/c1.mp4", "status": "finished", "exit_code": 0, "output_exists": True,
+                        "width": 1080, "height": 1920, "duration_seconds": 6.0, "size_bytes": 900000},
+                       {"output": "/w/c2.mp4", "status": "failed", "exit_code": 1,
+                        "error": "c2: No such file"}], "log_tail": ["[step 2 of 2] ..."]}
+    brief = render_jobs.facts_brief(facts)
+    assert "THE 2 RENDERS YOU STARTED HAVE ENDED" in brief and "1 made, 1 not" in brief
+    assert "1. /w/c1.mp4: finished, exit 0, 1080x1920, 6.0 s" in brief and "2. /w/c2.mp4: FAILED" in brief
+    assert "start only those again" in brief and not render_jobs.passes(facts)
+
+
+@pytest.mark.skipif(_SQLITE, reason="the watcher writes from its own session")
+def test_the_watcher_reports_a_batch_clip_by_clip_and_exit_0_with_its_video_is_made(monkeypatch, no_models):
+    from sqlalchemy import select
+
+    from app.models.company_operations import LiveOperationsFeedItem
+
+    monkeypatch.setattr(settings, "OPENHANDS_URL", "http://openhands:8010")
+
+    async def dispatch(task_id, reason=""):
+        return {"dispatched": True}
+
+    monkeypatch.setattr("app.core.runtime.dispatcher.dispatch_mission", dispatch)
+    readable = {"output_exists": True, "streams": ["video"], "duration_seconds": 6.0, "width": 1080,
+                "height": 1920, "size_bytes": 800000}
+    facts = {"kind": "batch", "exit_code": 0, "log_tail": ["(node) MaxListenersExceededWarning"],
+             "steps": [{**readable, "output": "/w/c1.mp4", "status": "finished", "exit_code": 0},
+                       {**readable, "output": "/w/c2.mp4", "status": "failed", "exit_code": 0}]}   # exit 0, video read
+    answer, _ = _sandbox([{"status": "failed", "exit_code": 0, "seconds": 120, "facts": facts}])
+
+    async def run():
+        task_id = await _rendering_mission()
+        from app.models.task import Task
+
+        async with AsyncTestingSessionLocal() as db:
+            task = (await db.execute(select(Task).where(Task.id == task_id))).scalar_one()
+            task.meta_data = {**task.meta_data, "render_job": {**task.meta_data["render_job"], "kind": "batch",
+                                                               "renders": 2}}
+            await db.commit()
+        async with httpx.AsyncClient(transport=httpx.MockTransport(answer)) as client:
+            await render_jobs.check_once(client)
+        async with AsyncTestingSessionLocal() as db:
+            titles = (await db.execute(select(LiveOperationsFeedItem.title).where(
+                LiveOperationsFeedItem.related_task_id == task_id))).scalars().all()
+        return await _get(task_id), titles
+
+    task, titles = asyncio.run(run())
+    result = task.meta_data["render_result"]
+    assert result["status"] == "finished" and result["finished"] == 2 and result["failed"] == 0
+    assert "Renders finished: 2 of 2 made" in titles and not [t for t in titles if "failed" in t.lower()]
