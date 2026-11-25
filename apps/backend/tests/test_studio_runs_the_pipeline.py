@@ -89,3 +89,11 @@ def test_a_hand_written_composition_and_no_tools_are_said_plainly(tmp_path):
     nothing = openmontage_used.used(tmp_path / "empty", None)
     assert openmontage_used.summary(nothing) == ("**OpenMontage used:** none of its tools ran and no OpenMontage "
                                                  "project was made in this mission's folder.")
+
+
+def test_every_videocompose_render_is_given_openmontages_own_render_time_limit():
+    """25 November, mission 84779dd7: four 4K clips hit VideoCompose's default max(600, scenes x 15) s limit."""
+    from app.core.command.mission_org import REMOTION_TIMEOUT_MS
+
+    assert REMOTION_TIMEOUT_MS == 3_600_000
+    assert "remotion_timeout_ms 3600000" in studio_goal()

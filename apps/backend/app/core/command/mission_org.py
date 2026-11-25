@@ -95,6 +95,12 @@ from app.core.knowledge import content_rules  # noqa: E402
 from app.core.knowledge.skill_packs import STUDIO, STUDIO_HOME  # noqa: E402
 
 
+# 25 November (mission 84779dd7): VideoCompose's Remotion render stops at max(600, scenes x 15) seconds unless it is
+# given its remotion_timeout_ms input (passed to Remotion as --timeout, the subprocess limit widened to match); four
+# 4K clips timed out at 10 minutes. Renders run with no AI cost, so the studio always passes an hour.
+REMOTION_TIMEOUT_MS = 3_600_000
+
+
 def studio_goal() -> str:
     """The studio specialist's job: OpenMontage's tools used directly inside the mission's folder.
 
@@ -137,7 +143,8 @@ def studio_goal() -> str:
             "human_approved=True under the approval_policy decision: never stop at a gate to wait for anyone. "
             "Skip the publish stage: nothing is published or posted. "
             "4. Compose through VideoCompose operation render with the edit stage's edit_decisions and the assets "
-            "stage's asset_manifest, so it renders with the remotion-composer's own compositions and components "
+            f"stage's asset_manifest and remotion_timeout_ms {REMOTION_TIMEOUT_MS} (OpenMontage's own input: its "
+            "render otherwise stops after 10 minutes, and renders run with no AI), so it renders with the remotion-composer's own compositions and components "
             "(TalkingHead, word-level captions, the cut and overlay types in remotion-composer/SCENE_TYPES.md). "
             "A standalone hand-written composition is for a brief that asks for a custom scene or a look of its own "
             "(atelier): only then read skills/meta/taste-direction.md and skills/meta/bespoke-composition.md, "

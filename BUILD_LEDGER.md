@@ -16111,3 +16111,15 @@ RESULT: The sandbox's yt-dlp is the release with YouTube's current player fix, w
 RESEARCH: yt-dlp GitHub issue 15012 (EJS), the two releases' wheels from PyPI
 BLOCKERS: A download from YouTube cannot run in Claude's workspace; the installer downloads 4 seconds of a 1080p-or-higher format of Blender's Big Buck Bunny (CC BY) and prints its height
 NEXT TASK: One installer with these and the long-renders fixes
+
+TASK ID: VIDEOCOMPOSE-RENDER-TIME-LIMIT
+TASK NAME: Richard, 25 November 22:02 (mission 84779dd7): VideoCompose's Remotion render stops at max(600, scenes x 15) s; four 4K clips timed out at 10 minutes. The studio always passes OpenMontage's own remotion_timeout_ms when rendering through VideoCompose
+STATUS: COMPLETE (backend 1471 passed, 1 skipped)
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/command/mission_org.py (REMOTION_TIMEOUT_MS 3600000; studio_goal's compose step passes it), apps/backend/tests/test_studio_runs_the_pipeline.py, BUILD_LEDGER.md
+COMMANDS RUN: OpenMontage 2e003e65 tools/video/video_compose.py read: the remotion_timeout_ms input (line 197) is forwarded by operation render (1725) to _remotion_render, which passes --timeout=<ms> to Remotion and widens the subprocess limit to ms/1000 + 60 s (2160-2175); the atelier route's render keeps its fixed timeout=1800 (line 1100) and does not read remotion_timeout_ms
+TESTS RUN: the studio's instructions pass remotion_timeout_ms 3600000; the whole backend suite
+RESULT: A VideoCompose render may run an hour (61 minutes with OpenMontage's margin) instead of 10 minutes.
+RESEARCH: OpenMontage video_compose.py at the pinned commit
+BLOCKERS: A hand-written (atelier) composition's VideoCompose render keeps OpenMontage's fixed 30-minute limit, which remotion_timeout_ms does not change
+NEXT TASK: The installer with this fix
