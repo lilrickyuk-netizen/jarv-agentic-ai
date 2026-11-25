@@ -16123,3 +16123,15 @@ RESULT: A VideoCompose render may run an hour (61 minutes with OpenMontage's mar
 RESEARCH: OpenMontage video_compose.py at the pinned commit
 BLOCKERS: A hand-written (atelier) composition's VideoCompose render keeps OpenMontage's fixed 30-minute limit, which remotion_timeout_ms does not change
 NEXT TASK: The installer with this fix
+
+TASK ID: OPENMONTAGE-REFERENCE-RUN
+TASK NAME: Richard, 25 November 22:34 (mission 84779dd7, accountability-03): joined caption words ("NOBODYowesYOU"), greyed caption words, stray slashes, a fully desaturated grade, no punch-ins, b-roll, transitions or progress bar, one speaker only as a still. Run OpenMontage's clip-factory end to end outside JAI on a known source and compare
+STATUS: IN_PROGRESS (the run needs Richard's machine; he approved it at a $5 cap, after the studio-pipeline installer)
+FILES CREATED: run-openmontage-reference.sh (given to Richard, not in the repository)
+FILES MODIFIED: BUILD_LEDGER.md
+COMMANDS RUN: OpenMontage 2e003e65 read: remotion-composer/src/components/CaptionOverlay.tsx (words separated by wordSeparator, default " ", inside white-space pre-wrap, so OpenMontage's captions never join words; words not yet spoken drawn at the caption colour + "99", 60% opacity, which is its own karaoke look); tools/enhancement/color_grade.py (no preset below saturation 0.8; default cinematic_warm), so a fully desaturated grade was the agent's own; skills/pipelines/clip-factory/*.md and pipeline_defs/clip-factory.yaml (trim, captions, reframe, grade; punch-ins only as a scene-director choice; no b-roll, transitions or progress bar); talking-head's skills are where progress_bar and b-roll cues are. This workspace reaches neither YouTube, Archive.org, Wikimedia, HuggingFace (Whisper models) nor Google storage (Remotion's Chrome), so the run is Richard's
+TESTS RUN: the script's summary step on a mock run folder
+RESULT: The script runs Claude Code from /opt/openmontage in a fresh container of the sandbox image (only a new output folder mounted), on Richard's accountability-03 brief plus OpenMontage's own full-run pre-authorisation, Sonnet, $5 cap, and copies clips, contact sheets and a summary to Downloads
+RESEARCH: OpenMontage at the pinned commit
+BLOCKERS: Waiting for Richard's run and its summary and contact sheets
+NEXT TASK: Compare OpenMontage's run with JAI's and fix where JAI's studio instructions diverge, or report that OpenMontage's own output is as poor
