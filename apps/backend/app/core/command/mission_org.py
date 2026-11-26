@@ -150,7 +150,8 @@ def studio_goal() -> str:
             "as its own audio (edit_decisions audio.narration.src for Explainer, soundtrack for CinematicRenderer), "
             "the clips' own speech trimmed and joined in the cuts' order with OpenMontage's audio tools; for one "
             "speaker on camera, renderer_family \"presenter\" (TalkingHead plays its clip's sound). JAI measures "
-            "each render's loudness and a silent video is not finished. "
+            "each render's loudness: when the brief has people speaking, a voice, narration, music or sound, a "
+            "silent video is not finished; a brief with none of those, or one that asks for silence, may be silent. "
             "A standalone hand-written composition is for a brief that asks for a custom scene or a look of its own "
             "(atelier): only then read skills/meta/taste-direction.md and skills/meta/bespoke-composition.md, "
             "scaffold it with `.venv/bin/python scripts/scaffold_atelier_project.py <slug> --root "
@@ -2115,8 +2116,9 @@ class MissionTeam:
         rendered = await self._render_state()
         final_video = None
         if rendered["facts"] and rendered["job"] is None:
-            self.render_facts = render_jobs.facts_brief(rendered["facts"])
-            if render_jobs.passes(rendered["facts"]) and self._skill_run():
+            silence_ok = not render_jobs.wants_sound(mission)  # a silent video is fine for a brief with no sound
+            self.render_facts = render_jobs.facts_brief(rendered["facts"], silence_ok)
+            if render_jobs.passes(rendered["facts"], silence_ok) and self._skill_run():
                 # The render finished: one short round to put the video where the brief says and report.
                 final_video = rendered["facts"]
                 for p in self.packages:

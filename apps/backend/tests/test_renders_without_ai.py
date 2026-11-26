@@ -1000,4 +1000,22 @@ def test_the_studio_is_told_openmontages_compositions_play_clips_muted():
     goal = studio_goal()
     assert "play every video clip muted" in goal and "audio.narration.src" in goal
     assert 'renderer_family \\"presenter\\"' not in goal and 'renderer_family "presenter"' in goal
-    assert "a silent video is not finished" in goal
+    assert "a silent video is not finished" in goal and "may be silent" in goal
+
+
+def test_a_video_meant_to_be_silent_is_finished_silent():
+    """26 November, Richard: "what about videos that don't have sound?" Silence is held back only when the brief has
+    speech, a voice, narration, music or sound in it, never when it asks for silence or names no sound at all."""
+    assert render_jobs.wants_sound("A compilation of 3 or 4 well-known people talking about accountability")
+    assert render_jobs.wants_sound("A 30-second promo with a voiceover and upbeat music")
+    assert not render_jobs.wants_sound("A silent 15-second text animation of our logo, no sound")
+    assert not render_jobs.wants_sound("Kinetic typography: the five rules in big bold words, no music")
+    assert not render_jobs.wants_sound("Clips of the founders talking, but muted, with captions only")
+    assert render_jobs.wants_sound("Founders talking about failure, no music")  # speech still wanted
+    assert not render_jobs.wants_sound("A product loop without a voiceover or any music")
+    silent = {**_finished_facts("/w/final.mp4", 10), "silent": True, "max_volume_db": -91.0, "mean_volume_db": -91.0}
+    assert render_jobs.passes(silent, silence_ok=True)
+    brief = render_jobs.facts_brief(silent, silence_ok=True)
+    assert "LAST ROUND" in brief and "ITS SOUND IS SILENT" not in brief
+    assert "SILENT (loudest -91.0 dB, average -91.0 dB) — the brief's video may be silent" in brief
+    assert not render_jobs.passes(silent) and "ITS SOUND IS SILENT" in render_jobs.facts_brief(silent)

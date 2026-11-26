@@ -490,17 +490,38 @@ def sound(facts: Dict[str, Any]) -> str:
     return f"SILENT ({level})" if facts.get("silent") else level
 
 
+# 26 November, Richard: "what about videos that don't have sound?" Silence is allowed (the studio's rule: no music
+# unless the brief asks, sound design or silence instead), so a silent render is held back only when the brief
+# itself has people speaking, a voice, narration, music or sound in it, and never when it asks for silence.
+_ASKS_SILENCE = re.compile(r"\b(silent|silence|no (sound|audio)|without (sound|audio)|mute[ds]?|muting)\b", re.I)
+_HAS_SOUND = re.compile(r"\b(talk\w*|speak\w*|speech\w*|says?|said|saying|interview\w*|podcast\w*|voice\w*|"
+                        r"narrat\w*|dialogue|quotes?|music\w*|songs?|soundtrack|sound|sounds|audio|sfx|lyrics?)\b", re.I)
+
+
+_SOUND_WORD = r"(music\w*|voice\w*|narrat\w*|songs?|soundtrack|sfx|sound effects?)"
+_NONE_OF = re.compile(rf"\b(no|without|zero|never any)\s+(\w+\s+){{0,2}}?{_SOUND_WORD}"
+                      rf"(\s*(,|or|nor|and)\s+(any\s+|a\s+|an\s+)?(\w+\s+)?{_SOUND_WORD})*\b", re.I)
+
+
+def wants_sound(brief: Optional[str]) -> bool:
+    """Whether the brief's video has sound in it: people speaking, a voice, narration, music or sound, and no ask
+    for silence ("no music" or "without a voiceover" is not a sound it asks for). Without either, a silent video is
+    a choice the studio may make."""
+    text = _NONE_OF.sub(" ", brief or "")
+    return not _ASKS_SILENCE.search(text) and bool(_HAS_SOUND.search(text))
+
+
 SILENT_NEXT = ("ITS SOUND IS SILENT. A video whose brief has people speaking, sound or music is not finished silent. "
                "OpenMontage's Explainer and CinematicRenderer compositions play every video clip muted: the speech "
                "must be handed to them as its own audio (VideoCompose's edit_decisions audio.narration.src for "
                "Explainer, soundtrack for CinematicRenderer), the clips' own sound trimmed and joined in the cuts' "
                "order with OpenMontage's audio tools, or, for one speaker on camera, renderer_family \"presenter\" "
                "(TalkingHead plays its clip's sound). Fix the audio and start the render again through start_render. "
-               "Only if the brief asks for a silent video: say so in one line and end your turn.")
+               "Only if the brief's video is meant to be silent: say so in one line and end your turn.")
 
 
-def facts_brief(facts: Optional[Dict[str, Any]]) -> str:
-    """The render's facts for the maker's next round."""
+def facts_brief(facts: Optional[Dict[str, Any]], silence_ok: bool = False) -> str:
+    """The render's facts for the maker's next round. silence_ok: the brief's video may be silent (wants_sound)."""
     if not facts:
         return ""
     ok = facts.get("status") == "finished"
@@ -524,7 +545,7 @@ def facts_brief(facts: Optional[Dict[str, Any]]) -> str:
                   "Carry on with what the skill does next with these renders. For any that did not finish, fix the "
                   "cause and start only those again through start_render (renders: [...]); never the same command "
                   "again without a change."]
-        if any(s.get("silent") for s in steps if s.get("status") == "finished"):
+        if not silence_ok and any(s.get("silent") for s in steps if s.get("status") == "finished"):
             lines.append("Some of these are SILENT (above). " + SILENT_NEXT)
         return "\n".join(lines)
     if facts.get("kind") == "check":
@@ -551,13 +572,14 @@ def facts_brief(facts: Optional[Dict[str, Any]]) -> str:
                                            f"{len(frozen)} frozen stretch(es) "
                                            + ("including the ending " if facts.get("frozen_at_end") else "")
                                            + str(frozen[:5])))
-        lines.append(f"- sound (volumedetect): {sound(facts)}")
+        lines.append(f"- sound (volumedetect): {sound(facts)}"
+                     + (" — the brief's video may be silent" if silence_ok and facts.get("silent") else ""))
     if facts.get("note"):
         lines.append(f"- note: {facts['note']}")
     if facts.get("error"):
         lines.append(f"- error: {facts['error']}")
     lines.append("- the last lines of its log:\n" + "\n".join(f"    {line}" for line in (facts.get("log_tail") or [])))
-    if passes(facts):
+    if passes(facts, silence_ok):
         # 24 November (mission 92b195d8): after a finished render the maker went on for rounds re-checking sound
         # levels, files and stills of a video already saved. Its render's facts are the check; the round is short.
         # 24 November (mission d0a0f858): told not to look, the maker reported 13 of 21 requirements "not
@@ -602,9 +624,10 @@ def contact_sheet_command(facts: Dict[str, Any], frames: int = 18) -> str:
             f"tile=6x{rows}\" -frames:v 1 .jai/work/final-contact-sheet.png")
 
 
-def passes(facts: Optional[Dict[str, Any]]) -> bool:
-    """A finished render whose file is a real video: it exists, has a size, a video stream, a length and sound."""
+def passes(facts: Optional[Dict[str, Any]], silence_ok: bool = False) -> bool:
+    """A finished render whose file is a real video: it exists, has a size, a video stream, a length, and sound
+    unless the brief's video may be silent (silence_ok, from wants_sound)."""
     facts = facts or {}
     return bool(facts.get("status") == "finished" and facts.get("output_exists") and int(facts.get("size_bytes") or 0)
                 and "video" in (facts.get("streams") or []) and float(facts.get("duration_seconds") or 0) > 0
-                and not facts.get("silent"))  # 26 November: a silent video is not a finished one
+                and (silence_ok or not facts.get("silent")))  # 26 November: silent only when the brief allows

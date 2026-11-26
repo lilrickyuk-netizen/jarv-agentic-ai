@@ -16147,3 +16147,15 @@ RESULT: A silent video is no longer handed over as finished; the maker is told t
 RESEARCH: OpenMontage remotion-composer and video_compose at the pinned commit
 BLOCKERS: None
 NEXT TASK: Installer; the OpenMontage reference run (OPENMONTAGE-REFERENCE-RUN) is still to be run by Richard
+
+TASK ID: SILENT-WHEN-THE-BRIEF-ALLOWS
+TASK NAME: Richard, 26 November 13:01: "what about videos that don't have sound?" The silent-video check held back every silent render, though the studio's own rule allows silence (no music unless asked: sound design or silence)
+STATUS: COMPLETE (backend 1474 passed, 1 skipped)
+FILES CREATED: None
+FILES MODIFIED: apps/backend/app/core/creative/render_jobs.py (wants_sound: the brief has people speaking, a voice, narration, music or sound and does not ask for silence; "no music", "without a voiceover or any music" are not sounds asked for; passes and facts_brief take silence_ok), apps/backend/app/core/command/mission_org.py (silence_ok from the mission's brief; studio_goal says when a video may be silent), apps/backend/tests/test_renders_without_ai.py, BUILD_LEDGER.md
+COMMANDS RUN: None beyond the tests
+TESTS RUN: briefs with talking, voiceover and music want sound; a silent logo animation, kinetic typography with no music, muted clips with captions, a loop without a voiceover or any music may be silent; "talking, no music" still wants sound; a silent render of a brief that may be silent is the last round with its sound named; the whole backend suite
+RESULT: A silent video is held back only when its brief has sound in it; one meant to be silent finishes, its card naming the sound silent.
+RESEARCH: None
+BLOCKERS: None
+NEXT TASK: install-jai-sound.sh with this commit
