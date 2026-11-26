@@ -971,3 +971,33 @@ def test_the_watcher_reports_a_batch_clip_by_clip_and_exit_0_with_its_video_is_m
     result = task.meta_data["render_result"]
     assert result["status"] == "finished" and result["finished"] == 2 and result["failed"] == 0
     assert "Renders finished: 2 of 2 made" in titles and not [t for t in titles if "failed" in t.lower()]
+
+
+def test_a_silent_video_is_not_finished_and_the_next_round_is_told_how_openmontage_gives_it_sound():
+    """26 November: a studio video came out with no sound and was handed over as finished: the last round was told
+    no sound checks. The sandbox measures each render's loudness; a silent one is not finished, and the maker is
+    told why OpenMontage's compositions were silent (clips played muted) and what gives them sound."""
+    silent = {**_finished_facts("/w/final.mp4", 10), "silent": True, "max_volume_db": -91.0, "mean_volume_db": -91.0}
+    assert not render_jobs.passes(silent)
+    brief = render_jobs.facts_brief(silent)
+    assert "LAST ROUND" not in brief and "ITS SOUND IS SILENT" in brief
+    assert "sound (volumedetect): SILENT (loudest -91.0 dB" in brief
+    assert "audio.narration.src" in brief and 'renderer_family "presenter"' in brief and "start_render" in brief
+    loud = {**_finished_facts("/w/final.mp4", 10), "silent": False, "max_volume_db": -1.2, "mean_volume_db": -18.4}
+    assert render_jobs.passes(loud) and "LAST ROUND" in render_jobs.facts_brief(loud)
+    assert "sound (volumedetect): loudest -1.2 dB, average -18.4 dB" in render_jobs.facts_brief(loud)
+    batch = {"kind": "batch", "status": "finished", "job_id": "j", "seconds": 9, "finished": 2, "failed": 0,
+             "steps": [{**_finished_facts("/w/a.mp4", 10), "silent": False, "max_volume_db": -2.0,
+                        "mean_volume_db": -20.0},
+                       {**_finished_facts("/w/b.mp4", 10), "silent": True, "sound": "no audio track"}]}
+    text = render_jobs.facts_brief(batch)
+    assert "sound SILENT (no audio track)" in text and "Some of these are SILENT" in text
+
+
+def test_the_studio_is_told_openmontages_compositions_play_clips_muted():
+    from app.core.command.mission_org import studio_goal
+
+    goal = studio_goal()
+    assert "play every video clip muted" in goal and "audio.narration.src" in goal
+    assert 'renderer_family \\"presenter\\"' not in goal and 'renderer_family "presenter"' in goal
+    assert "a silent video is not finished" in goal

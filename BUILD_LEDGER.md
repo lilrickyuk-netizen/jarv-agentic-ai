@@ -16135,3 +16135,15 @@ RESULT: The script runs Claude Code from /opt/openmontage in a fresh container o
 RESEARCH: OpenMontage at the pinned commit
 BLOCKERS: Waiting for Richard's run and its summary and contact sheets
 NEXT TASK: Compare OpenMontage's run with JAI's and fix where JAI's studio instructions diverge, or report that OpenMontage's own output is as poor
+
+TASK ID: SILENT-STUDIO-VIDEO
+TASK NAME: Richard, 26 November: after the studio-pipeline installer the video was slightly better but had no sound
+STATUS: COMPLETE (backend 1473 passed, 1 skipped; sandbox suite all passed apart from the 15 image tests)
+FILES CREATED: None
+FILES MODIFIED: services/openhands/app/renders.py (loudness: ffmpeg volumedetect on each finished render; loudest at -60 dB or below, or no audio track, is silent), apps/backend/app/core/creative/render_jobs.py (sound(); the feed, the facts brief and each batch clip give the sound; passes() is false for a silent video; a silent finished render's next round is told why and how OpenMontage gives it sound instead of being the last round), apps/backend/app/core/command/mission_org.py (studio_goal: Explainer and CinematicRenderer play clips muted; the sound goes in as audio.narration.src or soundtrack, or renderer_family presenter for one speaker), both test files, BUILD_LEDGER.md
+COMMANDS RUN: OpenMontage 2e003e65 read: remotion-composer/src/Explainer.tsx (OffthreadVideo muted; sound only from props.audio.narration.src and audio.music.src), CinematicRenderer.tsx (OffthreadVideo muted; soundtrack and music props), TalkingHead.tsx (its clip's sound plays), tools/video/video_compose.py _remotion_render (renderer_family defaults to explainer-data, so Explainer; edit_decisions passed as props as they are), skills/pipelines/clip-factory/asset-director.md and compose-director.md ("every clip has a clean audio asset or verified source audio path", "audio is present and consistent", with no word that the composer mutes clips)
+TESTS RUN: sandbox (real ffmpeg): a sine track measures loud, a silent track and no track are silent; backend: a silent render is not finished and its next round is told the fix, a loud one is the last round, batch clips name their sound; the studio's instructions; both suites
+RESULT: A silent video is no longer handed over as finished; the maker is told the compositions play clips muted and how to give them their sound, and the studio is told it before it renders.
+RESEARCH: OpenMontage remotion-composer and video_compose at the pinned commit
+BLOCKERS: None
+NEXT TASK: Installer; the OpenMontage reference run (OPENMONTAGE-REFERENCE-RUN) is still to be run by Richard

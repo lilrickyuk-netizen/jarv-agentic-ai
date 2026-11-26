@@ -272,3 +272,24 @@ def test_a_batch_step_outside_the_workspace_is_refused(monkeypatch):
         "output": "a.mp4", "steps": [{"command": "true", "cwd": str(folder), "output": "a.mp4"},
                                      {"command": "true", "cwd": "/etc", "output": "b.mp4"}]})
     assert answer.status_code == 400 and "/etc" in answer.text
+
+
+def test_a_renders_sound_is_measured_and_a_silent_one_is_named(tmp_path):
+    """26 November: a studio video had no sound. OpenMontage's Explainer plays its clips muted, and Remotion still
+    writes an audio track, so the streams said nothing. ffmpeg's volumedetect measures it (real ffmpeg here)."""
+    import subprocess
+
+    def make(name, *audio):
+        path = tmp_path / name
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=2",
+                        *audio, "-shortest", "-pix_fmt", "yuv420p", str(path)], check=True)
+        return path
+
+    speech = make("speech.mp4", "-f", "lavfi", "-i", "sine=frequency=440:duration=2")
+    muted = make("muted.mp4", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo")
+    none = make("none.mp4")
+    loud = renders.loudness(speech, renders.probe(speech)["streams"])
+    assert loud["silent"] is False and loud["max_volume_db"] > -30
+    quiet = renders.loudness(muted, renders.probe(muted)["streams"])
+    assert "audio" in renders.probe(muted)["streams"] and quiet["silent"] is True and quiet["max_volume_db"] <= -60
+    assert renders.loudness(none, renders.probe(none)["streams"]) == {"silent": True, "sound": "no audio track"}

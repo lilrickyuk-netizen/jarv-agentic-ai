@@ -304,6 +304,29 @@ def freezes(output: Path) -> Dict[str, Any]:
     return {"frozen": found, "frozen_at_end": bool(found and "end" not in found[-1])}
 
 
+# 26 November: a studio video came out with no sound. OpenMontage's Explainer and CinematicRenderer compositions
+# play every clip muted and only play the narration, soundtrack or music handed to them, and Remotion still writes
+# an audio track, so "streams: audio, video" said nothing. ffmpeg's volumedetect measures it: a loudest moment at
+# -60 dB or below (digital silence is -91 dB) is a silent video.
+SILENT_DB = -60.0
+VOLUME = re.compile(r"(mean|max)_volume: (-?[\d.]+|-inf) dB")
+
+
+def loudness(output: Path, streams: List[str]) -> Dict[str, Any]:
+    """How loud the video's sound is (ffmpeg volumedetect over its first audio track), and whether it is silent."""
+    if "audio" not in (streams or []):
+        return {"silent": True, "sound": "no audio track"}
+    try:
+        out = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(output), "-map", "0:a:0", "-af",
+                              "volumedetect", "-f", "null", "-"], capture_output=True, text=True, timeout=1800)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return {"volumedetect_error": f"{type(exc).__name__}: {exc}"[:300]}
+    found = {kind: (-91.0 if value == "-inf" else float(value)) for kind, value in VOLUME.findall(out.stderr or "")}
+    if "max" not in found:
+        return {"volumedetect_error": (out.stderr or "")[-300:]}
+    return {"mean_volume_db": found.get("mean"), "max_volume_db": found["max"], "silent": found["max"] <= SILENT_DB}
+
+
 def _readable(found: Dict[str, Any]) -> bool:
     """ffprobe read a video from it: a video stream and a length."""
     return bool(found.get("output_exists") and "video" in (found.get("streams") or [])
@@ -349,6 +372,7 @@ def facts(job: Job, began: Optional[float] = None) -> Dict[str, Any]:
         found.update(probe(path))
         if _readable(found):
             found.update(freezes(path))
+            found.update(loudness(path, found.get("streams") or []))
             out.update(found)
             if path.resolve() != asked.resolve():
                 out["output_asked"] = str(asked)

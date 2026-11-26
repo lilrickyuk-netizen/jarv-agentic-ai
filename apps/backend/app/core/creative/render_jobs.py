@@ -445,7 +445,8 @@ async def check_once(client: Optional[httpx.AsyncClient] = None) -> Dict[str, An
                 if batch:
                     _feed(db, task, f"Renders {'finished' if ok else 'ended'}: {facts['finished']} of "
                                     f"{len(facts.get('steps') or [])} made",
-                          "; ".join(f"{s.get('output')}: " + (f"{s.get('duration_seconds')} s" if s.get("status")
+                          "; ".join(f"{s.get('output')}: " + (f"{s.get('duration_seconds')} s, sound {sound(s)}"
+                                                               if s.get("status")
                                                                == "finished" else "timed out" if s.get("timed_out")
                                                                else f"failed (exit {s.get('exit_code')})")
                                     for s in facts.get("steps") or [])[:1500], severity="info" if ok else "warning")
@@ -454,7 +455,8 @@ async def check_once(client: Optional[httpx.AsyncClient] = None) -> Dict[str, An
                                          " finished" if ok else " timed out" if facts.get("timed_out") else " failed"),
                       (f"exit 0 in {facts.get('seconds')} s" if check and ok else
                        f"{facts.get('output')}: {facts.get('width')}x{facts.get('height')}, "
-                       f"{facts.get('duration_seconds')} s" + (f". {facts['note']}" if facts.get("note") else "")
+                       f"{facts.get('duration_seconds')} s, sound {sound(facts)}"
+                       + (f". {facts['note']}" if facts.get("note") else "")
                        if ok else
                        f"exit {facts.get('exit_code')}: " + " | ".join((facts.get("log_tail") or [])[-3:]))[:900],
                       severity="info" if ok else "warning")
@@ -478,6 +480,25 @@ async def check_once(client: Optional[httpx.AsyncClient] = None) -> Dict[str, An
     return summary
 
 
+def sound(facts: Dict[str, Any]) -> str:
+    """The render's sound in a few words, from the sandbox's volumedetect (26 November: a video with no sound)."""
+    if facts.get("sound"):
+        return f"SILENT ({facts['sound']})"
+    if facts.get("max_volume_db") is None:
+        return "not measured" + (f" ({facts['volumedetect_error'][:120]})" if facts.get("volumedetect_error") else "")
+    level = f"loudest {facts.get('max_volume_db')} dB, average {facts.get('mean_volume_db')} dB"
+    return f"SILENT ({level})" if facts.get("silent") else level
+
+
+SILENT_NEXT = ("ITS SOUND IS SILENT. A video whose brief has people speaking, sound or music is not finished silent. "
+               "OpenMontage's Explainer and CinematicRenderer compositions play every video clip muted: the speech "
+               "must be handed to them as its own audio (VideoCompose's edit_decisions audio.narration.src for "
+               "Explainer, soundtrack for CinematicRenderer), the clips' own sound trimmed and joined in the cuts' "
+               "order with OpenMontage's audio tools, or, for one speaker on camera, renderer_family \"presenter\" "
+               "(TalkingHead plays its clip's sound). Fix the audio and start the render again through start_render. "
+               "Only if the brief asks for a silent video: say so in one line and end your turn.")
+
+
 def facts_brief(facts: Optional[Dict[str, Any]]) -> str:
     """The render's facts for the maker's next round."""
     if not facts:
@@ -494,7 +515,7 @@ def facts_brief(facts: Optional[Dict[str, Any]]) -> str:
             line = f"- {n}. {step.get('output')}: {state}, exit {step.get('exit_code')}"
             if step.get("output_exists"):
                 line += (f", {step.get('width')}x{step.get('height')}, {step.get('duration_seconds')} s, "
-                         f"{int(step.get('size_bytes') or 0) / 1_000_000:.1f} MB")
+                         f"{int(step.get('size_bytes') or 0) / 1_000_000:.1f} MB, sound {sound(step)}")
             for key in ("note", "timeout", "error"):
                 if step.get(key):
                     line += f" ({step[key]})"
@@ -503,6 +524,8 @@ def facts_brief(facts: Optional[Dict[str, Any]]) -> str:
                   "Carry on with what the skill does next with these renders. For any that did not finish, fix the "
                   "cause and start only those again through start_render (renders: [...]); never the same command "
                   "again without a change."]
+        if any(s.get("silent") for s in steps if s.get("status") == "finished"):
+            lines.append("Some of these are SILENT (above). " + SILENT_NEXT)
         return "\n".join(lines)
     if facts.get("kind") == "check":
         lines = [f"THE CHECK YOU STARTED HAS ENDED (job {facts.get('job_id')}; no AI was used while it ran, "
@@ -528,6 +551,7 @@ def facts_brief(facts: Optional[Dict[str, Any]]) -> str:
                                            f"{len(frozen)} frozen stretch(es) "
                                            + ("including the ending " if facts.get("frozen_at_end") else "")
                                            + str(frozen[:5])))
+        lines.append(f"- sound (volumedetect): {sound(facts)}")
     if facts.get("note"):
         lines.append(f"- note: {facts['note']}")
     if facts.get("error"):
@@ -550,6 +574,8 @@ def facts_brief(facts: Optional[Dict[str, Any]]) -> str:
                      "open — what is wrong`) and end your turn. One sheet, one look: no further sheets or stills, "
                      "no sound checks, no other agent reviewing it, no render again and no changes. Richard watches "
                      "the video and has the last word.")
+    elif ok and facts.get("silent"):
+        lines.append("The render finished, but " + SILENT_NEXT)
     elif facts.get("timed_out"):
         lines.append(f"The render did not fail: {facts.get('timeout') or 'a time limit stopped it'}. Render it "
                      f"again with no limit but JAI's queue: for a HyperFrames composition give start_render "
@@ -577,7 +603,8 @@ def contact_sheet_command(facts: Dict[str, Any], frames: int = 18) -> str:
 
 
 def passes(facts: Optional[Dict[str, Any]]) -> bool:
-    """A finished render whose file is a real video: it exists, has a size, a video stream and a length."""
+    """A finished render whose file is a real video: it exists, has a size, a video stream, a length and sound."""
     facts = facts or {}
     return bool(facts.get("status") == "finished" and facts.get("output_exists") and int(facts.get("size_bytes") or 0)
-                and "video" in (facts.get("streams") or []) and float(facts.get("duration_seconds") or 0) > 0)
+                and "video" in (facts.get("streams") or []) and float(facts.get("duration_seconds") or 0) > 0
+                and not facts.get("silent"))  # 26 November: a silent video is not a finished one
